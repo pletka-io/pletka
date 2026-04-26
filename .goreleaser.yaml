@@ -1,0 +1,99 @@
+# goreleaser configuration for Pletka.
+#
+# Triggered by tag pushes via .github/workflows/release.yml.
+# Local snapshot:
+#   goreleaser release --snapshot --clean
+#
+# Schema: goreleaser v2.
+
+version: 2
+
+project_name: pletka
+
+before:
+  hooks:
+    - go mod tidy
+    # Build the renderer bundle so it's available for `//go:embed`.
+    - sh -c "cd renderer && npm ci && npm run build"
+
+builds:
+  - id: pletka
+    main: ./server/cmd/pletka
+    binary: pletka
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+sboms:
+  - artifacts: archive
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\(.+\))??!?:.+$'
+      order: 2
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  draft: false
+  prerelease: auto
+  mode: append
+  header: |
+    ## Pletka {{ .Tag }}
+
+    Schema-driven web platform for cultural-heritage knowledge.
+
+    Single-binary release: the renderer bundle is embedded.
+  footer: |
+    **Full Changelog**: https://github.com/pletka-io/pletka/compare/{{ .PreviousTag }}...{{ .Tag }}

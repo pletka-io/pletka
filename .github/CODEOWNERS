@@ -1,0 +1,35 @@
+# Code review ownership for pletka-io/pletka.
+#
+# Lines later in this file take precedence; the last matching pattern wins.
+# Owners listed here are automatically requested as PR reviewers.
+
+# Default owner for everything in this repo.
+*                       @kiivihal
+
+# Domain layer — load-bearing; require focused review.
+/domain/                @kiivihal
+/gitsync/               @kiivihal
+
+# Schema is the contract. Any change here is API-significant.
+/schema/                @kiivihal
+
+# Server layer.
+/server/                @kiivihal
+
+# Renderer.
+/renderer/              @kiivihal
+
+# Build / release / CI / security configs.
+/.github/               @kiivihal
+/.goreleaser.yaml       @kiivihal
+/.golangci.yml          @kiivihal
+/.gitleaks.toml         @kiivihal
+/Makefile               @kiivihal
+
+# Top-level governance documents.
+/LICENSE                @kiivihal
+/NOTICE                 @kiivihal
+/SECURITY.md            @kiivihal
+/CODE_OF_CONDUCT.md     @kiivihal
+/CONTRIBUTING.md        @kiivihal
+/CLAUDE.md              @kiivihal

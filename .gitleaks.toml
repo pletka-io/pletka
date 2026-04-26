@@ -1,0 +1,59 @@
+# gitleaks config for the public Pletka repo.
+#
+# Catches the categories that are most likely to slip into a public OSS repo:
+#   - generic API keys / tokens / passwords
+#   - cloud-provider credentials (AWS, GCP)
+#   - PEM-encoded private keys
+#   - Pletka-specific identifiers we never want public (Airtable bases, customer slugs)
+#
+# Inherits the default rule set from the gitleaks binary; rules below are
+# additions and project-specific allowlists.
+
+title = "Pletka public repo gitleaks config"
+
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Project-specific rules
+# ---------------------------------------------------------------------------
+
+[[rules]]
+id = "airtable-base-id"
+description = "Airtable base identifier (legacy migration source)"
+regex = '''app[A-Za-z0-9]{14,}'''
+tags = ["pletka", "airtable", "private"]
+keywords = ["app"]
+
+[[rules]]
+id = "airtable-api-key"
+description = "Airtable personal access token"
+regex = '''pat[A-Za-z0-9\.]{50,}'''
+tags = ["pletka", "airtable", "secret"]
+keywords = ["pat"]
+
+[[rules]]
+id = "internal-hostname"
+description = "Internal/private hostname leak"
+regex = '''(?i)\b[a-z0-9-]+\.(internal|local|corp|prod|stg|staging)\b'''
+tags = ["pletka", "hostname"]
+
+# ---------------------------------------------------------------------------
+# Allowlist
+# ---------------------------------------------------------------------------
+
+[allowlist]
+description = "Files and patterns that are knowingly safe to commit."
+paths = [
+  '''(?i)(^|/)testdata(/|$)''',
+  '''(?i)(^|/)schema/examples(/|$)''',
+  '''\.md$''',
+  '''^LICENSE$''',
+  '''^NOTICE$''',
+]
+regexes = [
+  # Apache 2.0 license boilerplate
+  '''Apache License''',
+  # Public test fixtures may contain placeholder identifiers
+  '''app(Example|Demo|Test)[A-Za-z0-9]{0,20}''',
+]
