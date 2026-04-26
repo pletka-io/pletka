@@ -1,0 +1,21 @@
+{{- /*
+  page.gohtml — single Go template that emits the page shell.
+
+  This is intentionally the only HTML the server produces. The renderer
+  reads {{ .SchemaJSON }} from the data attribute and renders the entire
+  page. There is no per-page Go template; per-page differentiation lives
+  in the schema.
+*/ -}}
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ .Title }}</title>
+  <link rel="stylesheet" href="/static/{{ .CSSFile }}" />
+</head>
+<body>
+  <div id="pletka-root" data-page-schema="{{ .SchemaJSON }}"></div>
+  <script type="module" src="/static/{{ .JSFile }}"></script>
+</body>
+</html>
