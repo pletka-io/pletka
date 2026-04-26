@@ -44,3 +44,30 @@ coverage.html
 # Local credentials
 *.pem
 *.key
+
+# Claude Code per-checkout / machine-local settings.
+# settings.json is regenerated per worktree by `openwolf init`; tracking
+# it would cause conflicts. settings.local.json is per-developer.
+.claude/settings.json
+.claude/settings.local.json
+.claude/.commit-approved-*
+.claude/mcp_servers.json
+
+# OpenWolf — shared infra (OPENWOLF.md, config.json, identity.md,
+# reframe-frameworks.md, hooks/*.js, hooks/package.json,
+# cron-manifest.json) stays tracked. Per-checkout learnings, runtime
+# state, and the canonical marker are ignored:
+.wolf/.canonical
+.wolf/memory.md
+.wolf/anatomy.md
+.wolf/cerebrum.md
+.wolf/buglog.json
+.wolf/cron-state.json
+.wolf/token-ledger.json
+.wolf/suggestions.json
+.wolf/designqc-report.json
+.wolf/designqc-captures/
+.wolf/hooks/_session.json
+.wolf/hooks/node_modules/
+.wolf/daemon.log
+.wolf/*.log
