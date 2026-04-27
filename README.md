@@ -13,17 +13,36 @@ The defining design choice is **hypermedia-driven authorization**: the server em
 ## Layout
 
 ```
-schema/          docs + JSON example fixtures, no code
-domain/          pure domain (weave, ontology) — no HTTP, no DB driver glue
-gitsync/         bidirectional git ↔ domain sync (per-domain plugins)
-server/          HTTP layer, schema builders, link emitters, embedded frontend, the binary
-renderer/        Svelte 5 source — built once, embedded into the server binary
+cmd/             binaries — cmd/pletka is the HTTP server
+domain/          pure types + Store interfaces. No HTTP, no DB drivers.
+                 Subpackages: domain/weave, domain/ontology.
+                 Shared primitives (Translations, ULID, BaseModel) live
+                 at the root and are imported by both subpackages.
+store/           PostgreSQL persistence — pgx + sqlc.
+                 Subpackages: store/postgres (conn pool, migration
+                 runner), store/migrations (goose SQL), store/sqlcgen
+                 (generated), store/weave, store/ontology.
+gitsync/         bidirectional git ↔ domain sync (per-subsystem plugins)
+server/          HTTP layer (library) — handlers, schema builders,
+                 link emitters, middleware, auth, embedded frontend
+                 bundle. No binary; the binary lives in cmd/pletka.
+renderer/        Svelte 5 source — built once, embedded into the
+                 server binary
+schema/          JSON contract docs + example fixtures, no code
 docs/            architecture, protocol, decisions, plans, specs
 ```
 
-The boundary contract:
+The boundary contract (no cycles):
 
-- `domain/` imports nothing else. `gitsync/` imports `domain/`. `server/` imports both. `renderer/` consumes only the JSON schema.
+- `domain/` (root) imports nothing else inside Pletka.
+- `domain/weave/` and `domain/ontology/` import `domain/` only — **never each other**.
+- `store/` imports `domain/` and the subsystem it implements.
+- `gitsync/` imports `store/` + `domain/`.
+- `server/` imports `store/` + `domain/` + `gitsync/`.
+- `cmd/<tool>/` imports whichever subset it needs — `cmd/pletka/` pulls `server/`; other CLIs (importers, one-shot tools) typically depend only on `store/` + `domain/` + `gitsync/`.
+- `renderer/` consumes only the JSON schema (no Go imports).
+
+See [`docs/architecture.md`](docs/architecture.md) for the full DAG and rationale.
 
 ## Building from source
 

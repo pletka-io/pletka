@@ -18,7 +18,7 @@ before:
 
 builds:
   - id: pletka
-    main: ./server/cmd/pletka
+    main: ./cmd/pletka
     binary: pletka
     env:
       - CGO_ENABLED=0

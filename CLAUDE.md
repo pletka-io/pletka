@@ -15,16 +15,34 @@ A Go server that exposes a hypermedia JSON contract, plus a Svelte renderer that
 
 1. **The schema is the contract.** Domain knowledge lives in Go schema builders (`server/widgets/`). The renderer is a generic dispatcher.
 2. **Authorization is hypermedia-driven.** The presence of an action in the response — either as a typed capability (default for mutations) or as a generic link relation (for open-ended navigation) — is the user's permission to take it. The renderer never decides. See `docs/authorization-model.md`.
-3. **The boundary is mechanical.** `domain/` imports nothing else. `gitsync/` imports `domain/`. `server/` imports both. `renderer/` consumes only the JSON. Violations are caught by `go vet`, lint, or import-graph checks — not by discipline.
+3. **The boundary is mechanical.** `domain/` imports nothing else. `domain/weave/` and `domain/ontology/` never import each other — shared primitives live at `domain/` root. `store/` implements the Store interfaces declared in `domain/<subsystem>/`. `gitsync/` and `server/` consume `store/` + `domain/`. `cmd/<tool>/` picks whichever subset it needs. `renderer/` consumes only the JSON. Violations are caught by `go vet`, lint, or import-graph checks — not by discipline.
 
 ## Layout
 
 ```
+cmd/         binaries — cmd/pletka is the HTTP server; siblings
+             (importers, exporters, one-shot tools) added as needed
+domain/      pure types + Store interfaces. No HTTP, no DB drivers.
+             domain/                 shared primitives (Translations,
+                                     ULID, BaseModel, errors)
+             domain/weave/           Fields, Models, Collections,
+                                     categories, projects, override
+                                     chain + WeaveStore interface
+             domain/ontology/        CRM classes, properties, paths,
+                                     namespace bindings + OntologyStore
+                                     interface
+store/       PostgreSQL persistence — pgx + sqlc
+             store/postgres/         pool, conn, migrations runner
+             store/migrations/       goose SQL files (embedded)
+             store/sqlcgen/          generated query code
+             store/weave/            implements domain/weave.WeaveStore
+             store/ontology/         implements domain/ontology.OntologyStore
+gitsync/     bidirectional git ↔ domain sync, per-subsystem plugins
+server/      HTTP layer LIBRARY (no binary) — handlers, schema
+             builders, link emitters, middleware, auth, embedded
+             frontend bundle
+renderer/    Svelte 5 source — built once, embedded into the binary
 schema/      docs + JSON example fixtures, no Go code
-domain/      pure domain — weave (Fields, Models, Collections), ontology
-gitsync/     bidirectional git ↔ domain sync, per-domain plugins
-server/      HTTP, schema builders, link emitters, embedded frontend, the binary
-renderer/    Svelte 5 source — built once, embedded into the server binary
 docs/        architecture, protocol, decisions, plans, specs
 ```
 

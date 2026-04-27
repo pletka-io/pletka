@@ -50,7 +50,7 @@ renderer-build: ## Build the renderer bundle into server/assets/dist
 .PHONY: go-build
 go-build: ## Build the Go binary (assumes renderer bundle exists)
 	mkdir -p $(BIN_DIR)
-	$(GO) build $(GOFLAGS) -trimpath -ldflags '$(LDFLAGS)' -o $(BINARY) ./server/cmd/pletka
+	$(GO) build $(GOFLAGS) -trimpath -ldflags '$(LDFLAGS)' -o $(BINARY) ./cmd/pletka
 
 # ---------------------------------------------------------------------------
 # Test / lint
@@ -96,7 +96,7 @@ dev: ## Run renderer in watch mode + Go server (Ctrl-C stops both)
 	@echo "Starting renderer watch and Go server..."
 	@trap 'kill 0' INT TERM; \
 	  ( cd $(RENDERER_DIR) && $(NPM) run dev ) & \
-	  ( $(GO) run ./server/cmd/pletka ) & \
+	  ( $(GO) run ./cmd/pletka ) & \
 	  wait
 
 # ---------------------------------------------------------------------------

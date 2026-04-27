@@ -7,44 +7,93 @@ see [`authorization-model.md`](authorization-model.md).
 ## Layers
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                       renderer/                          │  Svelte 5
-│  Pure consumer of the JSON schema. No business logic.    │
-└──────────────────────────────────────────────────────────┘
-                            │
-                            ▼  HTTP, JSON schema responses
-┌──────────────────────────────────────────────────────────┐
-│                        server/                           │  Go (chi)
-│  HTTP routing, schema builders, link emitters,           │
-│  auth, sessions, embedded renderer bundle, the binary.   │
-└──────────────────────────────────────────────────────────┘
-        │                                       │
-        ▼                                       ▼
-┌────────────────────┐               ┌──────────────────────┐
-│      gitsync/      │  ── reads ──▶ │       domain/        │
-│  Bidirectional     │               │  Pure semantic core: │
-│  git ↔ domain      │  ◀── writes ──│  weave, ontology.    │
-└────────────────────┘               └──────────────────────┘
+                ┌──────────────────────────────────────┐
+                │              renderer/               │  Svelte 5
+                │   Pure consumer of the JSON schema   │
+                └──────────────────────────────────────┘
+                                  │ HTTP, JSON schema
+                                  ▼
+                ┌──────────────────────────────────────┐
+                │               server/                │  HTTP library
+                │   widgets, relations, handlers,      │  (no binary —
+                │   middleware, auth, embedded bundle  │   binaries live
+                └──────────────────────────────────────┘   in cmd/)
+                          │           │
+                          │           │
+                          ▼           ▼
+              ┌────────────┐    ┌──────────────────┐
+              │  gitsync/  │───▶│       store/     │  pgx + sqlc impl
+              │ git ↔      │    │  postgres conn,  │  of the Store
+              │ domain     │    │  migrations,     │  interfaces below
+              │ sync       │    │  sqlcgen, weave, │
+              └────────────┘    │  ontology        │
+                          \     └──────────────────┘
+                           \             │
+                            \            ▼
+                          ┌──────────────────────────┐
+                          │         domain/          │  pure types
+                          │   Translations, IDs,     │  + Store
+                          │   BaseModel, errors      │  interfaces
+                          │  ┌────────┐ ┌─────────┐  │
+                          │  │ weave/ │ │ontology/│  │
+                          │  └────────┘ └─────────┘  │
+                          └──────────────────────────┘
+
+                    cmd/pletka, cmd/<other-tool> — binaries
+                         (pick whichever subset they need)
 ```
 
 ## Boundary contract
 
-The boundary is mechanical, not aspirational:
+The boundary is mechanical, not aspirational. The DAG above has no
+cycles; preserve that property.
 
-- **`domain/`** imports nothing else inside Pletka. It owns the semantic
-  patterns (Fields, Models, Collections), categories, projects, ontology
-  types, and the override chain. No HTTP, no DB driver glue, no JSON shape.
-- **`gitsync/`** imports `domain/` only. It serialises domain state into
-  git and rehydrates domain state from git. Per-domain plugins live under
-  `gitsync/<domain>/`.
-- **`server/`** imports `domain/` and `gitsync/`. It exposes the JSON
-  schema contract over HTTP, emits hypermedia links scoped to the current
-  user, and embeds the renderer bundle for single-binary deploys.
-- **`renderer/`** consumes only the JSON schema. It never touches Go types;
-  it never decides authorization; it never constructs API URLs.
+- **`domain/`** (root) imports nothing else inside Pletka. It owns
+  the shared primitives — `Translations`, ULID generation, common
+  errors, identity types, `BaseModel` / `VersionedEntity`. No HTTP,
+  no DB driver glue, no JSON shape.
+- **`domain/weave/`** imports `domain/` only. It owns the weave
+  semantic patterns — Fields, Models, Collections, categories,
+  projects, the override chain — and declares the
+  `WeaveStore` interface in `domain/weave/store.go`.
+- **`domain/ontology/`** imports `domain/` only. It owns CRM classes,
+  properties, paths, namespace bindings, version handling, and
+  declares the `OntologyStore` interface.
+- **`domain/weave/` and `domain/ontology/` do not import each
+  other.** Anything they share lives in `domain/` (root).
+- **`store/`** imports `domain/` and the relevant subsystem package
+  it implements. It is the persistence layer: pgx pools, goose
+  migrations, sqlc-generated queries, and concrete Store
+  implementations. `store/weave/` implements `domain/weave.WeaveStore`,
+  `store/ontology/` implements `domain/ontology.OntologyStore`.
+- **`gitsync/`** imports `store/` and `domain/`. It serialises
+  domain state into git via the store and rehydrates state from git
+  back into the store. Per-subsystem plugins under
+  `gitsync/<subsystem>/`.
+- **`server/`** imports `store/`, `domain/`, and `gitsync/`. It is a
+  library — handlers, middleware, schema builders, link emitters,
+  embedded renderer bundle. It does not contain the main binary.
+- **`cmd/<tool>/`** are the binaries. `cmd/pletka/` is the HTTP
+  server and imports `server/`. Other CLIs (importers, exporters,
+  one-shot maintenance tools) import only what they need —
+  typically `store/` + `domain/` + `gitsync/`, without `server/`.
+- **`renderer/`** consumes only the JSON schema. It never touches
+  Go types; it never decides authorization; it never constructs API
+  URLs.
 
-If a PR violates any of these arrows, fix the architecture, not the lint
-rule.
+If a PR violates any of these arrows, fix the architecture, not the
+lint rule.
+
+### Why this layout
+
+The old shape put the binary under `server/cmd/pletka/`, which
+forced any CLI that wanted reuse to drag the entire HTTP layer with
+it. Pulling `cmd/` to the top level lets a CSV importer or a git
+materialiser depend only on `store/` and `domain/`.
+
+The same logic separates `domain/` (interfaces + types) from
+`store/` (persistence). Tests, CLIs, and any consumer that wants
+fakes can depend solely on the interfaces in `domain/`.
 
 ## The schema is the contract
 
