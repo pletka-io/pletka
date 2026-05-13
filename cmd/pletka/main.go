@@ -1,13 +1,25 @@
-// Command pletka is the Pletka HTTP server binary.
-//
-// At v0.1.0-dev this is a placeholder that prints version information so the
-// scaffold can compile and goreleaser can build a binary. Real wiring is
-// added as domain and HTTP layers are filled in.
+// Command pletka runs the standalone Pletka server.
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/http/pprof"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
+
+	"github.com/pletka-io/pletka/server"
 )
 
 // Build-time variables populated by goreleaser via -ldflags.
@@ -15,13 +27,255 @@ var (
 	version = "0.1.0-dev"
 	commit  = "unknown"
 	date    = "unknown"
+	cfgFile string
+	logger  *slog.Logger
 )
 
 func main() {
-	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v" || os.Args[1] == "version") {
-		fmt.Printf("pletka %s (commit %s, built %s)\n", version, commit, date)
+	if err := newRootCommand().Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func newRootCommand() *cobra.Command {
+	root := &cobra.Command{
+		Use:           "pletka",
+		Short:         "Schema-driven web platform for semantic models",
+		Version:       fmt.Sprintf("%s (commit %s, built %s)", version, commit, date),
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if cmd.Name() == "version" {
+				return nil
+			}
+			if err := initConfig(cmd); err != nil {
+				return err
+			}
+			logger = newLogger()
+			slog.SetDefault(logger)
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+	}
+
+	root.SetVersionTemplate("pletka {{.Version}}\n")
+	root.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file")
+	root.PersistentFlags().String("log-level", "info", "log level: debug, info, warn, error")
+	root.PersistentFlags().String("log-format", "text", "log format: text or json")
+
+	mustBindFlag("log.level", root.PersistentFlags().Lookup("log-level"))
+	mustBindFlag("log.format", root.PersistentFlags().Lookup("log-format"))
+
+	root.AddCommand(newServeCommand())
+	root.AddCommand(newVersionCommand())
+	return root
+}
+
+func newServeCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Start the Pletka HTTP server",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return serve()
+		},
+	}
+
+	cmd.Flags().String("host", "localhost", "host to bind")
+	cmd.Flags().StringP("port", "p", "8080", "port to listen on")
+	cmd.Flags().Duration("read-header-timeout", 10*time.Second, "maximum time to read request headers")
+	cmd.Flags().Duration("read-timeout", 30*time.Second, "maximum time to read the full request")
+	cmd.Flags().Duration("write-timeout", 30*time.Second, "maximum time to write the response")
+	cmd.Flags().Duration("idle-timeout", 120*time.Second, "maximum time to wait for the next request")
+	cmd.Flags().Duration("shutdown-timeout", 10*time.Second, "maximum graceful shutdown wait")
+	cmd.Flags().Bool("pprof", false, "enable pprof debug server")
+	cmd.Flags().String("pprof-host", "localhost", "pprof host to bind")
+	cmd.Flags().String("pprof-port", "6060", "pprof port to listen on")
+
+	mustBindFlag("server.host", cmd.Flags().Lookup("host"))
+	mustBindFlag("server.port", cmd.Flags().Lookup("port"))
+	mustBindFlag("server.read_header_timeout", cmd.Flags().Lookup("read-header-timeout"))
+	mustBindFlag("server.read_timeout", cmd.Flags().Lookup("read-timeout"))
+	mustBindFlag("server.write_timeout", cmd.Flags().Lookup("write-timeout"))
+	mustBindFlag("server.idle_timeout", cmd.Flags().Lookup("idle-timeout"))
+	mustBindFlag("server.shutdown_timeout", cmd.Flags().Lookup("shutdown-timeout"))
+	mustBindFlag("debug.pprof.enabled", cmd.Flags().Lookup("pprof"))
+	mustBindFlag("debug.pprof.host", cmd.Flags().Lookup("pprof-host"))
+	mustBindFlag("debug.pprof.port", cmd.Flags().Lookup("pprof-port"))
+
+	return cmd
+}
+
+func newVersionCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print build version",
+		Run: func(cmd *cobra.Command, _ []string) {
+			fmt.Fprintf(cmd.OutOrStdout(), "pletka %s (commit %s, built %s)\n", version, commit, date)
+		},
+	}
+}
+
+func initConfig(cmd *cobra.Command) error {
+	viper.SetConfigType("yaml")
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		viper.SetConfigName("config")
+		viper.AddConfigPath(".")
+		viper.AddConfigPath("./configs")
+		viper.AddConfigPath("$HOME/.pletka")
+	}
+
+	viper.SetEnvPrefix("PLETKA")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
+	viper.AutomaticEnv()
+	setDefaults()
+
+	if err := viper.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			return fmt.Errorf("read config: %w", err)
+		}
+	}
+
+	if logger != nil {
+		logger.Debug("config initialized", "config_file", viper.ConfigFileUsed(), "command", cmd.CommandPath())
+	}
+	return nil
+}
+
+func setDefaults() {
+	viper.SetDefault("log.level", "info")
+	viper.SetDefault("log.format", "text")
+	viper.SetDefault("server.host", "localhost")
+	viper.SetDefault("server.port", "8080")
+	viper.SetDefault("server.read_header_timeout", 10*time.Second)
+	viper.SetDefault("server.read_timeout", 30*time.Second)
+	viper.SetDefault("server.write_timeout", 30*time.Second)
+	viper.SetDefault("server.idle_timeout", 120*time.Second)
+	viper.SetDefault("server.shutdown_timeout", 10*time.Second)
+	viper.SetDefault("debug.pprof.enabled", false)
+	viper.SetDefault("debug.pprof.host", "localhost")
+	viper.SetDefault("debug.pprof.port", "6060")
+}
+
+func newLogger() *slog.Logger {
+	opts := &slog.HandlerOptions{Level: parseLogLevel(viper.GetString("log.level"))}
+	if strings.EqualFold(viper.GetString("log.format"), "json") {
+		return slog.New(slog.NewJSONHandler(os.Stderr, opts))
+	}
+	return slog.New(slog.NewTextHandler(os.Stderr, opts))
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+func serve() error {
+	if logger == nil {
+		logger = newLogger()
+	}
+
+	srv, err := server.New(server.Config{
+		Addr:              net.JoinHostPort(viper.GetString("server.host"), viper.GetString("server.port")),
+		Logger:            logger,
+		ReadHeaderTimeout: viper.GetDuration("server.read_header_timeout"),
+		ReadTimeout:       viper.GetDuration("server.read_timeout"),
+		WriteTimeout:      viper.GetDuration("server.write_timeout"),
+		IdleTimeout:       viper.GetDuration("server.idle_timeout"),
+		BuildInfo: server.BuildInfo{
+			Version: version,
+			Commit:  commit,
+			Date:    date,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	servers := []*http.Server{srv.HTTPServer()}
+	if viper.GetBool("debug.pprof.enabled") {
+		servers = append(servers, newPprofServer())
+	}
+
+	errc := make(chan error, len(servers))
+	for _, httpServer := range servers {
+		go serveHTTP(logger, httpServer, errc)
+	}
+
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigc)
+
+	select {
+	case sig := <-sigc:
+		logger.Info("stopping pletka server", "signal", sig.String())
+		ctx, cancel := context.WithTimeout(context.Background(), viper.GetDuration("server.shutdown_timeout"))
+		defer cancel()
+		return shutdownServers(ctx, servers)
+	case err := <-errc:
+		return err
+	}
+}
+
+func serveHTTP(logger *slog.Logger, srv *http.Server, errc chan<- error) {
+	logger.Info("starting http server", "addr", srv.Addr)
+	err := srv.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
+		errc <- err
 		return
 	}
-	fmt.Printf("pletka %s — schema-driven web platform\n", version)
-	fmt.Println("nothing to serve yet; this is a v0.1.0-dev scaffold.")
+	errc <- nil
+}
+
+func newPprofServer() *http.Server {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.Handle("/debug/pprof/allocs", pprof.Handler("allocs"))
+	mux.Handle("/debug/pprof/block", pprof.Handler("block"))
+	mux.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+	mux.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+	mux.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
+	mux.Handle("/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
+
+	return &http.Server{
+		Addr:              net.JoinHostPort(viper.GetString("debug.pprof.host"), viper.GetString("debug.pprof.port")),
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+}
+
+func shutdownServers(ctx context.Context, servers []*http.Server) error {
+	var firstErr error
+	for _, srv := range servers {
+		if err := srv.Shutdown(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func mustBindFlag(key string, flag *pflag.Flag) {
+	if flag == nil {
+		panic(fmt.Sprintf("invalid flag binding for %s", key))
+	}
+	if err := viper.BindPFlag(key, flag); err != nil {
+		panic(err)
+	}
 }

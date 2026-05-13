@@ -12,10 +12,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{ .Title }}</title>
+  {{- if .CSSFile }}
   <link rel="stylesheet" href="/static/{{ .CSSFile }}" />
+  {{- end }}
 </head>
 <body>
   <div id="pletka-root" data-page-schema="{{ .SchemaJSON }}"></div>
+  {{- if .JSFile }}
   <script type="module" src="/static/{{ .JSFile }}"></script>
+  {{- end }}
 </body>
 </html>
