@@ -5,10 +5,16 @@ embedded into the binary via `//go:embed` and applied through a
 `pletka migrate` subcommand (TBD; lands when the first store
 implementation does).
 
-Migration 001 is the baseline (full schema as captured at v0.1).
-Every subsequent change is a new numbered migration file. Once a
-migration has been applied to any environment, it is immutable —
-forward-only changes from then on.
+Migration 001 is the clean public core baseline. It is generated from the
+current Pletka schema contract, not by replaying the historical private
+migration chain from the legacy workspace. Every subsequent change is a new
+numbered migration file. Once a migration has been applied to any environment,
+it is immutable -- forward-only changes from then on.
+
+The baseline contract is tracked in the migration plan docs before SQL is
+generated, so platform-only importer/exporter commands and legacy repair
+migrations do not leak into public core. `weave_import_staging` is included
+temporarily because current core rows still carry `staging_id` provenance.
 
 Conventions:
 
