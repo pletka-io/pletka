@@ -28,6 +28,12 @@ func TestInitConfig_Defaults(t *testing.T) {
 	if got := viper.GetBool("debug.pprof.enabled"); got {
 		t.Fatalf("debug.pprof.enabled = true; want false")
 	}
+	if got := viper.GetString("database.name"); got != "pletka" {
+		t.Fatalf("database.name = %q; want pletka", got)
+	}
+	if got := viper.GetString("database.sslmode"); got != "disable" {
+		t.Fatalf("database.sslmode = %q; want disable", got)
+	}
 }
 
 func TestInitConfig_EnvAndFlagPrecedence(t *testing.T) {
@@ -56,6 +62,21 @@ func TestInitConfig_EnvAndFlagPrecedence(t *testing.T) {
 	}
 	if got := viper.GetString("log.format"); got != "text" {
 		t.Fatalf("log.format = %q; want flag value text", got)
+	}
+}
+
+func TestRootCommand_HasMigrateSubcommands(t *testing.T) {
+	resetCommandTest(t)
+
+	root := newRootCommand()
+	for _, args := range [][]string{
+		{"migrate"},
+		{"migrate", "up"},
+		{"migrate", "status"},
+	} {
+		if _, _, err := root.Find(args); err != nil {
+			t.Fatalf("find %v: %v", args, err)
+		}
 	}
 }
 

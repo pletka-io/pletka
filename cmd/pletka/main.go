@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/pletka-io/pletka/server"
+	"github.com/pletka-io/pletka/store/postgres"
 )
 
 // Build-time variables populated by goreleaser via -ldflags.
@@ -65,11 +66,32 @@ func newRootCommand() *cobra.Command {
 	root.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file")
 	root.PersistentFlags().String("log-level", "info", "log level: debug, info, warn, error")
 	root.PersistentFlags().String("log-format", "text", "log format: text or json")
+	root.PersistentFlags().String("database-url", "", "PostgreSQL connection URL; overrides individual database fields")
+	root.PersistentFlags().String("database-host", "localhost", "PostgreSQL host")
+	root.PersistentFlags().String("database-port", "5432", "PostgreSQL port")
+	root.PersistentFlags().String("database-name", "pletka", "PostgreSQL database name")
+	root.PersistentFlags().String("database-user", "postgres", "PostgreSQL user")
+	root.PersistentFlags().String("database-password", "", "PostgreSQL password")
+	root.PersistentFlags().String("database-sslmode", "disable", "PostgreSQL sslmode")
+	root.PersistentFlags().Int32("database-max-conns", 10, "PostgreSQL maximum pool connections")
+	root.PersistentFlags().Int32("database-min-conns", 0, "PostgreSQL minimum pool connections")
+	root.PersistentFlags().Duration("database-connect-timeout", 10*time.Second, "PostgreSQL connection timeout")
 
 	mustBindFlag("log.level", root.PersistentFlags().Lookup("log-level"))
 	mustBindFlag("log.format", root.PersistentFlags().Lookup("log-format"))
+	mustBindFlag("database.url", root.PersistentFlags().Lookup("database-url"))
+	mustBindFlag("database.host", root.PersistentFlags().Lookup("database-host"))
+	mustBindFlag("database.port", root.PersistentFlags().Lookup("database-port"))
+	mustBindFlag("database.name", root.PersistentFlags().Lookup("database-name"))
+	mustBindFlag("database.user", root.PersistentFlags().Lookup("database-user"))
+	mustBindFlag("database.password", root.PersistentFlags().Lookup("database-password"))
+	mustBindFlag("database.sslmode", root.PersistentFlags().Lookup("database-sslmode"))
+	mustBindFlag("database.max_conns", root.PersistentFlags().Lookup("database-max-conns"))
+	mustBindFlag("database.min_conns", root.PersistentFlags().Lookup("database-min-conns"))
+	mustBindFlag("database.connect_timeout", root.PersistentFlags().Lookup("database-connect-timeout"))
 
 	root.AddCommand(newServeCommand())
+	root.AddCommand(newMigrateCommand())
 	root.AddCommand(newVersionCommand())
 	return root
 }
@@ -105,6 +127,35 @@ func newServeCommand() *cobra.Command {
 	mustBindFlag("debug.pprof.host", cmd.Flags().Lookup("pprof-host"))
 	mustBindFlag("debug.pprof.port", cmd.Flags().Lookup("pprof-port"))
 
+	return cmd
+}
+
+func newMigrateCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "migrate",
+		Short: "Manage PostgreSQL schema migrations",
+	}
+	cmd.PersistentFlags().Duration("timeout", 2*time.Minute, "migration command timeout")
+	mustBindFlag("migrate.timeout", cmd.PersistentFlags().Lookup("timeout"))
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "up",
+		Short: "Apply all pending migrations",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, cancel := context.WithTimeout(cmd.Context(), viper.GetDuration("migrate.timeout"))
+			defer cancel()
+			return postgres.Up(ctx, postgresConfigFromViper(), cmd.OutOrStdout())
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "status",
+		Short: "Print migration status",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, cancel := context.WithTimeout(cmd.Context(), viper.GetDuration("migrate.timeout"))
+			defer cancel()
+			return postgres.Status(ctx, postgresConfigFromViper(), cmd.OutOrStdout())
+		},
+	})
 	return cmd
 }
 
@@ -150,6 +201,17 @@ func initConfig(cmd *cobra.Command) error {
 func setDefaults() {
 	viper.SetDefault("log.level", "info")
 	viper.SetDefault("log.format", "text")
+	viper.SetDefault("database.url", "")
+	viper.SetDefault("database.host", "localhost")
+	viper.SetDefault("database.port", "5432")
+	viper.SetDefault("database.name", "pletka")
+	viper.SetDefault("database.user", "postgres")
+	viper.SetDefault("database.password", "")
+	viper.SetDefault("database.sslmode", "disable")
+	viper.SetDefault("database.max_conns", 10)
+	viper.SetDefault("database.min_conns", 0)
+	viper.SetDefault("database.connect_timeout", 10*time.Second)
+	viper.SetDefault("migrate.timeout", 2*time.Minute)
 	viper.SetDefault("server.host", "localhost")
 	viper.SetDefault("server.port", "8080")
 	viper.SetDefault("server.read_header_timeout", 10*time.Second)
@@ -180,6 +242,21 @@ func parseLogLevel(s string) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
+	}
+}
+
+func postgresConfigFromViper() postgres.Config {
+	return postgres.Config{
+		URL:            viper.GetString("database.url"),
+		Host:           viper.GetString("database.host"),
+		Port:           viper.GetString("database.port"),
+		Database:       viper.GetString("database.name"),
+		User:           viper.GetString("database.user"),
+		Password:       viper.GetString("database.password"),
+		SSLMode:        viper.GetString("database.sslmode"),
+		MaxConnections: viper.GetInt32("database.max_conns"),
+		MinConnections: viper.GetInt32("database.min_conns"),
+		ConnectTimeout: viper.GetDuration("database.connect_timeout"),
 	}
 }
 

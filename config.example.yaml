@@ -11,6 +11,22 @@ log:
   level: info
   format: text
 
+database:
+  # url overrides the individual connection fields when set.
+  url: ""
+  host: localhost
+  port: "5432"
+  name: pletka
+  user: postgres
+  password: ""
+  sslmode: disable
+  max_conns: 10
+  min_conns: 0
+  connect_timeout: 10s
+
+migrate:
+  timeout: 2m
+
 server:
   host: localhost
   port: "8080"
