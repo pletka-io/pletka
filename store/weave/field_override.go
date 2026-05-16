@@ -357,8 +357,8 @@ func fieldOverrideFromValues(values fieldOverrideValues) *domainweave.FieldOverr
 		ExpectedValueType:  values.ExpectedValueType,
 		SetValue:           values.SetValue,
 		IsRequired:         values.IsRequired,
-		MinOccurs:          intPtrFromInt32Ptr(values.MinOccurs),
-		MaxOccurs:          intPtrFromInt32Ptr(values.MaxOccurs),
+		MinOccurs:          dbutil.DerefInt32ToIntPtr(values.MinOccurs),
+		MaxOccurs:          dbutil.DerefInt32ToIntPtr(values.MaxOccurs),
 		IsHidden:           values.IsHidden,
 		Visibility:         values.Visibility,
 		StagingID:          values.StagingID,
@@ -412,14 +412,6 @@ func groupOverrideRefsByOverrideID(refs []domainweave.OverrideRef) map[int64][]d
 		grouped[ref.OverrideID] = append(grouped[ref.OverrideID], ref)
 	}
 	return grouped
-}
-
-func intPtrFromInt32Ptr(value *int32) *int {
-	if value == nil {
-		return nil
-	}
-	converted := int(*value)
-	return &converted
 }
 
 func fieldOverrideSelect(table, setValueEntryIDExpr string) string {

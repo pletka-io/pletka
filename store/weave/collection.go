@@ -218,8 +218,8 @@ func collectionFromValues(values collectionValues) *domainweave.Collection {
 			ProjectID:     values.ProjectID,
 			Deprecated:    values.Deprecated,
 		},
-		CollectionNumber:         intFromInt32Ptr(values.CollectionNumber),
-		CanonicalCollectionOrder: intFromInt32Ptr(values.CanonicalCollectionOrder),
+		CollectionNumber:         dbutil.DerefInt32(values.CollectionNumber),
+		CanonicalCollectionOrder: dbutil.DerefInt32(values.CanonicalCollectionOrder),
 		DefaultCategoryID:        values.DefaultCategoryID,
 		StagingID:                values.StagingID,
 	}
@@ -227,13 +227,6 @@ func collectionFromValues(values collectionValues) *domainweave.Collection {
 		_ = json.Unmarshal(values.OntologyScope, &collection.OntologyScope)
 	}
 	return collection
-}
-
-func intFromInt32Ptr(value *int32) int {
-	if value == nil {
-		return 0
-	}
-	return int(*value)
 }
 
 func archivedCollectionSelect() string {

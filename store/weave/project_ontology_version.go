@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	domainweave "github.com/pletka-io/pletka/domain/weave"
+	"github.com/pletka-io/pletka/store/dbutil"
 	"github.com/pletka-io/pletka/store/sqlcgen"
 )
 
@@ -161,14 +162,10 @@ func projectOntologyVersionFromValues(values projectOntologyVersionValues) *doma
 		OntologyVersionID: values.OntologyVersionID,
 		AddedAt:           values.AddedAt,
 		AddedByID:         values.AddedByID,
-		IsPrimary:         boolFromPtr(values.IsPrimary),
+		IsPrimary:         dbutil.Deref(values.IsPrimary),
 		UsageNotes:        values.UsageNotes,
 		VersionNumber:     values.VersionNumber,
 	}
-}
-
-func boolFromPtr(value *bool) bool {
-	return value != nil && *value
 }
 
 func projectOntologyVersionSelect(table string) string {

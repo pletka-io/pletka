@@ -176,17 +176,6 @@ func TestGroupOverrideRefsByOverrideID(t *testing.T) {
 	}
 }
 
-func TestIntPtrFromInt32Ptr(t *testing.T) {
-	if intPtrFromInt32Ptr(nil) != nil {
-		t.Fatalf("nil conversion should stay nil")
-	}
-	value := int32(4)
-	converted := intPtrFromInt32Ptr(&value)
-	if converted == nil || *converted != 4 {
-		t.Fatalf("converted = %#v", converted)
-	}
-}
-
 func mustFieldOverrideJSON(t *testing.T, value any) []byte {
 	t.Helper()
 	data, err := json.Marshal(value)

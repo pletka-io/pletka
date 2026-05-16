@@ -8,6 +8,23 @@ import (
 )
 
 func TestStringPointerHelpers(t *testing.T) {
+	if Deref(Ptr("hello")) != "hello" {
+		t.Fatalf("Deref(Ptr(hello)) != hello")
+	}
+	var nilString *string
+	if Deref(nilString) != "" {
+		t.Fatalf("Deref(nil string) != empty string")
+	}
+	if DerefOr(nilString, "fallback") != "fallback" {
+		t.Fatalf("DerefOr(nil, fallback) != fallback")
+	}
+	values := []string{"a", "b"}
+	if got := SliceOrEmpty(&values); len(got) != 2 || got[0] != "a" {
+		t.Fatalf("SliceOrEmpty(values) = %#v", got)
+	}
+	if got := SliceOrEmpty[string](nil); got != nil {
+		t.Fatalf("SliceOrEmpty(nil) = %#v", got)
+	}
 	if EmptyToNil("") != nil {
 		t.Fatalf("EmptyToNil(\"\") != nil")
 	}
@@ -20,6 +37,43 @@ func TestStringPointerHelpers(t *testing.T) {
 	}
 	if NilToEmpty(value) != "value" {
 		t.Fatalf("NilToEmpty(value) != value")
+	}
+	if TrimEmptyToNil("  ") != nil {
+		t.Fatalf("TrimEmptyToNil(spaces) != nil")
+	}
+	trimmed := TrimEmptyToNil(" value ")
+	if trimmed == nil || *trimmed != "value" {
+		t.Fatalf("TrimEmptyToNil(value) = %#v", trimmed)
+	}
+	if TrimNullable(nil) != nil {
+		t.Fatalf("TrimNullable(nil) != nil")
+	}
+	if TrimNullable(Ptr("  ")) != nil {
+		t.Fatalf("TrimNullable(spaces) != nil")
+	}
+	trimmedPtr := TrimNullable(Ptr(" value "))
+	if trimmedPtr == nil || *trimmedPtr != "value" {
+		t.Fatalf("TrimNullable(value) = %#v", trimmedPtr)
+	}
+}
+
+func TestInt32Helpers(t *testing.T) {
+	if got := Int32Ptr(12); got == nil || *got != 12 {
+		t.Fatalf("Int32Ptr(12) = %#v", got)
+	}
+	if DerefInt32(nil) != 0 {
+		t.Fatalf("DerefInt32(nil) != 0")
+	}
+	value := int32(12)
+	if DerefInt32(&value) != 12 {
+		t.Fatalf("DerefInt32(value) != 12")
+	}
+	if DerefInt32ToIntPtr(nil) != nil {
+		t.Fatalf("DerefInt32ToIntPtr(nil) != nil")
+	}
+	intPtr := DerefInt32ToIntPtr(&value)
+	if intPtr == nil || *intPtr != 12 {
+		t.Fatalf("DerefInt32ToIntPtr(value) = %#v", intPtr)
 	}
 }
 

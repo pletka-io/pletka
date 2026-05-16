@@ -52,17 +52,3 @@ func TestProjectOntologyVersionFromRow(t *testing.T) {
 		t.Fatalf("link notes/time mapping failed: %#v", link)
 	}
 }
-
-func TestBoolFromPtr(t *testing.T) {
-	if boolFromPtr(nil) {
-		t.Fatalf("nil bool pointer should map to false")
-	}
-	value := true
-	if !boolFromPtr(&value) {
-		t.Fatalf("true pointer should map to true")
-	}
-	value = false
-	if boolFromPtr(&value) {
-		t.Fatalf("false pointer should map to false")
-	}
-}

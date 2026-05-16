@@ -75,16 +75,6 @@ func TestCollectionFromRow(t *testing.T) {
 	}
 }
 
-func TestIntFromInt32Ptr(t *testing.T) {
-	if intFromInt32Ptr(nil) != 0 {
-		t.Fatalf("nil int32 pointer should map to 0")
-	}
-	value := int32(12)
-	if got := intFromInt32Ptr(&value); got != 12 {
-		t.Fatalf("intFromInt32Ptr() = %d", got)
-	}
-}
-
 func mustCollectionJSON(t *testing.T, value any) []byte {
 	t.Helper()
 	data, err := json.Marshal(value)
