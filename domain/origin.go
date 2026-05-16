@@ -29,3 +29,15 @@ func AdoptedOrigin(sourceProjectID, sourceEntityID string) Origin {
 		SourceEntityID:  sourceEntityID,
 	}
 }
+
+// OriginFromProject returns own provenance when the source is empty or the
+// current project, otherwise inherited provenance.
+func OriginFromProject(currentProjectID, sourceProjectID string) Origin {
+	if sourceProjectID == "" || sourceProjectID == currentProjectID {
+		return Origin{Kind: OriginOwn}
+	}
+	return Origin{
+		Kind:            OriginInherited,
+		SourceProjectID: sourceProjectID,
+	}
+}
