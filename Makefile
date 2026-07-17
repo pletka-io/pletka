@@ -52,6 +52,12 @@ help:
 	@echo ""
 	@echo "$(GREEN)Utility:$(NC)"
 	@echo "  make test                 Run Go tests"
+	@echo "  make vet                  go vet ./..."
+	@echo "  make lint                 golangci-lint (full — staticcheck + suite)"
+	@echo "  make lint-new             golangci-lint on changes vs origin/main (the gate)"
+	@echo "  make lint-fix             golangci-lint --fix (auto-fixable issues)"
+	@echo "  make vuln                 govulncheck vulnerability scan"
+	@echo "  make check                build + vet + lint-new + test (pre-push gate)"
 	@echo "  make clean                Remove generated local artifacts"
 
 BUILDINFO_PKG := github.com/pletka-io/pletka/pkg/buildinfo
@@ -262,5 +268,55 @@ clean:
 test:
 	@echo "$(YELLOW)Running tests...$(NC)"
 	@go test ./...
+
+# ---------------------------------------------------------------------------
+# Static analysis
+#
+# golangci-lint v2 aggregates staticcheck + ~18 linters (see .golangci.yml)
+# in one fast parallel pass (~9s cold, ~1-2s warm). It MUST be built with the
+# same Go toolchain as the code (the config targets go 1.26); an older binary
+# refuses to run. Install/upgrade with:
+#   go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+# ---------------------------------------------------------------------------
+GOLANGCI := golangci-lint
+
+.PHONY: vet
+vet:
+	@echo "$(YELLOW)go vet...$(NC)"
+	@go vet ./...
+
+.PHONY: lint
+lint:
+	@command -v $(GOLANGCI) >/dev/null 2>&1 || { echo "$(RED)golangci-lint not found — go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest$(NC)"; exit 1; }
+	@echo "$(YELLOW)golangci-lint (full)...$(NC)"
+	@$(GOLANGCI) run ./...
+
+# lint-new is the realistic gate on a legacy codebase: only reports issues
+# introduced by changes vs origin/main, so the ~2.5k-issue backlog doesn't
+# block new work. Clean the backlog gradually via `make lint`.
+.PHONY: lint-new
+lint-new:
+	@command -v $(GOLANGCI) >/dev/null 2>&1 || { echo "$(RED)golangci-lint not found — go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest$(NC)"; exit 1; }
+	@echo "$(YELLOW)golangci-lint (changes vs origin/main)...$(NC)"
+	@$(GOLANGCI) run --new-from-rev=origin/main ./...
+
+.PHONY: lint-fix
+lint-fix:
+	@$(GOLANGCI) run --fix ./...
+
+.PHONY: vuln
+vuln:
+	@echo "$(YELLOW)govulncheck...$(NC)"
+	@go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+# Fast pre-push gate: compile everything, vet, lint only the diff, run tests.
+# govulncheck is intentionally separate (downloads the advisory DB — slower).
+.PHONY: check
+check:
+	@echo "$(YELLOW)build...$(NC)" && go build ./...
+	@$(MAKE) --no-print-directory vet
+	@$(MAKE) --no-print-directory lint-new
+	@$(MAKE) --no-print-directory test
+	@echo "$(GREEN)check passed$(NC)"
 
 .DEFAULT_GOAL := help
