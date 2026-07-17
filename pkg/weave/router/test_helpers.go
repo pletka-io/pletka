@@ -21,7 +21,16 @@ func TestPool(t *testing.T) *pgxpool.Pool {
 		dsn = "postgres://postgres:pw123@localhost:5433/pletka_weave?sslmode=disable"
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
+	if err == nil {
+		// pgxpool.New is lazy — it never dials. Ping so an unreachable DB
+		// skips the test here instead of hard-failing on the first query
+		// (which is what breaks CI, where no Postgres is available).
+		err = pool.Ping(context.Background())
+	}
 	if err != nil {
+		if pool != nil {
+			pool.Close()
+		}
 		t.Skip("database not available:", err)
 	}
 	t.Cleanup(pool.Close)
