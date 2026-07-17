@@ -18,7 +18,7 @@ require (
 	github.com/spf13/viper v1.20.1
 	github.com/yuin/goldmark v1.7.17
 	golang.org/x/crypto v0.48.0
-	golang.org/x/sync v0.19.0
+	golang.org/x/sync v0.22.0
 	golang.org/x/text v0.34.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
