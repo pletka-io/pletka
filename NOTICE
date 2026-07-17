@@ -1,0 +1,14 @@
+Pletka
+Copyright 2026 The Pletka Project
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes third-party open-source software distributed under their
+respective licenses.
+
+Font Awesome Free (https://fontawesome.com), pulled in via
+@fortawesome/fontawesome-free in frontend/package.json:
+  Icons: CC BY 4.0 License
+  Fonts: SIL OFL 1.1 License
+  Code: MIT License
+  See https://fontawesome.com/license/free for details.

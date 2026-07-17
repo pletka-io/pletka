@@ -1,0 +1,24 @@
+{{define "error_body"}}
+<div class="mx-auto max-w-2xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+    <div class="text-center">
+        <p class="text-sm font-semibold uppercase tracking-wide text-pletka-primary">{{.Code}}</p>
+        <h1 class="mt-2 text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">{{.Heading}}</h1>
+        <p class="mt-4 text-base text-gray-600">{{.Body}}</p>
+
+        {{if .RequestPath}}
+        <p class="mt-2 break-all rounded bg-gray-100 px-3 py-2 font-mono text-xs text-gray-500">{{.RequestPath}}</p>
+        {{end}}
+
+        <div class="mt-10 flex flex-wrap items-center justify-center gap-3">
+            {{range .Links}}
+            <a href="{{.Href}}"
+               class="inline-flex items-center rounded-md
+                   {{if .Primary}}bg-pletka-primary text-white hover:bg-pletka-secondary{{else}}border border-gray-300 bg-white text-gray-700 hover:bg-gray-50{{end}}
+                   px-4 py-2 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pletka-primary">
+                {{.Label}}
+            </a>
+            {{end}}
+        </div>
+    </div>
+</div>
+{{end}}

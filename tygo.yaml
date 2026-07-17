@@ -1,0 +1,20 @@
+packages:
+  - path: github.com/pletka-io/pletka/pkg/domain
+    output_path: frontend/src/lib/types/path-types.ts
+    frontmatter: |
+      // Re-exports ScopeInfo and ParsedPath for single-import convenience.
+      export type { ScopeInfo, ParsedPath } from './parsed-path-types';
+    include_files:
+      - path_element.go
+    type_mappings:
+      time.Time: string
+
+# Note: ontology-types.ts was previously generated from the retired
+# ontology repository interfaces, but the file is now hand-maintained
+# (PathSuggestion, AutocompleteRequest/Response, ScopeMatch, etc.).
+# The auto-generated content was just `*Repository = any` stubs that
+# served no purpose. Removed from this config so `tygo generate`
+# does not clobber the hand-written types.
+#
+# parsed-path-types.ts is also hand-maintained. The old pkg/services tygo
+# entry pointed at a package that no longer exists.

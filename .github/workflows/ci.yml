@@ -1,0 +1,26 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  build-test-vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: '22' }
+      # The Go binary embeds the built frontend (pkg/assets/embed.go:
+      # //go:embed all:static/dist). static/dist is gitignored (Vite output),
+      # so it must be built before `go build`, or the embed fails with
+      # "pattern all:static/dist: no matching files found".
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - uses: actions/setup-go@v6
+        with: { go-version: '1.26.x' }
+      - run: go build ./...
+      # DB-gated tests skip themselves when REQUIRE_DB is unset (see
+      # internal/testdb/testdb.go) — no Postgres service needed here.
+      # Build + unit coverage + the govulncheck gate below are the
+      # primary goal of this workflow.
+      - run: go test ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...

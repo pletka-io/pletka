@@ -1,0 +1,74 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <link rel="icon" href="/static/img/pletka-icon.svg" type="image/svg+xml">
+    <link rel="icon" href="/static/img/favicon.png" type="image/png" sizes="32x32">
+    {{islandScripts "global-css"}}
+    {{islandScripts "global-js"}}
+    <script>
+      // Mirror the server's chosen UI language into localStorage on
+      // every page render so Svelte islands that read via
+      // getUILang() (utils/locale.ts) always see the same language
+      // the server rendered with — covers fresh loads, bookmarked
+      // ?lang= URLs, and session-driven language too.
+      try { localStorage.setItem('pletka-ui-lang', {{.Lang}}); } catch (_) {}
+    </script>
+</head>
+<body class="bg-gray-50">
+    {{template "header" .}}
+    <main>
+        {{template "content" .}}
+    </main>
+    {{template "footer" .}}
+
+    <script>
+        function changeLanguage(lang) {
+            // Persist for client-side islands that read via getUILang()
+            // (utils/locale.ts). Without this, Svelte components keep
+            // rendering in the fallback language even after the server
+            // re-renders with the new ?lang= URL param.
+            try { localStorage.setItem('pletka-ui-lang', lang); } catch (_) {}
+            const url = new URL(window.location.href);
+            url.searchParams.set('lang', lang);
+            window.location.href = url.toString();
+        }
+    </script>
+
+    <script>
+    (function () {
+      function buildNext() {
+        return window.location.pathname + window.location.search + window.location.hash;
+      }
+      function isSafeReturn(p) {
+        if (typeof p !== 'string' || !p.startsWith('/')) return false;
+        if (p.startsWith('/login') || p.startsWith('/logout') || p.startsWith('/register')) return false;
+        var pathOnly = p.split('?')[0].split('#')[0];
+        if (pathOnly === '/' || pathOnly === '') return false;
+        return true;
+      }
+      document.addEventListener('click', function (ev) {
+        var a = ev.target && ev.target.closest && ev.target.closest('a[data-login-link]');
+        if (!a) return;
+        var next = buildNext();
+        if (!isSafeReturn(next)) return;
+        var url = new URL(a.getAttribute('href'), window.location.origin);
+        url.searchParams.set('next', next);
+        a.setAttribute('href', url.pathname + url.search);
+      }, true);
+    })();
+    </script>
+
+    <div data-island="toast-container"></div>
+    <div data-island="confirm-dialog"></div>
+    {{islandScripts "toast"}}
+    {{islandScripts "confirm"}}
+    {{islandScripts "user-menu"}}
+    {{range .Island.Dependencies}}{{islandScripts .}}{{end}}
+    {{matomo}}
+</body>
+</html>
+{{end}}

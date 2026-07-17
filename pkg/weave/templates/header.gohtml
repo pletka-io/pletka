@@ -1,0 +1,65 @@
+{{define "header"}}
+<nav class="bg-white shadow-sm border-b sticky top-0 z-40">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex justify-between h-16">
+      <div class="flex items-center space-x-8">
+        <a href="/" class="flex items-center space-x-2">
+          <img src="/static/img/pletka-icon.svg" alt="Pletka" class="h-9 w-9">
+          <span class="text-xl font-semibold text-pletka-primary">Pletka<sup class="text-xs ml-0.5 font-normal">&trade;</sup></span>
+        </a>
+        <div class="flex space-x-4">
+          <a href="/orgs" class="text-gray-600 hover:text-pletka-primary px-3 py-2 rounded-md text-sm font-medium">{{.Labels.NavOrgs}}</a>
+          <a href="/projects" class="text-gray-600 hover:text-pletka-primary px-3 py-2 rounded-md text-sm font-medium">{{.Labels.NavProjects}}</a>
+          <a href="/ontologies" class="text-gray-600 hover:text-pletka-primary px-3 py-2 rounded-md text-sm font-medium">{{.Labels.NavOntologies}}</a>
+          <a href="/vision" class="text-gray-600 hover:text-pletka-primary px-3 py-2 rounded-md text-sm font-medium">{{.Labels.NavVision}}</a>
+          <a href="/community" class="text-gray-600 hover:text-pletka-primary px-3 py-2 rounded-md text-sm font-medium">{{.Labels.NavCommunity}}</a>
+        </div>
+      </div>
+      <div class="flex items-center space-x-4">
+        <div class="relative">
+          <select id="language-selector"
+            class="appearance-none bg-transparent text-sm text-gray-600 hover:text-gray-900 font-medium pr-8 pl-3 py-1 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pletka-primary cursor-pointer transition-colors duration-150"
+            onchange="changeLanguage(this.value)">
+            {{range .Languages}}
+            {{if .Enabled}}
+            <option value="{{.Code}}" {{if eq $.Lang .Code}}selected{{end}}>
+              {{if .Metadata.flag}}{{.Metadata.flag}}{{end}} {{.Name}}
+            </option>
+            {{end}}
+            {{end}}
+          </select>
+          <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2">
+            <svg class="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+            </svg>
+          </div>
+        </div>
+
+        {{if .Principal}}
+        {{if .UserMenu}}
+        <div data-island="user-menu" data-prop-menu='{{toJSON .UserMenu}}'>
+          <!-- SSR fallback. The island upgrades this anchor into a
+               dropdown trigger on hydrate. Pre-hydration clicks still
+               navigate to /profile cleanly. The dropdown's danger item
+               carries logout, so no separate logout icon here. -->
+          <a href="/profile" class="text-gray-600 hover:text-pletka-primary">{{if .Principal.DisplayName}}{{.Principal.DisplayName}}{{else}}{{.Principal.Slug}}{{end}}</a>
+        </div>
+        {{else}}
+        <a href="/profile" class="text-gray-600 hover:text-pletka-primary">{{if .Principal.DisplayName}}{{.Principal.DisplayName}}{{else}}{{.Principal.Slug}}{{end}}</a>
+        <a href="/logout" class="text-gray-500 hover:text-gray-700" title="{{.Labels.NavLogout}}">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+          </svg>
+        </a>
+        {{end}}
+        {{else}}
+        <a href="/login{{if and .Path (ne .Path "/login") (ne .Path "/logout") (ne .Path "/register") (ne .Path "/")}}?next={{urlquery .Path}}{{end}}"
+           data-login-link
+           class="text-gray-600 hover:text-pletka-primary">{{.Labels.NavLogin}}</a>
+        {{end}}
+      </div>
+    </div>
+  </div>
+</nav>
+{{end}}

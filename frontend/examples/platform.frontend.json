@@ -1,0 +1,32 @@
+{
+  "id": "platform-example",
+  "name": "Platform Example Frontend",
+  "description": "Example platform/private frontend contributions for schema-driven UI extension.",
+  "islands": [
+    {
+      "name": "platform-dashboard",
+      "source": "./src/islands/platform-dashboard.ts",
+      "description": "Example platform-only page island."
+    }
+  ],
+  "formWidgets": [
+    {
+      "name": "platform-lookup",
+      "source": "./src/widgets/PlatformLookup.svelte",
+      "description": "Example platform-only form widget."
+    },
+    {
+      "name": "select",
+      "source": "./src/widgets/PlatformSelect.svelte",
+      "description": "Example explicit override of the core select widget.",
+      "overrides": "core"
+    }
+  ],
+  "entityListRowWidgets": [
+    {
+      "name": "platform-card",
+      "source": "./src/widgets/PlatformCard.svelte",
+      "description": "Example platform-only entity-list row renderer."
+    }
+  ]
+}

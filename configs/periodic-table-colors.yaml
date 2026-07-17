@@ -1,0 +1,143 @@
+# CIDOC-CRM Periodic Table Color Configuration
+# This file defines the color scheme for the periodic table visualization
+
+# Semantic family colors for CIDOC-CRM base ontology
+# Classes are colored based on their highest-level superclass
+semantic_families:
+  E4_Temporal_Entity:
+    color: "#3783a8"
+    label: "Temporal Entity"
+    description: "Events and periods that occur over time"
+
+  E18_Physical_Thing:
+    color: "#801401"
+    label: "Physical Things"
+    description: "Material objects and substances"
+
+  E39_Actor:
+    color: "#72005f"
+    label: "Actors"
+    description: "People, groups, and organizations"
+
+  E28_Conceptual_Object:
+    color: "#c78f15"
+    label: "Conceptual Objects"
+    description: "Ideas, concepts, and intellectual creations"
+
+  E41_Appellation:
+    color: "#68810C"
+    label: "Appellations"
+    description: "Names and identifiers"
+
+  E53_Place:
+    color: "#206D33"
+    label: "Places"
+    description: "Geographical locations and spaces"
+
+  E55_Type:
+    color: "#F88C34"
+    label: "Types"
+    description: "Classification and categorization concepts"
+
+# Extension ontology colors
+# Each extension has a base color that distinguishes it from the core ontology
+extensions:
+  crmsci:
+    color: "#00CED1"  # Dark Turquoise
+    label: "Scientific Observation Model"
+    short_label: "SCI"
+    description: "CRMsci - Extension for scientific observation and measurement"
+
+  crmarchaeo:
+    color: "#D2691E"  # Chocolate
+    label: "Archaeological Excavation Model"
+    short_label: "ARCH"
+    description: "CRMarchaeo - Extension for archaeological excavation documentation"
+
+  crmdig:
+    color: "#708090"  # Slate Gray
+    label: "Digital Provenance Model"
+    short_label: "DIG"
+    description: "CRMdig - Extension for digital provenance metadata"
+
+  crmgeo:
+    color: "#228B22"  # Forest Green
+    label: "Geospatial Data Model"
+    short_label: "GEO"
+    description: "CRMgeo - Extension for geospatial information"
+
+  crminf:
+    color: "#4169E1"  # Royal Blue
+    label: "Argumentation Model"
+    short_label: "INF"
+    description: "CRMinf - Extension for inference and argumentation"
+
+  crmtex:
+    color: "#8B4513"  # Saddle Brown
+    label: "Text Encoding Model"
+    short_label: "TEX"
+    description: "CRMtex - Extension for text encoding and analysis"
+
+  frbroo:
+    color: "#9370DB"  # Medium Purple
+    label: "Bibliographic Information Model"
+    short_label: "LRM"
+    description: "FRBRoo/LRMoo - Extension for bibliographic information"
+
+  lrmoo:
+    color: "#9370DB"  # Medium Purple
+    short_label: "LRM"
+    label: "Library Reference Model"
+    description: "LRMoo - IFLA Library Reference Model harmonization"
+
+# SARI family extensions
+  aaao:
+    color: "#FF6347"  # Tomato
+    label: "Art & Architecture Ontology"
+    short_label: "AAA"
+    description: "AAAo - Swiss Art Research Infrastructure extension"
+
+  crmaaa:
+    color: "#FF4500"  # Orange Red
+    label: "Ancient Art & Architecture"
+    short_label: "AAA"
+    description: "CRMaaa - Ancient art and architecture extension"
+
+  pwro:
+    color: "#DAA520"  # Goldenrod
+    label: "Professional Work Record"
+    short_label: "PWR"
+    description: "PWRo - Professional work and career documentation"
+
+  cpro:
+    color: "#CD853F"  # Peru
+    label: "Cultural Property Record"
+    short_label: "CPR"
+    description: "CPRo - Cultural property documentation"
+
+  crmcpr:
+    color: "#8B7355"  # Burlywood
+    label: "Cultural Property Rights"
+    short_label: "CPR"
+    description: "CRMcpr - Cultural property rights and ownership"
+
+  crmsurv:
+    color: "#A0522D"  # Sienna
+    label: "Archaeological Survey"
+    short_label: "SURV"
+    description: "CRMsurv - Archaeological survey documentation"
+
+# Default colors for unknown or unmapped entities
+defaults:
+  unknown_class: "#D3D3D3"  # Light Gray
+  unknown_property: "#696969"  # Dim Gray
+  unknown_extension: "#B8860B"  # Dark Goldenrod
+
+# UI theme colors
+ui:
+  background: "#FFFFFF"
+  text: "#131313"
+  border: "#CCCCCC"
+  highlight: "#FFD700"  # Gold
+  selected: "#000000"
+  hover: "#929292"

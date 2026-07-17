@@ -1,0 +1,210 @@
+@prefix crm: <http://www.cidoc-crm.org/cidoc-crm/> .
+@prefix la: <https://linked.art/ns/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<https://linkedart.example/model/person> a crm:E21_Person ;
+    rdfs:label "Thing_label_value" ;
+    crm:P100i_died_in <https://example.swissartresearch.net/event/183_1> ;
+    crm:P107i_is_current_or_former_member_of <https://example.swissartresearch.net/actor/167_1> ;
+    crm:P138i_has_representation <https://example.swissartresearch.net/conceptual_object/562_1> ;
+    crm:P141i_was_assigned_by <https://example.swissartresearch.net/event/429_1> ;
+    crm:P14i_performed <https://example.swissartresearch.net/event/126_1> ;
+    crm:P1_is_identified_by <https://example.swissartresearch.net/conceptual_object/4_1>,
+        <https://example.swissartresearch.net/conceptual_object/8_1> ;
+    crm:P2_has_type <https://example.swissartresearch.net/type/11_1>,
+        <https://example.swissartresearch.net/type/229_1>,
+        <https://example.swissartresearch.net/type/230_1>,
+        <https://example.swissartresearch.net/type/231_1> ;
+    crm:P67i_is_referred_to_by <https://example.swissartresearch.net/conceptual_object/13_1>,
+        <https://example.swissartresearch.net/conceptual_object/173_1>,
+        <https://example.swissartresearch.net/conceptual_object/426_1> ;
+    crm:P76_has_contact_point <https://example.swissartresearch.net/conceptual_object/168_1> ;
+    crm:P98i_was_born <https://example.swissartresearch.net/event/192_1> ;
+    la:equivalent <https://example.swissartresearch.net/object/578_1> ;
+    la:member_of <https://example.swissartresearch.net/set/97_1> .
+
+<http://vocab.getty.edu/aat/300250435> a crm:E55_Type ;
+    rdfs:label "Ethnicity" .
+
+<http://vocab.getty.edu/aat/300379842> a crm:E55_Type ;
+    rdfs:label "Nationality" .
+
+<http://vocab.getty.edu/aat/300411835> a crm:E55_Type ;
+    rdfs:label "Gender" .
+
+<http://vocab.getty.edu/aat/300418049> a crm:E55_Type .
+
+<https://example.swissartresearch.net/actor/129_1> a crm:E39_Actor .
+
+<https://example.swissartresearch.net/actor/167_1> a crm:E74_Group .
+
+<https://example.swissartresearch.net/actor/430_1> a crm:E39_Actor .
+
+<https://example.swissartresearch.net/conceptual_object/128_1> a crm:E33_Linguistic_Object .
+
+<https://example.swissartresearch.net/conceptual_object/138_1> a crm:E33_Linguistic_Object .
+
+<https://example.swissartresearch.net/conceptual_object/13_1> a crm:E33_Linguistic_Object ;
+    rdfs:label "Statement_label_value" ;
+    crm:P190_has_symbolic_content "Statement_string_content" ;
+    crm:P1_is_identified_by <https://example.swissartresearch.net/name/50_1> ;
+    crm:P2_has_type <https://example.swissartresearch.net/type/14_1> ;
+    crm:P67i_is_referred_to_by <https://example.swissartresearch.net/statement/55_1> ;
+    crm:P72_has_language <https://example.swissartresearch.net/type/16_1> .
+
+<https://example.swissartresearch.net/conceptual_object/168_1> a crm:E42_Identifier ;
+    rdfs:label "contact_point_label_value" ;
+    crm:P190_has_symbolic_content "contact_point_content_value" ;
+    crm:P2_has_type <https://example.swissartresearch.net/type/169_1> .
+
+<https://example.swissartresearch.net/conceptual_object/173_1> a crm:E33_Linguistic_Object .
+
+<https://example.swissartresearch.net/conceptual_object/185_1> a crm:E33_Linguistic_Object .
+
+<https://example.swissartresearch.net/conceptual_object/191_1> a crm:E33_Linguistic_Object .
+
+<https://example.swissartresearch.net/conceptual_object/194_1> a crm:E33_Linguistic_Object .
+
+<https://example.swissartresearch.net/conceptual_object/200_1> a crm:E33_Linguistic_Object .
+
+<https://example.swissartresearch.net/conceptual_object/426_1> a crm:D1_Digital_Object ;
+    crm:P2_has_type <https://example.swissartresearch.net/type/427_1> .
+
+<https://example.swissartresearch.net/conceptual_object/45_1> a crm:E33_Linguistic_Object .
+
+<https://example.swissartresearch.net/conceptual_object/4_1> a crm:E33_E41_Linguistic_Appellation ;
+    rdfs:label "Name_label_value" ;
+    crm:P106_is_composed_of <https://example.swissartresearch.net/conceptual_object/500_1> ;
+    crm:P190_has_symbolic_content "name_content_value" ;
+    crm:P2_has_type <https://example.swissartresearch.net/type/5_1> ;
+    crm:P67i_is_referred_to_by <https://example.swissartresearch.net/textual_object/44_1> ;
+    crm:P72_has_language <https://example.swissartresearch.net/type/7_1> .
+
+<https://example.swissartresearch.net/conceptual_object/500_1> a crm:E33_E41_Linguistic_Appellation .
+
+<https://example.swissartresearch.net/conceptual_object/552_1> a crm:E33_Linguistic_Object .
+
+<https://example.swissartresearch.net/conceptual_object/562_1> a crm:E36_Visual_Image .
+
+<https://example.swissartresearch.net/conceptual_object/8_1> a crm:E42_Identifier ;
+    rdfs:label "Identifier_label_value" ;
+    crm:P141i_was_assigned_by <https://example.swissartresearch.net/event/434_1> ;
+    crm:P190_has_symbolic_content "Identifier_value_content" ;
+    crm:P2_has_type <https://example.swissartresearch.net/identifier/9_1> ;
+    crm:P67i_is_referred_to_by <https://example.swissartresearch.net/conceptual_object/45_1> .
+
+<https://example.swissartresearch.net/event/126_1> a crm:E7_Activity ;
+    rdfs:label "Professional Activity_label_value" ;
+    crm:P14_carried_out_by <https://example.swissartresearch.net/actor/129_1> ;
+    crm:P1_is_identified_by <https://example.swissartresearch.net/identifier/137_1>,
+        <https://example.swissartresearch.net/name/131_1> ;
+    crm:P2_has_type <https://example.swissartresearch.net/type/134_1> ;
+    crm:P4_has_time-span <https://example.swissartresearch.net/time_span/133_1> ;
+    crm:P67i_is_referred_to_by <https://example.swissartresearch.net/conceptual_object/128_1>,
+        <https://example.swissartresearch.net/conceptual_object/138_1> ;
+    crm:P7_took_place_at <https://example.swissartresearch.net/place/126_2> .
+
+<https://example.swissartresearch.net/event/183_1> a crm:E69_Death ;
+    rdfs:label "Formation_label_value" ;
+    crm:P1_is_identified_by <https://example.swissartresearch.net/identifier/190_1>,
+        <https://example.swissartresearch.net/name/186_1> ;
+    crm:P2_has_type <https://example.swissartresearch.net/type/188_1> ;
+    crm:P4_has_time-span <https://example.swissartresearch.net/time_span/187_1> ;
+    crm:P67i_is_referred_to_by <https://example.swissartresearch.net/conceptual_object/185_1>,
+        <https://example.swissartresearch.net/conceptual_object/191_1> ;
+    crm:P7_took_place_at <https://example.swissartresearch.net/place/183_2> .
+
+<https://example.swissartresearch.net/event/192_1> a crm:E67_Birth ;
+    rdfs:label "Formation_label_value" ;
+    crm:P1_is_identified_by <https://example.swissartresearch.net/identifier/199_1>,
+        <https://example.swissartresearch.net/name/195_1> ;
+    crm:P2_has_type <https://example.swissartresearch.net/type/197_1> ;
+    crm:P4_has_time-span <https://example.swissartresearch.net/time_span/196_1> ;
+    crm:P67i_is_referred_to_by <https://example.swissartresearch.net/conceptual_object/194_1>,
+        <https://example.swissartresearch.net/conceptual_object/200_1> ;
+    crm:P7_took_place_at <https://example.swissartresearch.net/place/192_2> .
+
+<https://example.swissartresearch.net/event/429_1> a crm:E13_Attribute_Assignment ;
+    rdfs:label "Value here" ;
+    crm:P14_carried_out_by <https://example.swissartresearch.net/actor/430_1> ;
+    crm:P16_used_specific_object <https://example.swissartresearch.net/object/553_1> ;
+    crm:P1_is_identified_by <https://example.swissartresearch.net/name/432_1> ;
+    crm:P2_has_type <https://example.swissartresearch.net/type/430_1> ;
+    crm:P4_has_time-span <https://example.swissartresearch.net/time_span/433_1> ;
+    crm:P67i_is_referred_to_by <https://example.swissartresearch.net/conceptual_object/552_1> .
+
+<https://example.swissartresearch.net/event/434_1> a crm:E13_Attribute_Assignment .
+
+<https://example.swissartresearch.net/identifier/137_1> a crm:E42_Identifier .
+
+<https://example.swissartresearch.net/identifier/190_1> a crm:E42_Identifier .
+
+<https://example.swissartresearch.net/identifier/199_1> a crm:E42_Identifier .
+
+<https://example.swissartresearch.net/identifier/9_1> a crm:E55_Type .
+
+<https://example.swissartresearch.net/name/131_1> a crm:E33_E41_Linguistic_Appellation .
+
+<https://example.swissartresearch.net/name/186_1> a crm:E33_E41_Linguistic_Appellation .
+
+<https://example.swissartresearch.net/name/195_1> a crm:E33_E41_Linguistic_Appellation .
+
+<https://example.swissartresearch.net/name/432_1> a crm:E41_Appellation .
+
+<https://example.swissartresearch.net/name/50_1> a crm:E33_E41_Linguistic_Appellation .
+
+<https://example.swissartresearch.net/object/553_1> a crm:E70_Thing .
+
+<https://example.swissartresearch.net/object/578_1> a crm:E1_CRM_Entity .
+
+<https://example.swissartresearch.net/place/126_2> a crm:E53_Place .
+
+<https://example.swissartresearch.net/place/183_2> a crm:E53_Place .
+
+<https://example.swissartresearch.net/place/192_2> a crm:E53_Place .
+
+<https://example.swissartresearch.net/set/97_1> a la:Set .
+
+<https://example.swissartresearch.net/statement/55_1> a crm:E33_Linguistic_Object .
+
+<https://example.swissartresearch.net/textual_object/44_1> a crm:E33_Linguistic_Object .
+
+<https://example.swissartresearch.net/time_span/133_1> a crm:E52_Time-Span .
+
+<https://example.swissartresearch.net/time_span/187_1> a crm:E52_Time-Span .
+
+<https://example.swissartresearch.net/time_span/196_1> a crm:E52_Time-Span .
+
+<https://example.swissartresearch.net/time_span/433_1> a crm:E52_Time-span .
+
+<https://example.swissartresearch.net/type/11_1> a crm:E55_Type .
+
+<https://example.swissartresearch.net/type/134_1> a crm:E55_Type .
+
+<https://example.swissartresearch.net/type/14_1> a crm:E55_Type ;
+    crm:P2_has_type <http://vocab.getty.edu/aat/300418049> .
+
+<https://example.swissartresearch.net/type/169_1> a crm:E55_Type .
+
+<https://example.swissartresearch.net/type/16_1> a crm:E56_Language .
+
+<https://example.swissartresearch.net/type/188_1> a crm:E55_Type .
+
+<https://example.swissartresearch.net/type/197_1> a crm:E55_Type .
+
+<https://example.swissartresearch.net/type/229_1> a crm:E55_Type ;
+    crm:P2_has_type <http://vocab.getty.edu/aat/300379842> .
+
+<https://example.swissartresearch.net/type/230_1> a crm:E55_Type ;
+    crm:P2_has_type <http://vocab.getty.edu/aat/300411835> .
+
+<https://example.swissartresearch.net/type/231_1> a crm:E55_Type ;
+    crm:P2_has_type <http://vocab.getty.edu/aat/300250435> .
+
+<https://example.swissartresearch.net/type/427_1> a crm:E55_Type .
+
+<https://example.swissartresearch.net/type/430_1> a crm:E55_Type .
+
+<https://example.swissartresearch.net/type/5_1> a crm:E55_Type .
+
+<https://example.swissartresearch.net/type/7_1> a crm:E56_Language .

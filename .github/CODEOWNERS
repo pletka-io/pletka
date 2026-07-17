@@ -1,0 +1,41 @@
+# Code review ownership for pletka-io/pletka.
+#
+# Lines later in this file take precedence; the last matching pattern wins.
+# Owners listed here are automatically requested as PR reviewers.
+
+# Default owner for everything in this repo.
+*                       @kiivihal
+
+# Package tree — load-bearing; require focused review.
+/pkg/                   @kiivihal
+/pkg/domain/            @kiivihal
+/pkg/weave/             @kiivihal
+/pkg/app/               @kiivihal
+/pkg/database/          @kiivihal
+/pkg/auth/              @kiivihal
+/pkg/session/           @kiivihal
+/pkg/integrations/      @kiivihal
+
+# CLI entrypoints.
+/cmd/                   @kiivihal
+
+# Frontend.
+/frontend/              @kiivihal
+
+# Public architecture / decisions docs — API-significant when they change.
+/docs-oss/              @kiivihal
+
+# Build / release / CI / security configs.
+/.github/               @kiivihal
+/.goreleaser.yaml       @kiivihal
+/.golangci.yml          @kiivihal
+/.gitleaks.toml         @kiivihal
+/Makefile               @kiivihal
+
+# Top-level governance documents.
+/LICENSE                @kiivihal
+/NOTICE                 @kiivihal
+/SECURITY.md            @kiivihal
+/CODE_OF_CONDUCT.md     @kiivihal
+/CONTRIBUTING.md        @kiivihal
+/CLAUDE.md              @kiivihal

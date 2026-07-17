@@ -1,0 +1,39 @@
+graph TD
+classDef Literal fill:#ffffff,stroke:#000000;
+classDef CRM_Entity fill:#ffffff,stroke:#000000;
+classDef CRM_Entity_URI fill:#ffffff,stroke:#000000;
+classDef Temporal_Entity fill:#82c3ec, stroke:#000000;
+classDef Temporal_Entity_URI fill:#d2e9f9,stroke:#000000;
+classDef Type fill:#fab565, stroke:#000000;
+classDef Type_URI fill:#fde7ce,stroke:#000000;
+classDef Time-Span fill:#86bcc8, stroke:#000000;
+classDef Time-Span_URI fill:#dcebef,stroke:#000000;
+classDef Appellation fill:#fef3ba, stroke:#000000;
+classDef Appellation_URI fill:#fffae6,stroke:#000000;
+classDef Place fill:#94cc7d, stroke:#000000;
+classDef Place_URI fill:#e1f1da,stroke:#000000;
+classDef Persistent_Item fill:#ffffff, stroke:#000000;
+classDef Persistent_Item_URI fill:#ffffff,stroke:#000000;
+classDef Conceptual_Object fill:#fddc34, stroke:#000000;
+classDef Conceptual_Object_URI fill:#fef6cd,stroke:#000000;
+classDef Physical_Thing fill:#e1ba9c, stroke:#000000;
+classDef Physical_Thing_URI fill:#f3e5d8,stroke:#000000;
+classDef Actor fill:#ffbdca, stroke:#000000;
+classDef Actor_URI fill:#ffe6eb,stroke:#000000;
+classDef PC_Classes fill:#cc80ff, stroke:#000000;
+classDef PC_Classes_URI fill:#ebccff,stroke:#000000;
+classDef Multi_URI fill:#cccccc,stroke:#000000;
+
+0(["https://example.swissartresearch.net/object/E1"]):::CRM_Entity_URI -->|rdf:type| 1["crm:E1_CRM_Entity"]:::CRM_Entity
+2(["https://example.swissartresearch.net/conceptual_object/4_1"]) -->|crm:P190_has_symbolic_content| 3(["''name_content_value''"]):::Literal
+4(["https://example.swissartresearch.net/type/7_1"]):::Type_URI -->|rdf:type| 5["crm:E56_Language"]:::Type
+6(["https://example.swissartresearch.net/type/5_1"]):::Type_URI -->|rdf:type| 7["crm:E55_Type"]:::Type
+2(["https://example.swissartresearch.net/conceptual_object/4_1"]) -->|crm:P67i_is_referred_to_by| 8(["https://example.swissartresearch.net/textual_object/44_1"])
+2(["https://example.swissartresearch.net/conceptual_object/4_1"]) -->|crm:P106_is_composed_of| 9(["https://example.swissartresearch.net/conceptual_object/500_1"])
+2(["https://example.swissartresearch.net/conceptual_object/4_1"]) -->|crm:P2_has_type| 6(["https://example.swissartresearch.net/type/5_1"])
+9(["https://example.swissartresearch.net/conceptual_object/500_1"]):::Default_URI -->|rdf:type| 10["crm:E33_E41_Linguistic_Appellation"]:::Default
+8(["https://example.swissartresearch.net/textual_object/44_1"]):::Conceptual_Object_URI -->|rdf:type| 11["crm:E33_Linguistic_Object"]:::Conceptual_Object
+2(["https://example.swissartresearch.net/conceptual_object/4_1"]):::Default_URI -->|rdf:type| 12["crm:E33_E41_Linguistic_Appellation"]:::Default
+2(["https://example.swissartresearch.net/conceptual_object/4_1"]) -->|rdfs:label| 13(["''Name_label_value''"]):::Literal
+0(["https://example.swissartresearch.net/object/E1"]) -->|crm:P1_is_identified_by| 2(["https://example.swissartresearch.net/conceptual_object/4_1"])
+2(["https://example.swissartresearch.net/conceptual_object/4_1"]) -->|crm:P72_has_language| 4(["https://example.swissartresearch.net/type/7_1"])

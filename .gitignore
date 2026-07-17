@@ -1,0 +1,218 @@
+# Reviewed user seed file — carries plaintext passwords, never commit
+seed-users.yaml
+cmd/internal/importconfig/seed-users.yaml
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+# Top-level CLI builds (go build ./cmd/<tool>) drop the binary at repo
+# root by default — ignore them so accidental builds don't get staged.
+i18n-check
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+
+# Dependency directories
+vendor/
+
+# Go workspace.
+# go.work is TRACKED — it pins the migration wiring (legacy module +
+# ./pletka staging tree). When migration ends and ./pletka is dropped
+# from the workspace, this file goes away naturally.
+# go.work.sum is the derived checksum — not tracked, regenerated on
+# demand like go.sum on legacy builds.
+go.work.sum
+
+# Air tmp directory
+tmp/
+
+# exports
+csv_exports
+_pocs
+weave-stats/
+
+# Database files
+data/
+_data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sql
+*.sql.zst
+# Except source-controlled SQL: goose migrations, sqlc query files, and
+# one-shot maintenance scripts.
+!pkg/database/migrations/*.sql
+!pkg/database/queries/*.sql
+!pletka/store/migrations/*.sql
+!pletka/store/queries/*.sql
+!scripts/sql/*.sql
+
+# Data and report files
+*.gob
+*report*.json
+
+# Production configuration (contains secrets - use template instead)
+configs/production.yaml
+production.yaml
+.env
+.env.secrets
+!.env.example
+
+# Auto-generated ontology configurations (large/regeneratable)
+configs/source-ontologies/
+cmd/internal/importconfig/project-ontologies/
+cmd/internal/importconfig/ontologies.zip
+
+# Ad-hoc import + verification reports
+reports/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+server.log
+
+# Node modules
+node_modules/
+
+# Frontend build output
+pkg/assets/static/dist/
+
+# Built CSS (generated)
+web/static/css/output.css
+
+# Temporary files
+*.tmpdata/
+build/
+.gocache
+
+# Build artifacts  
+zellij-go/zellij-go
+zellij-go/zellij
+pletka
+createuser
+*.log
+
+# Development files  
+zellij-go/migration_data.zip
+cookies.txt
+test-auth.sh
+tail-log.sh
+server.log
+
+.venv/
+
+# Claude Code local settings
+.claude/settings.local.json
+.claude/worktrees/
+
+# codex
+.codex
+
+# Temporary data exports and archives
+csv_exports.tar.gz
+docs/ontologies_zellijv2.zip
+docs/import_docs/
+
+# Analysis and mapping files
+field-mappings.csv
+field-mappings.md
+schema-diagram.html
+
+# Standalone binaries (built outside bin/)
+/ontology-import
+/zellij-go
+
+# Python requirements (for utility scripts)
+requirements.txt
+
+# Utility scripts (one-time use)
+scripts/*.py
+scripts/*.sh
+scripts/*.go
+
+# Exceptions: keep tracked scripts
+!scripts/generate-ontology-inventory.py
+!scripts/deploy.sh
+!scripts/deploy-instance.sh
+!scripts/setup-pletka-server.sh
+!scripts/db-sync-instance.sh
+!scripts/migrate-instance.sh
+
+# Hugo sites (moved to pletka-io/websites repo)
+sites/
+
+# Planning documents (internal)
+docs/ARCHITECTURE_REFACTOR_PLAN.md
+docs/ROUTE_REGISTRY_CURRENT_STATE.md
+docs/restore-patterns-plan.md
+
+# Agent instructions
+AGENTS.md
+
+# Unsupported ontology files
+cmd/internal/importconfig/ontologies/project-specific/_unsupported/
+
+# Claude Code session files
+.claude/.commit-approved-*
+.claude/settings.local.json
+.claude/mcp_servers.json
+.claude/hooks/
+.claude/settings.json
+
+# CodeGraph index
+.codegraph/
+
+# Local MCP config
+.mcp.json
+
+# Local planning and design scratch
+/plans/
+/wireframes/
+
+# Playwright MCP screenshots
+.playwright-mcp/
+
+# Screenshot artifacts
+*.png
+
+# Built binaries (not in bin/)
+/airtable-import-v2
+.opencode/
+
+# Superpowers brainstorm workspace (visual-companion mockups, state)
+.superpowers/
+
+# OpenWolf — shared infra (OPENWOLF.md, config.json, identity.md,
+# reframe-frameworks.md, hooks/*.js, cron-manifest.json) stays tracked.
+# Per-dev learnings and runtime state are ignored:
+.wolf/.canonical
+.wolf/memory.md
+.wolf/anatomy.md
+.wolf/cerebrum.md
+.wolf/buglog.json
+.wolf/cron-state.json
+.wolf/token-ledger.json
+.wolf/suggestions.json
+.wolf/designqc-report.json
+.wolf/designqc-captures/
+.wolf/hooks/_session.json
+.wolf/hooks/node_modules/

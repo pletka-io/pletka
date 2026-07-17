@@ -1,0 +1,36 @@
+/* @import statements must precede all other CSS */
+@import "@fortawesome/fontawesome-free/css/all.css";
+@import url("https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=JetBrains+Mono:wght@400;500&display=swap");
+
+/* Tailwind CSS base layers */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom Pletka color utilities */
+@layer utilities {
+  .bg-pletka-primary {
+    background-color: #92ccc8;
+  }
+  .text-pletka-primary {
+    color: #92ccc8;
+  }
+  .border-pletka-primary {
+    border-color: #92ccc8;
+  }
+  .bg-pletka-secondary {
+    background-color: #f58031;
+  }
+  .hover\:bg-pletka-secondary:hover {
+    background-color: #f58031;
+  }
+  .focus\:ring-pletka-primary:focus {
+    --tw-ring-color: #92ccc8;
+  }
+  .focus\:border-pletka-primary:focus {
+    border-color: #92ccc8;
+  }
+  .bg-pletka-gradient {
+    background: linear-gradient(135deg, #92ccc8 0%, #f58031 100%);
+  }
+}

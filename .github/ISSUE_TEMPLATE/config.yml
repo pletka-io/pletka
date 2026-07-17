@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/pletka-io/pletka/security/advisories/new
+    about: Report a security vulnerability privately. Do NOT open a public issue.
+  - name: Discussion
+    url: https://github.com/pletka-io/pletka/discussions
+    about: Open-ended questions, design conversations, ideas not yet a feature request.

@@ -1,0 +1,128 @@
+# Type Modifiers Configuration
+# ============================
+# Maps CRM/ontology class codes to URI type segments.
+# Used for building /ns/{segment}/{id} URIs.
+#
+# Format:
+#   [class.<prefix>] maps class codes to segments
+#   e.g., E21 = "actor" means E21 maps to /ns/actor/{id}
+#
+# Sources:
+#   - CIDOC-CRM: http://www.cidoc-crm.org/cidoc-crm/
+#   - CRMsurv: https://takin.solutions/ontologies/CRMSurv/
+#   - AAO: https://ontology.swissartresearch.net/aaao/
+#   - Linked Art: https://linked.art/ns/terms/
+#   - CRMdig: http://www.ics.forth.gr/isl/CRMdig/
+
+# CRM Core Classes
+[crm.actor]
+E21 = "actor"
+E39 = "actor"
+E40 = "actor"
+E74 = "actor"
+
+[crm.event]
+E3 = "event"
+E4 = "event"
+E5 = "event"
+E6 = "event"
+E7 = "event"
+E8 = "event"
+E9 = "event"
+E10 = "event"
+E11 = "event"
+E12 = "event"
+E13 = "event"
+E14 = "event"
+E63 = "event"
+E64 = "event"
+E65 = "event"
+E66 = "event"
+E67 = "event"
+E68 = "event"
+E69 = "event"
+E79 = "event"
+E80 = "event"
+E81 = "event"
+E85 = "event"
+E86 = "event"
+E87 = "event"
+
+[crm.conceptual_object]
+E28 = "conceptual_object"
+E29 = "conceptual_object"
+E30 = "conceptual_object"
+E31 = "conceptual_object"
+E32 = "conceptual_object"
+E33 = "conceptual_object"
+E35 = "conceptual_object"
+E36 = "conceptual_object"
+E37 = "conceptual_object"
+E41 = "conceptual_object"
+E42 = "conceptual_object"
+E73 = "conceptual_object"
+E90 = "conceptual_object"
+
+[crm.physical_object]
+E18 = "physical_object"
+E19 = "physical_object"
+E20 = "physical_object"
+E22 = "physical_object"
+E24 = "physical_object"
+E25 = "physical_object"
+E26 = "physical_object"
+E27 = "physical_object"
+E78 = "physical_object"
+
+[crm.type]
+E55 = "type"
+E56 = "type"
+E57 = "type"
+E58 = "type"
+
+[crm.place]
+E53 = "place"
+
+[crm.time_span]
+E52 = "time_span"
+
+[crm.dimension]
+E54 = "dimension"
+E97 = "dimension"
+
+[crm.object]
+E1 = "object"
+E2 = "object"
+E70 = "object"
+E71 = "object"
+E72 = "object"
+E77 = "object"
+
+# CRMsurv extensions
+[crmsurv]
+U2 = "event"
+U3 = "event"
+U4 = "object"
+U6 = "physical_object"
+
+# AAO (Archaeological Authority Ontology)
+[aao]
+ZE2 = "institutional_fact"
+ZE4 = "institutional_fact"
+ZE5 = "institutional_fact"
+ZE7 = "institutional_fact"
+
+# CRMdig (Digital extensions)
+[crmdig]
+D1 = "digital_object"
+D9 = "digital_object"
+
+# Linked Art
+[linked_art]
+LA1 = "set"
+Set = "event"
+Addition = "event"
+Removal = "event"
+Payment = "event"
+DigitalService = "event"
+RightAcquisition = "event"

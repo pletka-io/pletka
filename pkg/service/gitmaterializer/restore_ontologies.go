@@ -1,0 +1,74 @@
+package gitmaterializer
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+)
+
+// VendoredOntologyImport carries everything an ontology importer needs to
+// materialize a single vendored ontology snapshot into the database.
+type VendoredOntologyImport struct {
+	Manifest OntologyVendorManifest
+	RootDir  string
+}
+
+// VendoredOntologyImporter imports a vendored ontology snapshot into the
+// database.
+type VendoredOntologyImporter interface {
+	// ImportVendoredOntology must be idempotent per manifest.Ontology.VersionID.
+	ImportVendoredOntology(ctx context.Context, imp VendoredOntologyImport) error
+}
+
+// hydrateVendoredOntologies imports every ontology vendored by plan's
+// snapshot that is not already present in the database. It verifies vendor
+// checksums first and aborts before touching the database on any mismatch.
+// When the snapshot vendors ontologies but no importer is wired, it fails
+// loudly rather than silently skipping the import.
+func (m *Materializer) hydrateVendoredOntologies(ctx context.Context, plan *RestorePlan) error {
+	if plan == nil || plan.Snapshot == nil {
+		return nil
+	}
+	snapshot := plan.Snapshot
+
+	if err := verifyVendorChecksums(snapshot); err != nil {
+		return err
+	}
+
+	ontologies := snapshot.Vendor.Ontologies
+	if len(ontologies) == 0 {
+		return nil
+	}
+	if m.ontologyImporter == nil {
+		return fmt.Errorf("restore: snapshot vendors ontologies but no ontology importer is wired")
+	}
+
+	for _, dep := range ontologies {
+		if dep.Snapshot == nil {
+			continue
+		}
+		versionID := strings.TrimSpace(dep.Snapshot.Manifest.Ontology.VersionID)
+		if versionID == "" {
+			return fmt.Errorf("hydrate vendored ontologies: %s@%s missing ontology version id", dep.Module, dep.Version)
+		}
+
+		if _, err := m.queries.WeaveGetOntologyVersionByID(ctx, versionID); err == nil {
+			continue
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("hydrate vendored ontologies: get ontology version %s: %w", versionID, err)
+		}
+
+		imp := VendoredOntologyImport{
+			Manifest: dep.Snapshot.Manifest,
+			RootDir:  dep.Snapshot.RootDir,
+		}
+		if err := m.ontologyImporter.ImportVendoredOntology(ctx, imp); err != nil {
+			return fmt.Errorf("hydrate vendored ontologies: import %s@%s: %w", dep.Module, dep.Version, err)
+		}
+	}
+
+	return nil
+}

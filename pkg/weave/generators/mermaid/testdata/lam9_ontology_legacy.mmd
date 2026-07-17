@@ -1,0 +1,86 @@
+graph TD
+classDef Literal fill:#FFFFFF,stroke:#000000;
+classDef CRM_Entity fill:#FFFFFF,stroke:#000000;
+classDef Temporal_Entity fill:#82C3EC, stroke:#000000;
+classDef Type fill:#FAB565, stroke:#000000;
+classDef Time-Span fill:#86BCC8, stroke:#000000;
+classDef Appellation fill:#FEF3BA, stroke:#000000;
+classDef Place fill:#94CC7D, stroke:#000000;
+classDef Persistent_Item fill:#FFFFFF, stroke:#000000;
+classDef Conceptual_Object fill:#FDDC34, stroke:#000000;
+classDef Physical_Thing fill:#E1BA9C, stroke:#000000;
+classDef Actor fill:#ffbdca, stroke:#000000;
+classDef PC_Classes fill:#cc80ff, stroke:#000000;
+classDef Multi fill:#cccccc,stroke:#000000;
+
+
+
+
+
+2["crm:E13_Attribute_Assignment"]:::Temporal_Entity -->|crm:P4_has_time-span| 3["crm:E52_Time-span"]:::Default
+4["crm:E21_Person"]:::Actor -->|la:member_of| 5["la:Set"]:::Default
+6["crm:E55_Type"]:::Type -->|crm:P2_has_type| 7["crm:E55_Type"]:::Type
+4["crm:E21_Person"]:::Actor -->|crm:P14i_performed| 8["crm:E7_Activity"]:::Temporal_Entity
+11["crm:E42_Identifier"]:::Appellation -->|crm:P141i_was_assigned_by| 12["crm:E13_Attribute_Assignment"]:::Temporal_Entity
+2["crm:E13_Attribute_Assignment"]:::Temporal_Entity -->|crm:P14_carried_out_by| 15["crm:E39_Actor"]:::Actor
+4["crm:E21_Person"]:::Actor -->|crm:P141i_was_assigned_by| 2["crm:E13_Attribute_Assignment"]:::Temporal_Entity
+11["crm:E42_Identifier"]:::Appellation -->|crm:P67i_is_referred_to_by| 22["crm:E33_Linguistic_Object"]:::Conceptual_Object
+4["crm:E21_Person"]:::Actor -->|crm:P98i_was_born| 27["crm:E67_Birth"]:::Temporal_Entity
+9["crm:E69_Death"]:::Temporal_Entity -->|crm:P1_is_identified_by| 20["crm:E33_E41_Linguistic_Appellation"]:::Default
+4["crm:E21_Person"]:::Actor -->|crm:P67i_is_referred_to_by| 37["crm:E33_Linguistic_Object"]:::Conceptual_Object
+9["crm:E69_Death"]:::Temporal_Entity -->|crm:P1_is_identified_by| 41["crm:E42_Identifier"]:::Appellation
+9["crm:E69_Death"]:::Temporal_Entity -->|crm:P7_took_place_at| 23["crm:E53_Place"]:::Place
+8["crm:E7_Activity"]:::Temporal_Entity -->|crm:P1_is_identified_by| 38["crm:E33_E41_Linguistic_Appellation"]:::Default
+27["crm:E67_Birth"]:::Temporal_Entity -->|crm:P4_has_time-span| 51["crm:E52_Time-Span"]:::Time-Span
+27["crm:E67_Birth"]:::Temporal_Entity -->|crm:P1_is_identified_by| 42["crm:E33_E41_Linguistic_Appellation"]:::Default
+27["crm:E67_Birth"]:::Temporal_Entity -->|crm:P2_has_type| 46["crm:E55_Type"]:::Type
+2["crm:E13_Attribute_Assignment"]:::Temporal_Entity -->|crm:P67i_is_referred_to_by| 65["crm:E33_Linguistic_Object"]:::Conceptual_Object
+27["crm:E67_Birth"]:::Temporal_Entity -->|crm:P67i_is_referred_to_by| 66["crm:E33_Linguistic_Object"]:::Conceptual_Object
+4["crm:E21_Person"]:::Actor -->|crm:P2_has_type| 67["crm:E55_Type"]:::Type
+68["crm:E33_E41_Linguistic_Appellation"]:::Default -->|crm:P106_is_composed_of| 69["crm:E33_E41_Linguistic_Appellation"]:::Default
+4["crm:E21_Person"]:::Actor -->|crm:P67i_is_referred_to_by| 70["crm:D1_Digital_Object"]:::Conceptual_Object
+8["crm:E7_Activity"]:::Temporal_Entity -->|crm:P67i_is_referred_to_by| 72["crm:E33_Linguistic_Object"]:::Conceptual_Object
+8["crm:E7_Activity"]:::Temporal_Entity -->|crm:P14_carried_out_by| 78["crm:E39_Actor"]:::Actor
+4["crm:E21_Person"]:::Actor -->|crm:P2_has_type| 81["crm:E55_Type"]:::Type
+37["crm:E33_Linguistic_Object"]:::Conceptual_Object -->|crm:P72_has_language| 55["crm:E56_Language"]:::Type
+4["crm:E21_Person"]:::Actor -->|crm:P67i_is_referred_to_by| 79["crm:E33_Linguistic_Object"]:::Conceptual_Object
+27["crm:E67_Birth"]:::Temporal_Entity -->|crm:P7_took_place_at| 25["crm:E53_Place"]:::Place
+68["crm:E33_E41_Linguistic_Appellation"]:::Default -->|crm:P190_has_symbolic_content| 88[rdfs:Literal]:::Literal
+8["crm:E7_Activity"]:::Temporal_Entity -->|crm:P7_took_place_at| 49["crm:E53_Place"]:::Place
+9["crm:E69_Death"]:::Temporal_Entity -->|crm:P2_has_type| 92["crm:E55_Type"]:::Type
+8["crm:E7_Activity"]:::Temporal_Entity -->|crm:P1_is_identified_by| 60["crm:E42_Identifier"]:::Appellation
+4["crm:E21_Person"]:::Actor -->|crm:P76_has_contact_point| 30["crm:E42_Identifier"]:::Appellation
+2["crm:E13_Attribute_Assignment"]:::Temporal_Entity -->|crm:P1_is_identified_by| 13["crm:E41_Appellation"]:::Appellation
+4["crm:E21_Person"]:::Actor -->|crm:P138i_has_representation| 95["crm:E36_Visual_Image"]:::Default
+100["crm:E55_Type"]:::Type -->|crm:P2_has_type| 28["crm:E55_Type"]:::Type
+8["crm:E7_Activity"]:::Temporal_Entity -->|crm:P4_has_time-span| 97["crm:E52_Time-Span"]:::Time-Span
+37["crm:E33_Linguistic_Object"]:::Conceptual_Object -->|crm:P190_has_symbolic_content| 107[rdfs:Literal]:::Literal
+37["crm:E33_Linguistic_Object"]:::Conceptual_Object -->|crm:P1_is_identified_by| 82["crm:E33_E41_Linguistic_Appellation"]:::Default
+4["crm:E21_Person"]:::Actor -->|crm:P100i_died_in| 9["crm:E69_Death"]:::Temporal_Entity
+4["crm:E21_Person"]:::Actor -->|crm:P2_has_type| 110["crm:E55_Type"]:::Type
+9["crm:E69_Death"]:::Temporal_Entity -->|crm:P4_has_time-span| 86["crm:E52_Time-Span"]:::Time-Span
+2["crm:E13_Attribute_Assignment"]:::Temporal_Entity -->|crm:P2_has_type| 111["crm:E55_Type"]:::Type
+68["crm:E33_E41_Linguistic_Appellation"]:::Default -->|crm:P67i_is_referred_to_by| 84["crm:E33_Linguistic_Object"]:::Conceptual_Object
+8["crm:E7_Activity"]:::Temporal_Entity -->|crm:P67i_is_referred_to_by| 108["crm:E33_Linguistic_Object"]:::Conceptual_Object
+8["crm:E7_Activity"]:::Temporal_Entity -->|crm:P2_has_type| 113["crm:E55_Type"]:::Type
+11["crm:E42_Identifier"]:::Appellation -->|crm:P190_has_symbolic_content| 120[rdfs:Literal]:::Literal
+27["crm:E67_Birth"]:::Temporal_Entity -->|crm:P1_is_identified_by| 73["crm:E42_Identifier"]:::Appellation
+68["crm:E33_E41_Linguistic_Appellation"]:::Default -->|crm:P72_has_language| 102["crm:E56_Language"]:::Type
+4["crm:E21_Person"]:::Actor -->|la:equivalent| 52["crm:E1_CRM_Entity"]:::CRM_Entity
+67["crm:E55_Type"]:::Type -->|crm:P2_has_type| 32["crm:E55_Type"]:::Type
+4["crm:E21_Person"]:::Actor -->|crm:P2_has_type| 100["crm:E55_Type"]:::Type
+4["crm:E21_Person"]:::Actor -->|crm:P107i_is_current_or_former_member_of| 128["crm:E74_Group"]:::Actor
+27["crm:E67_Birth"]:::Temporal_Entity -->|crm:P67i_is_referred_to_by| 57["crm:E33_Linguistic_Object"]:::Conceptual_Object
+4["crm:E21_Person"]:::Actor -->|crm:P1_is_identified_by| 11["crm:E42_Identifier"]:::Appellation
+4["crm:E21_Person"]:::Actor -->|crm:P1_is_identified_by| 68["crm:E33_E41_Linguistic_Appellation"]:::Default
+37["crm:E33_Linguistic_Object"]:::Conceptual_Object -->|crm:P2_has_type| 6["crm:E55_Type"]:::Type
+68["crm:E33_E41_Linguistic_Appellation"]:::Default -->|crm:P2_has_type| 130["crm:E55_Type"]:::Type
+37["crm:E33_Linguistic_Object"]:::Conceptual_Object -->|crm:P67i_is_referred_to_by| 16["crm:E33_Linguistic_Object"]:::Conceptual_Object
+9["crm:E69_Death"]:::Temporal_Entity -->|crm:P67i_is_referred_to_by| 104["crm:E33_Linguistic_Object"]:::Conceptual_Object
+30["crm:E42_Identifier"]:::Appellation -->|crm:P190_has_symbolic_content| 140[rdfs:Literal]:::Literal
+9["crm:E69_Death"]:::Temporal_Entity -->|crm:P67i_is_referred_to_by| 34["crm:E33_Linguistic_Object"]:::Conceptual_Object
+2["crm:E13_Attribute_Assignment"]:::Temporal_Entity -->|crm:P16_used_specific_object| 132["crm:E70_Thing"]:::Persistent_Item
+30["crm:E42_Identifier"]:::Appellation -->|crm:P2_has_type| 137["crm:E55_Type"]:::Type
+70["crm:D1_Digital_Object"]:::Conceptual_Object -->|crm:P2_has_type| 44["crm:E55_Type"]:::Type
+81["crm:E55_Type"]:::Type -->|crm:P2_has_type| 0["crm:E55_Type"]:::Type
+11["crm:E42_Identifier"]:::Appellation -->|crm:P2_has_type| 18["crm:E55_Type"]:::Type

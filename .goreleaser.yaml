@@ -1,0 +1,104 @@
+# goreleaser configuration for Pletka.
+#
+# Triggered by tag pushes via .github/workflows/release.yml (not staged in
+# this kit — see SEED.md for the release workflow that should call this).
+# Local snapshot:
+#   goreleaser release --snapshot --clean
+#
+# Schema: goreleaser v2.
+
+version: 2
+
+project_name: pletka
+
+before:
+  hooks:
+    - go mod tidy
+    # Build the frontend bundle so it's available for `//go:embed`
+    # (pkg/assets/embed.go embeds frontend/core.frontend.json and the
+    # Vite dist output).
+    - sh -c "cd frontend && npm ci && npm run build"
+
+builds:
+  - id: pletka
+    # main.go lives at the repo root (it wires cmd.Execute()); there is no
+    # ./cmd/pletka package to point at in the current pkg/ layout.
+    main: .
+    binary: pletka
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/pletka-io/pletka/pkg/buildinfo.Version={{.Version}}
+      - -X github.com/pletka-io/pletka/pkg/buildinfo.GitCommit={{.ShortCommit}}
+      - -X github.com/pletka-io/pletka/pkg/buildinfo.BuildTime={{.Date}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+sboms:
+  - artifacts: archive
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\(.+\))??!?:.+$'
+      order: 2
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  draft: false
+  prerelease: auto
+  mode: append
+  header: |
+    ## Pletka {{ .Tag }}
+
+    Schema-driven web platform for cultural-heritage knowledge.
+
+    Single-binary release: the frontend bundle is embedded.
+  footer: |
+    **Full Changelog**: https://github.com/pletka-io/pletka/compare/{{ .PreviousTag }}...{{ .Tag }}

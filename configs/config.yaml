@@ -1,0 +1,74 @@
+# Pletka Semantic Platform Configuration
+
+# Server configuration
+server:
+  host: "localhost"
+  port: "8080"
+  skip_migrations: false # Set to true to skip database migrations on startup
+  read_timeout: "30s"
+  write_timeout: "30s"
+  idle_timeout: "120s"
+
+# Database configuration
+database:
+  host: "localhost"
+  port: 5433
+  name: "pletka_weave"
+  user: "postgres"
+  password: "pw123" # dev-only default; production boot refuses this value
+  sslmode: "prefer"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: "1h"
+
+# Authentication configuration
+auth:
+  bcrypt_cost: 12
+  # Superadmin is granted by setting an actor's weave_actors.role to
+  # "super_admin" in the database — there is no email-based elevation config.
+
+# Logging configuration
+log:
+  level: "debug" # debug, info, warn, error
+  format: "json" # json, text
+
+# CORS configuration
+# allowed_origins is ADDITIVE: it is merged with the auto-derived
+# https://<instance>.pletka.io origin (see serverruntime.ApplyInstanceOverrides),
+# never a replacement for it. Use this to list extra origins a deploy instance
+# must also accept — e.g. the prod instance also serves https://pletka.io on
+# top of its derived https://prod.pletka.io. Supports the https://*.pletka.io
+# suffix-anchored wildcard form the CORS matcher understands.
+cors:
+  # PLETKA_CORS_ALLOWED_ORIGINS env override is comma-separated (parsed by
+  # serverruntime.parseAllowedOrigins).
+  allowed_origins: []
+
+# Environment
+env: "development" # development, production
+
+# Features
+features:
+  email_verification: false
+  registration: true
+  user_registration: true
+  social_features: true
+  rdf_generation: true
+
+# Integrations hub
+# integrations.secret_key (AES-256 key for encrypting per-project
+# integration secret fields) loads from the env var
+# PLETKA_INTEGRATIONS_SECRET_KEY — never committed in config.yaml.
+# Generate with: openssl rand -hex 32
+
+# Git materializer
+# module_host / ontology_host form the module-path namespace written into
+# each project's pletka.mod file (and vendored ontology.yaml manifests) —
+# e.g. "pletka.io/orgs/acme/projects/LA". These default to the public-clean
+# pletka.io / ontology.pletka.io values below when unset. A hosted
+# deployment that already has materialized history under a different host
+# (e.g. git.example.org / ontology.example.org) MUST override both here so
+# new materializations stay consistent with existing repos.
+git_materializer:
+  module_host: "pletka.io"
+  ontology_host: "ontology.pletka.io"

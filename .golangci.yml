@@ -1,0 +1,91 @@
+# golangci-lint config for Pletka.
+#
+# Enforced in CI via `.github/workflows/ci.yml`. Run locally with:
+#   golangci-lint run ./...
+#
+# Tracks golangci-lint v1.60+ schema. If you bump the binary version, verify
+# this file still parses (the `linters` shape changes occasionally).
+
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  go: "1.26"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocritic
+    - gosec
+    - misspell
+    - revive
+    - unparam
+    - bodyclose
+    - rowserrcheck
+    - sqlclosecheck
+    - goconst
+    - gocyclo
+    - prealloc
+    - errorlint
+    - nilerr
+    - noctx
+    - copyloopvar
+
+  settings:
+    revive:
+      severity: warning
+      rules:
+        - name: var-naming
+        - name: exported
+        - name: package-comments
+        - name: indent-error-flow
+        - name: error-return
+        - name: error-naming
+        - name: error-strings
+        - name: receiver-naming
+        - name: increment-decrement
+        - name: range
+        - name: time-naming
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: errorf
+    gocyclo:
+      min-complexity: 20
+    misspell:
+      locale: US
+    gosec:
+      excludes:
+        # G104 (audit errors not checked) is covered by errcheck
+        - G104
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+        - sloppyReassign
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - gosec
+          - goconst
+          - errcheck
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/pletka-io/pletka

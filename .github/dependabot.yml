@@ -1,0 +1,53 @@
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "go"]
+    reviewers: ["kiivihal"]
+    commit-message:
+      prefix: "deps"
+      include: scope
+
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "frontend"]
+    reviewers: ["kiivihal"]
+    commit-message:
+      prefix: "deps"
+      include: scope
+    groups:
+      svelte:
+        patterns:
+          - "svelte"
+          - "svelte-*"
+          - "@sveltejs/*"
+      tailwind:
+        patterns:
+          - "tailwindcss"
+          - "@tailwindcss/*"
+      typescript:
+        patterns:
+          - "typescript"
+          - "@tsconfig/*"
+          - "@types/*"
+      vite:
+        patterns:
+          - "vite"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "ci"]
+    reviewers: ["kiivihal"]
+    commit-message:
+      prefix: "ci"
+      include: scope

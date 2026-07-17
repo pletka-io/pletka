@@ -1,0 +1,68 @@
+{
+  "id": "pletka-core",
+  "name": "Pletka Core Frontend",
+  "description": "Core schema-driven frontend entrypoints and reusable widgets shipped by the open Pletka application.",
+  "globalEntries": [
+    { "name": "global-css", "source": "./src/global/global-css.css", "description": "Shared CSS loaded by the base template." },
+    { "name": "global-js", "source": "./src/global/global-js.ts", "description": "Shared browser bootstrap loaded by the base template." }
+  ],
+  "islands": [
+    { "name": "admin-shell", "source": "./src/islands/admin-shell.ts" },
+    { "name": "autocomplete-playground", "source": "./src/islands/autocomplete-playground.ts" },
+    { "name": "build-badge", "source": "./src/islands/build-badge.ts" },
+    { "name": "confirm", "source": "./src/islands/confirm.ts" },
+    { "name": "content", "source": "./src/islands/content.ts" },
+    { "name": "entity-form", "source": "./src/islands/entity-form.ts" },
+    { "name": "entity-list", "source": "./src/islands/entity-list.ts" },
+    { "name": "entity-view", "source": "./src/islands/entity-view.ts" },
+    { "name": "list-manager", "source": "./src/islands/list-manager.ts" },
+    { "name": "ontology-page", "source": "./src/islands/ontology-page.ts" },
+    { "name": "ontology-path", "source": "./src/islands/ontology-path.ts" },
+    { "name": "project-detail", "source": "./src/islands/project-detail.ts" },
+    { "name": "project-settings", "source": "./src/islands/project-settings.ts" },
+    { "name": "toast", "source": "./src/islands/toast.ts" },
+    { "name": "user-menu", "source": "./src/islands/user-menu.ts" }
+  ],
+  "formWidgets": [
+    { "name": "multilingual-text", "source": "./src/lib/components/form/widgets/MultilingualText.svelte" },
+    { "name": "multilingual-textarea", "source": "./src/lib/components/form/widgets/MultilingualTextarea.svelte" },
+    { "name": "system-name-preview", "source": "./src/lib/components/form/widgets/SystemNamePreview.svelte" },
+    { "name": "slug-input", "source": "./src/lib/components/form/widgets/SlugInput.svelte" },
+    { "name": "select", "source": "./src/lib/components/form/widgets/SelectWidget.svelte" },
+    { "name": "search-select", "source": "./src/lib/components/form/widgets/SearchSelectWidget.svelte" },
+    { "name": "vocabulary-entry-picker", "source": "./src/lib/components/form/widgets/VocabularyEntryPicker.svelte" },
+    { "name": "pill-multi-select", "source": "./src/lib/components/form/widgets/PillMultiSelect.svelte" },
+    { "name": "ontology-path", "source": "./src/lib/components/form/widgets/OntologyPathBuilder.svelte" },
+    { "name": "subfield-paths", "source": "./src/lib/components/form/widgets/SubfieldPathsDisplay.svelte" },
+    { "name": "prefix-input", "source": "./src/lib/components/form/widgets/PrefixInput.svelte" },
+    { "name": "text", "source": "./src/lib/components/form/widgets/TextInput.svelte" },
+    { "name": "number", "source": "./src/lib/components/form/widgets/TextInput.svelte" },
+    { "name": "date", "source": "./src/lib/components/form/widgets/TextInput.svelte" },
+    { "name": "url", "source": "./src/lib/components/form/widgets/TextInput.svelte" },
+    { "name": "textarea", "source": "./src/lib/components/form/widgets/TextInput.svelte" },
+    { "name": "password", "source": "./src/lib/components/form/widgets/TextInput.svelte" },
+    { "name": "checkbox", "source": "./src/lib/components/form/widgets/Checkbox.svelte" },
+    { "name": "multi-select", "source": "./src/lib/components/form/widgets/MultiSelect.svelte" },
+    { "name": "radio-group", "source": "./src/lib/components/form/widgets/RadioGroup.svelte" },
+    { "name": "readonly-stat", "source": "./src/lib/components/form/widgets/ReadonlyStat.svelte" },
+    { "name": "readonly-table", "source": "./src/lib/components/form/widgets/ReadonlyTable.svelte" }
+  ],
+  "entityListRowWidgets": [
+    { "name": "default", "source": "./src/lib/components/entity-list/EntityListRow.svelte" },
+    { "name": "editorial", "source": "./src/lib/components/entity-list/widgets/EditorialListRow.svelte" }
+  ],
+  "entityListEditorWidgets": [
+    { "name": "example-workspace", "source": "./src/lib/components/example/ExampleWorkspace.svelte" }
+  ],
+  "contentWidgets": [
+    { "name": "hero", "source": "./src/lib/components/content/widgets/Hero.svelte" },
+    { "name": "prose", "source": "./src/lib/components/content/widgets/Prose.svelte" },
+    { "name": "feature_grid", "source": "./src/lib/components/content/widgets/FeatureGrid.svelte" },
+    { "name": "principles", "source": "./src/lib/components/content/widgets/Principles.svelte" },
+    { "name": "cta_strip", "source": "./src/lib/components/content/widgets/CTAStrip.svelte" },
+    { "name": "quote", "source": "./src/lib/components/content/widgets/Quote.svelte" },
+    { "name": "toc", "source": "./src/lib/components/content/widgets/Toc.svelte" },
+    { "name": "actions", "source": "./src/lib/components/content/widgets/Actions.svelte" },
+    { "name": "steps", "source": "./src/lib/components/content/widgets/Steps.svelte" }
+  ]
+}

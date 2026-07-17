@@ -1,0 +1,275 @@
+version: "1"
+groups:
+  - id: Literal
+    label: Literal
+    fill: "#ffffff"
+    stroke: "#000000"
+  - id: CRM_Entity
+    label: CRM Entity
+    fill: "#ffffff"
+    stroke: "#000000"
+  - id: CRM_Entity_URI
+    label: CRM Entity URI
+    fill: "#ffffff"
+    stroke: "#000000"
+  - id: Temporal_Entity
+    label: Temporal Entity
+    fill: "#82c3ec"
+    stroke: "#000000"
+  - id: Temporal_Entity_URI
+    label: Temporal Entity URI
+    fill: "#d2e9f9"
+    stroke: "#000000"
+  - id: Type
+    label: Type
+    fill: "#fab565"
+    stroke: "#000000"
+  - id: Type_URI
+    label: Type URI
+    fill: "#fde7ce"
+    stroke: "#000000"
+  - id: Time-Span
+    label: Time-Span
+    fill: "#86bcc8"
+    stroke: "#000000"
+  - id: Time-Span_URI
+    label: Time-Span URI
+    fill: "#dcebef"
+    stroke: "#000000"
+  - id: Appellation
+    label: Appellation
+    fill: "#fef3ba"
+    stroke: "#000000"
+  - id: Appellation_URI
+    label: Appellation URI
+    fill: "#fffae6"
+    stroke: "#000000"
+  - id: Place
+    label: Place
+    fill: "#94cc7d"
+    stroke: "#000000"
+  - id: Place_URI
+    label: Place URI
+    fill: "#e1f1da"
+    stroke: "#000000"
+  - id: Persistent_Item
+    label: Persistent Item
+    fill: "#ffffff"
+    stroke: "#000000"
+  - id: Persistent_Item_URI
+    label: Persistent Item URI
+    fill: "#ffffff"
+    stroke: "#000000"
+  - id: Conceptual_Object
+    label: Conceptual Object
+    fill: "#fddc34"
+    stroke: "#000000"
+  - id: Conceptual_Object_URI
+    label: Conceptual Object URI
+    fill: "#fef6cd"
+    stroke: "#000000"
+  - id: Physical_Thing
+    label: Physical Thing
+    fill: "#e1ba9c"
+    stroke: "#000000"
+  - id: Physical_Thing_URI
+    label: Physical Thing URI
+    fill: "#f3e5d8"
+    stroke: "#000000"
+  - id: Actor
+    label: Actor
+    fill: "#ffbdca"
+    stroke: "#000000"
+  - id: Actor_URI
+    label: Actor URI
+    fill: "#ffe6eb"
+    stroke: "#000000"
+  - id: PC_Classes
+    label: PC Classes
+    fill: "#cc80ff"
+    stroke: "#000000"
+  - id: PC_Classes_URI
+    label: PC Classes URI
+    fill: "#ebccff"
+    stroke: "#000000"
+  - id: Multi
+    label: Multi
+    fill: "#cccccc"
+    stroke: "#000000"
+  - id: Multi_URI
+    label: Multi URI
+    fill: "#cccccc"
+    stroke: "#000000"
+  - id: Default
+    label: Default
+    fill: "#ffffff"
+    stroke: "#000000"
+  - id: Default_URI
+    label: Default URI
+    fill: "#ffffff"
+    stroke: "#000000"
+classes:
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E1_CRM_Entity"
+    qname: "crm:E1_CRM_Entity"
+    local_name: "E1_CRM_Entity"
+    group: CRM_Entity
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E2_Temporal_Entity"
+    qname: "crm:E2_Temporal_Entity"
+    local_name: "E2_Temporal_Entity"
+    group: Temporal_Entity
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E7_Activity"
+    qname: "crm:E7_Activity"
+    local_name: "E7_Activity"
+    group: Temporal_Entity
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E13_Attribute_Assignment"
+    qname: "crm:E13_Attribute_Assignment"
+    local_name: "E13_Attribute_Assignment"
+    group: Temporal_Entity
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E67_Birth"
+    qname: "crm:E67_Birth"
+    local_name: "E67_Birth"
+    group: Temporal_Entity
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E69_Death"
+    qname: "crm:E69_Death"
+    local_name: "E69_Death"
+    group: Temporal_Entity
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E55_Type"
+    qname: "crm:E55_Type"
+    local_name: "E55_Type"
+    group: Type
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E56_Language"
+    qname: "crm:E56_Language"
+    local_name: "E56_Language"
+    group: Type
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E57_Material"
+    qname: "crm:E57_Material"
+    local_name: "E57_Material"
+    group: Type
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E58_Measurement_Unit"
+    qname: "crm:E58_Measurement_Unit"
+    local_name: "E58_Measurement_Unit"
+    group: Type
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E52_Time-Span"
+    qname: "crm:E52_Time-Span"
+    local_name: "E52_Time-Span"
+    group: Time-Span
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E41_Appellation"
+    qname: "crm:E41_Appellation"
+    local_name: "E41_Appellation"
+    group: Appellation
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E42_Identifier"
+    qname: "crm:E42_Identifier"
+    local_name: "E42_Identifier"
+    group: Appellation
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E53_Place"
+    qname: "crm:E53_Place"
+    local_name: "E53_Place"
+    group: Place
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E77_Persistent_Item"
+    qname: "crm:E77_Persistent_Item"
+    local_name: "E77_Persistent_Item"
+    group: Persistent_Item
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E28_Conceptual_Object"
+    qname: "crm:E28_Conceptual_Object"
+    local_name: "E28_Conceptual_Object"
+    group: Conceptual_Object
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E33_Linguistic_Object"
+    qname: "crm:E33_Linguistic_Object"
+    local_name: "E33_Linguistic_Object"
+    group: Conceptual_Object
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E73_Information_Object"
+    qname: "crm:E73_Information_Object"
+    local_name: "E73_Information_Object"
+    group: Conceptual_Object
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E90_Symbolic_Object"
+    qname: "crm:E90_Symbolic_Object"
+    local_name: "E90_Symbolic_Object"
+    group: Conceptual_Object
+  - uri: "http://www.ics.forth.gr/isl/CRMext/CRMdig.rdfs/D1_Digital_Object"
+    qname: "crmdig:D1_Digital_Object"
+    local_name: "D1_Digital_Object"
+    group: Conceptual_Object
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E18_Physical_Thing"
+    qname: "crm:E18_Physical_Thing"
+    local_name: "E18_Physical_Thing"
+    group: Physical_Thing
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E19_Physical_Object"
+    qname: "crm:E19_Physical_Object"
+    local_name: "E19_Physical_Object"
+    group: Physical_Thing
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E20_Biological_Object"
+    qname: "crm:E20_Biological_Object"
+    local_name: "E20_Biological_Object"
+    group: Physical_Thing
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E22_Human-Made_Object"
+    qname: "crm:E22_Human-Made_Object"
+    local_name: "E22_Human-Made_Object"
+    group: Physical_Thing
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E24_Physical_Human-Made_Thing"
+    qname: "crm:E24_Physical_Human-Made_Thing"
+    local_name: "E24_Physical_Human-Made_Thing"
+    group: Physical_Thing
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E25_Human-Made_Feature"
+    qname: "crm:E25_Human-Made_Feature"
+    local_name: "E25_Human-Made_Feature"
+    group: Physical_Thing
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E26_Physical_Feature"
+    qname: "crm:E26_Physical_Feature"
+    local_name: "E26_Physical_Feature"
+    group: Physical_Thing
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E27_Site"
+    qname: "crm:E27_Site"
+    local_name: "E27_Site"
+    group: Physical_Thing
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E70_Thing"
+    qname: "crm:E70_Thing"
+    local_name: "E70_Thing"
+    group: Physical_Thing
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E39_Actor"
+    qname: "crm:E39_Actor"
+    local_name: "E39_Actor"
+    group: Actor
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E21_Person"
+    qname: "crm:E21_Person"
+    local_name: "E21_Person"
+    group: Actor
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E40_Legal_Body"
+    qname: "crm:E40_Legal_Body"
+    local_name: "E40_Legal_Body"
+    group: Actor
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E74_Group"
+    qname: "crm:E74_Group"
+    local_name: "E74_Group"
+    group: Actor
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E54_Dimension"
+    qname: "crm:E54_Dimension"
+    local_name: "E54_Dimension"
+    group: Default
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E92_Spacetime_Volume"
+    qname: "crm:E92_Spacetime_Volume"
+    local_name: "E92_Spacetime_Volume"
+    group: PC_Classes
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/E59_Primitive_Value"
+    qname: "crm:E59_Primitive_Value"
+    local_name: "E59_Primitive_Value"
+    group: Default
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/PC0_Typed_CRM_Property"
+    qname: "crm:PC0_Typed_CRM_Property"
+    local_name: "PC0_Typed_CRM_Property"
+    group: PC_Classes
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/PC14_carried_out_by"
+    qname: "crm:PC14_carried_out_by"
+    local_name: "PC14_carried_out_by"
+    group: PC_Classes
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/PC16_used_specific_object"
+    qname: "crm:PC16_used_specific_object"
+    local_name: "PC16_used_specific_object"
+    group: PC_Classes
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/PC67_refers_to"
+    qname: "crm:PC67_refers_to"
+    local_name: "PC67_refers_to"
+    group: PC_Classes
+  - uri: "http://www.cidoc-crm.org/cidoc-crm/PC107_has_current_or_former_member"
+    qname: "crm:PC107_has_current_or_former_member"
+    local_name: "PC107_has_current_or_former_member"
+    group: PC_Classes

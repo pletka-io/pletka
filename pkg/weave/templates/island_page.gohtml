@@ -1,0 +1,54 @@
+{{define "content"}}
+<div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+    {{if .Breadcrumbs}}
+    <nav class="flex mb-4" aria-label="Breadcrumb">
+        <ol class="inline-flex items-center space-x-1 md:space-x-3">
+            {{range $i, $crumb := .Breadcrumbs}}
+            <li>
+                <div class="flex items-center">
+                    {{if gt $i 0}}
+                    <svg class="w-3 h-3 text-gray-400 mx-1" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+                    </svg>
+                    {{end}}
+                    {{if $crumb.Pivots}}
+                    <span class="ml-1 flex items-center space-x-1 text-sm font-medium md:ml-2">
+                        {{range $j, $p := $crumb.Pivots}}
+                        {{if gt $j 0}}<span class="text-gray-300">|</span>{{end}}
+                        {{if $p.Active}}
+                        <a href="{{$p.Href}}" class="text-gray-900 font-semibold hover:text-pletka-primary">{{$p.Label}}</a>
+                        {{else}}
+                        <a href="{{$p.Href}}" class="text-gray-500 hover:text-pletka-primary">{{$p.Label}}</a>
+                        {{end}}
+                        {{end}}
+                    </span>
+                    {{else if $crumb.Href}}
+                    <a href="{{$crumb.Href}}" class="ml-1 text-sm font-medium text-gray-700 hover:text-pletka-primary md:ml-2">{{$crumb.Label}}</a>
+                    {{else}}
+                    <span class="ml-1 text-sm font-medium text-gray-500 md:ml-2">{{$crumb.Label}}</span>
+                    {{end}}
+                </div>
+            </li>
+            {{end}}
+        </ol>
+    </nav>
+    {{end}}
+
+    {{if .Heading}}
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold text-gray-900">{{.Heading}}</h1>
+        {{if .Subheading}}
+        <p class="mt-1 text-sm text-gray-500">{{.Subheading}}</p>
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if .Island.Name}}
+    <div data-island="{{.Island.Name}}"{{range .PropAttrs}} {{.}}{{end}}>
+        {{.Island.Placeholder}}
+    </div>
+    {{else}}
+    {{.Island.Placeholder}}
+    {{end}}
+</div>
+{{end}}

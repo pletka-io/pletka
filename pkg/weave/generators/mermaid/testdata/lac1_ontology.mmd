@@ -1,0 +1,22 @@
+graph TD
+classDef Literal fill:#ffffff,stroke:#000000;
+classDef CRM_Entity fill:#ffffff,stroke:#000000;
+classDef Temporal_Entity fill:#82c3ec,stroke:#000000;
+classDef Type fill:#fab565,stroke:#000000;
+classDef Time-Span fill:#86bcc8,stroke:#000000;
+classDef Appellation fill:#fef3ba,stroke:#000000;
+classDef Place fill:#94cc7d,stroke:#000000;
+classDef Persistent_Item fill:#ffffff,stroke:#000000;
+classDef Conceptual_Object fill:#fddc34,stroke:#000000;
+classDef Physical_Thing fill:#e1ba9c,stroke:#000000;
+classDef Actor fill:#ffbdca,stroke:#000000;
+classDef PC_Classes fill:#cc80ff,stroke:#000000;
+classDef Multi fill:#cccccc,stroke:#000000;
+classDef Default fill:#ffffff,stroke:#000000;
+
+0["crm:E1_CRM_Entity"]:::CRM_Entity -->|crm:P1_is_identified_by| 1["crm:E33_E41_Linguistic_Appellation"]:::Default
+1["crm:E33_E41_Linguistic_Appellation"]:::Default -->|crm:P190_has_symbolic_content| 2[rdfs:Literal]:::Literal
+1["crm:E33_E41_Linguistic_Appellation"]:::Default -->|crm:P2_has_type| 3["crm:E55_Type"]:::Type
+1["crm:E33_E41_Linguistic_Appellation"]:::Default -->|crm:P72_has_language| 4["crm:E56_Language"]:::Type
+1["crm:E33_E41_Linguistic_Appellation"]:::Default -->|crm:P67i_is_referred_to_by| 5["crm:E33_Linguistic_Object"]:::Conceptual_Object
+1["crm:E33_E41_Linguistic_Appellation"]:::Default -->|crm:P106_is_composed_of| 6["crm:E33_E41_Linguistic_Appellation"]:::Default
