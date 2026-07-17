@@ -270,16 +270,12 @@ test:
 	@go test ./...
 
 # ---------------------------------------------------------------------------
-# Static analysis
-#
-# golangci-lint v2 aggregates staticcheck + ~18 linters (see .golangci.yml)
-# in one fast parallel pass (~9s cold, ~1-2s warm). It MUST be built with the
-# same Go toolchain as the code (the config targets go 1.26); an older binary
-# refuses to run. Install/upgrade with:
-#   go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+# Static analysis — all via `go tool` so the versions pinned in go.mod are used
+# on every machine and in CI (no separate installs, no toolchain drift; the
+# tool is built with the local Go, so it always matches the go 1.26 config).
+# golangci-lint v2 aggregates staticcheck + ~18 linters (.golangci.yml) in one
+# fast parallel pass (~9s cold, ~1-2s warm). govulncheck scans for known vulns.
 # ---------------------------------------------------------------------------
-GOLANGCI := golangci-lint
-
 .PHONY: vet
 vet:
 	@echo "$(YELLOW)go vet...$(NC)"
@@ -287,27 +283,25 @@ vet:
 
 .PHONY: lint
 lint:
-	@command -v $(GOLANGCI) >/dev/null 2>&1 || { echo "$(RED)golangci-lint not found — go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest$(NC)"; exit 1; }
 	@echo "$(YELLOW)golangci-lint (full)...$(NC)"
-	@$(GOLANGCI) run ./...
+	@go tool golangci-lint run ./...
 
-# lint-new is the realistic gate on a legacy codebase: only reports issues
-# introduced by changes vs origin/main, so the ~2.5k-issue backlog doesn't
-# block new work. Clean the backlog gradually via `make lint`.
+# lint-new is the realistic gate on a legacy codebase: only issues this branch
+# introduces vs main (merge-base), so the ~2.5k-issue backlog doesn't block new
+# work. Clean the backlog gradually via `make lint`.
 .PHONY: lint-new
 lint-new:
-	@command -v $(GOLANGCI) >/dev/null 2>&1 || { echo "$(RED)golangci-lint not found — go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest$(NC)"; exit 1; }
 	@echo "$(YELLOW)golangci-lint (changes vs origin/main)...$(NC)"
-	@$(GOLANGCI) run --new-from-rev=origin/main ./...
+	@go tool golangci-lint run --new-from-merge-base=origin/main ./...
 
 .PHONY: lint-fix
 lint-fix:
-	@$(GOLANGCI) run --fix ./...
+	@go tool golangci-lint run --fix ./...
 
 .PHONY: vuln
 vuln:
 	@echo "$(YELLOW)govulncheck...$(NC)"
-	@go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	@go tool govulncheck ./...
 
 # Fast pre-push gate: compile everything, vet, lint only the diff, run tests.
 # govulncheck is intentionally separate (downloads the advisory DB — slower).
