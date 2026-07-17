@@ -105,14 +105,11 @@ build/
 .gocache
 
 # Build artifacts  
-zellij-go/zellij-go
-zellij-go/zellij
 pletka
 createuser
 *.log
 
 # Development files  
-zellij-go/migration_data.zip
 cookies.txt
 test-auth.sh
 tail-log.sh
@@ -139,7 +136,6 @@ schema-diagram.html
 
 # Standalone binaries (built outside bin/)
 /ontology-import
-/zellij-go
 
 # Python requirements (for utility scripts)
 requirements.txt

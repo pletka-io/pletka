@@ -12,7 +12,7 @@ func usageTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://postgres:pw123@localhost:5433/zellij_weave_multipath?sslmode=disable"
+		dsn = "postgres://postgres:pw123@localhost:5433/pletka_weave?sslmode=disable"
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {

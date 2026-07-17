@@ -67,8 +67,7 @@ New to the codebase? Read in this order:
 ## Status
 
 Active development. The Go module is `github.com/pletka-io/pletka` and the dev
-database is `pletka_weave`. One legacy name still lingers: the GitHub repo is
-`pletka-io/zellij-go`. Everything product-facing is Pletka.
+database is `pletka_weave`.
 
 > This `docs-oss/` tree is the clean-room basis for the open-source repository.
 > At the core/platform split it becomes the canonical `docs/`.

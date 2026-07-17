@@ -8,8 +8,7 @@ that describe their collections, grounded in shared ontologies such as CIDOC-CRM
 See [`docs-oss/VISION.md`](docs-oss/VISION.md) for the product vision.
 
 > **Status:** active development. The Go module is `github.com/pletka-io/pletka`
-> and the dev database is `pletka_weave`. One legacy name still lingers: the
-> GitHub repo is `pletka-io/zellij-go`. Everything product-facing is Pletka.
+> and the dev database is `pletka_weave`.
 
 ## Architecture
 
@@ -79,7 +78,7 @@ Run `make help` for the full list.
 
 Core server configuration is loaded by the runtime bootstrap from
 `configs/config.yaml`, environment variables, and CLI flags. `.env` (gitignored)
-holds per-worktree overrides such as `ZELLIJ_PORT`, `PLETKA_DB_NAME`, and
+holds per-worktree overrides such as `PLETKA_PORT`, `PLETKA_DB_NAME`, and
 database credentials.
 
 Customer operations such as Airtable export/import, ontology manifest loading,
