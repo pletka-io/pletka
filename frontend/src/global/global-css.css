@@ -10,6 +10,13 @@
 @theme {
   --color-pletka-primary: #92ccc8;
   --color-pletka-secondary: #f58031;
+  /* pin to tailwind v3 default stacks — v4 changed its defaults, which resolve
+     to different system fonts on Linux; this keeps rendering identical everywhere */
+  --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  /* preflight html/body base reads these, not --font-sans directly */
+  --default-font-family: var(--font-sans);
+  --default-mono-font-family: var(--font-mono);
 }
 
 /* Custom Pletka color utilities */
