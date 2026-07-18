@@ -15,6 +15,3 @@ func newServer(h Host) *sdk.Server {
 	registerSemanticTools(s, h) // Task 10
 	return s
 }
-
-// registerSemanticTools attaches semantic-surface tools. Stub until Task 10.
-func registerSemanticTools(s *sdk.Server, h Host) {}

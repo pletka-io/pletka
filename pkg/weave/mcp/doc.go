@@ -4,4 +4,9 @@
 // narrow interfaces on Host; capability gating happens inside those
 // services via the AuthSnapshot the bearer middleware puts on the context.
 // v1 is read-only: no tool mutates anything.
+//
+// tools_semantic.go imports peer slices (field, model, collection, category,
+// vocabulary) for their pure schema builders and view types only — the same
+// handler-only-module composition pattern entityschema uses to dispatch to
+// per-slice BuildFormSchema/BuildCreateForm, not a peer-slice violation.
 package mcp
