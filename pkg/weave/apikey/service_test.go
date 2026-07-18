@@ -121,4 +121,8 @@ func TestRevokeOwned(t *testing.T) {
 	if err != nil || n != 1 {
 		t.Fatalf("owned: n=%d err=%v", n, err)
 	}
+	n, err = svc.RevokeOwned(context.Background(), "actor1", key.ID)
+	if err != nil || n != 0 {
+		t.Fatalf("double revoke: n=%d err=%v, want 0,nil (idempotent)", n, err)
+	}
 }
