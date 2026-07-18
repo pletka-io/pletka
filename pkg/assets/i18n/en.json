@@ -1390,6 +1390,24 @@
       "section": {
         "security": "Security"
       }
+    },
+    "apikeys": {
+      "title": "API keys",
+      "empty_title": "No API keys yet",
+      "empty_subtitle": "Create a key to connect agents and tools (MCP) to Pletka.",
+      "create": "Create key",
+      "col_name": "Name",
+      "col_prefix": "Prefix",
+      "col_status": "Status",
+      "col_created": "Created",
+      "col_last_used": "Last used",
+      "revoke": "Revoke",
+      "section": "New API key",
+      "field_name": "Name",
+      "field_name_help": "What this key is for, e.g. 'Claude on my laptop'.",
+      "field_expires": "Expires after (days)",
+      "field_expires_help": "Leave blank for no expiry.",
+      "reveal": "API key (copy now — shown only once)"
     }
   },
   "institution": {

@@ -718,6 +718,24 @@
       "saved": "Profiel bijgewerkt",
       "name_help": "Hoe je naam wordt weergegeven binnen het platform.",
       "orcid_help": "Je ORCID iD (bv. 0000-0002-1825-0097)."
+    },
+    "apikeys": {
+      "title": "API-sleutels",
+      "empty_title": "Nog geen API-sleutels",
+      "empty_subtitle": "Maak een sleutel aan om agents en tools (MCP) met Pletka te verbinden.",
+      "create": "Sleutel aanmaken",
+      "col_name": "Naam",
+      "col_prefix": "Prefix",
+      "col_status": "Status",
+      "col_created": "Aangemaakt",
+      "col_last_used": "Laatst gebruikt",
+      "revoke": "Intrekken",
+      "section": "Nieuwe API-sleutel",
+      "field_name": "Naam",
+      "field_name_help": "Waar deze sleutel voor is, bijv. 'Claude op mijn laptop'.",
+      "field_expires": "Verloopt na (dagen)",
+      "field_expires_help": "Laat leeg voor geen vervaldatum.",
+      "reveal": "API-sleutel (nu kopiëren — wordt maar één keer getoond)"
     }
   },
   "institution": {
