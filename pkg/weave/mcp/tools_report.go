@@ -216,7 +216,7 @@ func registerReportTools(s *sdk.Server, h Host) {
 			"model (by semantic ID, regardless of project) accounts for >=2 of the group's fields — those " +
 			"collapse into identical triples on export and are the ones worth fixing; cross-model sharing of the " +
 			"same path/name is legitimate anchoring, not a defect. Scans up to 10000 fields (fallbackScanLimit); " +
-			"truncated=true and fields_scanned report when the project exceeds that cap.",
+			"truncated=true and fields_scanned report when the project exceeds that cap. The report scans fields of all statuses, including drafts and deprecated fields.",
 	}, instrumented(h, "project_report", func(ctx context.Context, req *sdk.CallToolRequest, in projectReportInput) (*sdk.CallToolResult, projectReportOutput, error) {
 		out, err := projectReport(ctx, h, in)
 		return nil, out, err
