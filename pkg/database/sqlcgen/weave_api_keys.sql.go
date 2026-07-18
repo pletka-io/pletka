@@ -11,13 +11,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const aPIKeyCreate = `-- name: APIKeyCreate :one
+const weaveAPIKeyCreate = `-- name: WeaveAPIKeyCreate :one
 INSERT INTO weave_api_keys (id, actor_id, name, key_hash, key_prefix, expires_at)
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, actor_id, name, key_hash, key_prefix, created_at, last_used_at, expires_at, revoked_at
 `
 
-type APIKeyCreateParams struct {
+type WeaveAPIKeyCreateParams struct {
 	ID        string             `json:"id"`
 	ActorID   string             `json:"actor_id"`
 	Name      string             `json:"name"`
@@ -26,8 +26,8 @@ type APIKeyCreateParams struct {
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 }
 
-func (q *Queries) APIKeyCreate(ctx context.Context, arg APIKeyCreateParams) (WeaveApiKey, error) {
-	row := q.db.QueryRow(ctx, aPIKeyCreate,
+func (q *Queries) WeaveAPIKeyCreate(ctx context.Context, arg WeaveAPIKeyCreateParams) (WeaveApiKey, error) {
+	row := q.db.QueryRow(ctx, weaveAPIKeyCreate,
 		arg.ID,
 		arg.ActorID,
 		arg.Name,
@@ -50,12 +50,12 @@ func (q *Queries) APIKeyCreate(ctx context.Context, arg APIKeyCreateParams) (Wea
 	return i, err
 }
 
-const aPIKeyGetByHash = `-- name: APIKeyGetByHash :one
+const weaveAPIKeyGetByHash = `-- name: WeaveAPIKeyGetByHash :one
 SELECT id, actor_id, name, key_hash, key_prefix, created_at, last_used_at, expires_at, revoked_at FROM weave_api_keys WHERE key_hash = $1
 `
 
-func (q *Queries) APIKeyGetByHash(ctx context.Context, keyHash string) (WeaveApiKey, error) {
-	row := q.db.QueryRow(ctx, aPIKeyGetByHash, keyHash)
+func (q *Queries) WeaveAPIKeyGetByHash(ctx context.Context, keyHash string) (WeaveApiKey, error) {
+	row := q.db.QueryRow(ctx, weaveAPIKeyGetByHash, keyHash)
 	var i WeaveApiKey
 	err := row.Scan(
 		&i.ID,
@@ -71,12 +71,12 @@ func (q *Queries) APIKeyGetByHash(ctx context.Context, keyHash string) (WeaveApi
 	return i, err
 }
 
-const aPIKeyList = `-- name: APIKeyList :many
+const weaveAPIKeyList = `-- name: WeaveAPIKeyList :many
 SELECT id, actor_id, name, key_hash, key_prefix, created_at, last_used_at, expires_at, revoked_at FROM weave_api_keys ORDER BY created_at DESC
 `
 
-func (q *Queries) APIKeyList(ctx context.Context) ([]WeaveApiKey, error) {
-	rows, err := q.db.Query(ctx, aPIKeyList)
+func (q *Queries) WeaveAPIKeyList(ctx context.Context) ([]WeaveApiKey, error) {
+	rows, err := q.db.Query(ctx, weaveAPIKeyList)
 	if err != nil {
 		return nil, err
 	}
@@ -105,12 +105,12 @@ func (q *Queries) APIKeyList(ctx context.Context) ([]WeaveApiKey, error) {
 	return items, nil
 }
 
-const aPIKeyListByActor = `-- name: APIKeyListByActor :many
+const weaveAPIKeyListByActor = `-- name: WeaveAPIKeyListByActor :many
 SELECT id, actor_id, name, key_hash, key_prefix, created_at, last_used_at, expires_at, revoked_at FROM weave_api_keys WHERE actor_id = $1 ORDER BY created_at DESC
 `
 
-func (q *Queries) APIKeyListByActor(ctx context.Context, actorID string) ([]WeaveApiKey, error) {
-	rows, err := q.db.Query(ctx, aPIKeyListByActor, actorID)
+func (q *Queries) WeaveAPIKeyListByActor(ctx context.Context, actorID string) ([]WeaveApiKey, error) {
+	rows, err := q.db.Query(ctx, weaveAPIKeyListByActor, actorID)
 	if err != nil {
 		return nil, err
 	}
@@ -139,25 +139,25 @@ func (q *Queries) APIKeyListByActor(ctx context.Context, actorID string) ([]Weav
 	return items, nil
 }
 
-const aPIKeyRevoke = `-- name: APIKeyRevoke :execrows
+const weaveAPIKeyRevoke = `-- name: WeaveAPIKeyRevoke :execrows
 UPDATE weave_api_keys
 SET revoked_at = now()
 WHERE (id = $1 OR key_prefix = $1) AND revoked_at IS NULL
 `
 
-func (q *Queries) APIKeyRevoke(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.Exec(ctx, aPIKeyRevoke, id)
+func (q *Queries) WeaveAPIKeyRevoke(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, weaveAPIKeyRevoke, id)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
-const aPIKeyTouch = `-- name: APIKeyTouch :exec
+const weaveAPIKeyTouch = `-- name: WeaveAPIKeyTouch :exec
 UPDATE weave_api_keys SET last_used_at = now() WHERE id = $1
 `
 
-func (q *Queries) APIKeyTouch(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, aPIKeyTouch, id)
+func (q *Queries) WeaveAPIKeyTouch(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, weaveAPIKeyTouch, id)
 	return err
 }

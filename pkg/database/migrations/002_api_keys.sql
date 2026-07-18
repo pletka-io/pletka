@@ -11,7 +11,8 @@ CREATE TABLE weave_api_keys (
     revoked_at   timestamptz
 );
 
-CREATE INDEX weave_api_keys_actor_idx ON weave_api_keys (actor_id);
+CREATE INDEX idx_wak_actor ON weave_api_keys (actor_id);
+CREATE UNIQUE INDEX idx_wak_prefix_active ON weave_api_keys (key_prefix) WHERE revoked_at IS NULL;
 
 -- +goose Down
 DROP TABLE weave_api_keys;
