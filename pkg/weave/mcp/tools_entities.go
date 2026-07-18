@@ -34,12 +34,16 @@ type entitySummary struct {
 	Deprecated        bool                `json:"deprecated,omitempty"`
 	OntologyPath      string              `json:"ontology_path,omitempty"`
 	ExpectedValueType string              `json:"expected_value_type,omitempty"`
+	// BaseClass is the model/collection's scope class (OntologyScope.PrefixedName()), only set when OntologyScope is non-zero.
+	BaseClass string `json:"base_class,omitempty"`
+	// PathElements carries a field's full ontology path verbatim (OntologyPath above is the derived string form).
+	PathElements []domain.PathElement `json:"path_elements,omitempty"`
 }
 
 type listEntitiesOutput struct {
-	Entities   []entitySummary `json:"entities"`
-	// TotalCount is the store limit/offset match count for field/model/collection; for category it equals the returned page size. Status filter runs per-page (after limit/offset), so len(entities) can be smaller.
-	TotalCount int64 `json:"total_count" jsonschema:"pre-filter match count for field/model/collection; page size for category; status filtering happens per page"`
+	Entities []entitySummary `json:"entities"`
+	// TotalCount is the total count of rows matching the search and status filter, independent of paging.
+	TotalCount int64 `json:"total_count" jsonschema:"total rows matching the search and status filter"`
 }
 
 type getEntityInput struct {
@@ -90,6 +94,9 @@ func listOpts(in listEntitiesInput) []domain.QueryOption {
 	if in.Query != "" {
 		opts = append(opts, domain.WithSearch(in.Query))
 	}
+	if in.Status != "" {
+		opts = append(opts, domain.WithFilter("status", strings.ToLower(in.Status)))
+	}
 	limit := in.Limit
 	if limit <= 0 {
 		limit = 100
@@ -108,8 +115,6 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 		return listEntitiesOutput{}, err
 	}
 	out := listEntitiesOutput{Entities: []entitySummary{}}
-	// ponytail: status filtered in memory post-List; move into a query
-	// option if any project's entity count makes this measurable.
 	switch strings.ToLower(in.EntityType) {
 	case "field":
 		rows, total, err := h.Fields.List(ctx, in.ProjectID, listOpts(in)...)
@@ -118,13 +123,11 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 		}
 		out.TotalCount = total
 		for _, f := range rows {
-			if !keepStatus(string(f.Status), in.Status) {
-				continue
-			}
 			out.Entities = append(out.Entities, entitySummary{
 				ID: f.ID, SemanticID: f.SemanticID, SystemName: f.SystemName,
 				UIName: f.UIName, Status: string(f.Status), Deprecated: f.Deprecated,
 				OntologyPath: f.OntologyPath(), ExpectedValueType: f.ExpectedValueType,
+				PathElements: f.PathElements,
 			})
 		}
 	case "model":
@@ -134,13 +137,14 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 		}
 		out.TotalCount = total
 		for _, m := range rows {
-			if !keepStatus(string(m.Status), in.Status) {
-				continue
-			}
-			out.Entities = append(out.Entities, entitySummary{
+			s := entitySummary{
 				ID: m.ID, SemanticID: m.SemanticID, SystemName: m.SystemName,
 				UIName: m.UIName, Status: string(m.Status), Deprecated: m.Deprecated,
-			})
+			}
+			if m.OntologyScope.LocalName != "" {
+				s.BaseClass = m.OntologyScope.PrefixedName()
+			}
+			out.Entities = append(out.Entities, s)
 		}
 	case "collection":
 		rows, total, err := h.Collections.List(ctx, in.ProjectID, listOpts(in)...)
@@ -149,24 +153,46 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 		}
 		out.TotalCount = total
 		for _, c := range rows {
-			if !keepStatus(string(c.Status), in.Status) {
-				continue
-			}
-			out.Entities = append(out.Entities, entitySummary{
+			s := entitySummary{
 				ID: c.ID, SemanticID: c.SemanticID, SystemName: c.SystemName,
 				UIName: c.UIName, Status: string(c.Status), Deprecated: c.Deprecated,
-			})
+			}
+			if c.OntologyScope.LocalName != "" {
+				s.BaseClass = c.OntologyScope.PrefixedName()
+			}
+			out.Entities = append(out.Entities, s)
 		}
 	case "category":
+		// The category store ignores paging/filters entirely — the tool
+		// fetches everything, filters by status, then pages in memory.
 		rows, err := h.Categories.List(ctx, in.ProjectID, listOpts(in)...)
 		if err != nil {
 			return out, fmt.Errorf("list categories: %w", err)
 		}
-		out.TotalCount = int64(len(rows))
+		var filtered []*domain.Category
 		for _, c := range rows {
 			if !keepStatus(string(c.Status), in.Status) {
 				continue
 			}
+			filtered = append(filtered, c)
+		}
+		out.TotalCount = int64(len(filtered))
+		limit := in.Limit
+		if limit <= 0 {
+			limit = 100
+		}
+		start := in.Offset
+		if start < 0 {
+			start = 0
+		}
+		if start > len(filtered) {
+			start = len(filtered)
+		}
+		end := start + limit
+		if end > len(filtered) {
+			end = len(filtered)
+		}
+		for _, c := range filtered[start:end] {
 			out.Entities = append(out.Entities, entitySummary{
 				ID: c.ID, SemanticID: c.SemanticID, SystemName: c.SystemName,
 				UIName: c.UIName, Status: string(c.Status), Deprecated: c.Deprecated,
@@ -254,7 +280,7 @@ func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput,
 func registerEntityTools(s *sdk.Server, h Host) {
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "list_entities",
-		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging. Note: the status filter applies per page (after limit/offset); to see all draft entities, page through without relying on total_count. For category, total_count equals the returned page size.",
+		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging. The status filter is applied before paging for every entity type; total_count is the total number of rows matching the search and status filter, independent of limit/offset.",
 	}, instrumented(h, "list_entities", func(ctx context.Context, req *sdk.CallToolRequest, in listEntitiesInput) (*sdk.CallToolResult, listEntitiesOutput, error) {
 		out, err := listEntities(ctx, h, in)
 		return nil, out, err
