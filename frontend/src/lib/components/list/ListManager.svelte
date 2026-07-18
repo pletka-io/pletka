@@ -227,6 +227,22 @@
     const action = findRowAction(actionId);
     if (!action?.url_template) return;
 
+    if (action.style === 'danger') {
+      const primary = schema?.columns.find((c) => c.primary);
+      const itemName = primary
+        ? (typeof item[primary.key] === 'object' ? tr(item[primary.key], lang) : String(item[primary.key] ?? ''))
+        : '';
+      const actionLabel = tr(action.label, lang);
+      const ok = await confirmAction({
+        title: actionLabel,
+        message: `${actionLabel}${itemName ? ` "${itemName}"` : ''}? This action cannot be undone.`,
+        confirmLabel: actionLabel,
+        cancelLabel: 'Cancel',
+        danger: true,
+      });
+      if (!ok) return;
+    }
+
     const url = action.url_template.replace('{id}', item.id);
     const method = (action.method || 'POST').toUpperCase();
     try {

@@ -392,7 +392,7 @@
           onclick={copyRevealedSecret}
         >{revealCopied ? 'Copied' : 'Copy'}</button>
       </div>
-      <p class="text-xs text-gray-500">This password will not be shown again. Copy it now and share it securely.</p>
+      <p class="text-xs text-gray-500">This value will not be shown again. Copy it now.</p>
       <div class="flex justify-end">
         <button
           type="button"
