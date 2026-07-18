@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
@@ -33,6 +34,7 @@ import (
 	weavecsv "github.com/pletka-io/pletka/pkg/weave/generators/csv"
 	"github.com/pletka-io/pletka/pkg/weave/gitrestoreadmin"
 	"github.com/pletka-io/pletka/pkg/weave/health"
+	"github.com/pletka-io/pletka/pkg/weave/mcp"
 	"github.com/pletka-io/pletka/pkg/weave/members"
 	"github.com/pletka-io/pletka/pkg/weave/model"
 	"github.com/pletka-io/pletka/pkg/weave/namespacebinding"
@@ -115,6 +117,11 @@ func buildGitRestoreAdminHost(pool *pgxpool.Pool, logger *slog.Logger, ontologyS
 	}
 }
 
+// buildCategoryHost returns the category.Host used for HTTP routes plus the
+// underlying *category.Service — the Host wires the raw Store directly (a
+// pre-existing category-slice quirk, not introduced here), so callers that
+// need the Service layer (e.g. the MCP host) get it as a second return value
+// instead of constructing their own instance.
 func buildCategoryHost(
 	pool *pgxpool.Pool,
 	weave domain.WeaveStore,
@@ -122,9 +129,11 @@ func buildCategoryHost(
 	changeLog domain.ChangeLogRunner,
 	languages []formschema.LanguageInfo,
 	langResolver category.LangResolver,
-) category.Host {
+) (category.Host, *category.Service) {
+	store := category.NewPostgresStore(pool)
+	svc := category.NewService(store, weave.Adoptions(), logger, changeLog, weave)
 	return category.Host{
-		Store:       category.NewPostgresStore(pool),
+		Store:       store,
 		SchemaStore: weave.WeaveCategories(),
 		Adoptions:   weave.Adoptions(),
 		Numberer:    weave,
@@ -135,7 +144,7 @@ func buildCategoryHost(
 		ChangeLog:    changeLog,
 		Languages:    languages,
 		LangResolver: langResolver,
-	}
+	}, svc
 }
 
 func buildNamespaceBindingHost(
@@ -338,6 +347,41 @@ func buildSearchHost(weave domain.WeaveStore, logger *slog.Logger) search.Host {
 	return search.Host{
 		Weave:  weave,
 		Logger: logger,
+	}
+}
+
+// buildMcpHost assembles the mcp.Host from the existing slice service
+// singletons — it never constructs its own copies, so it must receive the
+// same *Service instances already wired for the HTTP hosts (in particular
+// the single shared weaveontology.Service, whose autocomplete IndexCache
+// must not be duplicated).
+func buildMcpHost(
+	keys auth.APIKeyVerifier,
+	weave domain.WeaveStore,
+	projects *project.Service,
+	ontLinks *projectontologyversion.Service,
+	fields *field.Service,
+	models *model.Service,
+	collections *collection.Service,
+	categories *category.Service,
+	ontology *weaveontology.Service,
+	vocab *vocabulary.Service,
+	languages []formschema.LanguageInfo,
+	logger *slog.Logger,
+) mcp.Host {
+	return mcp.Host{
+		APIKeys:     keys,
+		Weave:       weave,
+		Projects:    projects,
+		Ontologies:  ontLinks,
+		Fields:      fields,
+		Models:      models,
+		Collections: collections,
+		Categories:  categories,
+		Ontology:    ontology,
+		Vocabulary:  vocab,
+		Languages:   languages,
+		Logger:      logger,
 	}
 }
 

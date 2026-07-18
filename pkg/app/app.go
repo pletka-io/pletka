@@ -22,6 +22,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/session"
 	"github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/admin"
+	"github.com/pletka-io/pletka/pkg/weave/apikey"
 	weavecontent "github.com/pletka-io/pletka/pkg/weave/content"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/genwiring"
@@ -128,6 +129,8 @@ func New(ctx context.Context, opts Options) (*App, error) {
 
 	weaveStore := weave.NewPostgresStore(opts.Pool)
 	logger.Info("WeaveStore initialized with pgx pool")
+
+	apikeyService := apikey.NewService(apikey.NewPostgresStore(opts.Pool), logger)
 
 	if err := sessionManager.SetupPgxStore(opts.Pool); err != nil {
 		return nil, fmt.Errorf("attach pgx session store: %w", err)
@@ -293,12 +296,27 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	)
 	visualizationHost := buildVisualizationHost(opts.Pool, weaveStore, logger, generatorService)
 	detailViewHost := buildDetailViewHost(opts.Pool, logger, templateRenderer, weaveStore, i18nManager, sessionManager, opts.IntegrationRegistry, ontologySvc, hasFormat)
+	categoryHost, categoryService := buildCategoryHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver)
+	mcpHost := buildMcpHost(
+		apikeyService,
+		weaveStore,
+		projectHost.Service,
+		projectOntologyVersionHost.Service,
+		fieldHost.Service,
+		modelHost.Service,
+		collectionHost.Service,
+		categoryService,
+		ontologySvc,
+		vocabularyHost.Service,
+		languages,
+		logger,
+	)
 	weaverouter.Mount(handler, buildProjectMiddlewareHost(weaveStore), buildErrorPageHost(templateRenderer, i18nManager, langResolver), weaverouter.Options{
 		Integrations:           opts.IntegrationRegistry,
 		ActorAdmin:             buildActorAdminHost(opts.Pool, weaveStore, logger, languages, langResolver),
 		Attribution:            buildAttributionHost(opts.Pool, weaveStore, logger, languages),
 		AuthPages:              authPagesHost,
-		Category:               buildCategoryHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver),
+		Category:               categoryHost,
 		Collection:             collectionHost,
 		DetailView:             detailViewHost,
 		Drafts:                 draftsHost,
@@ -310,6 +328,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		Field:                  fieldHost,
 		GitRestoreAdmin:        buildGitRestoreAdminHost(opts.Pool, logger, ontologySvc),
 		Health:                 buildHealthHost(opts.Pool, logger),
+		Mcp:                    mcpHost,
 		Members:                membersHost,
 		Model:                  modelHost,
 		NamespaceBinding:       namespaceBindingHost,

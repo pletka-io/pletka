@@ -3,11 +3,14 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/category"
 	"github.com/pletka-io/pletka/pkg/weave/collection"
@@ -115,6 +118,45 @@ type vocabulariesOutput struct {
 	ConceptLists []vocabulary.ConceptListView `json:"concept_lists"`
 }
 
+// vocabularyEntryRefSchema is a hand-authored, non-recursive override for
+// domain.VocabularyEntryRef's output schema. The type is self-referential
+// (BroaderPath []VocabularyEntryRef), which github.com/google/jsonschema-go's
+// reflection-based inferencer rejects outright ("cycle detected for type
+// ...") — it has no $ref-based mechanism for recursive Go types. The
+// override flattens the leaf shape (everything but the recursive
+// broader_path chain) for schema-advertisement purposes only; the actual
+// JSON a tool call returns is unaffected; this only governs what's
+// advertised as the tool's output schema.
+var vocabularyEntryRefSchema = &jsonschema.Schema{
+	Type: "object",
+	Properties: map[string]*jsonschema.Schema{
+		"id":            {Type: "string"},
+		"vocabulary_id": {Type: "string"},
+		"uri":           {Type: "string"},
+		"label":         {Type: "object"},
+		"scope_note":    {Type: "object"},
+		"broader_uri":   {Type: "string"},
+		"external_id":   {Type: "string"},
+	},
+}
+
+// vocabulariesOutputSchema builds the list_vocabularies output schema,
+// substituting vocabularyEntryRefSchema wherever domain.VocabularyEntryRef
+// would otherwise be inferred (see its doc comment for why).
+func vocabulariesOutputSchema() *jsonschema.Schema {
+	s, err := jsonschema.For[vocabulariesOutput](&jsonschema.ForOptions{
+		TypeSchemas: map[reflect.Type]*jsonschema.Schema{
+			reflect.TypeFor[domain.VocabularyEntryRef](): vocabularyEntryRefSchema,
+		},
+	})
+	if err != nil {
+		// Wiring-time fail-fast, sanctioned for Mount (see go-style.md) —
+		// registerSemanticTools runs once at boot, before any request.
+		panic(fmt.Sprintf("mcp: build list_vocabularies output schema: %v", err))
+	}
+	return s
+}
+
 func listVocabularies(ctx context.Context, h Host, in vocabulariesInput) (vocabulariesOutput, error) {
 	if _, err := resolveProject(ctx, h, in.ProjectID); err != nil {
 		return vocabulariesOutput{}, err
@@ -153,8 +195,9 @@ func registerSemanticTools(s *sdk.Server, h Host) {
 		return nil, out, err
 	})
 	sdk.AddTool(s, &sdk.Tool{
-		Name:        "list_vocabularies",
-		Description: "A project's vocabularies and concept lists (controlled term lists bindable to fields).",
+		Name:         "list_vocabularies",
+		Description:  "A project's vocabularies and concept lists (controlled term lists bindable to fields).",
+		OutputSchema: vocabulariesOutputSchema(),
 	}, func(ctx context.Context, req *sdk.CallToolRequest, in vocabulariesInput) (*sdk.CallToolResult, vocabulariesOutput, error) {
 		out, err := listVocabularies(ctx, h, in)
 		return nil, out, err

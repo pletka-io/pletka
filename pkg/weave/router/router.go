@@ -27,6 +27,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/gitrestoreadmin"
 	"github.com/pletka-io/pletka/pkg/weave/health"
 	"github.com/pletka-io/pletka/pkg/weave/materializationadmin"
+	"github.com/pletka-io/pletka/pkg/weave/mcp"
 	"github.com/pletka-io/pletka/pkg/weave/members"
 	"github.com/pletka-io/pletka/pkg/weave/model"
 	"github.com/pletka-io/pletka/pkg/weave/namespacebinding"
@@ -66,6 +67,7 @@ type Options struct {
 	Field                  field.Host
 	GitRestoreAdmin        gitrestoreadmin.Host
 	Health                 health.Host
+	Mcp                    mcp.Host
 	Members                members.Host
 	Model                  model.Host
 	NamespaceBinding       namespacebinding.Host
@@ -116,6 +118,12 @@ func Mount(parent chi.Router, projects ProjectMiddlewareHost, errors ErrorPageHo
 	entityschema.Mount(parent, opts.EntitySchema)
 	search.Mount(parent, opts.Search)
 	vocabulary.Mount(parent, opts.Vocabulary)
+
+	// MCP endpoint — POST /mcp behind API-key auth. Nil-guarded so core
+	// builds/tests that construct Options without MCP keys keep working.
+	if opts.Mcp.APIKeys != nil {
+		mcp.Mount(parent, opts.Mcp)
+	}
 
 	// Build identity — /version + /api/v1/version. Public, used by
 	// the footer pill so user-test bug reports include a bisect
