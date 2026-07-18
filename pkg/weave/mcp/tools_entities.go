@@ -33,8 +33,8 @@ type listEntitiesInput struct {
 type facetBucket struct {
 	Value     string   `json:"value"`
 	Count     int      `json:"count"`
-	IDs       []string `json:"ids"`                  // semantic IDs of matching fields, capped
-	Truncated bool     `json:"truncated,omitempty"`  // true when IDs was capped at facetBucketIDCap
+	IDs       []string `json:"ids"`                 // semantic IDs of matching fields, capped
+	Truncated bool     `json:"truncated,omitempty"` // true when IDs was capped at facetBucketIDCap
 }
 
 // entitySummary is the compact row shape shared by all four entity types.
