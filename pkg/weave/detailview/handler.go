@@ -3,6 +3,7 @@ package detailview
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -420,55 +421,88 @@ func (h *Handler) ReuseAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resp, err := BuildReuse(ctx, h.weave, projectID, entityType, entityID)
+	if err != nil {
+		if errors.Is(err, errUnsupportedReuseEntityType) {
+			h.writeAPIError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		var ue *reuseUsageError
+		if errors.As(err, &ue) {
+			h.logger.Error(ue.op, ue.idKey, entityID, "project_id", projectID, "err", ue.err)
+		}
+		h.writeAPIError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, resp)
+}
+
+// errUnsupportedReuseEntityType marks a BuildReuse failure the caller should
+// surface as 400 Bad Request; every other BuildReuse error is a store
+// failure the caller surfaces as 500.
+var errUnsupportedReuseEntityType = errors.New("reuse not supported for entity type")
+
+// reuseUsageError wraps a ListUsage failure inside BuildReuse with enough
+// context (slog op name + id field key) for the HTTP handler to log with the
+// same fidelity as the pre-refactor per-branch log calls, without BuildReuse
+// itself depending on a logger.
+type reuseUsageError struct {
+	op    string
+	idKey string
+	msg   string // exact text surfaced to the HTTP caller via writeAPIError
+	err   error  // underlying store error, logged but not exposed in the response
+}
+
+func (e *reuseUsageError) Error() string { return e.msg }
+func (e *reuseUsageError) Unwrap() error { return e.err }
+
+// BuildReuse builds the included_in/referenced_by payload for an entity —
+// the models and collections in the project that reference it. Shared by
+// the ReuseAPI HTTP handler and the MCP entity_reuse tool; this is the
+// single source of truth for the reuse payload (per the dispatcher rule,
+// MCP must not rebuild it in parallel).
+func BuildReuse(ctx context.Context, weave pkgdomain.WeaveStore, projectID, entityType, entityID string) (*FieldReuseResponse, error) {
 	var resp FieldReuseResponse
 
 	switch entityType {
 	case "field":
 		// A field is only ever a member (included in models/collections). It
 		// cannot be a value target. → IncludedIn only.
-		usage, err := h.weave.WeaveFields().ListUsage(ctx, entityID, projectID)
+		usage, err := weave.WeaveFields().ListUsage(ctx, entityID, projectID)
 		if err != nil {
-			h.logger.Error("list field usage", "field_id", entityID, "project_id", projectID, "err", err)
-			h.writeAPIError(w, "failed to list field usage", http.StatusInternalServerError)
-			return
+			return nil, &reuseUsageError{op: "list field usage", idKey: "field_id", msg: "failed to list field usage", err: err}
 		}
-		resp.IncludedIn = partitionFieldUsage(ctx, h, projectID, usage)
+		resp.IncludedIn = partitionFieldUsage(ctx, weave, projectID, usage)
 	case "model":
 		// A model is never bundled as a member; it is targeted as a value type
 		// by fields. → ReferencedBy only.
-		usage, err := h.weave.Models().ListUsage(ctx, entityID)
+		usage, err := weave.Models().ListUsage(ctx, entityID)
 		if err != nil {
-			h.logger.Error("list model usage", "model_id", entityID, "project_id", projectID, "err", err)
-			h.writeAPIError(w, "failed to list model usage", http.StatusInternalServerError)
-			return
+			return nil, &reuseUsageError{op: "list model usage", idKey: "model_id", msg: "failed to list model usage", err: err}
 		}
-		resp.ReferencedBy = partitionFieldUsage(ctx, h, projectID, usage)
+		resp.ReferencedBy = partitionFieldUsage(ctx, weave, projectID, usage)
 	case "collection":
 		// A collection has both relationships: bundled by a model
 		// (part_of_collection → IncludedIn) and targeted as a field value type
 		// (weave_override_refs collection_model → ReferencedBy). The
 		// value-target query is entity-agnostic, so reuse the model store's
 		// ListUsage with the collection's id.
-		bundling, err := h.weave.Collections().ListUsage(ctx, entityID, projectID)
+		bundling, err := weave.Collections().ListUsage(ctx, entityID, projectID)
 		if err != nil {
-			h.logger.Error("list collection usage", "collection_id", entityID, "project_id", projectID, "err", err)
-			h.writeAPIError(w, "failed to list collection usage", http.StatusInternalServerError)
-			return
+			return nil, &reuseUsageError{op: "list collection usage", idKey: "collection_id", msg: "failed to list collection usage", err: err}
 		}
-		target, err := h.weave.Models().ListUsage(ctx, entityID)
+		target, err := weave.Models().ListUsage(ctx, entityID)
 		if err != nil {
-			h.logger.Error("list collection target usage", "collection_id", entityID, "project_id", projectID, "err", err)
-			h.writeAPIError(w, "failed to list collection usage", http.StatusInternalServerError)
-			return
+			return nil, &reuseUsageError{op: "list collection target usage", idKey: "collection_id", msg: "failed to list collection usage", err: err}
 		}
-		resp.IncludedIn = partitionFieldUsage(ctx, h, projectID, pkgdomain.FieldUsageList{Models: bundling})
-		resp.ReferencedBy = partitionFieldUsage(ctx, h, projectID, target)
+		resp.IncludedIn = partitionFieldUsage(ctx, weave, projectID, pkgdomain.FieldUsageList{Models: bundling})
+		resp.ReferencedBy = partitionFieldUsage(ctx, weave, projectID, target)
 	default:
-		h.writeAPIError(w, fmt.Sprintf("reuse not supported for entity type: %s", entityType), http.StatusBadRequest)
-		return
+		return nil, fmt.Errorf("%w: %s", errUnsupportedReuseEntityType, entityType)
 	}
 
-	h.writeJSON(w, http.StatusOK, resp)
+	return &resp, nil
 }
 
 // pubState returns the live entity's publication state (draft/published/
@@ -508,7 +542,7 @@ func dedupeUsageRefs(refs []pkgdomain.FieldUsageRef) []pkgdomain.FieldUsageRef {
 // per-project groups (OtherProjects — the "Other projects" sub-tab), resolving
 // each other project's display name. Groups preserve first-seen order (the
 // store sorts by project_id).
-func partitionFieldUsage(ctx context.Context, h *Handler, projectID string, usage pkgdomain.FieldUsageList) *ReuseSection {
+func partitionFieldUsage(ctx context.Context, weave pkgdomain.WeaveStore, projectID string, usage pkgdomain.FieldUsageList) *ReuseSection {
 	// Dedupe: the same entity can reach a target via multiple override rows →
 	// duplicate ref ids crash the frontend's keyed {#each}. Key by project+id.
 	usage.Models = dedupeUsageRefs(usage.Models)
@@ -523,7 +557,7 @@ func partitionFieldUsage(ctx context.Context, h *Handler, projectID string, usag
 		g := groups[ref.ProjectID]
 		if g == nil {
 			name := ref.ProjectID
-			if p, err := h.weave.Projects().GetByID(ctx, ref.ProjectID); err == nil && p != nil {
+			if p, err := weave.Projects().GetByID(ctx, ref.ProjectID); err == nil && p != nil {
 				name = p.UIName.Get("en", p.SystemName)
 			}
 			g = &ProjectUsageGroup{ProjectID: ref.ProjectID, ProjectName: name}
