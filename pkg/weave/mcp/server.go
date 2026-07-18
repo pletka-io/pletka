@@ -16,9 +16,6 @@ func newServer(h Host) *sdk.Server {
 	return s
 }
 
-// registerProjectTools attaches project-surface tools. Stub until Task 8.
-func registerProjectTools(s *sdk.Server, h Host) {}
-
 // registerEntityTools attaches entity-surface tools. Stub until Task 9.
 func registerEntityTools(s *sdk.Server, h Host) {}
 
