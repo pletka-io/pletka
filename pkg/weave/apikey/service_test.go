@@ -31,7 +31,15 @@ func (f *fakeStore) GetByHash(_ context.Context, hash string) (*domain.APIKey, e
 	}
 	return k, nil
 }
-func (f *fakeStore) List(_ context.Context, _ string) ([]*domain.APIKey, error) { return nil, nil }
+func (f *fakeStore) List(_ context.Context, actorID string) ([]*domain.APIKey, error) {
+	var out []*domain.APIKey
+	for _, k := range f.byHash {
+		if actorID == "" || k.ActorID == actorID {
+			out = append(out, k)
+		}
+	}
+	return out, nil
+}
 func (f *fakeStore) Touch(_ context.Context, id string) error {
 	f.touched = append(f.touched, id)
 	return nil
