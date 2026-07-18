@@ -114,6 +114,9 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 	if _, err := resolveProject(ctx, h, in.ProjectID); err != nil {
 		return listEntitiesOutput{}, err
 	}
+	// Normalize status once at the top: lowercase and trim, used everywhere.
+	// This ensures consistent case-handling across all entity type branches.
+	status := strings.ToLower(strings.TrimSpace(in.Status))
 	out := listEntitiesOutput{Entities: []entitySummary{}}
 	switch strings.ToLower(in.EntityType) {
 	case "field":
@@ -171,7 +174,7 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 		}
 		var filtered []*domain.Category
 		for _, c := range rows {
-			if !keepStatus(string(c.Status), in.Status) {
+			if !keepStatus(string(c.Status), status) {
 				continue
 			}
 			filtered = append(filtered, c)

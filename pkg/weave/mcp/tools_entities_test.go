@@ -145,6 +145,46 @@ func TestListEntitiesFieldPathElements(t *testing.T) {
 	}
 }
 
+type fakeCollections struct {
+	collections []*domain.Collection
+	gotOpts     []domain.QueryOption
+}
+
+// List emulates the store's SQL-backed status filter: a non-empty
+// cfg.Filters["status"] narrows both the returned rows and the count.
+func (f *fakeCollections) List(_ context.Context, _ string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error) {
+	f.gotOpts = opts
+	cfg := domain.ApplyOptions(opts)
+	status, _ := cfg.Filters["status"].(string)
+	if status == "" {
+		return f.collections, int64(len(f.collections)), nil
+	}
+	var matched []*domain.Collection
+	for _, c := range f.collections {
+		if string(c.Status) == status {
+			matched = append(matched, c)
+		}
+	}
+	return matched, int64(len(matched)), nil
+}
+func (f *fakeCollections) Get(_ context.Context, _, id string) (*domain.Collection, error) {
+	for _, c := range f.collections {
+		if c.ID == id {
+			return c, nil
+		}
+	}
+	return nil, errors.New("not found")
+}
+
+// collectionWith builds a domain.Collection with the fields the entity tools tests need.
+func collectionWith(id, semantic, status string) *domain.Collection {
+	c := &domain.Collection{}
+	c.ID = id
+	c.SemanticID = semantic
+	c.Status = domain.Status(status)
+	return c
+}
+
 type fakeCategories struct {
 	categories []*domain.Category
 }
@@ -201,6 +241,68 @@ func TestListEntitiesCategoryFilterBeforePaging(t *testing.T) {
 	}
 	if out2.TotalCount != 3 {
 		t.Fatalf("want TotalCount 3, got %d", out2.TotalCount)
+	}
+}
+
+func TestListEntitiesCategoryStatusCaseInsensitive(t *testing.T) {
+	h := testHostEntities()
+	h.Categories = &fakeCategories{categories: []*domain.Category{
+		categoryWith("01C1", "LA.CAT.1", "published"),
+		categoryWith("01C2", "LA.CAT.2", "draft"),
+	}}
+
+	// Test mixed-case status filter: "Published" should match "published" after normalization
+	out, err := listEntities(context.Background(), h, listEntitiesInput{ProjectID: "LA", EntityType: "category", Status: "Published"})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(out.Entities) != 1 {
+		t.Fatalf("want 1 row, got %d", len(out.Entities))
+	}
+	if out.Entities[0].SemanticID != "LA.CAT.1" {
+		t.Fatalf("want LA.CAT.1, got %s", out.Entities[0].SemanticID)
+	}
+	if out.TotalCount != 1 {
+		t.Fatalf("want TotalCount 1, got %d", out.TotalCount)
+	}
+}
+
+func TestListEntitiesCollectionStatusFilterAndBaseClass(t *testing.T) {
+	h := testHostEntities()
+	scoped := collectionWith("01ULIDCCC", "LAC.1", "published")
+	scoped.OntologyScope = domain.PathElement{Type: "class", Prefix: "crm", LocalName: "E67_Birth"}
+	unscoped := collectionWith("01ULIDDDD", "LAC.2", "published")
+	draft := collectionWith("01ULIDEEE", "LAC.3", "draft")
+
+	h.Collections = &fakeCollections{collections: []*domain.Collection{scoped, unscoped, draft}}
+
+	// Test status filter with mixed-case input
+	out, err := listEntities(context.Background(), h, listEntitiesInput{ProjectID: "LA", EntityType: "collection", Status: "Published"})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(out.Entities) != 2 {
+		t.Fatalf("want 2 published entities, got %d", len(out.Entities))
+	}
+	if out.TotalCount != 2 {
+		t.Fatalf("want TotalCount 2, got %d", out.TotalCount)
+	}
+
+	// Verify BaseClass is set for scoped collection
+	var foundScoped bool
+	for _, e := range out.Entities {
+		if e.SemanticID == "LAC.1" {
+			foundScoped = true
+			if e.BaseClass != "crm:E67_Birth" {
+				t.Fatalf("want BaseClass crm:E67_Birth, got %q", e.BaseClass)
+			}
+		}
+		if e.SemanticID == "LAC.2" && e.BaseClass != "" {
+			t.Fatalf("want empty BaseClass for unscoped collection, got %q", e.BaseClass)
+		}
+	}
+	if !foundScoped {
+		t.Fatal("scoped collection LAC.1 not found in results")
 	}
 }
 
