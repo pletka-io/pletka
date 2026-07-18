@@ -38,8 +38,8 @@ type entitySummary struct {
 
 type listEntitiesOutput struct {
 	Entities   []entitySummary `json:"entities"`
-	// TotalCount is the pre-status-filter match count from the store; with a status filter, len(entities) can be smaller.
-	TotalCount int64 `json:"total_count" jsonschema:"total matches before status filtering"`
+	// TotalCount is the store limit/offset match count for field/model/collection; for category it equals the returned page size. Status filter runs per-page (after limit/offset), so len(entities) can be smaller.
+	TotalCount int64 `json:"total_count" jsonschema:"pre-filter match count for field/model/collection; page size for category; status filtering happens per page"`
 }
 
 type getEntityInput struct {
@@ -187,6 +187,7 @@ func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput,
 	case "field":
 		f, err := h.Fields.GetByIdentifier(ctx, in.ProjectID, in.ID)
 		if err != nil {
+			// Not-found messages deliberately omit the underlying store error: unreadable, missing, and erroring lookups stay indistinguishable to the client (same shape as resolveProject).
 			return out, fmt.Errorf("field %q not found in %s", in.ID, in.ProjectID)
 		}
 		out.Entity = f
@@ -253,7 +254,7 @@ func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput,
 func registerEntityTools(s *sdk.Server, h Host) {
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "list_entities",
-		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging.",
+		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging. Note: the status filter applies per page (after limit/offset); to see all draft entities, page through without relying on total_count. For category, total_count equals the returned page size.",
 	}, func(ctx context.Context, req *sdk.CallToolRequest, in listEntitiesInput) (*sdk.CallToolResult, listEntitiesOutput, error) {
 		out, err := listEntities(ctx, h, in)
 		return nil, out, err
