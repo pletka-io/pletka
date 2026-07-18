@@ -19,7 +19,6 @@ func BuildListSchema(lang string, languages []formschema.LanguageInfo) *formsche
 			Message: i18n.L("profile.apikeys.empty_subtitle", "Create a key to connect agents and tools (MCP) to Pletka."),
 		},
 		DataURL: "/me/api-keys",
-		DataKey: "items",
 		Caps: formschema.Capabilities{
 			Create: &formschema.CreateCap{
 				Label:         i18n.L("profile.apikeys.create", "Create key"),
@@ -87,6 +86,7 @@ func BuildCreateFormSchema(lang string, languages []formschema.LanguageInfo) *fo
 	}
 	schema.UI.RevealField = "secret"
 	schema.UI.RevealLabel = i18n.L("profile.apikeys.reveal", "API key (copy now — shown only once)")
+	schema.UI.SuccessMessage = i18n.L("profile.apikeys.created", "API key created")
 	schema.UI.Languages = languages
 	schema.UI.PrimaryLang = lang
 	return schema

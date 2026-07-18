@@ -1407,7 +1407,8 @@
       "field_name_help": "What this key is for, e.g. 'Claude on my laptop'.",
       "field_expires": "Expires after (days)",
       "field_expires_help": "Leave blank for no expiry.",
-      "reveal": "API key (copy now — shown only once)"
+      "reveal": "API key (copy now — shown only once)",
+      "created": "API key created"
     }
   },
   "institution": {

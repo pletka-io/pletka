@@ -735,7 +735,8 @@
       "field_name_help": "Waar deze sleutel voor is, bijv. 'Claude op mijn laptop'.",
       "field_expires": "Verloopt na (dagen)",
       "field_expires_help": "Laat leeg voor geen vervaldatum.",
-      "reveal": "API-sleutel (nu kopiëren — wordt maar één keer getoond)"
+      "reveal": "API-sleutel (nu kopiëren — wordt maar één keer getoond)",
+      "created": "API-sleutel aangemaakt"
     }
   },
   "institution": {

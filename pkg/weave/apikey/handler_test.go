@@ -227,4 +227,32 @@ func TestCreateValidation(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"expires_days"`) {
 		t.Fatalf("422 must have expires_days error: %s", rec.Body.String())
 	}
+
+	// Test 4: fractional numeric expires_days
+	req = asActor(httptest.NewRequest("POST", "/me/api-keys",
+		strings.NewReader(`{"name":"x","expires_days":30.5}`)), "actorA")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expires_days 30.5 = %d, want 422", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"expires_days"`) {
+		t.Fatalf("422 must have expires_days error: %s", rec.Body.String())
+	}
+}
+
+// TestCreateNumericExpiresDays covers the number-widget path: the frontend
+// submits expires_days as a JSON number, not a string.
+func TestCreateNumericExpiresDays(t *testing.T) {
+	r := testRouter(newFakeStore())
+
+	req := asActor(httptest.NewRequest("POST", "/me/api-keys",
+		strings.NewReader(`{"name":"x","expires_days":30}`)), "actorA")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("numeric expires_days = %d, want 201: %s", rec.Code, rec.Body.String())
+	}
 }

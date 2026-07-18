@@ -3,6 +3,7 @@ package apikey
 import (
 	"encoding/json"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -117,7 +118,42 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 
 type createInput struct {
 	Name        string `json:"name"`
-	ExpiresDays string `json:"expires_days"`
+	ExpiresDays any    `json:"expires_days"`
+}
+
+// parseExpiresDays accepts the create form's expires_days value in any of
+// the shapes the number widget or a JSON caller may submit: a JSON number,
+// a numeric string, an empty string, or a missing/null field. It returns
+// (0, true) for "no expiry" and (0, false) for anything invalid — negative,
+// fractional, or non-numeric.
+func parseExpiresDays(v any) (int, bool) {
+	switch n := v.(type) {
+	case nil:
+		return 0, true
+	case float64:
+		if n != math.Trunc(n) || n < 1 {
+			return 0, false
+		}
+		return int(n), true
+	case json.Number:
+		f, err := n.Float64()
+		if err != nil || f != math.Trunc(f) || f < 1 {
+			return 0, false
+		}
+		return int(f), true
+	case string:
+		s := strings.TrimSpace(n)
+		if s == "" {
+			return 0, true
+		}
+		parsed, err := strconv.Atoi(s)
+		if err != nil || parsed < 1 {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
 }
 
 // Create mints a key for the caller and returns the plaintext secret once.
@@ -136,14 +172,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		fieldErrs["name"] = append(fieldErrs["name"], "name is required")
 	}
-	ttlDays := 0
-	if s := strings.TrimSpace(in.ExpiresDays); s != "" {
-		n, err := strconv.Atoi(s)
-		if err != nil || n < 1 {
-			fieldErrs["expires_days"] = append(fieldErrs["expires_days"], "must be a positive number of days")
-		} else {
-			ttlDays = n
-		}
+	ttlDays, ok := parseExpiresDays(in.ExpiresDays)
+	if !ok {
+		fieldErrs["expires_days"] = append(fieldErrs["expires_days"], "must be a positive number of days")
 	}
 	if len(fieldErrs) > 0 {
 		apierror.Write(w, apierror.Validation(fieldErrs))
