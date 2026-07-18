@@ -52,6 +52,11 @@ type entitySummary struct {
 	BaseClass string `json:"base_class,omitempty"`
 	// PathElements carries a field's full ontology path verbatim (OntologyPath above is the derived string form).
 	PathElements []domain.PathElement `json:"path_elements,omitempty"`
+	// Models / Collections carry a field row's owning models/collections
+	// (semantic IDs, may span other projects via adoption). Field rows only;
+	// absent means the field is placed nowhere — the orphan signal.
+	Models      []string `json:"models,omitempty"`
+	Collections []string `json:"collections,omitempty"`
 }
 
 type listEntitiesOutput struct {
@@ -125,6 +130,22 @@ func listOpts(in listEntitiesInput, status string) []domain.QueryOption {
 	return opts
 }
 
+// semanticIDs extracts the semantic IDs from a slice of usage refs, in
+// order. Refs may belong to other projects (adoption) — included as-is,
+// since semantic IDs are prefix-distinguished and cross-project ownership
+// is itself signal. Returns nil for an empty/nil input so a field with no
+// owners serializes with the field omitted (the orphan signal), not `[]`.
+func semanticIDs(refs []domain.FieldUsageRef) []string {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]string, len(refs))
+	for i, r := range refs {
+		out[i] = r.SemanticID
+	}
+	return out
+}
+
 // keepStatus reports whether status matches the requested filter; an empty
 // want keeps everything. status/want are plain strings — callers convert
 // domain.Status (a defined string type) at the call site.
@@ -152,13 +173,26 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 			return out, fmt.Errorf("list fields: %w", err)
 		}
 		out.TotalCount = total
+		ids := make([]string, len(rows))
+		for i, f := range rows {
+			ids[i] = f.ID
+		}
+		refs, err := h.Fields.BatchUsageRefs(ctx, in.ProjectID, ids)
+		if err != nil {
+			return out, fmt.Errorf("field ownership: %w", err)
+		}
 		for _, f := range rows {
-			out.Entities = append(out.Entities, entitySummary{
+			s := entitySummary{
 				ID: f.ID, SemanticID: f.SemanticID, SystemName: f.SystemName,
 				UIName: f.UIName, Status: string(f.Status), Deprecated: f.Deprecated,
 				OntologyPath: f.OntologyPath(), ExpectedValueType: f.ExpectedValueType,
 				PathElements: f.PathElements,
-			})
+			}
+			if usage, ok := refs[f.ID]; ok {
+				s.Models = semanticIDs(usage.Models)
+				s.Collections = semanticIDs(usage.Collections)
+			}
+			out.Entities = append(out.Entities, s)
 		}
 	case "model":
 		rows, total, err := h.Models.List(ctx, in.ProjectID, listOpts(in, status)...)
@@ -365,7 +399,7 @@ func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput,
 func registerEntityTools(s *sdk.Server, h Host) {
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "list_entities",
-		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging. The status filter is applied before paging for every entity type; total_count is the total number of rows matching the search and status filter, independent of limit/offset. facet=\"path_root\" (fields only) returns {value,count,ids} buckets of the first ontology path element in one call, aggregating up to 10000 fields; ids are semantic IDs capped at 100 per bucket with truncated=true if capped, and facet_truncated is set when aggregation did not cover all matches.",
+		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging. The status filter is applied before paging for every entity type; total_count is the total number of rows matching the search and status filter, independent of limit/offset. Field rows include owning models/collections as semantic IDs (models/collections arrays); these may span other projects via adoption, and an absent array means the field is placed nowhere (an orphan). facet=\"path_root\" (fields only) returns {value,count,ids} buckets of the first ontology path element in one call, aggregating up to 10000 fields; ids are semantic IDs capped at 100 per bucket with truncated=true if capped, and facet_truncated is set when aggregation did not cover all matches. Facet mode does not fetch ownership.",
 	}, instrumented(h, "list_entities", func(ctx context.Context, req *sdk.CallToolRequest, in listEntitiesInput) (*sdk.CallToolResult, listEntitiesOutput, error) {
 		out, err := listEntities(ctx, h, in)
 		return nil, out, err

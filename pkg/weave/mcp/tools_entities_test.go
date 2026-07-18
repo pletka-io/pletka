@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/pletka-io/pletka/pkg/domain"
 )
@@ -105,6 +108,16 @@ func TestListEntitiesBaseClass(t *testing.T) {
 
 type fakeFields struct {
 	fields []*domain.Field
+	// refs, keyed by field ID, is returned by BatchUsageRefs for that field;
+	// fields with no entry get a zero-value domain.FieldUsageList (no owners).
+	refs map[string]domain.FieldUsageList
+	// gotBatchUsageProjectID/gotBatchUsageFieldIDs record BatchUsageRefs'
+	// most recent call args so tests can assert exactly the page's field IDs
+	// were requested.
+	gotBatchUsageProjectID string
+	gotBatchUsageFieldIDs  []string
+	// batchUsageErr, when set, is returned by BatchUsageRefs instead of refs.
+	batchUsageErr error
 }
 
 // List implements limit enforcement: returns at most cfg.Limit rows, but total
@@ -141,11 +154,18 @@ func (f *fakeFields) GetByIdentifier(_ context.Context, _, id string) (*domain.F
 	return nil, errors.New("not found")
 }
 
-// BatchUsageRefs is a permissive stub — real behavior is exercised by the
-// field package's own tests; this satisfies the FieldReader interface so
-// the mcp package compiles.
-func (f *fakeFields) BatchUsageRefs(_ context.Context, _ string, _ []string) (map[string]domain.FieldUsageList, error) {
-	return map[string]domain.FieldUsageList{}, nil
+// BatchUsageRefs records the call args and returns f.refs (or f.batchUsageErr
+// if set) so tests can inject ownership and assert what was requested.
+func (f *fakeFields) BatchUsageRefs(_ context.Context, projectID string, fieldIDs []string) (map[string]domain.FieldUsageList, error) {
+	f.gotBatchUsageProjectID = projectID
+	f.gotBatchUsageFieldIDs = fieldIDs
+	if f.batchUsageErr != nil {
+		return nil, f.batchUsageErr
+	}
+	if f.refs == nil {
+		return map[string]domain.FieldUsageList{}, nil
+	}
+	return f.refs, nil
 }
 
 func TestListEntitiesFieldPathElements(t *testing.T) {
@@ -172,6 +192,99 @@ func TestListEntitiesFieldPathElements(t *testing.T) {
 	}
 	if out.Entities[0].PathElements[0].LocalName != "E21_Person" {
 		t.Fatalf("want first path element LocalName E21_Person, got %q", out.Entities[0].PathElements[0].LocalName)
+	}
+}
+
+// TestListEntitiesFieldOwnership verifies field rows carry owning
+// models/collections from BatchUsageRefs: a field with refs gets populated
+// semantic-ID slices, a field with none gets nil (the orphan signal). It
+// also asserts the fake received exactly the page's field IDs.
+func TestListEntitiesFieldOwnership(t *testing.T) {
+	h := testHostEntities()
+	owned := &domain.Field{}
+	owned.ID = "01ULIDOWN"
+	owned.SemanticID = "LAF.1"
+	owned.Status = domain.Status("published")
+
+	orphan := &domain.Field{}
+	orphan.ID = "01ULIDORP"
+	orphan.SemanticID = "LAF.2"
+	orphan.Status = domain.Status("published")
+
+	fake := &fakeFields{
+		fields: []*domain.Field{owned, orphan},
+		refs: map[string]domain.FieldUsageList{
+			"01ULIDOWN": {
+				Models:      []domain.FieldUsageRef{{SemanticID: "LAM.9"}},
+				Collections: []domain.FieldUsageRef{{SemanticID: "LAC.22"}},
+			},
+		},
+	}
+	h.Fields = fake
+
+	out, err := listEntities(context.Background(), h, listEntitiesInput{ProjectID: "LA", EntityType: "field"})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(out.Entities) != 2 {
+		t.Fatalf("want 2 entities, got %d", len(out.Entities))
+	}
+
+	if diff := cmp.Diff([]string{"LAM.9"}, out.Entities[0].Models); diff != "" {
+		t.Fatalf("owned row Models mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]string{"LAC.22"}, out.Entities[0].Collections); diff != "" {
+		t.Fatalf("owned row Collections mismatch (-want +got):\n%s", diff)
+	}
+	if out.Entities[1].Models != nil {
+		t.Fatalf("want nil Models for orphan row, got %v", out.Entities[1].Models)
+	}
+	if out.Entities[1].Collections != nil {
+		t.Fatalf("want nil Collections for orphan row, got %v", out.Entities[1].Collections)
+	}
+
+	if fake.gotBatchUsageProjectID != "LA" {
+		t.Fatalf("want BatchUsageRefs projectID LA, got %q", fake.gotBatchUsageProjectID)
+	}
+	if diff := cmp.Diff([]string{"01ULIDOWN", "01ULIDORP"}, fake.gotBatchUsageFieldIDs); diff != "" {
+		t.Fatalf("BatchUsageRefs field IDs mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestListEntitiesFieldOwnershipError verifies an ownership-fetch error fails
+// the whole list_entities call — silent absence would read as "orphan".
+func TestListEntitiesFieldOwnershipError(t *testing.T) {
+	h := testHostEntities()
+	fld := &domain.Field{}
+	fld.ID = "01ULIDERR"
+	fld.SemanticID = "LAF.1"
+	fld.Status = domain.Status("published")
+	h.Fields = &fakeFields{fields: []*domain.Field{fld}, batchUsageErr: errors.New("boom")}
+
+	_, err := listEntities(context.Background(), h, listEntitiesInput{ProjectID: "LA", EntityType: "field"})
+	if err == nil {
+		t.Fatal("want error when BatchUsageRefs fails")
+	}
+	if !strings.Contains(err.Error(), "field ownership") {
+		t.Fatalf("want wrapped %q error, got %v", "field ownership", err)
+	}
+}
+
+// TestListEntitiesFacetDoesNotFetchOwnership verifies facet mode returns
+// before any ownership fetch — BatchUsageRefs must not be called.
+func TestListEntitiesFacetDoesNotFetchOwnership(t *testing.T) {
+	h := testHostEntities()
+	fake := &fakeFields{fields: []*domain.Field{
+		fieldWithPath("01A", "LAF.1", "crm", "P1_is_identified_by"),
+	}}
+	h.Fields = fake
+
+	_, err := listEntities(context.Background(), h, listEntitiesInput{ProjectID: "LA", EntityType: "field", Facet: "path_root"})
+	if err != nil {
+		t.Fatalf("facet: %v", err)
+	}
+	if fake.gotBatchUsageFieldIDs != nil {
+		t.Fatalf("want BatchUsageRefs not called in facet mode, got fieldIDs %v", fake.gotBatchUsageFieldIDs)
 	}
 }
 
