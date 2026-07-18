@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -175,11 +176,55 @@ func TestListEntitiesFacetPathRoot(t *testing.T) {
 	if out.Buckets[0].Value != "crm:P1_is_identified_by" || out.Buckets[0].Count != 2 {
 		t.Fatalf("top bucket wrong: %+v", out.Buckets[0])
 	}
+	// Check that IDs are present and not truncated
+	if len(out.Buckets[0].IDs) != 2 {
+		t.Fatalf("top bucket IDs length: want 2, got %d (%v)", len(out.Buckets[0].IDs), out.Buckets[0].IDs)
+	}
+	if out.Buckets[0].IDs[0] != "LAF.1" || out.Buckets[0].IDs[1] != "LAF.2" {
+		t.Fatalf("top bucket IDs: want [LAF.1, LAF.2], got %v", out.Buckets[0].IDs)
+	}
+	if out.Buckets[0].Truncated {
+		t.Fatal("top bucket should not be truncated")
+	}
 	if len(out.Entities) != 0 {
 		t.Fatal("facet mode must not return entity rows")
 	}
 	if out.TotalCount != 3 {
 		t.Fatalf("total = %d, want 3 (fields aggregated)", out.TotalCount)
+	}
+}
+
+func TestListEntitiesFacetIDCap(t *testing.T) {
+	h := testHostEntities()
+	// Generate 101 fake fields sharing one path root
+	fields := make([]*domain.Field, 101)
+	for i := 0; i < 101; i++ {
+		ulid := fmt.Sprintf("01ULID%03d", i)
+		semantic := fmt.Sprintf("LAF.%d", i+1)
+		fields[i] = fieldWithPath(ulid, semantic, "crm", "P1_is_identified_by")
+	}
+	h.Fields = &fakeFields{fields: fields}
+
+	out, err := listEntities(context.Background(), h, listEntitiesInput{ProjectID: "LA", EntityType: "field", Facet: "path_root"})
+	if err != nil {
+		t.Fatalf("facet: %v", err)
+	}
+	if len(out.Buckets) != 1 {
+		t.Fatalf("want 1 bucket, got %d", len(out.Buckets))
+	}
+
+	bucket := out.Buckets[0]
+	if bucket.Count != 101 {
+		t.Fatalf("Count: want 101 (true total), got %d", bucket.Count)
+	}
+	if len(bucket.IDs) != 100 {
+		t.Fatalf("IDs length: want 100 (capped), got %d", len(bucket.IDs))
+	}
+	if !bucket.Truncated {
+		t.Fatal("Truncated: want true when IDs are capped")
+	}
+	if out.TotalCount != 101 {
+		t.Fatalf("TotalCount: want 101, got %d", out.TotalCount)
 	}
 }
 

@@ -16,6 +16,9 @@ import (
 // Projects exceeding this limit should implement a store-level semantic_id index.
 const fallbackScanLimit = 10000
 
+// facetBucketIDCap limits the number of semantic IDs returned per facet bucket.
+const facetBucketIDCap = 100
+
 type listEntitiesInput struct {
 	ProjectID  string `json:"project_id" jsonschema:"project ID / prefix"`
 	EntityType string `json:"entity_type" jsonschema:"one of: field, model, collection, category"`
@@ -28,8 +31,10 @@ type listEntitiesInput struct {
 
 // facetBucket is one aggregated value/count pair in a facet response.
 type facetBucket struct {
-	Value string `json:"value"`
-	Count int    `json:"count"`
+	Value     string   `json:"value"`
+	Count     int      `json:"count"`
+	IDs       []string `json:"ids"`                  // semantic IDs of matching fields, capped
+	Truncated bool     `json:"truncated,omitempty"`  // true when IDs was capped at facetBucketIDCap
 }
 
 // entitySummary is the compact row shape shared by all four entity types.
@@ -227,7 +232,7 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 
 // facetPathRoot implements list_entities' facet=path_root mode: fetch every
 // field matching the SQL status filter and search query, bucket by the first
-// ontology path element's prefixed name, and return counts instead of rows.
+// ontology path element's prefixed name, and return counts + capped semantic IDs instead of rows.
 func facetPathRoot(ctx context.Context, h Host, in listEntitiesInput, status string) (listEntitiesOutput, error) {
 	out := listEntitiesOutput{Entities: []entitySummary{}, Facet: "path_root"}
 	var opts []domain.QueryOption
@@ -243,15 +248,27 @@ func facetPathRoot(ctx context.Context, h Host, in listEntitiesInput, status str
 		return out, fmt.Errorf("list fields: %w", err)
 	}
 	counts := make(map[string]int)
+	ids := make(map[string][]string)
 	for _, f := range rows {
 		if len(f.PathElements) == 0 {
 			continue
 		}
-		counts[f.PathElements[0].PrefixedName()]++
+		key := f.PathElements[0].PrefixedName()
+		counts[key]++
+		ids[key] = append(ids[key], f.SemanticID)
 	}
 	buckets := make([]facetBucket, 0, len(counts))
 	for value, count := range counts {
-		buckets = append(buckets, facetBucket{Value: value, Count: count})
+		bucket := facetBucket{Value: value, Count: count}
+		// Cap IDs at facetBucketIDCap and set Truncated if we had more
+		fieldIDs := ids[value]
+		if len(fieldIDs) > facetBucketIDCap {
+			bucket.IDs = fieldIDs[:facetBucketIDCap]
+			bucket.Truncated = true
+		} else {
+			bucket.IDs = fieldIDs
+		}
+		buckets = append(buckets, bucket)
 	}
 	sort.Slice(buckets, func(i, j int) bool {
 		if buckets[i].Count != buckets[j].Count {
@@ -340,7 +357,7 @@ func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput,
 func registerEntityTools(s *sdk.Server, h Host) {
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "list_entities",
-		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging. The status filter is applied before paging for every entity type; total_count is the total number of rows matching the search and status filter, independent of limit/offset. facet=\"path_root\" (fields only) returns {value,count} buckets of the first ontology path element across the whole project in one call.",
+		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging. The status filter is applied before paging for every entity type; total_count is the total number of rows matching the search and status filter, independent of limit/offset. facet=\"path_root\" (fields only) returns {value,count,ids} buckets of the first ontology path element across the whole project in one call; ids are semantic IDs capped at 100 per bucket with truncated=true if capped.",
 	}, instrumented(h, "list_entities", func(ctx context.Context, req *sdk.CallToolRequest, in listEntitiesInput) (*sdk.CallToolResult, listEntitiesOutput, error) {
 		out, err := listEntities(ctx, h, in)
 		return nil, out, err
