@@ -7,10 +7,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 func testRouter(store Store) chi.Router {
@@ -43,6 +45,74 @@ func TestAnonymous401(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("%s %s = %d, want 401", tc.method, tc.path, rec.Code)
 		}
+	}
+}
+
+func TestRowFromKeyStatusPrecedence(t *testing.T) {
+	now := time.Now()
+	past24h := now.Add(-24 * time.Hour)
+	past48h := now.Add(-48 * time.Hour)
+
+	tests := []struct {
+		name     string
+		key      *domain.APIKey
+		wantStatus string
+		wantRevokedAt string // "empty" or "present"
+	}{
+		{
+			name: "active key",
+			key: &domain.APIKey{
+				ID:        "key1",
+				Name:      "test",
+				KeyPrefix: "pk_abc",
+				CreatedAt: now,
+				RevokedAt: nil,
+				ExpiresAt: nil,
+			},
+			wantStatus: "active",
+			wantRevokedAt: "empty",
+		},
+		{
+			name: "expired key (past expiry, not revoked)",
+			key: &domain.APIKey{
+				ID:        "key2",
+				Name:      "test",
+				KeyPrefix: "pk_abc",
+				CreatedAt: past48h,
+				RevokedAt: nil,
+				ExpiresAt: &past24h,
+			},
+			wantStatus: "expired",
+			wantRevokedAt: "empty",
+		},
+		{
+			name: "revoked key (also past expiry, revoked wins)",
+			key: &domain.APIKey{
+				ID:        "key3",
+				Name:      "test",
+				KeyPrefix: "pk_abc",
+				CreatedAt: past48h,
+				RevokedAt: &now,
+				ExpiresAt: &past24h,
+			},
+			wantStatus: "revoked",
+			wantRevokedAt: "present",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			row := rowFromKey(tt.key)
+			if row.Status != tt.wantStatus {
+				t.Errorf("status = %q, want %q", row.Status, tt.wantStatus)
+			}
+			if tt.wantRevokedAt == "empty" && row.RevokedAt != "" {
+				t.Errorf("RevokedAt should be empty, got %q", row.RevokedAt)
+			}
+			if tt.wantRevokedAt == "present" && row.RevokedAt == "" {
+				t.Error("RevokedAt should be present, got empty")
+			}
+		})
 	}
 }
 
@@ -95,6 +165,20 @@ func TestCreateListRevokeFlow(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("owner revoke = %d, want 204", rec.Code)
 	}
+
+	// After revoke: owner's list should show status="revoked" and non-empty revoked_at
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, asActor(httptest.NewRequest("GET", "/me/api-keys", nil), "actorA"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list after revoke = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"revoked"`) {
+		t.Fatalf("list after revoke missing status=revoked: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"revoked_at":"`) {
+		t.Fatalf("list after revoke missing non-empty revoked_at: %s", rec.Body.String())
+	}
+
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, asActor(httptest.NewRequest("POST", "/me/api-keys/"+id+"/revoke", nil), "actorA"))
 	if rec.Code != http.StatusNotFound {
@@ -104,6 +188,8 @@ func TestCreateListRevokeFlow(t *testing.T) {
 
 func TestCreateValidation(t *testing.T) {
 	r := testRouter(newFakeStore())
+
+	// Test 1: blank name
 	req := asActor(httptest.NewRequest("POST", "/me/api-keys",
 		strings.NewReader(`{"name":"   "}`)), "actorA")
 	req.Header.Set("Content-Type", "application/json")
@@ -114,5 +200,31 @@ func TestCreateValidation(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"name"`) {
 		t.Fatalf("422 must carry per-field errors: %s", rec.Body.String())
+	}
+
+	// Test 2: non-numeric expires_days
+	req = asActor(httptest.NewRequest("POST", "/me/api-keys",
+		strings.NewReader(`{"name":"x","expires_days":"abc"}`)), "actorA")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expires_days abc = %d, want 422", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"expires_days"`) {
+		t.Fatalf("422 must have expires_days error: %s", rec.Body.String())
+	}
+
+	// Test 3: negative expires_days
+	req = asActor(httptest.NewRequest("POST", "/me/api-keys",
+		strings.NewReader(`{"name":"x","expires_days":"-3"}`)), "actorA")
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expires_days -3 = %d, want 422", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"expires_days"`) {
+		t.Fatalf("422 must have expires_days error: %s", rec.Body.String())
 	}
 }
