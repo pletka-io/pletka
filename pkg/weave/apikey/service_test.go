@@ -37,6 +37,16 @@ func (f *fakeStore) Touch(_ context.Context, id string) error {
 	return nil
 }
 func (f *fakeStore) Revoke(_ context.Context, _ string) (int64, error) { return 0, nil }
+func (f *fakeStore) RevokeOwned(_ context.Context, id, actorID string) (int64, error) {
+	for _, k := range f.byHash {
+		if k.ID == id && k.ActorID == actorID && k.RevokedAt == nil {
+			now := time.Now()
+			k.RevokedAt = &now
+			return 1, nil
+		}
+	}
+	return 0, nil
+}
 
 func newTestService(store Store) *Service { return NewService(store, slog.Default()) }
 
@@ -95,5 +105,20 @@ func TestVerify(t *testing.T) {
 	key.ExpiresAt = &past
 	if _, err := svc.Verify(context.Background(), secret); err != ErrInvalidKey {
 		t.Fatalf("expired: want ErrInvalidKey, got %v", err)
+	}
+}
+
+func TestRevokeOwned(t *testing.T) {
+	store := newFakeStore()
+	svc := newTestService(store)
+	_, key, _ := svc.Mint(context.Background(), "actor1", "k", 0)
+
+	n, err := svc.RevokeOwned(context.Background(), "other-actor", key.ID)
+	if err != nil || n != 0 {
+		t.Fatalf("foreign: n=%d err=%v", n, err)
+	}
+	n, err = svc.RevokeOwned(context.Background(), "actor1", key.ID)
+	if err != nil || n != 1 {
+		t.Fatalf("owned: n=%d err=%v", n, err)
 	}
 }

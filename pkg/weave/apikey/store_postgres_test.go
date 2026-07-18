@@ -75,4 +75,25 @@ func TestAPIKeyRoundTrip(t *testing.T) {
 	if err != nil || got != nil {
 		t.Fatalf("expected (nil, nil) for no-such-hash, got (%+v, %v)", got, err)
 	}
+
+	// RevokeOwned: wrong actor cannot revoke; owner can.
+	second, err := store.Create(ctx, &domain.APIKey{
+		ID: ids.GenerateULID(), ActorID: actorID, Name: "owned",
+		KeyHash: "hash2-" + actorID, KeyPrefix: "pk_own2",
+	})
+	if err != nil {
+		t.Fatalf("create second: %v", err)
+	}
+	n, err = store.RevokeOwned(ctx, second.ID, "someone-else")
+	if err != nil || n != 0 {
+		t.Fatalf("foreign revoke: n=%d err=%v, want 0,nil", n, err)
+	}
+	n, err = store.RevokeOwned(ctx, second.ID, actorID)
+	if err != nil || n != 1 {
+		t.Fatalf("owned revoke: n=%d err=%v, want 1,nil", n, err)
+	}
+	n, err = store.RevokeOwned(ctx, second.ID, actorID)
+	if err != nil || n != 0 {
+		t.Fatalf("double revoke: n=%d err=%v, want 0,nil (idempotent)", n, err)
+	}
 }

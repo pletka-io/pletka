@@ -153,6 +153,25 @@ func (q *Queries) WeaveAPIKeyRevoke(ctx context.Context, id string) (int64, erro
 	return result.RowsAffected(), nil
 }
 
+const weaveAPIKeyRevokeOwned = `-- name: WeaveAPIKeyRevokeOwned :execrows
+UPDATE weave_api_keys
+SET revoked_at = now()
+WHERE id = $1 AND actor_id = $2 AND revoked_at IS NULL
+`
+
+type WeaveAPIKeyRevokeOwnedParams struct {
+	ID      string `json:"id"`
+	ActorID string `json:"actor_id"`
+}
+
+func (q *Queries) WeaveAPIKeyRevokeOwned(ctx context.Context, arg WeaveAPIKeyRevokeOwnedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, weaveAPIKeyRevokeOwned, arg.ID, arg.ActorID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const weaveAPIKeyTouch = `-- name: WeaveAPIKeyTouch :exec
 UPDATE weave_api_keys SET last_used_at = now() WHERE id = $1
 `

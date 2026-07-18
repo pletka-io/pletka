@@ -17,4 +17,7 @@ type Store interface {
 	Touch(ctx context.Context, id string) error
 	// Revoke revokes by ID or key prefix; returns the number of rows revoked.
 	Revoke(ctx context.Context, idOrPrefix string) (int64, error)
+	// RevokeOwned revokes key id only when owned by actorID; returns rows
+	// revoked (0 = not found, not owned, or already revoked — indistinguishable).
+	RevokeOwned(ctx context.Context, id, actorID string) (int64, error)
 }

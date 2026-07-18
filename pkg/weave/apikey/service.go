@@ -109,3 +109,9 @@ func (s *Service) List(ctx context.Context, actorID string) ([]*domain.APIKey, e
 func (s *Service) Revoke(ctx context.Context, idOrPrefix string) (int64, error) {
 	return s.store.Revoke(ctx, idOrPrefix)
 }
+
+// RevokeOwned revokes actorID's key by ID; 0 rows means not found / not
+// owned / already revoked — callers must not distinguish.
+func (s *Service) RevokeOwned(ctx context.Context, actorID, id string) (int64, error) {
+	return s.store.RevokeOwned(ctx, id, actorID)
+}

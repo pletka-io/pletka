@@ -19,3 +19,8 @@ UPDATE weave_api_keys SET last_used_at = now() WHERE id = $1;
 UPDATE weave_api_keys
 SET revoked_at = now()
 WHERE (id = $1 OR key_prefix = $1) AND revoked_at IS NULL;
+
+-- name: WeaveAPIKeyRevokeOwned :execrows
+UPDATE weave_api_keys
+SET revoked_at = now()
+WHERE id = $1 AND actor_id = $2 AND revoked_at IS NULL;

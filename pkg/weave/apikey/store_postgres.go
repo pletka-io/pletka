@@ -83,6 +83,17 @@ func (s *postgresStore) Revoke(ctx context.Context, idOrPrefix string) (int64, e
 	return n, nil
 }
 
+func (s *postgresStore) RevokeOwned(ctx context.Context, id, actorID string) (int64, error) {
+	n, err := s.queries.WeaveAPIKeyRevokeOwned(ctx, sqlcgen.WeaveAPIKeyRevokeOwnedParams{
+		ID:      id,
+		ActorID: actorID,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("revoke owned api key: %w", err)
+	}
+	return n, nil
+}
+
 func rowToAPIKey(row sqlcgen.WeaveApiKey) *domain.APIKey {
 	return &domain.APIKey{
 		ID:         row.ID,
