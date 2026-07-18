@@ -43,6 +43,9 @@ type NamespaceReader interface {
 type FieldReader interface {
 	List(ctx context.Context, projectID string, opts ...domain.QueryOption) ([]*domain.Field, int64, error)
 	GetByIdentifier(ctx context.Context, projectID, identifier string) (*domain.Field, error)
+	// BatchUsageRefs returns, for each field ID, the models and collections
+	// that place it — project-scale ownership refs.
+	BatchUsageRefs(ctx context.Context, projectID string, fieldIDs []string) (map[string]domain.FieldUsageList, error)
 }
 
 // ModelReader is the model entity surface the tools need.

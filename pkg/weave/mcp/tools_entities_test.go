@@ -141,6 +141,13 @@ func (f *fakeFields) GetByIdentifier(_ context.Context, _, id string) (*domain.F
 	return nil, errors.New("not found")
 }
 
+// BatchUsageRefs is a permissive stub — real behavior is exercised by the
+// field package's own tests; this satisfies the FieldReader interface so
+// the mcp package compiles.
+func (f *fakeFields) BatchUsageRefs(_ context.Context, _ string, _ []string) (map[string]domain.FieldUsageList, error) {
+	return map[string]domain.FieldUsageList{}, nil
+}
+
 func TestListEntitiesFieldPathElements(t *testing.T) {
 	h := testHostEntities()
 	fld := &domain.Field{}

@@ -275,6 +275,16 @@ func (s *Service) BatchUsageCounts(ctx context.Context, projectID string, fieldI
 	return s.store.BatchUsageCounts(ctx, projectID, fieldIDs)
 }
 
+// BatchUsageRefs returns, for each field ID, the models and collections that
+// place it — project-scale ownership refs (e.g. the MCP field reader), as
+// opposed to BatchUsageCounts' aggregate numbers.
+func (s *Service) BatchUsageRefs(ctx context.Context, projectID string, fieldIDs []string) (map[string]domain.FieldUsageList, error) {
+	if err := s.requireProjectRead(ctx, projectID); err != nil {
+		return nil, err
+	}
+	return s.store.BatchUsageRefs(ctx, fieldIDs)
+}
+
 // ListAdoptedByReference returns every field from another project that
 // the current project's overrides reference via field_id — task 3b.
 func (s *Service) ListAdoptedByReference(ctx context.Context, projectID string) ([]*domain.Field, error) {

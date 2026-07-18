@@ -953,6 +953,74 @@ GROUP BY fo.field_id`
 	return out, rows.Err()
 }
 
+// BatchUsageRefs returns, for each field ID, the models and collections that
+// place it (weave_field_overrides entity_type 'model'/'collection'; base
+// rows entity_type='' are not placements). Fields with no placements are
+// absent from the map. Unlike ListUsage/CountUsage there is no
+// version-pinned (archive-table) variant here — this is a live-rows-only
+// read, deliberately, since the current MCP/project-scale consumers only
+// ever want current state.
+func (s *postgresStore) BatchUsageRefs(ctx context.Context, fieldIDs []string) (map[string]domain.FieldUsageList, error) {
+	out := map[string]domain.FieldUsageList{}
+	if len(fieldIDs) == 0 {
+		return out, nil
+	}
+	const q = `
+SELECT
+    fo.field_id,
+    fo.entity_type,
+    e.id,
+    COALESCE(e.system_name, '')
+FROM weave_field_overrides fo
+JOIN LATERAL (
+    SELECT id, system_name FROM weave_models
+    WHERE fo.entity_type = 'model' AND id = fo.entity_id
+    UNION ALL
+    SELECT id, system_name FROM weave_collections
+    WHERE fo.entity_type = 'collection' AND id = fo.entity_id
+) e ON true
+WHERE fo.field_id = ANY($1) AND fo.entity_type IN ('model', 'collection')
+ORDER BY fo.field_id, fo.entity_type, e.id`
+	rows, err := s.pool.Query(ctx, q, fieldIDs)
+	if err != nil {
+		return nil, fmt.Errorf("batch field usage refs: %w", err)
+	}
+	defer rows.Close()
+
+	// A field can be referenced by the same model/collection via several
+	// override rows (one per category/collection placement) — dedupe by
+	// (field, entity_type, id) same as scanFieldUsageRows does per-field.
+	seen := map[string]bool{}
+	for rows.Next() {
+		var fieldID, entityType, id, sysName string
+		if err := rows.Scan(&fieldID, &entityType, &id, &sysName); err != nil {
+			return nil, fmt.Errorf("scan batch field usage ref row: %w", err)
+		}
+		dedupeKey := fieldID + "|" + entityType + "|" + id
+		if seen[dedupeKey] {
+			continue
+		}
+		seen[dedupeKey] = true
+		ref := domain.FieldUsageRef{
+			ID:         id,
+			SemanticID: id, // id is the semantic identifier in this schema (no separate column)
+			SystemName: sysName,
+		}
+		list := out[fieldID]
+		switch entityType {
+		case "model":
+			list.Models = append(list.Models, ref)
+		case "collection":
+			list.Collections = append(list.Collections, ref)
+		}
+		out[fieldID] = list
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate batch field usage ref rows: %w", err)
+	}
+	return out, nil
+}
+
 // ListBaseFieldCategories returns the distinct categories assigned to
 // base field overrides in this project. Drives the category filter
 // dropdown on the field list.

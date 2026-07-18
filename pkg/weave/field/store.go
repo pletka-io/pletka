@@ -99,6 +99,13 @@ type Store interface {
 	// given field IDs in one query — the field-list count badges + delete gate.
 	BatchUsageCounts(ctx context.Context, projectID string, fieldIDs []string) (map[string]domain.FieldListCounts, error)
 
+	// BatchUsageRefs returns, for each field ID, the models and collections
+	// that place it — the same edges ListUsage walks, but for many fields in
+	// one query (project-scale ownership lookups, e.g. the MCP reader).
+	// Reads live rows only; no version-pinned variant. Fields with no
+	// placements are absent from the map.
+	BatchUsageRefs(ctx context.Context, fieldIDs []string) (map[string]domain.FieldUsageList, error)
+
 	// Deprecate soft-retires a field. Existing references stay intact;
 	// pickers exclude the field from new connections.
 	Deprecate(ctx context.Context, fieldID string) error
