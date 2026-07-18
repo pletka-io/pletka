@@ -32,15 +32,17 @@ WHERE project_id = $1::text
        OR system_name ILIKE '%' || $2::text || '%'
        OR COALESCE(semantic_id, '') ILIKE '%' || $2::text || '%'
        OR COALESCE(ontology_path, '') ILIKE '%' || $2::text || '%')
+  AND ($3::text = '' OR status = $3::text)
 `
 
 type WeaveCountFieldsParams struct {
 	ProjectID string `json:"project_id"`
 	Search    string `json:"search"`
+	Status    string `json:"status"`
 }
 
 func (q *Queries) WeaveCountFields(ctx context.Context, arg WeaveCountFieldsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, weaveCountFields, arg.ProjectID, arg.Search)
+	row := q.db.QueryRow(ctx, weaveCountFields, arg.ProjectID, arg.Search, arg.Status)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -440,22 +442,24 @@ WHERE project_id = $1::text
        OR system_name ILIKE '%' || $2::text || '%'
        OR COALESCE(semantic_id, '') ILIKE '%' || $2::text || '%'
        OR COALESCE(ontology_path, '') ILIKE '%' || $2::text || '%')
+  AND ($3::text = '' OR status = $3::text)
 ORDER BY
-    CASE WHEN $3::text = 'ui_name' AND NOT $4::boolean THEN ui_name->>'en' END ASC NULLS LAST,
-    CASE WHEN $3::text = 'ui_name' AND $4::boolean THEN ui_name->>'en' END DESC NULLS LAST,
-    CASE WHEN $3::text = 'name' AND NOT $4::boolean THEN system_name END ASC NULLS LAST,
-    CASE WHEN $3::text = 'name' AND $4::boolean THEN system_name END DESC NULLS LAST,
-    CASE WHEN $3::text = 'system_name' AND NOT $4::boolean THEN system_name END ASC NULLS LAST,
-    CASE WHEN $3::text = 'system_name' AND $4::boolean THEN system_name END DESC NULLS LAST,
-    CASE WHEN $3::text = 'updated_at' AND NOT $4::boolean THEN updated_at END ASC,
-    CASE WHEN $3::text = 'updated_at' AND $4::boolean THEN updated_at END DESC,
+    CASE WHEN $4::text = 'ui_name' AND NOT $5::boolean THEN ui_name->>'en' END ASC NULLS LAST,
+    CASE WHEN $4::text = 'ui_name' AND $5::boolean THEN ui_name->>'en' END DESC NULLS LAST,
+    CASE WHEN $4::text = 'name' AND NOT $5::boolean THEN system_name END ASC NULLS LAST,
+    CASE WHEN $4::text = 'name' AND $5::boolean THEN system_name END DESC NULLS LAST,
+    CASE WHEN $4::text = 'system_name' AND NOT $5::boolean THEN system_name END ASC NULLS LAST,
+    CASE WHEN $4::text = 'system_name' AND $5::boolean THEN system_name END DESC NULLS LAST,
+    CASE WHEN $4::text = 'updated_at' AND NOT $5::boolean THEN updated_at END ASC,
+    CASE WHEN $4::text = 'updated_at' AND $5::boolean THEN updated_at END DESC,
     system_name ASC
-LIMIT $6::integer OFFSET $5::integer
+LIMIT $7::integer OFFSET $6::integer
 `
 
 type WeaveListFieldsParams struct {
 	ProjectID    string `json:"project_id"`
 	Search       string `json:"search"`
+	Status       string `json:"status"`
 	SortBy       string `json:"sort_by"`
 	SortDesc     bool   `json:"sort_desc"`
 	ResultOffset int32  `json:"result_offset"`
@@ -486,6 +490,7 @@ func (q *Queries) WeaveListFields(ctx context.Context, arg WeaveListFieldsParams
 	rows, err := q.db.Query(ctx, weaveListFields,
 		arg.ProjectID,
 		arg.Search,
+		arg.Status,
 		arg.SortBy,
 		arg.SortDesc,
 		arg.ResultOffset,

@@ -30,6 +30,7 @@ WHERE project_id = $1::text
        OR system_name ILIKE '%' || $2::text || '%')
   AND ($3::text = '' OR model_type = $3::text)
   AND ($4::text = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array($4::text, ',')))
+  AND ($5::text = '' OR status = $5::text)
 `
 
 type WeaveCountModelsParams struct {
@@ -37,6 +38,7 @@ type WeaveCountModelsParams struct {
 	Search     string `json:"search"`
 	ModelType  string `json:"model_type"`
 	ScopeClass string `json:"scope_class"`
+	Status     string `json:"status"`
 }
 
 func (q *Queries) WeaveCountModels(ctx context.Context, arg WeaveCountModelsParams) (int64, error) {
@@ -45,6 +47,7 @@ func (q *Queries) WeaveCountModels(ctx context.Context, arg WeaveCountModelsPara
 		arg.Search,
 		arg.ModelType,
 		arg.ScopeClass,
+		arg.Status,
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -348,18 +351,19 @@ WHERE project_id = $1::text
        OR system_name ILIKE '%' || $2::text || '%')
   AND ($3::text = '' OR model_type = $3::text)
   AND ($4::text = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array($4::text, ',')))
+  AND ($5::text = '' OR status = $5::text)
 ORDER BY
     CASE WHEN model_type = 'core' THEN 0 ELSE 1 END,
-    CASE WHEN $5::text = 'ui_name' AND NOT $6::boolean THEN ui_name->>'en' END ASC NULLS LAST,
-    CASE WHEN $5::text = 'ui_name' AND $6::boolean THEN ui_name->>'en' END DESC NULLS LAST,
-    CASE WHEN $5::text = 'name' AND NOT $6::boolean THEN system_name END ASC NULLS LAST,
-    CASE WHEN $5::text = 'name' AND $6::boolean THEN system_name END DESC NULLS LAST,
-    CASE WHEN $5::text = 'system_name' AND NOT $6::boolean THEN system_name END ASC NULLS LAST,
-    CASE WHEN $5::text = 'system_name' AND $6::boolean THEN system_name END DESC NULLS LAST,
-    CASE WHEN $5::text = 'updated_at' AND NOT $6::boolean THEN updated_at END ASC,
-    CASE WHEN $5::text = 'updated_at' AND $6::boolean THEN updated_at END DESC,
+    CASE WHEN $6::text = 'ui_name' AND NOT $7::boolean THEN ui_name->>'en' END ASC NULLS LAST,
+    CASE WHEN $6::text = 'ui_name' AND $7::boolean THEN ui_name->>'en' END DESC NULLS LAST,
+    CASE WHEN $6::text = 'name' AND NOT $7::boolean THEN system_name END ASC NULLS LAST,
+    CASE WHEN $6::text = 'name' AND $7::boolean THEN system_name END DESC NULLS LAST,
+    CASE WHEN $6::text = 'system_name' AND NOT $7::boolean THEN system_name END ASC NULLS LAST,
+    CASE WHEN $6::text = 'system_name' AND $7::boolean THEN system_name END DESC NULLS LAST,
+    CASE WHEN $6::text = 'updated_at' AND NOT $7::boolean THEN updated_at END ASC,
+    CASE WHEN $6::text = 'updated_at' AND $7::boolean THEN updated_at END DESC,
     system_name ASC
-LIMIT $8::integer OFFSET $7::integer
+LIMIT $9::integer OFFSET $8::integer
 `
 
 type WeaveListModelsParams struct {
@@ -367,6 +371,7 @@ type WeaveListModelsParams struct {
 	Search       string `json:"search"`
 	ModelType    string `json:"model_type"`
 	ScopeClass   string `json:"scope_class"`
+	Status       string `json:"status"`
 	SortBy       string `json:"sort_by"`
 	SortDesc     bool   `json:"sort_desc"`
 	ResultOffset int32  `json:"result_offset"`
@@ -394,6 +399,7 @@ func (q *Queries) WeaveListModels(ctx context.Context, arg WeaveListModelsParams
 		arg.Search,
 		arg.ModelType,
 		arg.ScopeClass,
+		arg.Status,
 		arg.SortBy,
 		arg.SortDesc,
 		arg.ResultOffset,

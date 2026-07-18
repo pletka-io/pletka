@@ -213,9 +213,12 @@ func (s *postgresStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 		offset = 0
 	}
 
+	status, _ := cfg.Filters["status"].(string)
+
 	rows, err := s.queries.WeaveListFields(ctx, sqlcgen.WeaveListFieldsParams{
 		ProjectID:    cfg.ProjectID,
 		Search:       cfg.Search,
+		Status:       status,
 		SortBy:       cfg.OrderBy,
 		SortDesc:     cfg.OrderDesc,
 		ResultLimit:  limit,
@@ -228,6 +231,7 @@ func (s *postgresStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 	total, err := s.queries.WeaveCountFields(ctx, sqlcgen.WeaveCountFieldsParams{
 		ProjectID: cfg.ProjectID,
 		Search:    cfg.Search,
+		Status:    status,
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("count weave fields: %w", err)

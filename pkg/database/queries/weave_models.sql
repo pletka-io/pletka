@@ -211,6 +211,7 @@ WHERE project_id = @project_id::text
        OR system_name ILIKE '%' || @search::text || '%')
   AND (@model_type::text = '' OR model_type = @model_type::text)
   AND (@scope_class::text = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array(@scope_class::text, ',')))
+  AND (@status::text = '' OR status = @status::text)
 ORDER BY
     CASE WHEN model_type = 'core' THEN 0 ELSE 1 END,
     CASE WHEN @sort_by::text = 'ui_name' AND NOT @sort_desc::boolean THEN ui_name->>'en' END ASC NULLS LAST,
@@ -232,7 +233,8 @@ WHERE project_id = @project_id::text
        OR EXISTS (SELECT 1 FROM jsonb_each_text(description) jt WHERE jt.value ILIKE '%' || @search::text || '%')
        OR system_name ILIKE '%' || @search::text || '%')
   AND (@model_type::text = '' OR model_type = @model_type::text)
-  AND (@scope_class::text = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array(@scope_class::text, ',')));
+  AND (@scope_class::text = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array(@scope_class::text, ',')))
+  AND (@status::text = '' OR status = @status::text);
 
 -- name: WeaveListModelScopeClasses :many
 -- Returns distinct ontology scope classes (prefix:local_name) used by

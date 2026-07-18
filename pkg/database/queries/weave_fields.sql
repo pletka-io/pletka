@@ -9,7 +9,8 @@ WHERE project_id = @project_id::text
        OR EXISTS (SELECT 1 FROM jsonb_each_text(description) jt WHERE jt.value ILIKE '%' || @search::text || '%')
        OR system_name ILIKE '%' || @search::text || '%'
        OR COALESCE(semantic_id, '') ILIKE '%' || @search::text || '%'
-       OR COALESCE(ontology_path, '') ILIKE '%' || @search::text || '%');
+       OR COALESCE(ontology_path, '') ILIKE '%' || @search::text || '%')
+  AND (@status::text = '' OR status = @status::text);
 
 -- name: WeaveListFields :many
 SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description,
@@ -23,6 +24,7 @@ WHERE project_id = @project_id::text
        OR system_name ILIKE '%' || @search::text || '%'
        OR COALESCE(semantic_id, '') ILIKE '%' || @search::text || '%'
        OR COALESCE(ontology_path, '') ILIKE '%' || @search::text || '%')
+  AND (@status::text = '' OR status = @status::text)
 ORDER BY
     CASE WHEN @sort_by::text = 'ui_name' AND NOT @sort_desc::boolean THEN ui_name->>'en' END ASC NULLS LAST,
     CASE WHEN @sort_by::text = 'ui_name' AND @sort_desc::boolean THEN ui_name->>'en' END DESC NULLS LAST,

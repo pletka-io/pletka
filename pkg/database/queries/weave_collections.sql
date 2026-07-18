@@ -106,6 +106,7 @@ WHERE project_id = @project_id::text
        OR system_name ILIKE '%' || @search::text || '%')
   AND (@scope_class::text = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array(@scope_class::text, ',')))
   AND (@category_id::text = '' OR default_category_id = ANY(string_to_array(@category_id::text, ',')))
+  AND (@status::text = '' OR status = @status::text)
 ORDER BY
     CASE WHEN @sort_by::text = 'ui_name' AND NOT @sort_desc::boolean THEN ui_name->>'en' END ASC NULLS LAST,
     CASE WHEN @sort_by::text = 'ui_name' AND @sort_desc::boolean THEN ui_name->>'en' END DESC NULLS LAST,
@@ -126,7 +127,8 @@ WHERE project_id = @project_id::text
        OR EXISTS (SELECT 1 FROM jsonb_each_text(description) jt WHERE jt.value ILIKE '%' || @search::text || '%')
        OR system_name ILIKE '%' || @search::text || '%')
   AND (@scope_class::text = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array(@scope_class::text, ',')))
-  AND (@category_id::text = '' OR default_category_id = ANY(string_to_array(@category_id::text, ',')));
+  AND (@category_id::text = '' OR default_category_id = ANY(string_to_array(@category_id::text, ',')))
+  AND (@status::text = '' OR status = @status::text);
 
 -- name: WeaveListReceiptCollectionDirect :many
 -- Direct (depth-1) collection references from the receipt seed —

@@ -127,6 +127,7 @@ WHERE project_id = $1::text
        OR system_name ILIKE '%' || $2::text || '%')
   AND ($3::text = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array($3::text, ',')))
   AND ($4::text = '' OR default_category_id = ANY(string_to_array($4::text, ',')))
+  AND ($5::text = '' OR status = $5::text)
 `
 
 type WeaveCountCollectionsParams struct {
@@ -134,6 +135,7 @@ type WeaveCountCollectionsParams struct {
 	Search     string `json:"search"`
 	ScopeClass string `json:"scope_class"`
 	CategoryID string `json:"category_id"`
+	Status     string `json:"status"`
 }
 
 func (q *Queries) WeaveCountCollections(ctx context.Context, arg WeaveCountCollectionsParams) (int64, error) {
@@ -142,6 +144,7 @@ func (q *Queries) WeaveCountCollections(ctx context.Context, arg WeaveCountColle
 		arg.Search,
 		arg.ScopeClass,
 		arg.CategoryID,
+		arg.Status,
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -449,17 +452,18 @@ WHERE project_id = $1::text
        OR system_name ILIKE '%' || $2::text || '%')
   AND ($3::text = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array($3::text, ',')))
   AND ($4::text = '' OR default_category_id = ANY(string_to_array($4::text, ',')))
+  AND ($5::text = '' OR status = $5::text)
 ORDER BY
-    CASE WHEN $5::text = 'ui_name' AND NOT $6::boolean THEN ui_name->>'en' END ASC NULLS LAST,
-    CASE WHEN $5::text = 'ui_name' AND $6::boolean THEN ui_name->>'en' END DESC NULLS LAST,
-    CASE WHEN $5::text = 'name' AND NOT $6::boolean THEN system_name END ASC NULLS LAST,
-    CASE WHEN $5::text = 'name' AND $6::boolean THEN system_name END DESC NULLS LAST,
-    CASE WHEN $5::text = 'system_name' AND NOT $6::boolean THEN system_name END ASC NULLS LAST,
-    CASE WHEN $5::text = 'system_name' AND $6::boolean THEN system_name END DESC NULLS LAST,
-    CASE WHEN $5::text = 'updated_at' AND NOT $6::boolean THEN updated_at END ASC,
-    CASE WHEN $5::text = 'updated_at' AND $6::boolean THEN updated_at END DESC,
+    CASE WHEN $6::text = 'ui_name' AND NOT $7::boolean THEN ui_name->>'en' END ASC NULLS LAST,
+    CASE WHEN $6::text = 'ui_name' AND $7::boolean THEN ui_name->>'en' END DESC NULLS LAST,
+    CASE WHEN $6::text = 'name' AND NOT $7::boolean THEN system_name END ASC NULLS LAST,
+    CASE WHEN $6::text = 'name' AND $7::boolean THEN system_name END DESC NULLS LAST,
+    CASE WHEN $6::text = 'system_name' AND NOT $7::boolean THEN system_name END ASC NULLS LAST,
+    CASE WHEN $6::text = 'system_name' AND $7::boolean THEN system_name END DESC NULLS LAST,
+    CASE WHEN $6::text = 'updated_at' AND NOT $7::boolean THEN updated_at END ASC,
+    CASE WHEN $6::text = 'updated_at' AND $7::boolean THEN updated_at END DESC,
     canonical_collection_order ASC, system_name ASC
-LIMIT $8::integer OFFSET $7::integer
+LIMIT $9::integer OFFSET $8::integer
 `
 
 type WeaveListCollectionsParams struct {
@@ -467,6 +471,7 @@ type WeaveListCollectionsParams struct {
 	Search       string `json:"search"`
 	ScopeClass   string `json:"scope_class"`
 	CategoryID   string `json:"category_id"`
+	Status       string `json:"status"`
 	SortBy       string `json:"sort_by"`
 	SortDesc     bool   `json:"sort_desc"`
 	ResultOffset int32  `json:"result_offset"`
@@ -496,6 +501,7 @@ func (q *Queries) WeaveListCollections(ctx context.Context, arg WeaveListCollect
 		arg.Search,
 		arg.ScopeClass,
 		arg.CategoryID,
+		arg.Status,
 		arg.SortBy,
 		arg.SortDesc,
 		arg.ResultOffset,

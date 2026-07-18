@@ -186,11 +186,13 @@ func (s *postgresStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 	}
 	scopeClass, _ := cfg.Filters["scope_class"].(string)
 	categoryID, _ := cfg.Filters["category_id"].(string)
+	status, _ := cfg.Filters["status"].(string)
 	rows, err := s.queries.WeaveListCollections(ctx, sqlcgen.WeaveListCollectionsParams{
 		ProjectID:    cfg.ProjectID,
 		Search:       cfg.Search,
 		ScopeClass:   scopeClass,
 		CategoryID:   categoryID,
+		Status:       status,
 		SortBy:       cfg.OrderBy,
 		SortDesc:     cfg.OrderDesc,
 		ResultLimit:  limit,
@@ -204,6 +206,7 @@ func (s *postgresStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 		Search:     cfg.Search,
 		ScopeClass: scopeClass,
 		CategoryID: categoryID,
+		Status:     status,
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("count weave collections: %w", err)
