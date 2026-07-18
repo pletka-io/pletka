@@ -118,6 +118,11 @@ type fakeFields struct {
 	gotBatchUsageFieldIDs  []string
 	// batchUsageErr, when set, is returned by BatchUsageRefs instead of refs.
 	batchUsageErr error
+	// totalOverride, when nonzero, is returned as List's total instead of
+	// len(fields) — lets a test simulate a store total exceeding the fake's
+	// row count (fallbackScanLimit truncation) without materializing
+	// thousands of fields.
+	totalOverride int64
 }
 
 // List implements limit enforcement: returns at most cfg.Limit rows, but total
@@ -125,6 +130,9 @@ type fakeFields struct {
 func (f *fakeFields) List(_ context.Context, _ string, opts ...domain.QueryOption) ([]*domain.Field, int64, error) {
 	cfg := domain.ApplyOptions(opts)
 	total := int64(len(f.fields))
+	if f.totalOverride != 0 {
+		total = f.totalOverride
+	}
 
 	limit := cfg.Limit
 	if limit <= 0 {

@@ -13,5 +13,6 @@ func newServer(h Host) *sdk.Server {
 	registerProjectTools(s, h)  // Task 8
 	registerEntityTools(s, h)   // Task 9
 	registerSemanticTools(s, h) // Task 10
+	registerReportTools(s, h)   // Task 3
 	return s
 }
