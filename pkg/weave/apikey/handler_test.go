@@ -54,9 +54,9 @@ func TestRowFromKeyStatusPrecedence(t *testing.T) {
 	past48h := now.Add(-48 * time.Hour)
 
 	tests := []struct {
-		name     string
-		key      *domain.APIKey
-		wantStatus string
+		name          string
+		key           *domain.APIKey
+		wantStatus    string
 		wantRevokedAt string // "empty" or "present"
 	}{
 		{
@@ -69,7 +69,7 @@ func TestRowFromKeyStatusPrecedence(t *testing.T) {
 				RevokedAt: nil,
 				ExpiresAt: nil,
 			},
-			wantStatus: "active",
+			wantStatus:    "active",
 			wantRevokedAt: "empty",
 		},
 		{
@@ -82,7 +82,7 @@ func TestRowFromKeyStatusPrecedence(t *testing.T) {
 				RevokedAt: nil,
 				ExpiresAt: &past24h,
 			},
-			wantStatus: "expired",
+			wantStatus:    "expired",
 			wantRevokedAt: "empty",
 		},
 		{
@@ -95,7 +95,7 @@ func TestRowFromKeyStatusPrecedence(t *testing.T) {
 				RevokedAt: &now,
 				ExpiresAt: &past24h,
 			},
-			wantStatus: "revoked",
+			wantStatus:    "revoked",
 			wantRevokedAt: "present",
 		},
 	}
