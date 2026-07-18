@@ -9,6 +9,7 @@ import (
 // Store is the persistence surface for API keys.
 type Store interface {
 	Create(ctx context.Context, key *domain.APIKey) (*domain.APIKey, error)
+	// GetByHash returns the API key matching the hash, or (nil, nil) if no key matches.
 	GetByHash(ctx context.Context, hash string) (*domain.APIKey, error)
 	// List returns all keys, or only actorID's keys when actorID is non-empty.
 	List(ctx context.Context, actorID string) ([]*domain.APIKey, error)

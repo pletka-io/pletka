@@ -69,4 +69,10 @@ func TestAPIKeyRoundTrip(t *testing.T) {
 	if got.RevokedAt == nil || got.LastUsedAt == nil {
 		t.Fatalf("expected revoked_at and last_used_at set, got %+v", got)
 	}
+
+	// Verify GetByHash returns (nil, nil) for non-existent hash.
+	got, err = store.GetByHash(ctx, "no-such-hash")
+	if err != nil || got != nil {
+		t.Fatalf("expected (nil, nil) for no-such-hash, got (%+v, %v)", got, err)
+	}
 }

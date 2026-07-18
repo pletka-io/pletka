@@ -2,8 +2,10 @@ package apikey
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
@@ -40,6 +42,9 @@ func (s *postgresStore) Create(ctx context.Context, key *domain.APIKey) (*domain
 func (s *postgresStore) GetByHash(ctx context.Context, hash string) (*domain.APIKey, error) {
 	row, err := s.queries.WeaveAPIKeyGetByHash(ctx, hash)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("get api key by hash: %w", err)
 	}
 	return rowToAPIKey(row), nil
