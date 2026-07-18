@@ -16,8 +16,5 @@ func newServer(h Host) *sdk.Server {
 	return s
 }
 
-// registerEntityTools attaches entity-surface tools. Stub until Task 9.
-func registerEntityTools(s *sdk.Server, h Host) {}
-
 // registerSemanticTools attaches semantic-surface tools. Stub until Task 10.
 func registerSemanticTools(s *sdk.Server, h Host) {}

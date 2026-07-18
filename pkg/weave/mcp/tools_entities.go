@@ -1,0 +1,230 @@
+package mcp
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/pletka-io/pletka/pkg/domain"
+)
+
+type listEntitiesInput struct {
+	ProjectID  string `json:"project_id" jsonschema:"project ID / prefix"`
+	EntityType string `json:"entity_type" jsonschema:"one of: field, model, collection, category"`
+	Status     string `json:"status,omitempty" jsonschema:"filter: draft or published"`
+	Query      string `json:"query,omitempty" jsonschema:"substring search on names"`
+	Limit      int    `json:"limit,omitempty" jsonschema:"max results, default 100"`
+	Offset     int    `json:"offset,omitempty"`
+}
+
+// entitySummary is the compact row shape shared by all four entity types.
+type entitySummary struct {
+	ID                string              `json:"id"`
+	SemanticID        string              `json:"semantic_id"`
+	SystemName        string              `json:"system_name"`
+	UIName            domain.Translations `json:"ui_name"`
+	Status            string              `json:"status"`
+	Deprecated        bool                `json:"deprecated,omitempty"`
+	OntologyPath      string              `json:"ontology_path,omitempty"`
+	ExpectedValueType string              `json:"expected_value_type,omitempty"`
+}
+
+type listEntitiesOutput struct {
+	Entities   []entitySummary `json:"entities"`
+	TotalCount int64           `json:"total_count"`
+}
+
+type getEntityInput struct {
+	ProjectID  string `json:"project_id" jsonschema:"project ID / prefix"`
+	EntityType string `json:"entity_type" jsonschema:"one of: field, model, collection, category"`
+	ID         string `json:"id" jsonschema:"ULID, semantic ID (e.g. LAF.12), or system name"`
+}
+
+type getEntityOutput struct {
+	EntityType string `json:"entity_type"`
+	Entity     any    `json:"entity"`
+}
+
+func listOpts(in listEntitiesInput) []domain.QueryOption {
+	var opts []domain.QueryOption
+	if in.Query != "" {
+		opts = append(opts, domain.WithSearch(in.Query))
+	}
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	opts = append(opts, domain.WithLimit(limit), domain.WithOffset(in.Offset))
+	return opts
+}
+
+// keepStatus reports whether status matches the requested filter; an empty
+// want keeps everything. status/want are plain strings — callers convert
+// domain.Status (a defined string type) at the call site.
+func keepStatus(status, want string) bool { return want == "" || status == want }
+
+func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntitiesOutput, error) {
+	if _, err := resolveProject(ctx, h, in.ProjectID); err != nil {
+		return listEntitiesOutput{}, err
+	}
+	out := listEntitiesOutput{Entities: []entitySummary{}}
+	// ponytail: status filtered in memory post-List; move into a query
+	// option if any project's entity count makes this measurable.
+	switch strings.ToLower(in.EntityType) {
+	case "field":
+		rows, total, err := h.Fields.List(ctx, in.ProjectID, listOpts(in)...)
+		if err != nil {
+			return out, fmt.Errorf("list fields: %w", err)
+		}
+		out.TotalCount = total
+		for _, f := range rows {
+			if !keepStatus(string(f.Status), in.Status) {
+				continue
+			}
+			out.Entities = append(out.Entities, entitySummary{
+				ID: f.ID, SemanticID: f.SemanticID, SystemName: f.SystemName,
+				UIName: f.UIName, Status: string(f.Status), Deprecated: f.Deprecated,
+				OntologyPath: f.OntologyPath(), ExpectedValueType: f.ExpectedValueType,
+			})
+		}
+	case "model":
+		rows, total, err := h.Models.List(ctx, in.ProjectID, listOpts(in)...)
+		if err != nil {
+			return out, fmt.Errorf("list models: %w", err)
+		}
+		out.TotalCount = total
+		for _, m := range rows {
+			if !keepStatus(string(m.Status), in.Status) {
+				continue
+			}
+			out.Entities = append(out.Entities, entitySummary{
+				ID: m.ID, SemanticID: m.SemanticID, SystemName: m.SystemName,
+				UIName: m.UIName, Status: string(m.Status), Deprecated: m.Deprecated,
+			})
+		}
+	case "collection":
+		rows, total, err := h.Collections.List(ctx, in.ProjectID, listOpts(in)...)
+		if err != nil {
+			return out, fmt.Errorf("list collections: %w", err)
+		}
+		out.TotalCount = total
+		for _, c := range rows {
+			if !keepStatus(string(c.Status), in.Status) {
+				continue
+			}
+			out.Entities = append(out.Entities, entitySummary{
+				ID: c.ID, SemanticID: c.SemanticID, SystemName: c.SystemName,
+				UIName: c.UIName, Status: string(c.Status), Deprecated: c.Deprecated,
+			})
+		}
+	case "category":
+		rows, err := h.Categories.List(ctx, in.ProjectID, listOpts(in)...)
+		if err != nil {
+			return out, fmt.Errorf("list categories: %w", err)
+		}
+		out.TotalCount = int64(len(rows))
+		for _, c := range rows {
+			if !keepStatus(string(c.Status), in.Status) {
+				continue
+			}
+			out.Entities = append(out.Entities, entitySummary{
+				ID: c.ID, SemanticID: c.SemanticID, SystemName: c.SystemName,
+				UIName: c.UIName, Status: string(c.Status), Deprecated: c.Deprecated,
+			})
+		}
+	default:
+		return out, fmt.Errorf("unknown entity_type %q (field, model, collection, category)", in.EntityType)
+	}
+	return out, nil
+}
+
+func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput, error) {
+	if _, err := resolveProject(ctx, h, in.ProjectID); err != nil {
+		return getEntityOutput{}, err
+	}
+	out := getEntityOutput{EntityType: strings.ToLower(in.EntityType)}
+	switch out.EntityType {
+	case "field":
+		f, err := h.Fields.GetByIdentifier(ctx, in.ProjectID, in.ID)
+		if err != nil {
+			return out, fmt.Errorf("field %q not found in %s", in.ID, in.ProjectID)
+		}
+		out.Entity = f
+	case "model":
+		m, err := h.Models.Get(ctx, in.ProjectID, in.ID)
+		if err == nil {
+			out.Entity = m
+			return out, nil
+		}
+		// ponytail: semantic-id fallback is an in-memory scan of the
+		// project's models; a store-level lookup replaces it if any
+		// project's model count makes this measurable.
+		rows, _, err := h.Models.List(ctx, in.ProjectID)
+		if err != nil {
+			return out, fmt.Errorf("list models: %w", err)
+		}
+		for _, m := range rows {
+			if m.SemanticID == in.ID || m.SystemName == in.ID {
+				out.Entity = m
+				return out, nil
+			}
+		}
+		return out, fmt.Errorf("model %q not found in %s", in.ID, in.ProjectID)
+	case "collection":
+		c, err := h.Collections.Get(ctx, in.ProjectID, in.ID)
+		if err == nil {
+			out.Entity = c
+			return out, nil
+		}
+		rows, _, err := h.Collections.List(ctx, in.ProjectID)
+		if err != nil {
+			return out, fmt.Errorf("list collections: %w", err)
+		}
+		for _, c := range rows {
+			if c.SemanticID == in.ID || c.SystemName == in.ID {
+				out.Entity = c
+				return out, nil
+			}
+		}
+		return out, fmt.Errorf("collection %q not found in %s", in.ID, in.ProjectID)
+	case "category":
+		c, err := h.Categories.Get(ctx, in.ProjectID, in.ID)
+		if err == nil {
+			out.Entity = c
+			return out, nil
+		}
+		rows, err := h.Categories.List(ctx, in.ProjectID)
+		if err != nil {
+			return out, fmt.Errorf("list categories: %w", err)
+		}
+		for _, c := range rows {
+			if c.SemanticID == in.ID || c.SystemName == in.ID {
+				out.Entity = c
+				return out, nil
+			}
+		}
+		return out, fmt.Errorf("category %q not found in %s", in.ID, in.ProjectID)
+	default:
+		return out, fmt.Errorf("unknown entity_type %q (field, model, collection, category)", in.EntityType)
+	}
+	return out, nil
+}
+
+func registerEntityTools(s *sdk.Server, h Host) {
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "list_entities",
+		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging.",
+	}, func(ctx context.Context, req *sdk.CallToolRequest, in listEntitiesInput) (*sdk.CallToolResult, listEntitiesOutput, error) {
+		out, err := listEntities(ctx, h, in)
+		return nil, out, err
+	})
+	sdk.AddTool(s, &sdk.Tool{
+		Name:        "get_entity",
+		Description: "Get one entity's full detail, including ontology path elements and overrides where applicable. Accepts ULID, semantic ID, or system name.",
+	}, func(ctx context.Context, req *sdk.CallToolRequest, in getEntityInput) (*sdk.CallToolResult, getEntityOutput, error) {
+		out, err := getEntity(ctx, h, in)
+		return nil, out, err
+	})
+}
