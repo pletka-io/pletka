@@ -132,6 +132,10 @@ func Mount(parent chi.Router, h Host) {
 	server := newServer(h)
 	handler := sdk.NewStreamableHTTPHandler(
 		func(*http.Request) *sdk.Server { return server },
+		// Stateless is required: it makes each tool call's ctx derive from the
+		// authenticated HTTP request, which is what lets slice services read the
+		// AuthSnapshot from context. Do not switch to stateful sessions without
+		// redesigning auth propagation.
 		&sdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
 	)
 	parent.Group(func(r chi.Router) {
