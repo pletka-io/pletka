@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -22,6 +23,13 @@ type listEntitiesInput struct {
 	Query      string `json:"query,omitempty" jsonschema:"substring search on names"`
 	Limit      int    `json:"limit,omitempty" jsonschema:"max results, default 100"`
 	Offset     int    `json:"offset,omitempty"`
+	Facet      string `json:"facet,omitempty" jsonschema:"aggregate instead of listing rows; only entity_type=field supports facet=path_root"`
+}
+
+// facetBucket is one aggregated value/count pair in a facet response.
+type facetBucket struct {
+	Value string `json:"value"`
+	Count int    `json:"count"`
 }
 
 // entitySummary is the compact row shape shared by all four entity types.
@@ -44,6 +52,10 @@ type listEntitiesOutput struct {
 	Entities []entitySummary `json:"entities"`
 	// TotalCount is the total count of rows matching the search and status filter, independent of paging.
 	TotalCount int64 `json:"total_count" jsonschema:"total rows matching the search and status filter"`
+	// Facet echoes the requested facet name; empty for a normal row listing.
+	Facet string `json:"facet,omitempty"`
+	// Buckets holds the aggregated {value,count} rows when Facet is set; empty entities in facet mode.
+	Buckets []facetBucket `json:"buckets,omitempty"`
 }
 
 type getEntityInput struct {
@@ -118,6 +130,12 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 	// This ensures consistent case-handling across all entity type branches.
 	status := strings.ToLower(strings.TrimSpace(in.Status))
 	out := listEntitiesOutput{Entities: []entitySummary{}}
+	if in.Facet != "" {
+		if strings.ToLower(in.EntityType) != "field" || in.Facet != "path_root" {
+			return out, fmt.Errorf("facet %q not supported: only entity_type=field with facet=path_root", in.Facet)
+		}
+		return facetPathRoot(ctx, h, in, status)
+	}
 	switch strings.ToLower(in.EntityType) {
 	case "field":
 		rows, total, err := h.Fields.List(ctx, in.ProjectID, listOpts(in)...)
@@ -207,6 +225,45 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 	return out, nil
 }
 
+// facetPathRoot implements list_entities' facet=path_root mode: fetch every
+// field matching the SQL status filter and search query, bucket by the first
+// ontology path element's prefixed name, and return counts instead of rows.
+func facetPathRoot(ctx context.Context, h Host, in listEntitiesInput, status string) (listEntitiesOutput, error) {
+	out := listEntitiesOutput{Entities: []entitySummary{}, Facet: "path_root"}
+	var opts []domain.QueryOption
+	if in.Query != "" {
+		opts = append(opts, domain.WithSearch(in.Query))
+	}
+	if status != "" {
+		opts = append(opts, domain.WithFilter("status", status))
+	}
+	opts = append(opts, domain.WithLimit(fallbackScanLimit))
+	rows, _, err := h.Fields.List(ctx, in.ProjectID, opts...)
+	if err != nil {
+		return out, fmt.Errorf("list fields: %w", err)
+	}
+	counts := make(map[string]int)
+	for _, f := range rows {
+		if len(f.PathElements) == 0 {
+			continue
+		}
+		counts[f.PathElements[0].PrefixedName()]++
+	}
+	buckets := make([]facetBucket, 0, len(counts))
+	for value, count := range counts {
+		buckets = append(buckets, facetBucket{Value: value, Count: count})
+	}
+	sort.Slice(buckets, func(i, j int) bool {
+		if buckets[i].Count != buckets[j].Count {
+			return buckets[i].Count > buckets[j].Count
+		}
+		return buckets[i].Value < buckets[j].Value
+	})
+	out.Buckets = buckets
+	out.TotalCount = int64(len(rows))
+	return out, nil
+}
+
 func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput, error) {
 	if _, err := resolveProject(ctx, h, in.ProjectID); err != nil {
 		return getEntityOutput{}, err
@@ -283,7 +340,7 @@ func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput,
 func registerEntityTools(s *sdk.Server, h Host) {
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "list_entities",
-		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging. The status filter is applied before paging for every entity type; total_count is the total number of rows matching the search and status filter, independent of limit/offset.",
+		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging. The status filter is applied before paging for every entity type; total_count is the total number of rows matching the search and status filter, independent of limit/offset. facet=\"path_root\" (fields only) returns {value,count} buckets of the first ontology path element across the whole project in one call.",
 	}, instrumented(h, "list_entities", func(ctx context.Context, req *sdk.CallToolRequest, in listEntitiesInput) (*sdk.CallToolResult, listEntitiesOutput, error) {
 		out, err := listEntities(ctx, h, in)
 		return nil, out, err

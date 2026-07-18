@@ -145,6 +145,54 @@ func TestListEntitiesFieldPathElements(t *testing.T) {
 	}
 }
 
+// fieldWithPath builds a domain.Field whose PathElements[0] is a single
+// property step, for facet-bucketing tests.
+func fieldWithPath(id, semantic, prefix, local string) *domain.Field {
+	f := &domain.Field{}
+	f.ID = id
+	f.SemanticID = semantic
+	f.Status = domain.Status("published")
+	f.PathElements = []domain.PathElement{
+		{Type: "property", Prefix: prefix, LocalName: local},
+	}
+	return f
+}
+
+func TestListEntitiesFacetPathRoot(t *testing.T) {
+	h := testHostEntities()
+	h.Fields = &fakeFields{fields: []*domain.Field{
+		fieldWithPath("01A", "LAF.1", "crm", "P1_is_identified_by"),
+		fieldWithPath("01B", "LAF.2", "crm", "P1_is_identified_by"),
+		fieldWithPath("01C", "LAF.3", "aaao", "ZP42_intentionally_initiated"),
+	}}
+	out, err := listEntities(context.Background(), h, listEntitiesInput{ProjectID: "LA", EntityType: "field", Facet: "path_root"})
+	if err != nil {
+		t.Fatalf("facet: %v", err)
+	}
+	if out.Facet != "path_root" || len(out.Buckets) != 2 {
+		t.Fatalf("buckets: %+v", out)
+	}
+	if out.Buckets[0].Value != "crm:P1_is_identified_by" || out.Buckets[0].Count != 2 {
+		t.Fatalf("top bucket wrong: %+v", out.Buckets[0])
+	}
+	if len(out.Entities) != 0 {
+		t.Fatal("facet mode must not return entity rows")
+	}
+	if out.TotalCount != 3 {
+		t.Fatalf("total = %d, want 3 (fields aggregated)", out.TotalCount)
+	}
+}
+
+func TestListEntitiesFacetRejectsBadInput(t *testing.T) {
+	h := testHostEntities()
+	if _, err := listEntities(context.Background(), h, listEntitiesInput{ProjectID: "LA", EntityType: "model", Facet: "path_root"}); err == nil {
+		t.Fatal("facet on non-field must error")
+	}
+	if _, err := listEntities(context.Background(), h, listEntitiesInput{ProjectID: "LA", EntityType: "field", Facet: "namespace"}); err == nil {
+		t.Fatal("unknown facet must error")
+	}
+}
+
 type fakeCollections struct {
 	collections []*domain.Collection
 	gotOpts     []domain.QueryOption
