@@ -12,8 +12,9 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
-// fallbackScanLimit bounds the in-memory semantic-id scan for fallback entity lookups.
-// Projects exceeding this limit should implement a store-level semantic_id index.
+// fallbackScanLimit bounds both the semantic-id fallback scans for entity lookups
+// and the facet aggregation scan. Projects exceeding this limit should implement
+// a store-level semantic_id index.
 const fallbackScanLimit = 10000
 
 // facetBucketIDCap limits the number of semantic IDs returned per facet bucket.
@@ -61,6 +62,8 @@ type listEntitiesOutput struct {
 	Facet string `json:"facet,omitempty"`
 	// Buckets holds the aggregated {value,count} rows when Facet is set; empty entities in facet mode.
 	Buckets []facetBucket `json:"buckets,omitempty"`
+	// FacetTruncated is true when the facet scan was capped at fallbackScanLimit and did not cover all matches.
+	FacetTruncated bool `json:"facet_truncated,omitempty"`
 }
 
 type getEntityInput struct {
@@ -106,13 +109,13 @@ func getEntityOutputSchema() *jsonschema.Schema {
 	return s
 }
 
-func listOpts(in listEntitiesInput) []domain.QueryOption {
+func listOpts(in listEntitiesInput, status string) []domain.QueryOption {
 	var opts []domain.QueryOption
 	if in.Query != "" {
 		opts = append(opts, domain.WithSearch(in.Query))
 	}
-	if in.Status != "" {
-		opts = append(opts, domain.WithFilter("status", strings.ToLower(in.Status)))
+	if status != "" {
+		opts = append(opts, domain.WithFilter("status", status))
 	}
 	limit := in.Limit
 	if limit <= 0 {
@@ -132,8 +135,8 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 	if err != nil {
 		return listEntitiesOutput{}, err
 	}
-	// Normalize status once at the top: lowercase and trim, used everywhere.
-	// This ensures consistent case-handling across all entity type branches.
+	// Normalize status once at the top: lowercase and trim.
+	// This ensures consistent case-handling across all entity type branches and store queries.
 	status := strings.ToLower(strings.TrimSpace(in.Status))
 	out := listEntitiesOutput{Entities: []entitySummary{}}
 	if in.Facet != "" {
@@ -144,7 +147,7 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 	}
 	switch strings.ToLower(in.EntityType) {
 	case "field":
-		rows, total, err := h.Fields.List(ctx, in.ProjectID, listOpts(in)...)
+		rows, total, err := h.Fields.List(ctx, in.ProjectID, listOpts(in, status)...)
 		if err != nil {
 			return out, fmt.Errorf("list fields: %w", err)
 		}
@@ -158,7 +161,7 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 			})
 		}
 	case "model":
-		rows, total, err := h.Models.List(ctx, in.ProjectID, listOpts(in)...)
+		rows, total, err := h.Models.List(ctx, in.ProjectID, listOpts(in, status)...)
 		if err != nil {
 			return out, fmt.Errorf("list models: %w", err)
 		}
@@ -174,7 +177,7 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 			out.Entities = append(out.Entities, s)
 		}
 	case "collection":
-		rows, total, err := h.Collections.List(ctx, in.ProjectID, listOpts(in)...)
+		rows, total, err := h.Collections.List(ctx, in.ProjectID, listOpts(in, status)...)
 		if err != nil {
 			return out, fmt.Errorf("list collections: %w", err)
 		}
@@ -192,7 +195,7 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 	case "category":
 		// The category store ignores paging/filters entirely — the tool
 		// fetches everything, filters by status, then pages in memory.
-		rows, err := h.Categories.List(ctx, in.ProjectID, listOpts(in)...)
+		rows, err := h.Categories.List(ctx, in.ProjectID, listOpts(in, status)...)
 		if err != nil {
 			return out, fmt.Errorf("list categories: %w", err)
 		}
@@ -234,6 +237,8 @@ func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntiti
 // facetPathRoot implements list_entities' facet=path_root mode: fetch every
 // field matching the SQL status filter and search query, bucket by the first
 // ontology path element's prefixed name, and return counts + capped semantic IDs instead of rows.
+// Aggregation covers up to fallbackScanLimit fields; FacetTruncated is set when scan
+// did not cover all matches.
 func facetPathRoot(ctx context.Context, h Host, in listEntitiesInput, status string) (listEntitiesOutput, error) {
 	out := listEntitiesOutput{Entities: []entitySummary{}, Facet: "path_root"}
 	var opts []domain.QueryOption
@@ -244,7 +249,7 @@ func facetPathRoot(ctx context.Context, h Host, in listEntitiesInput, status str
 		opts = append(opts, domain.WithFilter("status", status))
 	}
 	opts = append(opts, domain.WithLimit(fallbackScanLimit))
-	rows, _, err := h.Fields.List(ctx, in.ProjectID, opts...)
+	rows, total, err := h.Fields.List(ctx, in.ProjectID, opts...)
 	if err != nil {
 		return out, fmt.Errorf("list fields: %w", err)
 	}
@@ -278,7 +283,8 @@ func facetPathRoot(ctx context.Context, h Host, in listEntitiesInput, status str
 		return buckets[i].Value < buckets[j].Value
 	})
 	out.Buckets = buckets
-	out.TotalCount = int64(len(rows))
+	out.TotalCount = total
+	out.FacetTruncated = int64(len(rows)) < total
 	return out, nil
 }
 
@@ -359,7 +365,7 @@ func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput,
 func registerEntityTools(s *sdk.Server, h Host) {
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "list_entities",
-		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging. The status filter is applied before paging for every entity type; total_count is the total number of rows matching the search and status filter, independent of limit/offset. facet=\"path_root\" (fields only) returns {value,count,ids} buckets of the first ontology path element across the whole project in one call; ids are semantic IDs capped at 100 per bucket with truncated=true if capped.",
+		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging. The status filter is applied before paging for every entity type; total_count is the total number of rows matching the search and status filter, independent of limit/offset. facet=\"path_root\" (fields only) returns {value,count,ids} buckets of the first ontology path element in one call, aggregating up to 10000 fields; ids are semantic IDs capped at 100 per bucket with truncated=true if capped, and facet_truncated is set when aggregation did not cover all matches.",
 	}, instrumented(h, "list_entities", func(ctx context.Context, req *sdk.CallToolRequest, in listEntitiesInput) (*sdk.CallToolResult, listEntitiesOutput, error) {
 		out, err := listEntities(ctx, h, in)
 		return nil, out, err

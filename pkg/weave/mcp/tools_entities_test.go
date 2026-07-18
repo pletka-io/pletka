@@ -107,8 +107,30 @@ type fakeFields struct {
 	fields []*domain.Field
 }
 
-func (f *fakeFields) List(_ context.Context, _ string, _ ...domain.QueryOption) ([]*domain.Field, int64, error) {
-	return f.fields, int64(len(f.fields)), nil
+// List implements limit enforcement: returns at most cfg.Limit rows, but total
+// is the full count of matching fields. This models the real store behavior.
+func (f *fakeFields) List(_ context.Context, _ string, opts ...domain.QueryOption) ([]*domain.Field, int64, error) {
+	cfg := domain.ApplyOptions(opts)
+	total := int64(len(f.fields))
+
+	limit := cfg.Limit
+	if limit <= 0 {
+		limit = len(f.fields)
+	}
+	offset := cfg.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	end := offset + limit
+	if end > len(f.fields) {
+		end = len(f.fields)
+	}
+	if offset > len(f.fields) {
+		offset = len(f.fields)
+	}
+
+	return f.fields[offset:end], total, nil
 }
 func (f *fakeFields) GetByIdentifier(_ context.Context, _, id string) (*domain.Field, error) {
 	for _, fld := range f.fields {
@@ -192,6 +214,9 @@ func TestListEntitiesFacetPathRoot(t *testing.T) {
 	if out.TotalCount != 3 {
 		t.Fatalf("total = %d, want 3 (fields aggregated)", out.TotalCount)
 	}
+	if out.FacetTruncated {
+		t.Fatal("FacetTruncated: want false when scan covers all matches")
+	}
 }
 
 func TestListEntitiesFacetIDCap(t *testing.T) {
@@ -225,6 +250,10 @@ func TestListEntitiesFacetIDCap(t *testing.T) {
 	}
 	if out.TotalCount != 101 {
 		t.Fatalf("TotalCount: want 101, got %d", out.TotalCount)
+	}
+	// FacetTruncated is false because all 101 fields fit within fallbackScanLimit (10000)
+	if out.FacetTruncated {
+		t.Fatal("FacetTruncated: want false when scan covers all matches")
 	}
 }
 
@@ -346,6 +375,29 @@ func TestListEntitiesCategoryStatusCaseInsensitive(t *testing.T) {
 
 	// Test mixed-case status filter: "Published" should match "published" after normalization
 	out, err := listEntities(context.Background(), h, listEntitiesInput{ProjectID: "LA", EntityType: "category", Status: "Published"})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(out.Entities) != 1 {
+		t.Fatalf("want 1 row, got %d", len(out.Entities))
+	}
+	if out.Entities[0].SemanticID != "LA.CAT.1" {
+		t.Fatalf("want LA.CAT.1, got %s", out.Entities[0].SemanticID)
+	}
+	if out.TotalCount != 1 {
+		t.Fatalf("want TotalCount 1, got %d", out.TotalCount)
+	}
+}
+
+func TestListEntitiesCategoryStatusPaddedAndCased(t *testing.T) {
+	h := testHostEntities()
+	h.Categories = &fakeCategories{categories: []*domain.Category{
+		categoryWith("01C1", "LA.CAT.1", "published"),
+		categoryWith("01C2", "LA.CAT.2", "draft"),
+	}}
+
+	// Test padded and mixed-case status filter: " published " should match "published" after trim and lowercase
+	out, err := listEntities(context.Background(), h, listEntitiesInput{ProjectID: "LA", EntityType: "category", Status: " published "})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

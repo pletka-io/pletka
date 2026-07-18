@@ -88,10 +88,11 @@ type formSchemaOutput struct {
 }
 
 func getFormSchema(ctx context.Context, h Host, in formSchemaInput) (formSchemaOutput, error) {
-	ctx, _, err := resolveProject(ctx, h, in.ProjectID)
+	_, _, err := resolveProject(ctx, h, in.ProjectID)
 	if err != nil {
 		return formSchemaOutput{}, err
 	}
+	// Auth gate only; schema builders are pure.
 	lang := in.Lang
 	if lang == "" {
 		lang = "en"
