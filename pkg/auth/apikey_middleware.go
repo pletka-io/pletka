@@ -19,8 +19,13 @@ type APIKeyVerifier interface {
 // RequireAPIKey authenticates the request via an Authorization bearer API
 // key and attaches the actor's AuthSnapshot and Principal to the context.
 // There is no session fallback: a missing or invalid key is a 401. It
-// overrides any snapshot set by earlier session middleware.
+// overrides both the snapshot and the principal set by earlier session
+// middleware, so a stale session Principal never survives onto a bearer
+// key request.
 func RequireAPIKey(keys APIKeyVerifier, ws domain.WeaveStore, log *slog.Logger) func(http.Handler) http.Handler {
+	if log == nil {
+		log = slog.Default()
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -42,16 +47,24 @@ func RequireAPIKey(keys APIKeyVerifier, ws domain.WeaveStore, log *slog.Logger) 
 				return
 			}
 			ctx = WithSnapshot(ctx, snap)
-			if profile, err := ws.Auth().GetProfileByActorID(ctx, key.ActorID); err == nil && profile != nil {
-				ctx = WithPrincipal(ctx, &Principal{
+
+			principal := &Principal{ActorID: key.ActorID, IsActive: true}
+			switch profile, perr := ws.Auth().GetProfileByActorID(ctx, key.ActorID); {
+			case perr != nil:
+				log.Warn("api key principal degraded", "actor_id", key.ActorID, "err", perr)
+			case profile == nil:
+				log.Warn("api key principal degraded", "actor_id", key.ActorID, "err", "profile not found")
+			default:
+				principal = &Principal{
 					ActorID:     profile.ActorID,
 					Slug:        profile.Slug,
 					Email:       profile.Email,
 					DisplayName: profile.DisplayName,
 					Role:        profile.Role,
 					IsActive:    true,
-				})
+				}
 			}
+			ctx = WithPrincipal(ctx, principal)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

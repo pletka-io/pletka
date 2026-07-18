@@ -39,6 +39,7 @@ func TestRequireAPIKey(t *testing.T) {
 		{"malformed", "Basic zzz", http.StatusUnauthorized},
 		{"bad key", "Bearer pk_bad", http.StatusUnauthorized},
 	}
+	bodies := make(map[string]string, len(cases))
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			mw := RequireAPIKey(verifier, nil, slog.Default())
@@ -54,9 +55,18 @@ func TestRequireAPIKey(t *testing.T) {
 			if ct := rec.Header().Get("Content-Type"); tc.wantStatus == 401 && ct == "" {
 				t.Fatal("401 must carry the apierror JSON envelope")
 			}
+			bodies[tc.name] = rec.Body.String()
 		})
 	}
 	if seen != nil {
 		t.Fatal("next handler must not run on auth failure")
+	}
+
+	// No-oracle regression: missing header, malformed scheme, and a bad key
+	// must all produce byte-identical 401 bodies so a caller can't
+	// distinguish "no key" from "wrong key" via response content.
+	missing, malformed, badKey := bodies["missing header"], bodies["malformed"], bodies["bad key"]
+	if missing != malformed || missing != badKey {
+		t.Fatalf("401 bodies differ across failure modes: missing=%q malformed=%q bad key=%q", missing, malformed, badKey)
 	}
 }
