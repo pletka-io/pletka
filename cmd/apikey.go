@@ -48,6 +48,9 @@ func newAPIKeyCreateCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("no actor with email %q: %w", email, err)
 			}
+			if actor == nil {
+				return fmt.Errorf("no actor with email %q", email)
+			}
 			secret, key, err := svc.Mint(ctx, actor.ActorID, name, ttlDays)
 			if err != nil {
 				return err
@@ -86,17 +89,21 @@ func newAPIKeyListCommand() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("no actor with email %q: %w", email, err)
 				}
+				if actor == nil {
+					return fmt.Errorf("no actor with email %q", email)
+				}
 				actorID = actor.ActorID
 			}
 			keys, err := svc.List(ctx, actorID)
 			if err != nil {
 				return err
 			}
+			now := time.Now()
 			for _, k := range keys {
 				status := "active"
 				if k.RevokedAt != nil {
 					status = "revoked"
-				} else if k.ExpiresAt != nil && k.ExpiresAt.Before(time.Now()) {
+				} else if !k.Active(now) {
 					status = "expired"
 				}
 				last := "never"
