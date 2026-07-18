@@ -134,6 +134,10 @@ func (rt *Runtime) Middleware(next http.Handler) http.Handler {
 	})
 }
 
+// MustRegister adds collectors to the runtime's registry. Call during
+// assembly, before Start; panics on duplicate registration (wiring-time).
+func (rt *Runtime) MustRegister(cs ...prometheus.Collector) { rt.reg.MustRegister(cs...) }
+
 // Close shuts down the metrics listener.
 func (rt *Runtime) Close(ctx context.Context) error {
 	if rt == nil || rt.srv == nil {

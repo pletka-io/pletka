@@ -118,15 +118,15 @@ func registerProjectTools(s *sdk.Server, h Host) {
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "list_projects",
 		Description: "List all Pletka projects visible to you, with entity counts.",
-	}, func(ctx context.Context, req *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, listProjectsOutput, error) {
+	}, instrumented(h, "list_projects", func(ctx context.Context, req *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, listProjectsOutput, error) {
 		out, err := listProjects(ctx, h)
 		return nil, out, err
-	})
+	}))
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "get_project",
 		Description: "Get one project's detail: entity counts and linked ontology versions.",
-	}, func(ctx context.Context, req *sdk.CallToolRequest, in getProjectInput) (*sdk.CallToolResult, getProjectOutput, error) {
+	}, instrumented(h, "get_project", func(ctx context.Context, req *sdk.CallToolRequest, in getProjectInput) (*sdk.CallToolResult, getProjectOutput, error) {
 		out, err := getProject(ctx, h, in.ProjectID)
 		return nil, out, err
-	})
+	}))
 }

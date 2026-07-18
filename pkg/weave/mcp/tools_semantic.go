@@ -176,30 +176,30 @@ func registerSemanticTools(s *sdk.Server, h Host) {
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "entity_reuse",
 		Description: "Where an entity is reused: included_in (membership in models/collections) and referenced_by (fields targeting it as expected value type).",
-	}, func(ctx context.Context, req *sdk.CallToolRequest, in reuseInput) (*sdk.CallToolResult, *detailview.FieldReuseResponse, error) {
+	}, instrumented(h, "entity_reuse", func(ctx context.Context, req *sdk.CallToolRequest, in reuseInput) (*sdk.CallToolResult, *detailview.FieldReuseResponse, error) {
 		out, err := entityReuse(ctx, h, in)
 		return nil, out, err
-	})
+	}))
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "ontology_autocomplete",
 		Description: "Valid next steps for a CIDOC-CRM ontology path: only properties whose domain matches the current class lineage, and classes in a property's range. Same engine as the UI path builder.",
-	}, func(ctx context.Context, req *sdk.CallToolRequest, in autocompleteInput) (*sdk.CallToolResult, autocompleteOutput, error) {
+	}, instrumented(h, "ontology_autocomplete", func(ctx context.Context, req *sdk.CallToolRequest, in autocompleteInput) (*sdk.CallToolResult, autocompleteOutput, error) {
 		out, err := ontologyAutocomplete(ctx, h, in)
 		return nil, out, err
-	})
+	}))
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "get_form_schema",
 		Description: "The create-form schema for an entity type: every field, widget, validation, and option source an entity of this type accepts. Read this before proposing entity payloads.",
-	}, func(ctx context.Context, req *sdk.CallToolRequest, in formSchemaInput) (*sdk.CallToolResult, formSchemaOutput, error) {
+	}, instrumented(h, "get_form_schema", func(ctx context.Context, req *sdk.CallToolRequest, in formSchemaInput) (*sdk.CallToolResult, formSchemaOutput, error) {
 		out, err := getFormSchema(ctx, h, in)
 		return nil, out, err
-	})
+	}))
 	sdk.AddTool(s, &sdk.Tool{
 		Name:         "list_vocabularies",
 		Description:  "A project's vocabularies and concept lists (controlled term lists bindable to fields).",
 		OutputSchema: vocabulariesOutputSchema(),
-	}, func(ctx context.Context, req *sdk.CallToolRequest, in vocabulariesInput) (*sdk.CallToolResult, vocabulariesOutput, error) {
+	}, instrumented(h, "list_vocabularies", func(ctx context.Context, req *sdk.CallToolRequest, in vocabulariesInput) (*sdk.CallToolResult, vocabulariesOutput, error) {
 		out, err := listVocabularies(ctx, h, in)
 		return nil, out, err
-	})
+	}))
 }

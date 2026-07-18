@@ -69,6 +69,12 @@ type VocabularyReader interface {
 	ListProjectConceptLists(ctx context.Context, projectID string) ([]vocabulary.ConceptListView, error)
 }
 
+// ToolMetricsRecorder observes one MCP tool call. Implemented in pkg/app
+// over the observability registry; nil-safe at every call site.
+type ToolMetricsRecorder interface {
+	ObserveToolCall(tool, outcome string, seconds float64)
+}
+
 // Host is the dependency surface for the MCP module.
 type Host struct {
 	APIKeys     auth.APIKeyVerifier
@@ -83,6 +89,8 @@ type Host struct {
 	Vocabulary  VocabularyReader
 	Languages   []formschema.LanguageInfo
 	Logger      *slog.Logger
+	// Metrics records per-tool call outcomes; nil disables recording.
+	Metrics ToolMetricsRecorder
 }
 
 // Validate reports missing required dependencies.

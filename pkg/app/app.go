@@ -150,6 +150,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	// Observability runtime: request metrics middleware + /metrics listener
 	// (started when MetricsAddr is set). One per process = one instance.
 	obs := observability.New(observability.Config{MetricsAddr: opts.MetricsAddr}, opts.Pool, logger)
+	mcpToolMetrics := newMCPToolMetrics(obs)
 
 	closeFns := []func(context.Context) error{
 		func(ctx context.Context) error {
@@ -310,6 +311,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		vocabularyHost.Service,
 		languages,
 		logger,
+		mcpToolMetrics,
 	)
 	weaverouter.Mount(handler, buildProjectMiddlewareHost(weaveStore), buildErrorPageHost(templateRenderer, i18nManager, langResolver), weaverouter.Options{
 		Integrations: opts.IntegrationRegistry,

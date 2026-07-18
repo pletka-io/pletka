@@ -368,6 +368,7 @@ func buildMcpHost(
 	vocab *vocabulary.Service,
 	languages []formschema.LanguageInfo,
 	logger *slog.Logger,
+	metrics mcp.ToolMetricsRecorder,
 ) mcp.Host {
 	return mcp.Host{
 		APIKeys:     keys,
@@ -382,6 +383,7 @@ func buildMcpHost(
 		Vocabulary:  vocab,
 		Languages:   languages,
 		Logger:      logger,
+		Metrics:     metrics,
 	}
 }
 

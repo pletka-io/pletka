@@ -255,16 +255,16 @@ func registerEntityTools(s *sdk.Server, h Host) {
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "list_entities",
 		Description: "List fields, models, collections, or categories in a project. Supports substring search (query), status filter, and paging. Note: the status filter applies per page (after limit/offset); to see all draft entities, page through without relying on total_count. For category, total_count equals the returned page size.",
-	}, func(ctx context.Context, req *sdk.CallToolRequest, in listEntitiesInput) (*sdk.CallToolResult, listEntitiesOutput, error) {
+	}, instrumented(h, "list_entities", func(ctx context.Context, req *sdk.CallToolRequest, in listEntitiesInput) (*sdk.CallToolResult, listEntitiesOutput, error) {
 		out, err := listEntities(ctx, h, in)
 		return nil, out, err
-	})
+	}))
 	sdk.AddTool(s, &sdk.Tool{
 		Name:         "get_entity",
 		Description:  "Get one entity's full detail, including ontology path elements and overrides where applicable. Accepts ULID, semantic ID, or system name.",
 		OutputSchema: getEntityOutputSchema(),
-	}, func(ctx context.Context, req *sdk.CallToolRequest, in getEntityInput) (*sdk.CallToolResult, getEntityOutput, error) {
+	}, instrumented(h, "get_entity", func(ctx context.Context, req *sdk.CallToolRequest, in getEntityInput) (*sdk.CallToolResult, getEntityOutput, error) {
 		out, err := getEntity(ctx, h, in)
 		return nil, out, err
-	})
+	}))
 }
