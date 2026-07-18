@@ -80,6 +80,18 @@ type WeaveAdoptionsArchive struct {
 	VersionNumber     string    `json:"version_number"`
 }
 
+type WeaveApiKey struct {
+	ID         string             `json:"id"`
+	ActorID    string             `json:"actor_id"`
+	Name       string             `json:"name"`
+	KeyHash    string             `json:"key_hash"`
+	KeyPrefix  string             `json:"key_prefix"`
+	CreatedAt  time.Time          `json:"created_at"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+}
+
 type WeaveAuth struct {
 	ActorID                string             `json:"actor_id"`
 	PasswordHash           string             `json:"password_hash"`
