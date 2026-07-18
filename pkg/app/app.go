@@ -312,8 +312,14 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		logger,
 	)
 	weaverouter.Mount(handler, buildProjectMiddlewareHost(weaveStore), buildErrorPageHost(templateRenderer, i18nManager, langResolver), weaverouter.Options{
-		Integrations:           opts.IntegrationRegistry,
-		ActorAdmin:             buildActorAdminHost(opts.Pool, weaveStore, logger, languages, langResolver),
+		Integrations: opts.IntegrationRegistry,
+		ActorAdmin:   buildActorAdminHost(opts.Pool, weaveStore, logger, languages, langResolver),
+		APIKey: apikey.Host{
+			Service:      apikeyService,
+			Logger:       logger,
+			Languages:    languages,
+			LangResolver: langResolver,
+		},
 		Attribution:            buildAttributionHost(opts.Pool, weaveStore, logger, languages),
 		AuthPages:              authPagesHost,
 		Category:               categoryHost,

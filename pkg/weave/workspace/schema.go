@@ -109,6 +109,13 @@ func buildProfileSettingsSchema(principal *weaveauth.Principal, lang string, lan
 				Kind:      "form",
 				SchemaURL: "/me/password-form-schema",
 			},
+			{
+				ID:        "api-keys",
+				Label:     i18n.L("profile.apikeys.title", "API keys"),
+				Icon:      "code-bracket",
+				Kind:      "list",
+				SchemaURL: "/me/api-keys/list-schema",
+			},
 		},
 	}
 }

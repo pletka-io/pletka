@@ -13,6 +13,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/actoradmin"
 	"github.com/pletka-io/pletka/pkg/weave/admin"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/apikey"
 	"github.com/pletka-io/pletka/pkg/weave/attribution"
 	"github.com/pletka-io/pletka/pkg/weave/authpages"
 	"github.com/pletka-io/pletka/pkg/weave/category"
@@ -53,6 +54,7 @@ import (
 type Options struct {
 	Integrations           *integrationsregistry.Registry
 	ActorAdmin             actoradmin.Host
+	APIKey                 apikey.Host
 	Attribution            attribution.Host
 	AuthPages              authpages.Host
 	Category               category.Host
@@ -111,6 +113,9 @@ func Mount(parent chi.Router, projects ProjectMiddlewareHost, errors ErrorPageHo
 		opts = options[0]
 	}
 	actoradmin.Mount(parent, opts.ActorAdmin)
+	if opts.APIKey.Service != nil {
+		apikey.Mount(parent, opts.APIKey)
+	}
 	authpages.Mount(parent, opts.AuthPages)
 	organization.Mount(parent, opts.Organization)
 	orgmembers.Mount(parent, opts.OrgMembers)
