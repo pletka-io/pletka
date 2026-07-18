@@ -28,7 +28,8 @@ type reuseInput struct {
 }
 
 func entityReuse(ctx context.Context, h Host, in reuseInput) (*detailview.FieldReuseResponse, error) {
-	if _, err := resolveProject(ctx, h, in.ProjectID); err != nil {
+	ctx, _, err := resolveProject(ctx, h, in.ProjectID)
+	if err != nil {
 		return nil, err
 	}
 	resp, err := detailview.BuildReuse(ctx, h.Weave, in.ProjectID, strings.ToLower(in.EntityType), in.EntityID)
@@ -51,7 +52,8 @@ type autocompleteOutput struct {
 }
 
 func ontologyAutocomplete(ctx context.Context, h Host, in autocompleteInput) (autocompleteOutput, error) {
-	if _, err := resolveProject(ctx, h, in.ProjectID); err != nil {
+	ctx, _, err := resolveProject(ctx, h, in.ProjectID)
+	if err != nil {
 		return autocompleteOutput{}, err
 	}
 	req := autocomplete.Request{
@@ -86,7 +88,8 @@ type formSchemaOutput struct {
 }
 
 func getFormSchema(ctx context.Context, h Host, in formSchemaInput) (formSchemaOutput, error) {
-	if _, err := resolveProject(ctx, h, in.ProjectID); err != nil {
+	ctx, _, err := resolveProject(ctx, h, in.ProjectID)
+	if err != nil {
 		return formSchemaOutput{}, err
 	}
 	lang := in.Lang
@@ -158,7 +161,8 @@ func vocabulariesOutputSchema() *jsonschema.Schema {
 }
 
 func listVocabularies(ctx context.Context, h Host, in vocabulariesInput) (vocabulariesOutput, error) {
-	if _, err := resolveProject(ctx, h, in.ProjectID); err != nil {
+	ctx, _, err := resolveProject(ctx, h, in.ProjectID)
+	if err != nil {
 		return vocabulariesOutput{}, err
 	}
 	vocabs, err := h.Vocabulary.ListProjectVocabularies(ctx, in.ProjectID)

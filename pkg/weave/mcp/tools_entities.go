@@ -128,7 +128,8 @@ func listOpts(in listEntitiesInput) []domain.QueryOption {
 func keepStatus(status, want string) bool { return want == "" || status == want }
 
 func listEntities(ctx context.Context, h Host, in listEntitiesInput) (listEntitiesOutput, error) {
-	if _, err := resolveProject(ctx, h, in.ProjectID); err != nil {
+	ctx, _, err := resolveProject(ctx, h, in.ProjectID)
+	if err != nil {
 		return listEntitiesOutput{}, err
 	}
 	// Normalize status once at the top: lowercase and trim, used everywhere.
@@ -282,7 +283,8 @@ func facetPathRoot(ctx context.Context, h Host, in listEntitiesInput, status str
 }
 
 func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput, error) {
-	if _, err := resolveProject(ctx, h, in.ProjectID); err != nil {
+	ctx, _, err := resolveProject(ctx, h, in.ProjectID)
+	if err != nil {
 		return getEntityOutput{}, err
 	}
 	out := getEntityOutput{EntityType: strings.ToLower(in.EntityType)}

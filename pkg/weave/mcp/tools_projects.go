@@ -6,6 +6,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -41,16 +42,23 @@ type getProjectOutput struct {
 }
 
 // resolveProject loads a project and enforces read access; unreadable and
-// missing are indistinguishable to the caller.
-func resolveProject(ctx context.Context, h Host, projectID string) (*domain.Project, error) {
+// missing are indistinguishable to the caller. It also returns ctx enriched
+// with the loaded project via auth.WithProject, mirroring what the HTTP
+// WithProjectResource middleware attaches per request — the MCP transport
+// never runs that middleware, so tools must attach it themselves before
+// calling into services that gate via auth.ProjectResourceFromContext (e.g.
+// namespacebinding.Service.List, projectontologyversion.Service.LinkedOntologies,
+// category.Service.List/Get). Callers must use the returned ctx for any
+// subsequent service call, not the ctx they passed in.
+func resolveProject(ctx context.Context, h Host, projectID string) (context.Context, *domain.Project, error) {
 	p, err := h.Projects.Get(ctx, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("project %q not found", projectID)
+		return ctx, nil, fmt.Errorf("project %q not found", projectID)
 	}
 	if !h.Projects.CanRead(ctx, p) {
-		return nil, fmt.Errorf("project %q not found", projectID)
+		return ctx, nil, fmt.Errorf("project %q not found", projectID)
 	}
-	return p, nil
+	return auth.WithProject(ctx, p), p, nil
 }
 
 // summarize builds a projectSummary from a project and its stats.
@@ -100,7 +108,7 @@ func listProjects(ctx context.Context, h Host) (listProjectsOutput, error) {
 
 // getProject returns one project's detail: entity counts and linked ontology versions.
 func getProject(ctx context.Context, h Host, projectID string) (getProjectOutput, error) {
-	p, err := resolveProject(ctx, h, projectID)
+	ctx, p, err := resolveProject(ctx, h, projectID)
 	if err != nil {
 		return getProjectOutput{}, err
 	}
