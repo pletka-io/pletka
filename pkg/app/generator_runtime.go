@@ -44,7 +44,7 @@ func NewGeneratorRuntime(opts Options) (*GeneratorRuntime, error) {
 	languages := []formschema.LanguageInfo(nil)
 	langResolver := func(*http.Request) string { return "" }
 	projectHost := buildProjectHost(opts.Pool, weaveStore, opts.Logger, changeLog, languages, nil)
-	namespaceHost := buildNamespaceBindingHost(opts.Pool, opts.Logger, changeLog, languages, nil)
+	_, namespaceSvc := buildNamespaceBindingHost(opts.Pool, opts.Logger, changeLog, languages, nil)
 	fieldHost, modelHost, collectionHost := buildCoreEntityHosts(coreEntityDeps{
 		Pool:      opts.Pool,
 		Weave:     weaveStore,
@@ -64,7 +64,7 @@ func NewGeneratorRuntime(opts Options) (*GeneratorRuntime, error) {
 			fieldHost,
 			modelHost,
 			collectionHost,
-			namespaceHost,
+			namespaceSvc,
 			renderers,
 		),
 		models:      model.NewPostgresStore(opts.Pool),

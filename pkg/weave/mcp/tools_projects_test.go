@@ -45,6 +45,15 @@ func (fakeOntLinks) LinkedOntologies(_ context.Context, _ string) ([]domain.Link
 	return []domain.LinkedOntology{{Name: "CIDOC-CRM", Version: "7.1.3"}}, nil
 }
 
+type fakeNamespaces struct{}
+
+func (fakeNamespaces) ListForProject(_ context.Context, _ string) ([]*domain.NamespaceBinding, error) {
+	return []*domain.NamespaceBinding{
+		{Prefix: "crm", Namespace: "http://www.cidoc-crm.org/cidoc-crm/"},
+		{Prefix: "aaao", Namespace: "https://ontology.swissartresearch.net/aaao/"},
+	}, nil
+}
+
 func testHostProjects() Host {
 	la := &domain.Project{}
 	la.ID = "LA"
@@ -56,6 +65,7 @@ func testHostProjects() Host {
 			readable: map[string]bool{"LA": true},
 		},
 		Ontologies: fakeOntLinks{},
+		Namespaces: fakeNamespaces{},
 	}
 }
 
@@ -84,5 +94,11 @@ func TestGetProjectDeniedIsNotFound(t *testing.T) {
 	}
 	if len(out.LinkedOntologies) != 1 {
 		t.Fatal("linked ontologies missing")
+	}
+	if len(out.Namespaces) != 2 {
+		t.Fatalf("want 2 namespaces, got %d: %+v", len(out.Namespaces), out.Namespaces)
+	}
+	if out.Namespaces["aaao"] != "https://ontology.swissartresearch.net/aaao/" {
+		t.Fatalf("namespaces[aaao] = %q, want aaao ontology URI", out.Namespaces["aaao"])
 	}
 }

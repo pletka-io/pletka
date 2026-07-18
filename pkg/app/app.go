@@ -253,7 +253,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	membersHost := buildMembersHost(opts.Pool, logger, languages, langResolver)
 	releaseHost := buildReleaseHost(opts.Pool, logger, languages, langResolver)
 	exampleHost := buildExampleHost(opts.Pool, weaveStore, logger, languages, langResolver)
-	namespaceBindingHost := buildNamespaceBindingHost(opts.Pool, logger, changeLog, languages, langResolver)
+	namespaceBindingHost, namespaceSvc := buildNamespaceBindingHost(opts.Pool, logger, changeLog, languages, langResolver)
 	projectOntologyVersionHost := buildProjectOntologyVersionHost(
 		opts.Pool,
 		weaveStore,
@@ -282,7 +282,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		fieldHost,
 		modelHost,
 		collectionHost,
-		namespaceBindingHost,
+		namespaceSvc,
 		ontologyReader,
 		ontologyVersionReader,
 	)
@@ -292,7 +292,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		fieldHost,
 		modelHost,
 		collectionHost,
-		namespaceBindingHost,
+		namespaceSvc,
 		generatorRenderers,
 	)
 	visualizationHost := buildVisualizationHost(opts.Pool, weaveStore, logger, generatorService)
@@ -303,6 +303,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		weaveStore,
 		projectHost.Service,
 		projectOntologyVersionHost.Service,
+		namespaceSvc,
 		fieldHost.Service,
 		modelHost.Service,
 		collectionHost.Service,

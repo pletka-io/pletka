@@ -36,6 +36,8 @@ type getProjectInput struct {
 type getProjectOutput struct {
 	Project          projectSummary          `json:"project"`
 	LinkedOntologies []domain.LinkedOntology `json:"linked_ontologies"`
+	// Namespaces maps prefix -> namespace URI, as used in ontology paths.
+	Namespaces map[string]string `json:"namespaces,omitempty"`
 }
 
 // resolveProject loads a project and enforces read access; unreadable and
@@ -110,7 +112,22 @@ func getProject(ctx context.Context, h Host, projectID string) (getProjectOutput
 	if err != nil {
 		return getProjectOutput{}, fmt.Errorf("linked ontologies: %w", err)
 	}
-	return getProjectOutput{Project: summarize(p, stats[p.ID]), LinkedOntologies: linked}, nil
+	bindings, err := h.Namespaces.ListForProject(ctx, p.ID)
+	if err != nil {
+		return getProjectOutput{}, fmt.Errorf("namespaces: %w", err)
+	}
+	namespaces := make(map[string]string, len(bindings))
+	for _, b := range bindings {
+		if b.Prefix == "" {
+			continue
+		}
+		namespaces[b.Prefix] = b.Namespace
+	}
+	return getProjectOutput{
+		Project:          summarize(p, stats[p.ID]),
+		LinkedOntologies: linked,
+		Namespaces:       namespaces,
+	}, nil
 }
 
 // registerProjectTools attaches project-surface tools to the MCP server.
@@ -124,7 +141,7 @@ func registerProjectTools(s *sdk.Server, h Host) {
 	}))
 	sdk.AddTool(s, &sdk.Tool{
 		Name:        "get_project",
-		Description: "Get one project's detail: entity counts and linked ontology versions.",
+		Description: "Get one project's detail: entity counts, linked ontology versions, and the prefix→namespace map used in ontology paths.",
 	}, instrumented(h, "get_project", func(ctx context.Context, req *sdk.CallToolRequest, in getProjectInput) (*sdk.CallToolResult, getProjectOutput, error) {
 		out, err := getProject(ctx, h, in.ProjectID)
 		return nil, out, err

@@ -147,20 +147,27 @@ func buildCategoryHost(
 	}, svc
 }
 
+// buildNamespaceBindingHost returns the namespacebinding.Host used for HTTP
+// routes plus the underlying *namespacebinding.Service — callers that need
+// the Service layer (the CSV export generators and the MCP host) get it as
+// a second return value instead of constructing their own instance (same
+// pattern as buildCategoryHost).
 func buildNamespaceBindingHost(
 	pool *pgxpool.Pool,
 	logger *slog.Logger,
 	changeLog domain.ChangeLogRunner,
 	languages []formschema.LanguageInfo,
 	langResolver namespacebinding.LangResolver,
-) namespacebinding.Host {
+) (namespacebinding.Host, *namespacebinding.Service) {
+	store := namespacebinding.NewPostgresStore(pool)
+	svc := namespacebinding.NewService(store, logger, changeLog)
 	return namespacebinding.Host{
-		Store:        namespacebinding.NewPostgresStore(pool),
+		Store:        store,
 		Logger:       logger,
 		ChangeLog:    changeLog,
 		Languages:    languages,
 		LangResolver: langResolver,
-	}
+	}, svc
 }
 
 func buildOrganizationHosts(
@@ -360,6 +367,7 @@ func buildMcpHost(
 	weave domain.WeaveStore,
 	projects *project.Service,
 	ontLinks *projectontologyversion.Service,
+	namespaces *namespacebinding.Service,
 	fields *field.Service,
 	models *model.Service,
 	collections *collection.Service,
@@ -375,6 +383,7 @@ func buildMcpHost(
 		Weave:       weave,
 		Projects:    projects,
 		Ontologies:  ontLinks,
+		Namespaces:  namespaces,
 		Fields:      fields,
 		Models:      models,
 		Collections: collections,
@@ -649,7 +658,7 @@ func buildExportHosts(
 	fieldHost field.Host,
 	modelHost model.Host,
 	collectionHost collection.Host,
-	namespaceHost namespacebinding.Host,
+	namespaceSvc *namespacebinding.Service,
 	ontologyReader weavecsvexport.OntologyLookup,
 	ontologyVersionReader weavecsvexport.OntologyVersionLookup,
 ) (weavecsvexport.Host, weaveexports.Host) {
@@ -669,7 +678,6 @@ func buildExportHosts(
 	if err != nil {
 		panic(err)
 	}
-	namespaceSvc := namespacebinding.NewService(namespaceHost.Store, logger, namespaceHost.ChangeLog)
 	exportSvc := generators.NewService(
 		projectHost.Service,
 		modelHost.Service,
@@ -694,14 +702,13 @@ func buildGeneratorService(
 	fieldHost field.Host,
 	modelHost model.Host,
 	collectionHost collection.Host,
-	namespaceHost namespacebinding.Host,
+	namespaceSvc *namespacebinding.Service,
 	renderers []generators.Renderer,
 ) *generators.Service {
 	reg, err := generators.NewRegistry(renderers...)
 	if err != nil {
 		panic(err)
 	}
-	namespaceSvc := namespacebinding.NewService(namespaceHost.Store, logger, namespaceHost.ChangeLog)
 	return generators.NewService(
 		projectHost.Service,
 		modelHost.Service,

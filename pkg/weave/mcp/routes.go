@@ -33,6 +33,11 @@ type OntologyLinkReader interface {
 	LinkedOntologies(ctx context.Context, projectID string) ([]domain.LinkedOntology, error)
 }
 
+// NamespaceReader lists a project's prefix→namespace bindings.
+type NamespaceReader interface {
+	ListForProject(ctx context.Context, projectID string) ([]*domain.NamespaceBinding, error)
+}
+
 // FieldReader / ModelReader / CollectionReader / CategoryReader are the
 // entity surfaces the tools need; satisfied by the slice services.
 type FieldReader interface {
@@ -81,6 +86,7 @@ type Host struct {
 	Weave       domain.WeaveStore // reuse payload (detailview.BuildReuse)
 	Projects    ProjectReader
 	Ontologies  OntologyLinkReader
+	Namespaces  NamespaceReader
 	Fields      FieldReader
 	Models      ModelReader
 	Collections CollectionReader
@@ -107,6 +113,9 @@ func (h Host) Validate() error {
 	}
 	if h.Ontologies == nil {
 		missing = append(missing, "Ontologies")
+	}
+	if h.Namespaces == nil {
+		missing = append(missing, "Namespaces")
 	}
 	if h.Fields == nil {
 		missing = append(missing, "Fields")
