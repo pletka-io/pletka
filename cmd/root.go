@@ -96,6 +96,7 @@ func AddOperationalCommands(root *cobra.Command, opts OperationalOptions) {
 		newWeaveCommand(renderers),
 		newProjectCommand(),
 		newDBCommand(),
+		newAPIKeyCommand(),
 	)
 }
 
