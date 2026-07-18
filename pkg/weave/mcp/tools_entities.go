@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -50,6 +51,38 @@ type getEntityInput struct {
 type getEntityOutput struct {
 	EntityType string `json:"entity_type"`
 	Entity     any    `json:"entity"`
+}
+
+// getEntityOutputSchema builds the get_entity output schema, overriding
+// Entity (declared `any` because it holds a field/model/collection/category
+// depending on entity_type) with an explicit permissive object schema.
+// jsonschema.For infers an unrestricted/empty schema for an `any` field
+// (jsonschema-go treats reflect.Interface as "no constraint" and emits
+// Schema{}), which some MCP clients' schema validators reject outright as
+// an invalid property schema. The override only changes what's advertised
+// as the tool's output schema — the actual JSON a call returns is
+// unaffected, since Entity is still serialized as whatever concrete value
+// getEntity assigned to it.
+var getEntityEntitySchema = &jsonschema.Schema{
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{},
+}
+
+// getEntityOutputSchema builds the get_entity tool's OutputSchema,
+// substituting getEntityEntitySchema for the inferred `any` schema on
+// Entity (see its doc comment for why).
+func getEntityOutputSchema() *jsonschema.Schema {
+	s, err := jsonschema.For[getEntityOutput](nil)
+	if err != nil {
+		// Wiring-time fail-fast, sanctioned for Mount (see go-style.md) —
+		// registerEntityTools runs once at boot, before any request.
+		panic(fmt.Sprintf("mcp: build get_entity output schema: %v", err))
+	}
+	if s.Properties == nil {
+		panic("mcp: get_entity output schema has no properties")
+	}
+	s.Properties["entity"] = getEntityEntitySchema
+	return s
 }
 
 func listOpts(in listEntitiesInput) []domain.QueryOption {
@@ -226,8 +259,9 @@ func registerEntityTools(s *sdk.Server, h Host) {
 		return nil, out, err
 	})
 	sdk.AddTool(s, &sdk.Tool{
-		Name:        "get_entity",
-		Description: "Get one entity's full detail, including ontology path elements and overrides where applicable. Accepts ULID, semantic ID, or system name.",
+		Name:         "get_entity",
+		Description:  "Get one entity's full detail, including ontology path elements and overrides where applicable. Accepts ULID, semantic ID, or system name.",
+		OutputSchema: getEntityOutputSchema(),
 	}, func(ctx context.Context, req *sdk.CallToolRequest, in getEntityInput) (*sdk.CallToolResult, getEntityOutput, error) {
 		out, err := getEntity(ctx, h, in)
 		return nil, out, err
