@@ -8,9 +8,13 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
-type fakeModels struct{ models []*domain.Model }
+type fakeModels struct {
+	models  []*domain.Model
+	gotOpts []domain.QueryOption
+}
 
-func (f *fakeModels) List(_ context.Context, _ string, _ ...domain.QueryOption) ([]*domain.Model, int64, error) {
+func (f *fakeModels) List(_ context.Context, _ string, opts ...domain.QueryOption) ([]*domain.Model, int64, error) {
+	f.gotOpts = opts
 	return f.models, int64(len(f.models)), nil
 }
 func (f *fakeModels) Get(_ context.Context, _, id string) (*domain.Model, error) {
@@ -70,5 +74,15 @@ func TestGetEntitySemanticFallback(t *testing.T) {
 	m, ok := out.Entity.(*domain.Model)
 	if !ok || m.SemanticID != "LAM.2" {
 		t.Fatalf("want LAM.2 model, got %#v", out.Entity)
+	}
+
+	// Verify the fallback scan includes the limit option
+	fake := h.Models.(*fakeModels)
+	if len(fake.gotOpts) == 0 {
+		t.Fatal("expected at least one query option (limit)")
+	}
+	cfg := domain.ApplyOptions(fake.gotOpts)
+	if cfg.Limit != 10000 {
+		t.Fatalf("expected limit %d, got %d", 10000, cfg.Limit)
 	}
 }

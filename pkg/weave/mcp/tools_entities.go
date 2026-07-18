@@ -10,6 +10,10 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
+// fallbackScanLimit bounds the in-memory semantic-id scan for fallback entity lookups.
+// Projects exceeding this limit should implement a store-level semantic_id index.
+const fallbackScanLimit = 10000
+
 type listEntitiesInput struct {
 	ProjectID  string `json:"project_id" jsonschema:"project ID / prefix"`
 	EntityType string `json:"entity_type" jsonschema:"one of: field, model, collection, category"`
@@ -33,7 +37,8 @@ type entitySummary struct {
 
 type listEntitiesOutput struct {
 	Entities   []entitySummary `json:"entities"`
-	TotalCount int64           `json:"total_count"`
+	// TotalCount is the pre-status-filter match count from the store; with a status filter, len(entities) can be smaller.
+	TotalCount int64 `json:"total_count" jsonschema:"total matches before status filtering"`
 }
 
 type getEntityInput struct {
@@ -158,10 +163,10 @@ func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput,
 			out.Entity = m
 			return out, nil
 		}
-		// ponytail: semantic-id fallback is an in-memory scan of the
-		// project's models; a store-level lookup replaces it if any
-		// project's model count makes this measurable.
-		rows, _, err := h.Models.List(ctx, in.ProjectID)
+		// ponytail: semantic-id fallback scans up to fallbackScanLimit entities
+		// in memory; a store-level semantic_id lookup replaces this if any
+		// project exceeds the limit.
+		rows, _, err := h.Models.List(ctx, in.ProjectID, domain.WithLimit(fallbackScanLimit))
 		if err != nil {
 			return out, fmt.Errorf("list models: %w", err)
 		}
@@ -178,7 +183,7 @@ func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput,
 			out.Entity = c
 			return out, nil
 		}
-		rows, _, err := h.Collections.List(ctx, in.ProjectID)
+		rows, _, err := h.Collections.List(ctx, in.ProjectID, domain.WithLimit(fallbackScanLimit))
 		if err != nil {
 			return out, fmt.Errorf("list collections: %w", err)
 		}
@@ -195,7 +200,7 @@ func getEntity(ctx context.Context, h Host, in getEntityInput) (getEntityOutput,
 			out.Entity = c
 			return out, nil
 		}
-		rows, err := h.Categories.List(ctx, in.ProjectID)
+		rows, err := h.Categories.List(ctx, in.ProjectID, domain.WithLimit(fallbackScanLimit))
 		if err != nil {
 			return out, fmt.Errorf("list categories: %w", err)
 		}
