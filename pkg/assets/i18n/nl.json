@@ -722,7 +722,7 @@
     "apikeys": {
       "title": "API-sleutels",
       "empty_title": "Nog geen API-sleutels",
-      "empty_subtitle": "Maak een sleutel aan om agents en tools (MCP) met Pletka te verbinden.",
+      "empty_subtitle": "Maak een sleutel aan om agents en tools met Pletka te verbinden.",
       "create": "Sleutel aanmaken",
       "col_name": "Naam",
       "col_prefix": "Prefix",

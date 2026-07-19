@@ -958,8 +958,9 @@ GROUP BY fo.field_id`
 // rows entity_type='' are not placements). Fields with no placements are
 // absent from the map. Unlike ListUsage/CountUsage there is no
 // version-pinned (archive-table) variant here — this is a live-rows-only
-// read, deliberately, since the current MCP/project-scale consumers only
-// ever want current state.
+// read, deliberately, since the current project-scale consumers — including
+// hosting-repo modules via the services-out seam (ADR-0008) — only ever
+// want current state.
 func (s *postgresStore) BatchUsageRefs(ctx context.Context, fieldIDs []string) (map[string]domain.FieldUsageList, error) {
 	out := map[string]domain.FieldUsageList{}
 	if len(fieldIDs) == 0 {

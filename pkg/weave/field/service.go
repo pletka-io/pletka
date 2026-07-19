@@ -276,8 +276,9 @@ func (s *Service) BatchUsageCounts(ctx context.Context, projectID string, fieldI
 }
 
 // BatchUsageRefs returns, for each field ID, the models and collections that
-// place it — project-scale ownership refs (e.g. the MCP field reader), as
-// opposed to BatchUsageCounts' aggregate numbers.
+// place it — project-scale ownership refs (e.g. hosting-repo modules
+// consuming it via the services-out seam, ADR-0008), as opposed to
+// BatchUsageCounts' aggregate numbers.
 // fieldIDs must come from a project-scoped read: the underlying query does not re-check that each field belongs to projectID.
 func (s *Service) BatchUsageRefs(ctx context.Context, projectID string, fieldIDs []string) (map[string]domain.FieldUsageList, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {

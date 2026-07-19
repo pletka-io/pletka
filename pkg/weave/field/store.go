@@ -101,7 +101,8 @@ type Store interface {
 
 	// BatchUsageRefs returns, for each field ID, the models and collections
 	// that place it — the same edges ListUsage walks, but for many fields in
-	// one query (project-scale ownership lookups, e.g. the MCP reader).
+	// one query (project-scale ownership lookups, e.g. hosting-repo modules
+	// consumed via the services-out seam, ADR-0008).
 	// Reads live rows only; no version-pinned variant. Fields with no
 	// placements are absent from the map.
 	BatchUsageRefs(ctx context.Context, fieldIDs []string) (map[string]domain.FieldUsageList, error)

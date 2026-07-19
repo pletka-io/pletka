@@ -1394,7 +1394,7 @@
     "apikeys": {
       "title": "API keys",
       "empty_title": "No API keys yet",
-      "empty_subtitle": "Create a key to connect agents and tools (MCP) to Pletka.",
+      "empty_subtitle": "Create a key to connect agents and tools to Pletka.",
       "create": "Create key",
       "col_name": "Name",
       "col_prefix": "Prefix",

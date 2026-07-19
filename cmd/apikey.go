@@ -16,7 +16,7 @@ import (
 func newAPIKeyCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "apikey",
-		Short: "Manage API keys for MCP and API access",
+		Short: "Manage API keys for external API access",
 	}
 	cmd.AddCommand(newAPIKeyCreateCommand(), newAPIKeyListCommand(), newAPIKeyRevokeCommand())
 	return cmd

@@ -118,8 +118,9 @@ func buildGitRestoreAdminHost(pool *pgxpool.Pool, logger *slog.Logger, ontologyS
 // buildCategoryHost returns the category.Host used for HTTP routes plus the
 // underlying *category.Service — the Host wires the raw Store directly (a
 // pre-existing category-slice quirk, not introduced here), so callers that
-// need the Service layer (e.g. the MCP host) get it as a second return value
-// instead of constructing their own instance.
+// need the Service layer (e.g. hosting-repo modules consuming it via the
+// services-out seam, ADR-0008) get it as a second return value instead of
+// constructing their own instance.
 func buildCategoryHost(
 	pool *pgxpool.Pool,
 	weave domain.WeaveStore,
@@ -147,8 +148,9 @@ func buildCategoryHost(
 
 // buildNamespaceBindingHost returns the namespacebinding.Host used for HTTP
 // routes plus the underlying *namespacebinding.Service — callers that need
-// the Service layer (the CSV export generators and the MCP host) get it as
-// a second return value instead of constructing their own instance (same
+// the Service layer (the CSV export generators and hosting-repo modules
+// consuming it via the services-out seam, ADR-0008) get it as a second
+// return value instead of constructing their own instance (same
 // pattern as buildCategoryHost).
 func buildNamespaceBindingHost(
 	pool *pgxpool.Pool,
