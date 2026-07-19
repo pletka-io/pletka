@@ -958,7 +958,7 @@ GROUP BY fo.field_id`
 
 // BatchUsageRefs returns, for each field ID, the models and collections that
 // place it (weave_field_overrides entity_type 'model'/'collection'; base
-// rows entity_type=” are not placements). Fields with no placements are
+// rows entity_type='' are not placements). Fields with no placements are
 // absent from the map. Unlike ListUsage/CountUsage there is no
 // version-pinned (archive-table) variant here — this is a live-rows-only
 // read, deliberately, since the current project-scale consumers — including
