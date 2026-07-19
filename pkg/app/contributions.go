@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -44,6 +45,17 @@ type Host struct {
 	Services *Services
 }
 
+// AuthReader looks up the auth+actor record for an email. Nil record, nil
+// error when no such account (matches authStore.GetByEmail semantics).
+type AuthReader interface {
+	GetByEmail(ctx context.Context, email string) (*domain.AuthWithActor, error)
+}
+
+// SessionEstablisher marks the current request's session authenticated.
+type SessionEstablisher interface {
+	EstablishAuthenticatedSession(ctx context.Context, actorID, email string) error
+}
+
 // Services is the read-only surface of core's assembled slice services,
 // handed to route contributions so hosting binaries can compose features
 // (e.g. commercial modules) over them. One instance per slice —
@@ -71,6 +83,12 @@ type Services struct {
 	PathAudit *pathaudit.Service
 	Languages []formschema.LanguageInfo
 	Obs       *observability.Runtime
+	// AuthRead resolves an email to its auth+actor record — the actor-match
+	// step for external identity providers (SSO). Read-only.
+	AuthRead AuthReader
+	// Sessions establishes an authenticated session — the single seam an
+	// external login flow uses to become a normal logged-in browser session.
+	Sessions SessionEstablisher
 }
 
 // RouteContribution lets a host add routes around the core app without routing

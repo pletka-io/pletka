@@ -300,8 +300,9 @@ fleet) migrate independently of core's `goose_db_version` chain.
 
 - **Contract:** `app.Host.Services *app.Services` — a curated struct of
   core's assembled slice service singletons (concrete pointers plus a few
-  narrow interfaces: `domain.WeaveStore`, `auth.APIKeyVerifier`), populated
-  by `app.New` immediately before route contributions mount. Files:
+  narrow interfaces: `domain.WeaveStore`, `auth.APIKeyVerifier`,
+  `app.AuthReader`, `app.SessionEstablisher`), populated by `app.New`
+  immediately before route contributions mount. Files:
   `pkg/app/contributions.go` (`Services`, `Host.Services`),
   `pkg/app/app.go` (the `mountRouteContributions` call site). Governing
   decision: [ADR-0008](../decisions/0008-services-out-seam.md).
@@ -335,9 +336,26 @@ mountRouteContributions(handler, opts.Contributions.Routes, Host{
         PathAudit:         pathAuditSvc, // stored-path validity audit
         Languages:         languages,
         Obs:               obs,
+        AuthRead:          weaveStore.Auth(), // email -> auth+actor lookup for SSO actor-match
+        Sessions:          sessionManager,     // establishes an authenticated session for external login flows
     },
 })
 ```
+
+**#10 — `AuthRead app.AuthReader`.** Resolves an email to its auth+actor
+record read-only — the actor-match step an external identity provider (SSO)
+uses to find the local account for a verified email, wired from
+`weaveStore.Auth()`. **Red flag:** consuming this outside a host's wiring
+layer, or a contribution reaching past it into `domain.AuthStore`'s wider
+write surface (`Create`, `UpdatePassword`, `Delete`, …) instead of the
+narrow read-only interface.
+
+**#11 — `Sessions app.SessionEstablisher`.** The single seam an external
+login flow uses to turn a matched actor into a normal authenticated browser
+session, wired from the same `*session.Manager` core uses internally.
+**Red flag:** a contribution minting its own session/cookie machinery
+instead of calling this seam, or calling it for anything other than
+marking an already-verified identity as logged in.
 
 A route contribution reads it the same way it reads any other `Host` field
 — `host.Services.Projects`, etc. — and defines its own narrow reader

@@ -373,6 +373,8 @@ func New(ctx context.Context, opts Options) (*App, error) {
 			PathAudit:         pathAuditSvc,
 			Languages:         languages,
 			Obs:               obs,
+			AuthRead:          weaveStore.Auth(),
+			Sessions:          sessionManager,
 		},
 	})
 
