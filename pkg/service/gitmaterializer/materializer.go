@@ -2,12 +2,14 @@ package gitmaterializer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
@@ -106,6 +108,27 @@ func (m *Materializer) processChangeSet(ctx context.Context, cs sqlcgen.WeaveCha
 				"change_set_id", cs.ID, "err", rerr)
 		}
 	}()
+
+	// Implicit CLI/import mutations carry project_id='' (weave store
+	// resolveChangeSet fallback) and a project deletion can orphan its
+	// pending sets; neither can ever materialize. Mark them processed as
+	// 'orphaned' instead of retrying forever.
+	orphaned := cs.ProjectID == ""
+	if !orphaned {
+		if _, perr := m.queries.WeaveGetProjectByID(ctx, cs.ProjectID); perr != nil {
+			if !errors.Is(perr, pgx.ErrNoRows) {
+				return fmt.Errorf("look up project %s: %w", cs.ProjectID, perr)
+			}
+			orphaned = true
+		}
+	}
+	if orphaned {
+		m.logger.Info("change set orphaned, marking processed",
+			"change_set_id", cs.ID, "project_id", cs.ProjectID)
+		return m.markChangeSetProcessed(ctx, cs.ID, nil, runMetrics{
+			outcome: "orphaned", duration: time.Since(start),
+		})
+	}
 
 	workDir := filepath.Join(m.baseDir, cs.ProjectID)
 	git := newGitRunner(workDir, m.logger)
