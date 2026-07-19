@@ -48,6 +48,7 @@ type Options struct {
 	LogStaticFiles      bool
 	AllowedOrigins      []string
 	RegistrationEnabled bool
+	SSOLoginURL         string
 	GitDataDir          string
 	// ModuleHost/OntologyHost seed the gitmaterializer module-path namespace
 	// written into pletka.mod/ontology.yaml files. Empty falls back to the
@@ -229,7 +230,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	organizationHost, orgMembersHost := buildOrganizationHosts(opts.Pool, logger, languages, langResolver)
 	projectHost := buildProjectHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver)
 	workspaceHost := buildWorkspaceHost(logger, templateRenderer, i18nManager, sessionManager, languages, langResolver, organizationHost, projectHost, orgMembersHost)
-	authPagesHost := buildAuthPagesHost(logger, templateRenderer, i18nManager, sessionManager, langResolver, opts.RegistrationEnabled)
+	authPagesHost := buildAuthPagesHost(logger, templateRenderer, i18nManager, sessionManager, langResolver, opts.RegistrationEnabled, opts.SSOLoginURL)
 	projectPagesHost := buildProjectPagesHost(logger, templateRenderer, weaveStore, i18nManager, sessionManager)
 	searchHost := buildSearchHost(weaveStore, logger)
 	vocabularyHost := buildVocabularyHost(opts.Pool, weaveStore, logger, languages, langResolver)

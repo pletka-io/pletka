@@ -1,11 +1,101 @@
 package authpages
 
 import (
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/pletka-io/pletka/pkg/i18n"
+	"github.com/pletka-io/pletka/pkg/i18n/backend"
+	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
 )
+
+// newTestRouter mounts the authpages routes behind a real renderer + i18n
+// manager (in-memory backend) so LoginPage/LocalLoginPage can exercise their
+// full render path, not just the pre-render redirects.
+func newTestRouter(t *testing.T, ssoLoginURL string) *chi.Mux {
+	t.Helper()
+
+	i18nMgr, err := i18n.New(i18n.Config{
+		DefaultLanguage:  "en",
+		FallbackLanguage: "en",
+		Storage:          backend.NewMemoryBackend(),
+		Languages: []i18n.Language{
+			{Code: "en", Name: "English", EnglishName: "English", Direction: "ltr", Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("i18n.New() error = %v", err)
+	}
+
+	renderer, err := weavetemplates.NewRenderer(func(names ...string) template.HTML {
+		return ""
+	}, i18nMgr, weavetemplates.AnalyticsConfig{})
+	if err != nil {
+		t.Fatalf("NewRenderer() error = %v", err)
+	}
+
+	r := chi.NewRouter()
+	Mount(r, Host{
+		Templates:   renderer,
+		I18n:        i18nMgr,
+		SSOLoginURL: ssoLoginURL,
+	})
+	return r
+}
+
+func TestLoginPage_SSOButton(t *testing.T) {
+	router := newTestRouter(t, "/auth/oidc/login")
+
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `href="/auth/oidc/login"`) {
+		t.Fatalf("body missing SSO login href: %s", body)
+	}
+	if strings.Contains(body, `id="login-form"`) {
+		t.Fatalf("body should not contain password login form when SSO is enabled: %s", body)
+	}
+}
+
+func TestLoginPage_StandaloneUnchanged(t *testing.T) {
+	router := newTestRouter(t, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if body := rr.Body.String(); !strings.Contains(body, `id="login-form"`) {
+		t.Fatalf("body missing password login form: %s", body)
+	}
+}
+
+func TestLoginLocalPage_AlwaysPasswordForm(t *testing.T) {
+	router := newTestRouter(t, "/auth/oidc/login")
+
+	req := httptest.NewRequest(http.MethodGet, "/login/local", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	if body := rr.Body.String(); !strings.Contains(body, `id="login-form"`) {
+		t.Fatalf("body missing password login form: %s", body)
+	}
+}
 
 func TestRegisterPageRedirectsWhenRegistrationDisabled(t *testing.T) {
 	handler := &Handler{registrationEnabled: false}

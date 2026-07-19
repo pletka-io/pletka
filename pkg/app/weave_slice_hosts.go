@@ -240,6 +240,7 @@ func buildAuthPagesHost(
 	sessionManager *session.Manager,
 	langResolver authpages.LangResolver,
 	registrationEnabled bool,
+	ssoLoginURL string,
 ) authpages.Host {
 	return authpages.Host{
 		Logger:              logger,
@@ -248,6 +249,7 @@ func buildAuthPagesHost(
 		Session:             sessionManager,
 		LangResolver:        langResolver,
 		RegistrationEnabled: registrationEnabled,
+		SSOLoginURL:         ssoLoginURL,
 	}
 }
 

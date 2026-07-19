@@ -103,6 +103,26 @@ func loginHTML(redirectURL string, registrationEnabled bool) template.HTML {
 </script>`, registerLink, jsString(redirectURL)))
 }
 
+// ssoLoginHTML renders the SSO-only sign-in card: one button to the IdP,
+// no password form, no register link.
+func ssoLoginHTML(ssoURL string) template.HTML {
+	return template.HTML(fmt.Sprintf(`
+<div class="min-h-[70vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-md w-full space-y-8">
+        <div>
+            <div class="mx-auto h-12 w-12 flex items-center justify-center rounded-full bg-pletka-primary">
+                <span class="text-2xl text-white">P</span>
+            </div>
+            <h1 class="mt-6 text-center text-3xl font-bold text-gray-900">Sign in</h1>
+        </div>
+        <a href="%s"
+           class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-pletka-primary hover:bg-pletka-secondary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pletka-primary">
+            Sign in with SSO
+        </a>
+    </div>
+</div>`, template.HTMLEscapeString(ssoURL)))
+}
+
 func registerHTML() template.HTML {
 	return template.HTML(`
 <div class="min-h-[70vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">

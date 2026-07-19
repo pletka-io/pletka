@@ -27,6 +27,7 @@ type Host struct {
 	LangResolver LangResolver
 
 	RegistrationEnabled bool
+	SSOLoginURL         string
 }
 
 func (h Host) Validate() error {
@@ -52,6 +53,7 @@ type Handler struct {
 	lang     LangResolver
 
 	registrationEnabled bool
+	ssoLoginURL         string
 }
 
 func Mount(r chi.Router, host Host) {
@@ -65,6 +67,7 @@ func Mount(r chi.Router, host Host) {
 		session:             host.Session,
 		lang:                host.LangResolver,
 		registrationEnabled: host.RegistrationEnabled,
+		ssoLoginURL:         host.SSOLoginURL,
 	}
 	h.Mount(r)
 }
@@ -72,13 +75,37 @@ func Mount(r chi.Router, host Host) {
 // Mount registers the site-root auth page routes.
 func (h *Handler) Mount(r chi.Router) {
 	r.Get("/login", h.LoginPage)
+	r.Get("/login/local", h.LocalLoginPage)
 	r.Get("/register", h.RegisterPage)
 	r.Get("/logout", h.LogoutPage)
 }
 
 // LoginPage renders the sign-in form. Already-authenticated users are sent to
-// the safe return destination immediately.
+// the safe return destination immediately. When SSO is enabled, this renders
+// the SSO-only card instead of the password form — LocalLoginPage remains the
+// unlinked break-glass path to the password form.
 func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
+	redirectURL := h.safeRedirect(r)
+	if auth.PrincipalFromContext(r.Context()) != nil {
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
+	}
+
+	content := loginHTML(redirectURL, h.registrationEnabled)
+	if h.ssoLoginURL != "" {
+		content = ssoLoginHTML(h.ssoLoginURL)
+	}
+	h.render(w, r, renderInput{
+		Title:      h.t("auth.login.title", h.currentLang(r), "Sign in"),
+		ActivePath: "/login",
+		Content:    content,
+	})
+}
+
+// LocalLoginPage always renders the password form — the unlinked break-glass
+// path when SSO is enabled. API-side gating (super-admin only) lives in
+// pkg/auth; this page is just the form.
+func (h *Handler) LocalLoginPage(w http.ResponseWriter, r *http.Request) {
 	redirectURL := h.safeRedirect(r)
 	if auth.PrincipalFromContext(r.Context()) != nil {
 		http.Redirect(w, r, redirectURL, http.StatusFound)
@@ -88,7 +115,7 @@ func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
 	h.render(w, r, renderInput{
 		Title:      h.t("auth.login.title", h.currentLang(r), "Sign in"),
 		ActivePath: "/login",
-		Content:    loginHTML(redirectURL, h.registrationEnabled),
+		Content:    loginHTML(redirectURL, false), // no register link on break-glass
 	})
 }
 

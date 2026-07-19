@@ -39,6 +39,7 @@ type Config struct {
 	LogStaticFiles      bool
 	AllowedOrigins      []string
 	RegistrationEnabled bool
+	SSOLoginURL         string
 	GitDataDir          string
 	// ModuleHost/OntologyHost override the gitmaterializer module-path
 	// namespace (git_materializer.module_host / .ontology_host). Empty falls
@@ -113,6 +114,7 @@ func ConfigFromViper() Config {
 		LogStaticFiles:            viper.GetBool("log.static_files"),
 		AllowedOrigins:            parseAllowedOrigins(viper.GetStringSlice("cors.allowed_origins")),
 		RegistrationEnabled:       viper.GetBool("features.registration"),
+		SSOLoginURL:               viper.GetString("auth.sso_login_url"),
 		GitDataDir:                viper.GetString("git_materializer.data_dir"),
 		ModuleHost:                viper.GetString("git_materializer.module_host"),
 		OntologyHost:              viper.GetString("git_materializer.ontology_host"),
@@ -456,6 +458,7 @@ func buildApp(ctx context.Context, cfg Config, logger *slog.Logger, pool *pgxpoo
 		LogStaticFiles:            cfg.LogStaticFiles,
 		AllowedOrigins:            cfg.AllowedOrigins,
 		RegistrationEnabled:       cfg.RegistrationEnabled,
+		SSOLoginURL:               cfg.SSOLoginURL,
 		GitDataDir:                gitDataDir(cfg),
 		ModuleHost:                cfg.ModuleHost,
 		OntologyHost:              cfg.OntologyHost,
