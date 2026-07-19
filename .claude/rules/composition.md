@@ -53,3 +53,6 @@ that 500s. Adding a format is a wiring change, not a frontend change.
   required.
 - Reintroducing a core default that panics or errors when an option is unset
   instead of falling back to the core-only behavior.
+- `app.Services` consumed anywhere except a host's wiring layer is a red
+  flag — core code never imports it, slices receive narrowed interfaces
+  ([ADR-0008](../../docs-oss/decisions/0008-services-out-seam.md)).
