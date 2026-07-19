@@ -170,15 +170,6 @@ func (m *Manager) noSurf() func(http.Handler) http.Handler {
 				return true
 			}
 
-			// The MCP endpoint is called by MCP clients, not the browser —
-			// there is no session-carried CSRF cookie/token to present.
-			// Auth is a bearer API key (auth.RequireAPIKey), checked after
-			// this middleware; an unauthenticated POST must reach that
-			// check and get a 401 envelope, not a CSRF-layer rejection.
-			if r.URL.Path == "/mcp" {
-				return true
-			}
-
 			// Client error reporter — fire-and-forget telemetry POSTed from
 			// JS, often when no CSRF token is available (errors during early
 			// load, or with no session). It's rate-limited server-side; without

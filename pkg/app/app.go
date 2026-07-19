@@ -150,7 +150,6 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	// Observability runtime: request metrics middleware + /metrics listener
 	// (started when MetricsAddr is set). One per process = one instance.
 	obs := observability.New(observability.Config{MetricsAddr: opts.MetricsAddr}, opts.Pool, logger)
-	mcpToolMetrics := newMCPToolMetrics(obs)
 
 	closeFns := []func(context.Context) error{
 		func(ctx context.Context) error {
@@ -298,22 +297,6 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	visualizationHost := buildVisualizationHost(opts.Pool, weaveStore, logger, generatorService)
 	detailViewHost := buildDetailViewHost(opts.Pool, logger, templateRenderer, weaveStore, i18nManager, sessionManager, opts.IntegrationRegistry, ontologySvc, hasFormat)
 	categoryHost, categoryService := buildCategoryHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver)
-	mcpHost := buildMcpHost(
-		apikeyService,
-		weaveStore,
-		projectHost.Service,
-		projectOntologyVersionHost.Service,
-		namespaceSvc,
-		fieldHost.Service,
-		modelHost.Service,
-		collectionHost.Service,
-		categoryService,
-		ontologySvc,
-		vocabularyHost.Service,
-		languages,
-		logger,
-		mcpToolMetrics,
-	)
 	weaverouter.Mount(handler, buildProjectMiddlewareHost(weaveStore), buildErrorPageHost(templateRenderer, i18nManager, langResolver), weaverouter.Options{
 		Integrations: opts.IntegrationRegistry,
 		ActorAdmin:   buildActorAdminHost(opts.Pool, weaveStore, logger, languages, langResolver),
@@ -337,7 +320,6 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		Field:                  fieldHost,
 		GitRestoreAdmin:        buildGitRestoreAdminHost(opts.Pool, logger, ontologySvc),
 		Health:                 buildHealthHost(opts.Pool, logger),
-		Mcp:                    mcpHost,
 		Members:                membersHost,
 		Model:                  modelHost,
 		NamespaceBinding:       namespaceBindingHost,
