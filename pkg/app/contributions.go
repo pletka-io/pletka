@@ -8,12 +8,24 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/app/observability"
+	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/integrations"
 	"github.com/pletka-io/pletka/pkg/integrations/registry"
 	"github.com/pletka-io/pletka/pkg/session"
+	"github.com/pletka-io/pletka/pkg/weave/category"
+	"github.com/pletka-io/pletka/pkg/weave/collection"
+	"github.com/pletka-io/pletka/pkg/weave/field"
+	"github.com/pletka-io/pletka/pkg/weave/model"
+	"github.com/pletka-io/pletka/pkg/weave/namespacebinding"
+	weaveontology "github.com/pletka-io/pletka/pkg/weave/ontology"
+	"github.com/pletka-io/pletka/pkg/weave/project"
+	"github.com/pletka-io/pletka/pkg/weave/projectontologyversion"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
+	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
 
 // Host is the explicit app-level contract passed to host route contributions.
@@ -26,6 +38,30 @@ type Host struct {
 	Session             *session.Manager
 	IntegrationRegistry *registry.Registry
 	IntegrationCipher   *integrations.Cipher
+	// Services exposes core's assembled slice services; see ADR-0008.
+	Services *Services
+}
+
+// Services is the read-only surface of core's assembled slice services,
+// handed to route contributions so hosting binaries can compose features
+// (e.g. commercial modules) over them. One instance per slice —
+// contributions must never construct duplicates. Nil only in tests that
+// bypass full assembly; app.New always populates every field. Additions
+// require a composition-catalog entry (see ADR-0008).
+type Services struct {
+	Weave             domain.WeaveStore
+	APIKeys           auth.APIKeyVerifier
+	Projects          *project.Service
+	ProjectOntologies *projectontologyversion.Service
+	Namespaces        *namespacebinding.Service
+	Fields            *field.Service
+	Models            *model.Service
+	Collections       *collection.Service
+	Categories        *category.Service
+	Ontology          *weaveontology.Service
+	Vocabulary        *vocabulary.Service
+	Languages         []formschema.LanguageInfo
+	Obs               *observability.Runtime
 }
 
 // RouteContribution lets a host add routes around the core app without routing

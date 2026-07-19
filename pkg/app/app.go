@@ -369,6 +369,21 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		Session:             sessionManager,
 		IntegrationRegistry: opts.IntegrationRegistry,
 		IntegrationCipher:   opts.IntegrationCipher,
+		Services: &Services{
+			Weave:             weaveStore,
+			APIKeys:           apikeyService,
+			Projects:          projectHost.Service,
+			ProjectOntologies: projectOntologyVersionHost.Service,
+			Namespaces:        namespaceSvc,
+			Fields:            fieldHost.Service,
+			Models:            modelHost.Service,
+			Collections:       collectionHost.Service,
+			Categories:        categoryService,
+			Ontology:          ontologySvc,
+			Vocabulary:        vocabularyHost.Service,
+			Languages:         languages,
+			Obs:               obs,
+		},
 	})
 
 	if err := weavecontent.MountWithSources(handler, buildContentHost(logger, templateRenderer, i18nManager, langResolver), contentSources); err != nil {

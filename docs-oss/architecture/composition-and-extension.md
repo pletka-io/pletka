@@ -296,6 +296,63 @@ cfg.MigrateExtra = platformdb.Migrate
 `goose_db_version_platform` table, so platform-owned tables (the arches
 fleet) migrate independently of core's `goose_db_version` chain.
 
+### 9. Core services (services-out)
+
+- **Contract:** `app.Host.Services *app.Services` — a curated struct of
+  core's assembled slice service singletons (concrete pointers plus a few
+  narrow interfaces: `domain.WeaveStore`, `auth.APIKeyVerifier`), populated
+  by `app.New` immediately before route contributions mount. Files:
+  `pkg/app/contributions.go` (`Services`, `Host.Services`),
+  `pkg/app/app.go` (the `mountRouteContributions` call site). Governing
+  decision: [ADR-0008](../decisions/0008-services-out-seam.md).
+- **Owner:** core owns the `Services` struct and populates every field from
+  its own assembled singletons; a route contribution only reads it. This is
+  the inverse of every other seam on this page — core hands services *out*
+  to a contribution instead of a host injecting a dependency *in*. See
+  ADR-0008 for the full contract: read-only, one instance per slice, no
+  duplicate construction, consumers define their own narrow reader
+  interfaces, every field is non-nil in a real `app.New`.
+
+```go
+// pkg/app/app.go — inside app.New, at the mountRouteContributions call
+mountRouteContributions(handler, opts.Contributions.Routes, Host{
+    Pool:   opts.Pool,
+    Logger: logger,
+    // ...
+    Services: &Services{
+        Weave:             weaveStore,
+        APIKeys:           apikeyService,
+        Projects:          projectHost.Service,
+        ProjectOntologies: projectOntologyVersionHost.Service,
+        Namespaces:        namespaceSvc,
+        Fields:            fieldHost.Service,
+        Models:            modelHost.Service,
+        Collections:       collectionHost.Service,
+        Categories:        categoryService,
+        Ontology:          ontologySvc,
+        Vocabulary:        vocabularyHost.Service,
+        Languages:         languages,
+        Obs:               obs,
+    },
+})
+```
+
+A route contribution reads it the same way it reads any other `Host` field
+— `host.Services.Projects`, etc. — and defines its own narrow reader
+interface over the concrete service it needs, rather than depending on the
+whole `Services` struct or a slice's private `Host` type.
+
+**Red flag:** `app.Services` consumed anywhere except a host's wiring layer
+is a red flag — core code never imports it, slices receive narrowed
+interfaces.
+
+**Promotion path.** Hosting repos may stage prospective core slices under
+their own `pkg/weave/<slice>`, mirroring core's layout. Promotion is copy +
+rewrite the package's own module prefix + move wiring from the host's
+`ConfigureApp` into core assembly; demotion is the reverse. A slice that
+stays promotable consumes only exported core APIs and keeps its own narrow
+reader interfaces — the same discipline `Services` consumers already follow.
+
 ---
 
 ## Schema-driven capability availability
@@ -338,6 +395,20 @@ change, not a frontend change.
 Non-renderer URLs (csv export, snapshot, ascii tree, exportgraph) keep their
 existing role/capability rules — this rule is specifically about
 renderer-backed capabilities tracking the registered renderer set.
+
+---
+
+## Red Flags
+
+- `app.Services` consumed anywhere except a host's wiring layer is a red
+  flag — core code never imports it, slices receive narrowed interfaces
+  ([ADR-0008](../decisions/0008-services-out-seam.md)).
+
+This is specific to the services-out seam (extension point 9). The general
+extension-point red flags — global registries, `init()` self-registration,
+widening `Host` for a single contribution, hardcoded frontend capability
+URLs — live in
+[`.claude/rules/composition.md`](../../.claude/rules/composition.md).
 
 ---
 
