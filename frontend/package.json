@@ -15,7 +15,7 @@
     "@tailwindcss/typography": "latest",
     "@tsconfig/svelte": "^5.0.0",
     "@types/node": "^25.2.3",
-    "postcss": "^8.5.9",
+    "postcss": "^8.5.20",
     "svelte": "^5.46",
     "svelte-check": "^4.0.0",
     "tailwindcss": "^4",
