@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pletka-io/pletka/pkg/app/cliruntime"
+	"github.com/pletka-io/pletka/pkg/weave/pathaudit"
 )
 
 var weaveVerifyPathsOpts struct {
@@ -47,16 +48,6 @@ Examples:
 	return weaveVerifyPathsCmd
 }
 
-// pathElementError is one verified-and-failed path element.
-type pathElementError struct {
-	Project    string `json:"project"`
-	SemanticID string `json:"semantic_id"`
-	Position   int    `json:"position"`
-	Qname      string `json:"qname"`
-	StoredType string `json:"stored_type"`
-	Verdict    string `json:"verdict"`
-}
-
 func runWeaveVerifyPaths(cmd *cobra.Command, args []string) error {
 	switch weaveVerifyPathsOpts.format {
 	case "text", "json", "csv":
@@ -71,7 +62,7 @@ func runWeaveVerifyPaths(cmd *cobra.Command, args []string) error {
 	}
 	defer pool.Close()
 
-	errs, scanned, err := collectPathElementErrors(ctx, pool, weaveVerifyPathsOpts.project, weaveVerifyPathsOpts.excludeStandard)
+	errs, scanned, err := pathaudit.NewService(pool).Audit(ctx, weaveVerifyPathsOpts.project, weaveVerifyPathsOpts.excludeStandard)
 	if err != nil {
 		return err
 	}
@@ -98,134 +89,7 @@ func runWeaveVerifyPaths(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// collectPathElementErrors walks every field's path_elements and returns
-// the elements whose stored type disagrees with the ontology tables, or
-// whose qname resolves to neither table. scanned is the count of
-// non-literal elements inspected.
-func collectPathElementErrors(ctx context.Context, pool *pgxpool.Pool, project string, excludeStandard bool) (errs []pathElementError, scanned int, err error) {
-	const query = `
-WITH elems AS (
-    -- Primary path elements.
-    SELECT
-        pr.system_name AS project,
-        f.semantic_id AS semantic_id,
-        coalesce((e.elem->>'position')::int, (e.ord - 1)::int) AS position,
-        coalesce(e.elem->>'prefix', '') AS prefix,
-        coalesce(e.elem->>'local_name', '') AS local_name,
-        coalesce(e.elem->>'type', '') AS stored_type
-    FROM weave_fields f
-    JOIN weave_projects pr ON pr.id = f.project_id
-    CROSS JOIN LATERAL jsonb_array_elements(f.path_elements)
-        WITH ORDINALITY AS e(elem, ord)
-    WHERE f.path_elements IS NOT NULL
-      AND jsonb_typeof(f.path_elements) = 'array'
-      AND coalesce(e.elem->>'type', '') <> 'literal'
-      AND ($1 = '' OR pr.id = $1 OR pr.system_name = $1)
-      AND ($2 = false OR coalesce(e.elem->>'prefix', '') NOT IN
-            ('rdf', 'rdfs', 'xsd', 'xsl', 'dc', 'dcterms', 'skos', 'owl', 'schema'))
-    UNION ALL
-    -- Legacy subfield path elements (first-class). The subfield index is
-    -- appended to the field id ("SRD1F.5#1") so failures are attributable.
-    SELECT
-        pr.system_name AS project,
-        f.semantic_id || '#' || (sf.sord - 1)::text AS semantic_id,
-        coalesce((e.elem->>'position')::int, (e.ord - 1)::int) AS position,
-        coalesce(e.elem->>'prefix', '') AS prefix,
-        coalesce(e.elem->>'local_name', '') AS local_name,
-        coalesce(e.elem->>'type', '') AS stored_type
-    FROM weave_fields f
-    JOIN weave_projects pr ON pr.id = f.project_id
-    CROSS JOIN LATERAL jsonb_array_elements(f.subfield_paths)
-        WITH ORDINALITY AS sf(subfield, sord)
-    CROSS JOIN LATERAL jsonb_array_elements(sf.subfield->'path_elements')
-        WITH ORDINALITY AS e(elem, ord)
-    WHERE f.subfield_paths IS NOT NULL
-      AND jsonb_typeof(f.subfield_paths) = 'array'
-      AND coalesce(e.elem->>'type', '') <> 'literal'
-      AND ($1 = '' OR pr.id = $1 OR pr.system_name = $1)
-      AND ($2 = false OR coalesce(e.elem->>'prefix', '') NOT IN
-            ('rdf', 'rdfs', 'xsd', 'xsl', 'dc', 'dcterms', 'skos', 'owl', 'schema'))
-), classified AS (
-    SELECT e.*,
-        EXISTS (
-            SELECT 1 FROM weave_ontology_classes c
-            JOIN weave_project_ontology_versions pov
-              ON pov.ontology_version_id = c.ontology_version_id
-            JOIN weave_projects p2 ON p2.id = pov.project_id
-            WHERE p2.system_name = e.project
-              AND c.prefix = e.prefix
-              AND c.local_name = e.local_name
-        ) AS in_classes,
-        EXISTS (
-            SELECT 1 FROM weave_ontology_properties pr2
-            JOIN weave_project_ontology_versions pov
-              ON pov.ontology_version_id = pr2.ontology_version_id
-            JOIN weave_projects p2 ON p2.id = pov.project_id
-            WHERE p2.system_name = e.project
-              AND pr2.prefix = e.prefix
-              AND pr2.local_name = e.local_name
-        ) AS in_props
-    FROM elems e
-)
-SELECT project, semantic_id, position, prefix, local_name, stored_type,
-       in_classes, in_props,
-       (in_classes AND NOT in_props AND stored_type = 'class')
-         OR (in_props AND NOT in_classes AND stored_type = 'property') AS ok
-FROM classified
-ORDER BY project, semantic_id, position`
-
-	rows, err := pool.Query(ctx, query, project, excludeStandard)
-	if err != nil {
-		return nil, 0, fmt.Errorf("query path elements: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var (
-			proj, sem, prefix, localName, storedType string
-			position                                 int
-			inClasses, inProps, ok                   bool
-		)
-		if err := rows.Scan(&proj, &sem, &position, &prefix, &localName, &storedType, &inClasses, &inProps, &ok); err != nil {
-			return nil, 0, fmt.Errorf("scan path element row: %w", err)
-		}
-		scanned++
-		if ok {
-			continue
-		}
-		errs = append(errs, pathElementError{
-			Project:    proj,
-			SemanticID: sem,
-			Position:   position,
-			Qname:      prefix + ":" + localName,
-			StoredType: storedType,
-			Verdict:    pathElementVerdict(localName, storedType, inClasses, inProps),
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("iterate path element rows: %w", err)
-	}
-	return errs, scanned, nil
-}
-
-// pathElementVerdict explains why an element failed verification.
-func pathElementVerdict(localName, storedType string, inClasses, inProps bool) string {
-	if localName == "" {
-		return "malformed: empty local_name"
-	}
-	switch {
-	case inClasses && inProps:
-		return "ambiguous: qname in both classes and properties"
-	case inClasses:
-		return fmt.Sprintf("type-mismatch: stored=%q, ontology=class", storedType)
-	case inProps:
-		return fmt.Sprintf("type-mismatch: stored=%q, ontology=property", storedType)
-	default:
-		return "missing: qname not in any linked ontology version"
-	}
-}
-
-func printPathElementReport(errs []pathElementError, scanned int) {
+func printPathElementReport(errs []pathaudit.PathElementError, scanned int) {
 	fmt.Println("=== Path Element Verification ===")
 	fmt.Printf("Non-literal elements scanned: %d\n", scanned)
 	fmt.Printf("Errors: %d\n\n", len(errs))
@@ -240,7 +104,7 @@ func printPathElementReport(errs []pathElementError, scanned int) {
 	byVerdict := map[string]int{}
 	for _, e := range errs {
 		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\n", e.Project, e.SemanticID, e.Position, e.Qname, e.Verdict)
-		byVerdict[verdictClass(e.Verdict)]++
+		byVerdict[pathaudit.VerdictClass(e.Verdict)]++
 	}
 	tw.Flush()
 
@@ -255,13 +119,13 @@ func printPathElementReport(errs []pathElementError, scanned int) {
 // writeFlippedFieldCSV emits one CSV row per field carrying a
 // type-mismatch ("flipped") element: project, semantic id, the flipped
 // positions, a readable qname path, and the raw path_elements JSON.
-func writeFlippedFieldCSV(ctx context.Context, pool *pgxpool.Pool, errs []pathElementError) error {
+func writeFlippedFieldCSV(ctx context.Context, pool *pgxpool.Pool, errs []pathaudit.PathElementError) error {
 	// Group flipped positions by field, preserving first-seen order.
 	type fieldKey struct{ project, semanticID string }
 	positions := map[fieldKey][]int{}
 	var order []fieldKey
 	for _, e := range errs {
-		if verdictClass(e.Verdict) != "type-mismatch" {
+		if pathaudit.VerdictClass(e.Verdict) != "type-mismatch" {
 			continue
 		}
 		k := fieldKey{e.Project, e.SemanticID}
@@ -351,14 +215,4 @@ func pathElementsToString(raw string) string {
 		}
 	}
 	return strings.Join(parts, " > ")
-}
-
-// verdictClass reduces a verdict message to its leading kind keyword.
-func verdictClass(verdict string) string {
-	for _, kind := range []string{"type-mismatch", "missing", "ambiguous", "malformed"} {
-		if len(verdict) >= len(kind) && verdict[:len(kind)] == kind {
-			return kind
-		}
-	}
-	return "other"
 }
