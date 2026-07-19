@@ -195,6 +195,16 @@ func (m *Manager) IsAuthenticated(ctx context.Context) bool {
 	return m.SessionManager.GetBool(ctx, KeyIsAuthenticated)
 }
 
+// EstablishAuthenticatedSession marks the session authenticated for the given
+// actor — the single sequence every login path (password, SSO) must use, so
+// no caller can half-set a session. Rotates the session token against fixation.
+func (m *Manager) EstablishAuthenticatedSession(ctx context.Context, actorID, email string) error {
+	m.Put(ctx, KeyUserID, actorID)
+	m.Put(ctx, KeyUserEmail, email)
+	m.Put(ctx, KeyIsAuthenticated, true)
+	return m.RenewToken(ctx)
+}
+
 // SetAuthenticated sets authentication status and user info
 func (m *Manager) SetAuthenticated(ctx context.Context, userID, email string) {
 	m.SessionManager.Put(ctx, KeyIsAuthenticated, true)

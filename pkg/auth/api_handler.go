@@ -120,10 +120,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("mark login", "err", err) // non-fatal
 	}
 
-	h.sessionMgr.Put(ctx, session.KeyUserID, rec.ActorID)
-	h.sessionMgr.Put(ctx, session.KeyUserEmail, rec.Email)
-	h.sessionMgr.Put(ctx, session.KeyIsAuthenticated, true)
-	_ = h.sessionMgr.RenewToken(ctx) // rotate session ID on login
+	if err := h.sessionMgr.EstablishAuthenticatedSession(ctx, rec.ActorID, rec.Email); err != nil {
+		h.logger.Error("establish session", "err", err)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"actor_id":     rec.ActorID,
