@@ -192,7 +192,8 @@ The interface remains a removal candidate.
 - A **handler never touches the pool** — data access goes through a slice `Store`.
 
   > **Resolved** (compliance backlog item 3): sanctioned exceptions are
-  > `health` (DB liveness ping — not domain data access) and tx-owning
+  > `health` (DB liveness ping — not domain data access), `pathaudit` (single
+  > raw-SQL audit sweep, lifted from the verify-paths CLI), and tx-owning
   > services (`organization`, `release` — hold the pool to open
   > `pool.Begin(ctx)` transactions spanning their own store plus other
   > writes). Each blessed site carries a one-line

@@ -62,9 +62,10 @@ returns clean `domain.*` values. The service above it never sees a `sqlcgen` typ
 Stores query; they do not decide. Validation, permissions, and business rules
 belong to the service — see [`slices.md`](slices.md).
 
-Two kinds of pool holder are sanctioned (compliance backlog item 3, resolved):
-`pkg/weave/health/handler.go` (a DB liveness ping, not domain data access) and
-tx-owning services (`organization`, `release`) that open `pool.Begin(ctx)`
+Three kinds of pool holder are sanctioned (compliance backlog item 3, resolved):
+`pkg/weave/health/handler.go` (a DB liveness ping, not domain data access),
+`pkg/weave/pathaudit` (single raw-SQL audit sweep, lifted from the verify-paths CLI),
+and tx-owning services (`organization`, `release`) that open `pool.Begin(ctx)`
 transactions spanning their own store plus other writes. Each blessed field
 carries a `// sanctioned pool holder: <reason>` comment. This is a closed
 list — don't add new pool holders; `actoradmin` held the pool the same way

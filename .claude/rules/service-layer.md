@@ -19,7 +19,8 @@ Full-slice roster: `actoradmin, attribution, category, collection, example, fiel
 Most slices expose a typed `Host` struct (its dependency surface), a `Host.Validate() error`, and a package-level `Mount(chi.Router, Host)`. A few slices deviate from this literal shape (the `Slice.Descriptor()` pattern, or multiple Hosts/Mounts) — see [`docs-oss/architecture/slices.md`](../../docs-oss/architecture/slices.md) for the full exception list. **`pkg/app` is the assembly layer**: it constructs every slice's concrete `Store` from the pgx pool, builds each `Host`, wires the `EventBus`, and calls `router.Mount(...)` to attach every slice. A slice never constructs its own store from a raw pool — store construction happens in `pkg/app` wiring, not in the slice.
 
 > **Resolved** (compliance backlog item 3): sanctioned exceptions are
-> `health` (DB ping) and tx-owning services (`organization`, `release`) —
+> `health` (DB ping), `pathaudit` (single raw-SQL audit sweep, lifted from the
+> verify-paths CLI), and tx-owning services (`organization`, `release`) —
 > they hold the pool by design. Everything else goes through a slice
 > `Store`; `actoradmin` was refactored accordingly (`store.go` /
 > `store_postgres.go`, no `*pgxpool.Pool` field on its `Service`). This is a

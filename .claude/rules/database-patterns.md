@@ -20,7 +20,8 @@ Red flags that the store boundary is leaking:
   that layer was removed; it does not exist
 
 Sanctioned exceptions (resolved compliance backlog item 3): `pkg/weave/health/handler.go`
-(DB ping) and tx-owning services (`organization`, `release`) hold the pool by
+(DB ping), `pkg/weave/pathaudit` (single raw-SQL audit sweep, lifted from the
+verify-paths CLI), and tx-owning services (`organization`, `release`) hold the pool by
 design — see `docs-oss/architecture/data-layer.md`. Everything else goes
 through a slice `Store`; this is a closed list, not a pattern to copy for new
 code.
