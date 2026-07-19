@@ -29,8 +29,9 @@ func VerdictClass(verdict string) string {
 }
 
 // Service audits stored ontology paths against a project's linked ontology
-// versions. Pool-holding by design — see doc.go.
+// versions.
 type Service struct {
+	// sanctioned pool holder: single raw-SQL audit sweep, lifted from the verify-paths CLI (see doc.go)
 	pool *pgxpool.Pool
 }
 
