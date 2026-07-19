@@ -531,7 +531,7 @@ type coreEntityDeps struct {
 func buildCoreEntityHosts(
 	deps coreEntityDeps,
 	langResolver func(*http.Request) string,
-) (field.Host, model.Host, collection.Host) {
+) (field.Host, model.Host, collection.Host, *overridepkg.Service) {
 	overrideStore := overridepkg.NewPostgresStore(deps.Pool)
 	overrideSvc := overridepkg.NewService(overrideStore, deps.Logger, deps.ChangeLog)
 	projects := deps.Weave.Projects()
@@ -607,7 +607,7 @@ func buildCoreEntityHosts(
 			LangResolver: collection.LangResolver(langResolver),
 			I18n:         deps.I18n,
 			Publication:  pub,
-		}
+		}, overrideSvc
 }
 
 func buildExportHosts(

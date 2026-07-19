@@ -28,6 +28,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/genwiring"
 	"github.com/pletka-io/pletka/pkg/weave/materializationadmin"
 	ontologyslice "github.com/pletka-io/pletka/pkg/weave/ontology"
+	"github.com/pletka-io/pletka/pkg/weave/pathaudit"
 	weaverouter "github.com/pletka-io/pletka/pkg/weave/router"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
 )
@@ -151,6 +152,10 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	// (started when MetricsAddr is set). One per process = one instance.
 	obs := observability.New(observability.Config{MetricsAddr: opts.MetricsAddr}, opts.Pool, logger)
 
+	// Path audit: stored-path validity sweep, sanctioned raw-pool holder
+	// (see database-patterns.md). One instance, exposed via Services.
+	pathAuditSvc := pathaudit.NewService(opts.Pool)
+
 	closeFns := []func(context.Context) error{
 		func(ctx context.Context) error {
 			return gitMatService.Stop(ctx)
@@ -264,7 +269,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		ontologyVersionReader,
 		ontologyBus,
 	)
-	fieldHost, modelHost, collectionHost := buildCoreEntityHosts(coreEntityDeps{
+	fieldHost, modelHost, collectionHost, overrideSvc := buildCoreEntityHosts(coreEntityDeps{
 		Pool:      opts.Pool,
 		Weave:     weaveStore,
 		Logger:    logger,
@@ -363,6 +368,8 @@ func New(ctx context.Context, opts Options) (*App, error) {
 			Categories:        categoryService,
 			Ontology:          ontologySvc,
 			Vocabulary:        vocabularyHost.Service,
+			Override:          overrideSvc,
+			PathAudit:         pathAuditSvc,
 			Languages:         languages,
 			Obs:               obs,
 		},

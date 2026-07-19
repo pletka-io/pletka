@@ -331,6 +331,8 @@ mountRouteContributions(handler, opts.Contributions.Routes, Host{
         Categories:        categoryService,
         Ontology:          ontologySvc,
         Vocabulary:        vocabularyHost.Service,
+        Override:          overrideSvc, // per-placement override reads
+        PathAudit:         pathAuditSvc, // stored-path validity audit
         Languages:         languages,
         Obs:               obs,
     },

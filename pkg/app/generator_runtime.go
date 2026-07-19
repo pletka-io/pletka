@@ -45,7 +45,7 @@ func NewGeneratorRuntime(opts Options) (*GeneratorRuntime, error) {
 	langResolver := func(*http.Request) string { return "" }
 	projectHost := buildProjectHost(opts.Pool, weaveStore, opts.Logger, changeLog, languages, nil)
 	_, namespaceSvc := buildNamespaceBindingHost(opts.Pool, opts.Logger, changeLog, languages, nil)
-	fieldHost, modelHost, collectionHost := buildCoreEntityHosts(coreEntityDeps{
+	fieldHost, modelHost, collectionHost, _ := buildCoreEntityHosts(coreEntityDeps{
 		Pool:      opts.Pool,
 		Weave:     weaveStore,
 		Logger:    opts.Logger,

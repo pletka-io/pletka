@@ -214,11 +214,13 @@ func (s *postgresStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 	}
 
 	status, _ := cfg.Filters["status"].(string)
+	owner, _ := cfg.Filters["owner_id"].(string)
 
 	rows, err := s.queries.WeaveListFields(ctx, sqlcgen.WeaveListFieldsParams{
 		ProjectID:    cfg.ProjectID,
 		Search:       cfg.Search,
 		Status:       status,
+		OwnerID:      owner,
 		SortBy:       cfg.OrderBy,
 		SortDesc:     cfg.OrderDesc,
 		ResultLimit:  limit,
@@ -232,6 +234,7 @@ func (s *postgresStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 		ProjectID: cfg.ProjectID,
 		Search:    cfg.Search,
 		Status:    status,
+		OwnerID:   owner,
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("count weave fields: %w", err)
@@ -955,7 +958,7 @@ GROUP BY fo.field_id`
 
 // BatchUsageRefs returns, for each field ID, the models and collections that
 // place it (weave_field_overrides entity_type 'model'/'collection'; base
-// rows entity_type='' are not placements). Fields with no placements are
+// rows entity_type=” are not placements). Fields with no placements are
 // absent from the map. Unlike ListUsage/CountUsage there is no
 // version-pinned (archive-table) variant here — this is a live-rows-only
 // read, deliberately, since the current project-scale consumers — including

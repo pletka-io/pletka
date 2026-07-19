@@ -22,6 +22,8 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/model"
 	"github.com/pletka-io/pletka/pkg/weave/namespacebinding"
 	weaveontology "github.com/pletka-io/pletka/pkg/weave/ontology"
+	"github.com/pletka-io/pletka/pkg/weave/override"
+	"github.com/pletka-io/pletka/pkg/weave/pathaudit"
 	"github.com/pletka-io/pletka/pkg/weave/project"
 	"github.com/pletka-io/pletka/pkg/weave/projectontologyversion"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
@@ -60,8 +62,15 @@ type Services struct {
 	Categories        *category.Service
 	Ontology          *weaveontology.Service
 	Vocabulary        *vocabulary.Service
-	Languages         []formschema.LanguageInfo
-	Obs               *observability.Runtime
+	// Override reads per-placement override rows (base/model/collection)
+	// for a field. The same instance field/model/collection assembly uses
+	// internally — never a duplicate.
+	Override *override.Service
+	// PathAudit runs the stored-path validity sweep (malformed/ambiguous/
+	// type-mismatch/missing) lifted from `weave verify-paths`.
+	PathAudit *pathaudit.Service
+	Languages []formschema.LanguageInfo
+	Obs       *observability.Runtime
 }
 
 // RouteContribution lets a host add routes around the core app without routing

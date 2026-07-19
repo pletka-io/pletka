@@ -10,7 +10,11 @@ WHERE project_id = @project_id::text
        OR system_name ILIKE '%' || @search::text || '%'
        OR COALESCE(semantic_id, '') ILIKE '%' || @search::text || '%'
        OR COALESCE(ontology_path, '') ILIKE '%' || @search::text || '%')
-  AND (@status::text = '' OR status = @status::text);
+  AND (@status::text = '' OR status = @status::text)
+  AND (@owner_id::text = '' OR EXISTS
+       (SELECT 1 FROM weave_field_overrides fo WHERE fo.field_id =
+       weave_fields.id AND fo.entity_type IN ('model','collection') AND
+       fo.entity_id = @owner_id));
 
 -- name: WeaveListFields :many
 SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description,
@@ -25,6 +29,10 @@ WHERE project_id = @project_id::text
        OR COALESCE(semantic_id, '') ILIKE '%' || @search::text || '%'
        OR COALESCE(ontology_path, '') ILIKE '%' || @search::text || '%')
   AND (@status::text = '' OR status = @status::text)
+  AND (@owner_id::text = '' OR EXISTS
+       (SELECT 1 FROM weave_field_overrides fo WHERE fo.field_id =
+       weave_fields.id AND fo.entity_type IN ('model','collection') AND
+       fo.entity_id = @owner_id))
 ORDER BY
     CASE WHEN @sort_by::text = 'ui_name' AND NOT @sort_desc::boolean THEN ui_name->>'en' END ASC NULLS LAST,
     CASE WHEN @sort_by::text = 'ui_name' AND @sort_desc::boolean THEN ui_name->>'en' END DESC NULLS LAST,
