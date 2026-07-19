@@ -830,6 +830,33 @@ func (s *Service) GetSuggestions(ctx context.Context, req autocomplete.Request) 
 	return s.autocomplete.GetSuggestions(ctx, req)
 }
 
+// DescribeTerm resolves qname in projectID's linked ontology versions via
+// the autocomplete index. Returns (nil, nil) when the term is unknown.
+//
+// Ghost nodes (referenced by a relation target but not defined by any
+// linked ontology version — "Ghost nodes carry only Qname", see Node's doc
+// comment in autocomplete/index.go) are treated as unknown, the same way
+// IndexedEngine excludes them from suggestions everywhere else: a ghost's
+// Type/URI/Meta are all zero, so describing one would surface an empty,
+// misleading payload rather than an actual term.
+func (s *Service) DescribeTerm(ctx context.Context, projectID, qname string) (*autocomplete.TermDescription, error) {
+	if s.indexCache == nil {
+		return nil, ErrAutocompleteUnavailable
+	}
+	idx, err := s.indexCache.For(ctx, autocomplete.Request{ProjectID: projectID})
+	if err != nil {
+		return nil, fmt.Errorf("describe term: resolve index: %w", err)
+	}
+	if idx == nil {
+		return nil, nil
+	}
+	n := idx.ByQname[qname]
+	if n == nil || n.Ghost {
+		return nil, nil
+	}
+	return autocomplete.DescribeNode(n), nil
+}
+
 // OntologyLabels returns label maps for every class + property the
 // project's selected versions cover. Used by the frontend's
 // schema-driven renderers (path display, breadcrumbs, …).
