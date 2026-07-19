@@ -197,7 +197,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	authHandler := weaveauth.NewAuthHandler(logger, weaveStore, sessionManager)
 	handler.Group(func(r chi.Router) {
 		r.Use(authRateLimit)
-		weaveauth.MountAPIRoutes(r, authHandler, opts.RegistrationEnabled)
+		weaveauth.MountAPIRoutes(r, authHandler, opts.RegistrationEnabled, opts.SSOLoginURL != "")
 	})
 	admin.Mount(handler, admin.Host{
 		Logger:    logger,

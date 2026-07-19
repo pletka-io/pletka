@@ -22,6 +22,17 @@ type AuthHandler struct {
 	logger     *slog.Logger
 	weave      domain.WeaveStore
 	sessionMgr *session.Manager
+
+	// ssoEnabled gates Login to super-admin break-glass only. Set by
+	// MountAPIRoutes via SetSSOEnabled; see api_routes.go.
+	ssoEnabled bool
+}
+
+// SetSSOEnabled configures whether password login is restricted to
+// super-admin break-glass. Called by MountAPIRoutes so the flag flows
+// from app.Options.SSOLoginURL through to the handler at mount time.
+func (h *AuthHandler) SetSSOEnabled(v bool) {
+	h.ssoEnabled = v
 }
 
 // NewAuthHandler creates a new authentication handler.
@@ -112,6 +123,13 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(rec.PasswordHash), []byte(req.Password)); err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+
+	// SSO instances: password login is break-glass, super-admin only. Reject
+	// others with the same response as bad credentials — no role oracle.
+	if h.ssoEnabled && rec.Role != "super_admin" {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}

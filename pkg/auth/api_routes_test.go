@@ -18,7 +18,7 @@ func (stubAuthHandler) Me(w http.ResponseWriter, r *http.Request)       { w.Writ
 
 func TestRegisterRouteAbsentWhenDisabled(t *testing.T) {
 	r := chi.NewRouter()
-	MountAPIRoutes(r, stubAuthHandler{}, false)
+	MountAPIRoutes(r, stubAuthHandler{}, false, false)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", nil)
 	rec := httptest.NewRecorder()
@@ -37,7 +37,7 @@ func TestRegisterRouteAbsentWhenDisabled(t *testing.T) {
 
 func TestRegisterRoutePresentWhenEnabled(t *testing.T) {
 	r := chi.NewRouter()
-	MountAPIRoutes(r, stubAuthHandler{}, true)
+	MountAPIRoutes(r, stubAuthHandler{}, true, false)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", nil)
 	rec := httptest.NewRecorder()
