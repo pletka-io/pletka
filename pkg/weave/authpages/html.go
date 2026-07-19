@@ -3,6 +3,7 @@ package authpages
 import (
 	"fmt"
 	"html/template"
+	"net/url"
 
 	"github.com/pletka-io/pletka/pkg/auth"
 )
@@ -104,8 +105,15 @@ func loginHTML(redirectURL string, registrationEnabled bool) template.HTML {
 }
 
 // ssoLoginHTML renders the SSO-only sign-in card: one button to the IdP,
-// no password form, no register link.
-func ssoLoginHTML(ssoURL string) template.HTML {
+// no password form, no register link. redirectURL, when set, is forwarded to
+// the IdP as a "next" query param — the OIDC login route reads it back and
+// carries it through the auth round-trip (state cookie) so the caller lands
+// on their original destination instead of the default post-login page.
+func ssoLoginHTML(ssoURL, redirectURL string) template.HTML {
+	href := ssoURL
+	if redirectURL != "" && redirectURL != "/" {
+		href = ssoURL + "?next=" + url.QueryEscape(redirectURL)
+	}
 	return template.HTML(fmt.Sprintf(`
 <div class="min-h-[70vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
     <div class="max-w-md w-full space-y-8">
@@ -120,7 +128,7 @@ func ssoLoginHTML(ssoURL string) template.HTML {
             Sign in with SSO
         </a>
     </div>
-</div>`, template.HTMLEscapeString(ssoURL)))
+</div>`, template.HTMLEscapeString(href)))
 }
 
 func registerHTML() template.HTML {

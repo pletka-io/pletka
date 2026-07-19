@@ -93,7 +93,7 @@ func (h *Handler) LoginPage(w http.ResponseWriter, r *http.Request) {
 
 	content := loginHTML(redirectURL, h.registrationEnabled)
 	if h.ssoLoginURL != "" {
-		content = ssoLoginHTML(h.ssoLoginURL)
+		content = ssoLoginHTML(h.ssoLoginURL, redirectURL)
 	}
 	h.render(w, r, renderInput{
 		Title:      h.t("auth.login.title", h.currentLang(r), "Sign in"),

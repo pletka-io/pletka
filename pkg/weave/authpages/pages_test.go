@@ -49,9 +49,14 @@ func newTestRouter(t *testing.T, ssoLoginURL string) *chi.Mux {
 }
 
 func TestLoginPage_SSOButton(t *testing.T) {
+	// safeRedirect resolves a bare "/login" (no next/redirect, no referer) to
+	// the "/profile" fallback, not "". "next=/" is the genuine no-destination
+	// case here (isSafeReturnPath allows "/", but ssoLoginHTML deliberately
+	// does not forward it — same "skip the landing page" idea safeRedirect
+	// already applies to the Referer fallback), so it's the plain-href case.
 	router := newTestRouter(t, "/auth/oidc/login")
 
-	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	req := httptest.NewRequest(http.MethodGet, "/login?next=/", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
@@ -60,10 +65,30 @@ func TestLoginPage_SSOButton(t *testing.T) {
 	}
 	body := rr.Body.String()
 	if !strings.Contains(body, `href="/auth/oidc/login"`) {
-		t.Fatalf("body missing SSO login href: %s", body)
+		t.Fatalf("body missing plain SSO login href: %s", body)
 	}
 	if strings.Contains(body, `id="login-form"`) {
 		t.Fatalf("body should not contain password login form when SSO is enabled: %s", body)
+	}
+}
+
+// TestLoginPage_SSOButton_ForwardsNext covers the cross-task integration gap:
+// the OIDC login route reads "next" and carries it through the auth
+// round-trip (state cookie), so the SSO button must forward the caller's
+// post-login destination instead of always linking to the bare SSO URL.
+func TestLoginPage_SSOButton_ForwardsNext(t *testing.T) {
+	router := newTestRouter(t, "/auth/oidc/login")
+
+	req := httptest.NewRequest(http.MethodGet, "/login?next=/models/x", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `href="/auth/oidc/login?next=%2Fmodels%2Fx"`) {
+		t.Fatalf("body missing next-forwarding SSO login href: %s", body)
 	}
 }
 
