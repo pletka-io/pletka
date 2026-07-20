@@ -122,6 +122,38 @@ func TestLoginLocalPage_AlwaysPasswordForm(t *testing.T) {
 	}
 }
 
+// TestIsSafeReturnPath covers the backslash/control-character rejections
+// added alongside oidcauth's safeRelative (pkg/weave/oidcauth/state.go in
+// pletka-platform) — browsers normalize "\" to "/" during URL parsing, so
+// "/\evil.com" can resolve as a protocol-relative escape despite starting
+// with a single "/", and raw control characters enable similar
+// parser-mismatch bypasses.
+func TestIsSafeReturnPath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"plain relative path", "/models/x", true},
+		{"root", "/", true},
+		{"empty", "", false},
+		{"not rooted", "models/x", false},
+		{"protocol-relative escape", "//evil.com", false},
+		{"backslash escape", "/\\evil.com", false},
+		{"tab control character", "/a\tb", false},
+		{"login path excluded", "/login", false},
+		{"logout path excluded", "/logout", false},
+		{"register path excluded", "/register", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSafeReturnPath(tt.path); got != tt.want {
+				t.Errorf("isSafeReturnPath(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRegisterPageRedirectsWhenRegistrationDisabled(t *testing.T) {
 	handler := &Handler{registrationEnabled: false}
 

@@ -48,7 +48,7 @@ func (s *authStore) GetByActorID(ctx context.Context, actorID string) (*domain.A
 // GetByEmail returns the auth record joined with actor fields for the given email,
 // or nil if not found.
 func (s *authStore) GetByEmail(ctx context.Context, email string) (*domain.AuthWithActor, error) {
-	row, err := s.queries.WeaveAuthGetByEmail(ctx, dbutil.EmptyToNil(email))
+	row, err := s.queries.WeaveAuthGetByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

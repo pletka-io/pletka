@@ -270,6 +270,18 @@ func isSafeReturnPath(p string) bool {
 	if strings.HasPrefix(p, "//") {
 		return false
 	}
+	// Backslashes and control characters are rejected outright: browsers
+	// normalize "\" to "/" in URL parsing, so "/\evil.com" can resolve as
+	// a protocol-relative escape despite passing the "//" prefix check
+	// above, and control characters (tabs, CR/LF, ...) enable similar
+	// parser-mismatch bypasses. Mirrors oidcauth's safeRelative
+	// (pkg/weave/oidcauth/state.go in pletka-platform).
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if c == '\\' || c < 0x20 {
+			return false
+		}
+	}
 	return !strings.HasPrefix(p, "/login") &&
 		!strings.HasPrefix(p, "/logout") &&
 		!strings.HasPrefix(p, "/register")

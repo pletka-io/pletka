@@ -182,7 +182,7 @@ const weaveAuthGetByEmail = `-- name: WeaveAuthGetByEmail :one
 SELECT a.actor_id, a.password_hash, a.email_verified_at, a.password_reset_token, a.password_reset_expires_at, a.last_login_at, a.perms_version, a.created_at, a.updated_at, wa.email, wa.slug, wa.display_name, wa.role AS actor_role
 FROM weave_auth a
 JOIN weave_actors wa ON wa.id = a.actor_id
-WHERE wa.email = $1
+WHERE LOWER(wa.email) = LOWER($1)
 `
 
 type WeaveAuthGetByEmailRow struct {
@@ -201,7 +201,11 @@ type WeaveAuthGetByEmailRow struct {
 	ActorRole              string             `json:"actor_role"`
 }
 
-func (q *Queries) WeaveAuthGetByEmail(ctx context.Context, email *string) (WeaveAuthGetByEmailRow, error) {
+// Case-insensitive: SSO (Zitadel) and Pletka may disagree on email casing
+// for the same address, so the join normalizes both sides. Used only by
+// oidcauth's callback lookup — GetByEmailOrSlug (password login) stays
+// case-sensitive on purpose, see that query below.
+func (q *Queries) WeaveAuthGetByEmail(ctx context.Context, email string) (WeaveAuthGetByEmailRow, error) {
 	row := q.db.QueryRow(ctx, weaveAuthGetByEmail, email)
 	var i WeaveAuthGetByEmailRow
 	err := row.Scan(

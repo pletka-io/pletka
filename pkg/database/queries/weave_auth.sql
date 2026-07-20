@@ -7,10 +7,14 @@ RETURNING *;
 SELECT * FROM weave_auth WHERE actor_id = $1;
 
 -- name: WeaveAuthGetByEmail :one
+-- Case-insensitive: SSO (Zitadel) and Pletka may disagree on email casing
+-- for the same address, so the join normalizes both sides. Used only by
+-- oidcauth's callback lookup — GetByEmailOrSlug (password login) stays
+-- case-sensitive on purpose, see that query below.
 SELECT a.*, wa.email, wa.slug, wa.display_name, wa.role AS actor_role
 FROM weave_auth a
 JOIN weave_actors wa ON wa.id = a.actor_id
-WHERE wa.email = $1;
+WHERE LOWER(wa.email) = LOWER(sqlc.arg(email));
 
 -- name: WeaveAuthGetByEmailOrSlug :one
 -- Used by Login: accepts either the user's email or their slug (username).

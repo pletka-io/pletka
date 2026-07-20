@@ -44,6 +44,39 @@ func TestAuthStore_CreateGetByEmail(t *testing.T) {
 	}
 }
 
+// TestAuthStore_GetByEmail_CaseInsensitive covers the SSO join case: the
+// IdP-verified email and weave_actors.email can differ in case, and the
+// lookup must still find the actor (GetByEmailOrSlug, the password-login
+// path, is deliberately NOT covered here — it stays case-sensitive).
+func TestAuthStore_GetByEmail_CaseInsensitive(t *testing.T) {
+	pool := testPool(t)
+	store := weave.NewPostgresStore(pool)
+	as := store.Auth()
+	ctx := context.Background()
+
+	actorID := seedTestActor(t, pool, "authtest_mixedcase")
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM weave_auth WHERE actor_id = $1`, actorID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM weave_actors WHERE id = $1`, actorID)
+	})
+	if _, err := as.Create(ctx, actorID, "hashed-pw-abc", nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// seedTestActor stores "authtest_mixedcase@test.local" (lowercase); look
+	// it up with mixed case, the way an IdP-verified email might arrive.
+	byEmail, err := as.GetByEmail(ctx, "AuthTest_MixedCase@Test.Local")
+	if err != nil {
+		t.Fatalf("GetByEmail: %v", err)
+	}
+	if byEmail == nil {
+		t.Fatal("GetByEmail: nil, want case-insensitive match")
+	}
+	if byEmail.ActorID != actorID {
+		t.Errorf("GetByEmail actor_id = %q, want %q", byEmail.ActorID, actorID)
+	}
+}
+
 func TestAuthStore_MarkLogin(t *testing.T) {
 	pool := testPool(t)
 	store := weave.NewPostgresStore(pool)
