@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/pletka-io/pletka/pkg/app"
 	"github.com/pletka-io/pletka/pkg/app/cliruntime"
@@ -25,6 +26,13 @@ func newWeaveCommand(renderers []generators.Renderer) *cobra.Command {
 		Use:   "weave",
 		Short: "Weave data and generator commands",
 	}
+	// --instance selects the target instance's database by the same
+	// convention the server uses (prod -> pletka_prod), reusing the rest of
+	// the connection (host/port/credentials) from config. Safer than an env
+	// override: the instance name is explicit and can't silently point a
+	// command at the wrong database.
+	weaveCmd.PersistentFlags().String("instance", "", "target instance; selects its database (e.g. prod -> pletka_prod)")
+	_ = viper.BindPFlag("instance", weaveCmd.PersistentFlags().Lookup("instance"))
 	weaveCmd.AddCommand(
 		newWeaveGenerateCommand(renderers),
 		newWeaveVerifyPathsCommand(),
