@@ -14,52 +14,76 @@ import (
 // narrows List to exactly the fields placed on that model (rows and count
 // agree), and an empty owner value is unfiltered.
 //
-// HERM.9 is a known model in the dev DB (project HER) with a large,
-// real field-placement set — chosen deliberately over a synthetic seed so
-// the assertion exercises the actual weave_field_overrides EXISTS clause
-// end to end, the same way TestService_DescribeTerm_Smoke exercises a real
-// ontology term. The expected count is computed from the same table
-// directly rather than hardcoded, so the test doesn't rot if placements
-// change.
+// The test self-seeds its own scenario under a synthetic project id
+// (OWFILT) rather than depending on ambient dev-DB data — this package runs
+// TestMain's testdb.Setup, so it always executes against an isolated
+// fixture clone that never contains real customer projects.
 func TestListFieldsOwnerFilter(t *testing.T) {
 	pool := batchUsageRefsTestPool(t)
 	ctx := context.Background()
 
-	const projectID = "HER"
-	const ownerModelID = "HERM.9"
+	const (
+		actorID   = "OWFILT_ACTOR"
+		projectID = "OWFILT"
+		modelID   = "OWFILTM.1"
+		// Three fields in the project; only two are placed on modelID via
+		// weave_field_overrides, so the owner filter is non-vacuous.
+		placedFieldID1 = "OWFILTF.1"
+		placedFieldID2 = "OWFILTF.2"
+		unplacedField  = "OWFILTF.3"
+	)
 
-	var wantCount int64
-	if err := pool.QueryRow(ctx, `
-		SELECT COUNT(*) FROM weave_fields wf
-		WHERE wf.project_id = $1
-		  AND EXISTS (
-		      SELECT 1 FROM weave_field_overrides fo
-		      WHERE fo.field_id = wf.id
-		        AND fo.entity_type IN ('model', 'collection')
-		        AND fo.entity_id = $2
-		  )
-	`, projectID, ownerModelID).Scan(&wantCount); err != nil {
-		t.Fatalf("compute expected owner-filtered count: %v", err)
+	_, err := pool.Exec(ctx, `INSERT INTO weave_actors (id, type, display_name, system_name, slug, email)
+		VALUES ($1,'human','Owner Filter Test','owfilt_test','owfilt-test','owfilt@test.local') ON CONFLICT (id) DO NOTHING`, actorID)
+	if err != nil {
+		t.Fatalf("seed actor: %v", err)
 	}
-	if wantCount == 0 {
-		t.Skipf("model %s in project %s has no field placements in this dev DB — test would be vacuous, skipping", ownerModelID, projectID)
+	_, err = pool.Exec(ctx, `INSERT INTO weave_projects (id, owner_id) VALUES ($1,$2)
+		ON CONFLICT (id) DO NOTHING`, projectID, actorID)
+	if err != nil {
+		t.Fatalf("seed project: %v", err)
 	}
+	_, err = pool.Exec(ctx, `INSERT INTO weave_fields (id, project_id) VALUES ($1,$4), ($2,$4), ($3,$4)
+		ON CONFLICT (id) DO NOTHING`, placedFieldID1, placedFieldID2, unplacedField, projectID)
+	if err != nil {
+		t.Fatalf("seed fields: %v", err)
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO weave_models (id, project_id, system_name) VALUES ($1,$2,'owfilt_model')
+		ON CONFLICT (id) DO NOTHING`, modelID, projectID)
+	if err != nil {
+		t.Fatalf("seed model: %v", err)
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO weave_field_overrides (field_id, project_id, entity_type, entity_id)
+		VALUES ($1,$3,'model',$4), ($2,$3,'model',$4)`, placedFieldID1, placedFieldID2, projectID, modelID)
+	if err != nil {
+		t.Fatalf("seed overrides: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_field_overrides WHERE project_id=$1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_models WHERE project_id=$1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_fields WHERE project_id=$1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_projects WHERE id=$1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id=$1`, actorID)
+	})
 
 	store := NewPostgresStore(pool)
+
+	const wantPlaced = 2
+	const wantTotal = 3
 
 	filtered, totalFiltered, err := store.List(ctx,
 		domain.WithProjectID(projectID),
 		domain.WithLimit(1000),
-		domain.WithFilter("owner_id", ownerModelID),
+		domain.WithFilter("owner_id", modelID),
 	)
 	if err != nil {
 		t.Fatalf("list owner-filtered: %v", err)
 	}
-	if totalFiltered != wantCount {
-		t.Fatalf("totalFiltered = %d, want %d", totalFiltered, wantCount)
+	if totalFiltered != wantPlaced {
+		t.Fatalf("totalFiltered = %d, want %d", totalFiltered, wantPlaced)
 	}
-	if int64(len(filtered)) != wantCount {
-		t.Fatalf("len(filtered) = %d, want %d", len(filtered), wantCount)
+	if int64(len(filtered)) != wantPlaced {
+		t.Fatalf("len(filtered) = %d, want %d", len(filtered), wantPlaced)
 	}
 
 	// Rows and count must describe the same set: every returned field
@@ -71,11 +95,11 @@ func TestListFieldsOwnerFilter(t *testing.T) {
 				SELECT 1 FROM weave_field_overrides
 				WHERE field_id = $1 AND entity_type IN ('model', 'collection') AND entity_id = $2
 			)
-		`, f.ID, ownerModelID).Scan(&exists); err != nil {
+		`, f.ID, modelID).Scan(&exists); err != nil {
 			t.Fatalf("verify placement for field %s: %v", f.ID, err)
 		}
 		if !exists {
-			t.Errorf("field %s (%s) returned by owner filter but has no override row for %s", f.ID, f.SemanticID, ownerModelID)
+			t.Errorf("field %s (%s) returned by owner filter but has no override row for %s", f.ID, f.SemanticID, modelID)
 		}
 	}
 
@@ -84,6 +108,9 @@ func TestListFieldsOwnerFilter(t *testing.T) {
 	_, totalAll, err := store.List(ctx, domain.WithProjectID(projectID), domain.WithLimit(1))
 	if err != nil {
 		t.Fatalf("list unfiltered: %v", err)
+	}
+	if totalAll != wantTotal {
+		t.Fatalf("totalAll = %d, want %d", totalAll, wantTotal)
 	}
 	if totalFiltered >= totalAll {
 		t.Fatalf("owner filter had no effect: totalFiltered=%d totalAll=%d", totalFiltered, totalAll)
