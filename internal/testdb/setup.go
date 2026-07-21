@@ -243,7 +243,7 @@ func migrateBuildingTemplate(ctx context.Context, maintDSN string) error {
 		tdb.Close()
 		return fmt.Errorf("migrate template: %w", err)
 	}
-	if err := hydrateFixtures(ctx, tdb); err != nil {
+	if err := hydrateFixtures(ctx, buildDSN); err != nil {
 		tdb.Close()
 		return fmt.Errorf("hydrate fixtures: %w", err)
 	}
@@ -252,11 +252,6 @@ func migrateBuildingTemplate(ctx context.Context, maintDSN string) error {
 	}
 	return nil
 }
-
-// hydrateFixtures is the Task-3 seam. Task 2 ships a schema-only template, so
-// this is intentionally a no-op; Task 3 loads fixture data into the template
-// here, before any clone is cut, so every clone inherits the same seed data.
-func hydrateFixtures(_ context.Context, _ *sql.DB) error { return nil }
 
 // createClone cuts a fresh per-package database from the migrated template.
 func createClone(ctx context.Context, maintDSN, name string) error {
