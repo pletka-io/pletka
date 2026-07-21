@@ -73,3 +73,43 @@ func TestHasStagedChanges(t *testing.T) {
 		t.Fatal("changed bytes: want staged changes")
 	}
 }
+
+// TestCommitIdempotentNoStagedChanges regresses the init-git idempotency bug:
+// a second Commit with a byte-identical tree (nothing staged) must be a no-op
+// that returns the existing HEAD, not "git commit: exit status 1".
+func TestCommitIdempotentNoStagedChanges(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	g := newGitRunner(dir, nil)
+	if err := g.Available(ctx); err != nil {
+		t.Skip("git not available")
+	}
+	if err := g.Init(ctx); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.yaml"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := g.AddAll(ctx); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	sha1, err := g.Commit(ctx, "init", "t", "t@example.com")
+	if err != nil {
+		t.Fatalf("first commit: %v", err)
+	}
+	if sha1 == "" {
+		t.Fatal("first commit returned empty sha")
+	}
+
+	// Re-materialize: identical tree, nothing staged. Commit must no-op.
+	if err := g.AddAll(ctx); err != nil {
+		t.Fatalf("re-add: %v", err)
+	}
+	sha2, err := g.Commit(ctx, "init", "t", "t@example.com")
+	if err != nil {
+		t.Fatalf("re-commit with no changes must not error, got: %v", err)
+	}
+	if sha2 != sha1 {
+		t.Fatalf("re-commit must return the same HEAD (no new commit): sha1=%s sha2=%s", sha1, sha2)
+	}
+}

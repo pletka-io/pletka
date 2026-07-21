@@ -53,6 +53,13 @@ func (g *gitRunner) AddAll(ctx context.Context) error {
 }
 
 func (g *gitRunner) Commit(ctx context.Context, message, authorName, authorEmail string) (string, error) {
+	// Idempotent: a re-materialization that produced a byte-identical tree has
+	// nothing staged. Return the existing HEAD rather than failing on an empty
+	// commit, so re-running init-git (or the poller) on an unchanged project is
+	// a safe no-op instead of "git commit: exit status 1".
+	if !g.HasStagedChanges(ctx) {
+		return g.RevParseHead(ctx)
+	}
 	env := []string{
 		"GIT_AUTHOR_NAME=" + authorName,
 		"GIT_AUTHOR_EMAIL=" + authorEmail,
