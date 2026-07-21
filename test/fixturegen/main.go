@@ -45,6 +45,12 @@ const (
 	ontologyPrefix    = "crm"
 	ontologyNamespace = "http://www.cidoc-crm.org/cidoc-crm/"
 	ontologyVersion   = "1.0"
+	// ontologyVersion2 is a second version of the same synthetic ontology,
+	// linked to FixtureParent only (not FixtureChild). It exists so a child's
+	// resolved own+inherited ontology bundle is strictly larger than its own —
+	// the inheritance regression guarded by projectontologyversion's
+	// TestBundleForVersions_SmokesAgainstDB.
+	ontologyVersion2 = "2.0"
 )
 
 // fixtureCRM is a minimal, synthetic CIDOC-CRM subset. It declares just enough
@@ -89,6 +95,33 @@ const fixtureCRM = `<?xml version="1.0" encoding="UTF-8"?>
   <rdf:Property rdf:about="` + ontologyNamespace + `P4_has_time">
     <rdfs:label xml:lang="en">has time-span</rdfs:label>
     <rdfs:domain rdf:resource="` + ontologyNamespace + `E67_Birth"/>
+  </rdf:Property>
+</rdf:RDF>`
+
+// fixtureCRMv2 is a second, minimal version (2.0) of the same synthetic CRM
+// ontology. It declares one class FixtureChild's 1.0 link does not cover
+// (E52_Time-Span) plus a property, so linking it to FixtureParent alone makes
+// the child's resolved bundle strictly larger than its own-only bundle.
+const fixtureCRMv2 = `<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:crm="` + ontologyNamespace + `"
+         xmlns:owl="http://www.w3.org/2002/07/owl#"
+         xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#">
+  <owl:Ontology rdf:about="` + ontologyNamespace + `">
+    <owl:versionInfo>` + ontologyVersion2 + `</owl:versionInfo>
+  </owl:Ontology>
+
+  <rdfs:Class rdf:about="` + ontologyNamespace + `E21_Person">
+    <rdfs:label xml:lang="en">Person</rdfs:label>
+  </rdfs:Class>
+  <rdfs:Class rdf:about="` + ontologyNamespace + `E52_Time-Span">
+    <rdfs:label xml:lang="en">Time-Span</rdfs:label>
+  </rdfs:Class>
+
+  <rdf:Property rdf:about="` + ontologyNamespace + `P4_has_time-span">
+    <rdfs:label xml:lang="en">has time-span</rdfs:label>
+    <rdfs:domain rdf:resource="` + ontologyNamespace + `E67_Birth"/>
+    <rdfs:range rdf:resource="` + ontologyNamespace + `E52_Time-Span"/>
   </rdf:Property>
 </rdf:RDF>`
 
@@ -196,6 +229,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 	if err := os.WriteFile(filepath.Join(rdfDir, "crm.rdf"), []byte(fixtureCRM), 0o644); err != nil {
 		return fmt.Errorf("write rdf fixture: %w", err)
 	}
+	if err := os.WriteFile(filepath.Join(rdfDir, "crm2.rdf"), []byte(fixtureCRMv2), 0o644); err != nil {
+		return fmt.Errorf("write rdf fixture v2: %w", err)
+	}
 
 	ontologySvc := weaveontology.NewService(weaveontology.NewPostgresStore(pool), nil, nil)
 	if err := ontologySvc.ImportVendoredVersion(ctx, weaveontology.VendoredOntologyImportRequest{
@@ -211,6 +247,23 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		Files:         []string{"crm.rdf"},
 	}); err != nil {
 		return fmt.Errorf("import vendored ontology: %w", err)
+	}
+
+	// Second version of the same ontology, linked to FixtureParent only below.
+	versionID2 := weaveontology.GenerateVersionID(ontologySlug, ontologyVersion2)
+	if err := ontologySvc.ImportVendoredVersion(ctx, weaveontology.VendoredOntologyImportRequest{
+		OntologyID:    ontologyID,
+		VersionID:     versionID2,
+		VersionString: ontologyVersion2,
+		Slug:          ontologySlug,
+		Title:         "Fixture CRM",
+		Kind:          "base",
+		Namespace:     ontologyNamespace,
+		Prefixes:      []string{ontologyPrefix},
+		BaseDir:       rdfDir,
+		Files:         []string{"crm2.rdf"},
+	}); err != nil {
+		return fmt.Errorf("import vendored ontology v2: %w", err)
 	}
 
 	// FixtureSingle — one self-contained project, linked ontology, three fields
@@ -246,6 +299,13 @@ func seed(ctx context.Context, pool *pgxpool.Pool) error {
 		return err
 	}
 	if err := linkOntology(ctx, q, fixtureParentID, versionID); err != nil {
+		return err
+	}
+	// FixtureParent additionally links ontology version 2.0 (secondary), which
+	// FixtureChild does not link directly. This is the only ontology version
+	// present via inheritance but not ownership, so FixtureChild's resolved
+	// bundle is strictly larger than its own-only bundle.
+	if err := linkOntologySecondary(ctx, q, fixtureParentID, versionID2); err != nil {
 		return err
 	}
 	if err := createField(ctx, q, fixtureParentID, "FXPARENTF.1", "actor_name", "Actor Name",
@@ -306,6 +366,20 @@ func linkOntology(ctx context.Context, q *sqlcgen.Queries, projectID, versionID 
 		UsageNotes:        &notes,
 	}); err != nil {
 		return fmt.Errorf("link ontology to %s: %w", projectID, err)
+	}
+	return nil
+}
+
+func linkOntologySecondary(ctx context.Context, q *sqlcgen.Queries, projectID, versionID string) error {
+	isPrimary := false
+	notes := ""
+	if _, err := q.WeaveCreateProjectOntologyVersion(ctx, sqlcgen.WeaveCreateProjectOntologyVersionParams{
+		ProjectID:         projectID,
+		OntologyVersionID: versionID,
+		IsPrimary:         &isPrimary,
+		UsageNotes:        &notes,
+	}); err != nil {
+		return fmt.Errorf("link secondary ontology to %s: %w", projectID, err)
 	}
 	return nil
 }

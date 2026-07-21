@@ -14,21 +14,19 @@ import (
 
 // TestBundleForVersions_SmokesAgainstDB verifies that BundleForVersions
 // returns well-formed entries that include inherited ontology versions. It
-// picks the first project that inherits from another via
-// weave_project_inheritance, resolves the full own+inherited set, and
-// asserts that the resolved bundle is strictly larger than the own-only
-// bundle returned by BundleForProject — proving that inherited ontologies
-// are included.
+// uses the FixtureChild project, which inherits from FixtureParent: the child
+// links ontology version 1.0 directly while the parent links both 1.0 and 2.0,
+// so the resolved own+inherited set contains one version the child does not own
+// itself. The test resolves the full set and asserts that the resolved bundle
+// is strictly larger than the own-only bundle returned by BundleForProject —
+// proving that inherited ontologies are included.
 func TestBundleForVersions_SmokesAgainstDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 
-	// Find a project that inherits from at least one other project.
-	row := pool.QueryRow(ctx, `SELECT project_id FROM weave_project_inheritance LIMIT 1`)
-	var projectID string
-	if err := row.Scan(&projectID); err != nil {
-		t.Skipf("no inheriting project in test DB (weave_project_inheritance is empty): %v", err)
-	}
+	// FixtureChild inherits FixtureParent (see test/fixturegen); the parent
+	// links an extra ontology version 2.0 the child does not link directly.
+	projectID := testdb.FixtureChild
 
 	store := projectontologyversion.NewPostgresStore(pool)
 	weaveStore := weave.NewPostgresStore(pool)
