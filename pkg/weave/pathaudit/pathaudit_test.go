@@ -17,6 +17,7 @@ import (
 // ambiguous=0, malformed=0). A drift here means the lifted SQL or verdict
 // logic diverged from the original CLI behavior.
 func TestAudit_HER_MatchesCLIBaseline(t *testing.T) {
+	testdb.RequireRealDataDB(t)
 	pool := testdb.Pool(t)
 	svc := pathaudit.NewService(pool)
 

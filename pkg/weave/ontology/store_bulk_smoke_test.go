@@ -14,9 +14,15 @@ import (
 	weaveontology "github.com/pletka-io/pletka/pkg/weave/ontology"
 )
 
-// testPool opens a pgxpool against the local dev DB, skipping if unavailable.
-// Mirrors the helper in pkg/weave/ontology/autocomplete/resolver_smoke_test.go.
+// testPool opens a pgxpool against a seeded real-data DB, skipping the test
+// when TEST_DATABASE_URL is not set. The smokes that use it (edge_provenance,
+// store_bulk, service_describe) assert on real multi-version customer ontology
+// data the synthetic fixtures do not reproduce, so this package cannot run
+// testdb.Setup — in the fixture lane they skip rather than fall through to a
+// dev DB. Mirrors the helper in
+// pkg/weave/ontology/autocomplete/resolver_smoke_test.go.
 func testPool(t *testing.T) *pgxpool.Pool {
+	testdb.RequireRealDataDB(t)
 	return testdb.Pool(t)
 }
 
