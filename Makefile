@@ -273,6 +273,27 @@ test:
 test-integration: ## Run DB/integration tests (needs Docker or TEST_DATABASE_URL)
 	go test -tags=integration ./...
 
+# build-test-snapshot regenerates the synthetic fixture snapshots under
+# test/fixtures/ (the pletka-fixtures submodule). It provisions a throwaway
+# postgres:18-alpine via `docker run`, hands its URL to the DSN-driven
+# generator, and removes the container after — so the generator itself never
+# imports a Docker/testcontainers dependency (`go list -deps ./...` stays
+# clean). Run when the schema or the fixture definitions change, then commit
+# the regenerated tree inside the submodule and bump the pin here.
+.PHONY: build-test-snapshot
+build-test-snapshot: ## Regenerate test/fixtures from a scratch DB (run when schema/fixtures change)
+	@echo "$(YELLOW)Regenerating test/fixtures from a scratch Postgres...$(NC)"
+	@name=pletka-fixturegen-pg; port=55432; \
+	docker rm -f $$name >/dev/null 2>&1 || true; \
+	docker run -d --name $$name \
+		-e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres \
+		-p $$port:5432 postgres:18-alpine >/dev/null; \
+	trap "docker rm -f $$name >/dev/null 2>&1 || true" EXIT; \
+	echo "waiting for postgres to accept connections..."; \
+	for i in $$(seq 1 60); do docker exec $$name pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done; \
+	FIXTURE_DB_DSN="postgres://postgres:postgres@localhost:$$port/postgres?sslmode=disable" \
+		go run ./test/fixturegen -out test/fixtures
+
 # ---------------------------------------------------------------------------
 # Static analysis — all via `go tool` so the versions pinned in go.mod are used
 # on every machine and in CI (no separate installs, no toolchain drift; the
