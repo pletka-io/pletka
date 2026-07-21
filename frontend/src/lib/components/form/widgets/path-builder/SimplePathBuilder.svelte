@@ -263,7 +263,6 @@
         include_inverse: includeInverse,
         include_parent_projects: includeParentProjects,
         include_range_suggestions: false,
-        allow_manual_complete: false,
       };
       const res = await fetch('/api/v1/ontology/autocomplete', {
         method: 'POST',
@@ -392,7 +391,6 @@
         include_inverse: false,
         include_parent_projects: includeParentProjects,
         include_range_suggestions: false,
-        allow_manual_complete: false,
       };
       const res = await fetch('/api/v1/ontology/autocomplete', {
         method: 'POST',

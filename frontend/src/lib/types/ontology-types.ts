@@ -69,7 +69,6 @@ export interface AutocompleteRequest {
   include_inverse: boolean; // Include inverse properties
   include_parent_projects: boolean; // Include parent project ontologies
   include_range_suggestions: boolean; // Include class suggestions from property range (default false)
-  allow_manual_complete: boolean; // Include "mark as complete" option in suggestions (edit mode only)
   scope_class?: string; // Optional: filter properties by this class as domain
   scope_additional_classes?: string[]; // Optional: union property suggestions across these extra scope classes (multi-class entities)
 }

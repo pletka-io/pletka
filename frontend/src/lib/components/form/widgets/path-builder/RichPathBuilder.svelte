@@ -308,12 +308,10 @@
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   // Per-call autocomplete setting overrides. null → fall through to the
   // form/component defaults (effectiveIncludeInverse / Parent). The
-  // RangeSuggestions + ManualComplete switches are pure overrides with
-  // no upstream default.
+  // RangeSuggestions switch is a pure override with no upstream default.
   let includeInverseOverride = $state<boolean | null>(null);
   let includeParentProjectsOverride = $state<boolean | null>(null);
   let includeRangeSuggestionsOverride = $state<boolean>(false);
-  let allowManualCompleteOverride = $state<boolean>(false);
 
   // --- Derived state ---
 
@@ -331,7 +329,7 @@
 
   const isComplete = $derived(
     pathElements.length > 0 && lastElement !== null &&
-    (lastElement.type === 'class' || lastElement.type === 'literal' || lastElement.type === 'complete')
+    (lastElement.complete === true || lastElement.type === 'literal')
   );
 
   const lastElementIsProperty = $derived(
@@ -341,7 +339,7 @@
   const completionHint = $derived.by(() => {
     if (pathElements.length === 0) return isScopeMode ? 'Search for a class' : 'Start by searching for a class';
     if (isScopeMode) return '';
-    if (lastElement?.type === 'complete') return 'Path marked as complete';
+    if (lastElement?.complete) return 'Path marked as complete';
     if (lastElement?.type === 'literal') return 'Path complete (literal terminal)';
     if (lastElement?.type === 'class' && pathElements.length > 1) {
       return 'Path complete -- or add a property to extend. Type . or done to mark complete.';
@@ -430,7 +428,7 @@
         version_id: versionId || undefined,
         current_path: [
           ...(isScopeMode || !contextualScopeQname ? [] : [contextualScopeQname]),
-          ...pathElements.filter(e => e.type !== 'complete').map(e => prefixedName(e)),
+          ...pathElements.map(e => prefixedName(e)),
         ],
         query: q,
         max_results: 20,
@@ -439,7 +437,6 @@
         include_inverse: effectiveIncludeInverseSetting,
         include_parent_projects: effectiveIncludeParentProjectsSetting,
         include_range_suggestions: includeRangeSuggestionsOverride,
-        allow_manual_complete: allowManualCompleteOverride,
       };
       const res = await fetch('/api/v1/ontology/autocomplete', {
         method: 'POST',
@@ -480,23 +477,31 @@
     return trimmed === '.' || trimmed === 'done';
   }
 
-  /** Mark the path as manually complete by appending a terminal marker element. */
+  /** Mark the path as manually complete by flagging the final element. */
   function markComplete() {
     if (pathElements.length === 0 || isScopeMode) return;
-    // Don't double-mark
-    if (lastElement?.type === 'complete') return;
-
-    const marker: PathElement = {
-      type: 'complete',
-      uri: '',
-      prefix: '',
-      local_name: 'complete',
-      position: pathElements.length,
-    };
-    pathElements = [...pathElements, marker];
+    const last = pathElements[pathElements.length - 1];
+    // Only a real terminal (class or literal) can be marked complete.
+    if (last.type !== 'class' && last.type !== 'literal') return;
+    if (last.complete) return; // already marked
+    pathElements = [
+      ...pathElements.slice(0, -1),
+      { ...last, complete: true },
+    ];
     query = '';
     suggestions = [];
     showDropdown = false;
+  }
+
+  /** Clear the completion flag on the final element so the path can be extended. */
+  function unmarkComplete() {
+    if (pathElements.length === 0) return;
+    const last = pathElements[pathElements.length - 1];
+    if (!last.complete) return;
+    const { complete, ...rest } = last; // drop the flag entirely (omitempty parity)
+    pathElements = [...pathElements.slice(0, -1), rest];
+    // isComplete flips to false -> the input box re-appears (Step 5 guard),
+    // so focus returns to autocomplete and the modeler continues.
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -588,8 +593,6 @@
         return 'bg-green-100 text-green-800 border-green-200';
       case 'literal':
         return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'complete':
-        return 'bg-emerald-100 text-emerald-800 border-emerald-300';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
     }
@@ -634,21 +637,14 @@
       >
       <!-- Path element pills -->
       {#each pathElements as el, i}
-        {#if i > 0 && el.type !== 'complete'}
+        {#if i > 0}
           <span class="text-gray-400 text-xs select-none" aria-hidden="true">&rarr;</span>
         {/if}
         <span
           class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium border {pillClass(el.type)}"
-          title={el.type === 'complete' ? 'Path marked as complete' : `${el.prefix}:${el.local_name}`}
+          title={`${el.prefix}:${el.local_name}`}
         >
-          {#if el.type === 'complete'}
-            <svg class="w-3 h-3 mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-            </svg>
-            done
-          {:else}
-            {prefixedName(el)}
-          {/if}
+          {prefixedName(el)}
           {#if !field.readonly && !isScopeMode}
             <button
               type="button"
@@ -659,14 +655,20 @@
                 setTimeout(() => inputEl?.focus(), 0);
               }}
               class="ml-0.5 text-current opacity-60 hover:opacity-100 leading-none"
-              aria-label="Remove {el.type === 'complete' ? 'completion marker' : prefixedName(el)} and everything after"
+              aria-label="Remove {prefixedName(el)} and everything after"
             >&times;</button>
+          {/if}
+          {#if el.complete}
+            <span class="inline-flex items-center gap-0.5 ml-1 pl-1 border-l border-emerald-300" title="Path marked complete">
+              <svg class="w-3 h-3 text-emerald-600" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+              <button type="button" class="text-emerald-700 opacity-60 hover:opacity-100 leading-none" aria-label="Remove completion marker and continue" onclick={() => unmarkComplete()}>&times;</button>
+            </span>
           {/if}
         </span>
       {/each}
 
       <!-- Text input (hidden when scope selected or path marked complete) -->
-      {#if !field.readonly && !scopeSelected && lastElement?.type !== 'complete'}
+      {#if !field.readonly && !scopeSelected && !isComplete}
         <input
           bind:this={inputEl}
           type="text"
@@ -804,14 +806,6 @@
                 onchange={(e) => includeRangeSuggestionsOverride = (e.currentTarget as HTMLInputElement).checked}
               />
               <span>Include range suggestions</span>
-            </label>
-            <label class="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={allowManualCompleteOverride}
-                onchange={(e) => allowManualCompleteOverride = (e.currentTarget as HTMLInputElement).checked}
-              />
-              <span>Allow manual complete</span>
             </label>
           </div>
         {/if}

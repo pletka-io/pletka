@@ -79,7 +79,6 @@ type Request struct {
 	IncludeInverse          bool     `json:"include_inverse"`
 	IncludeParentProjects   bool     `json:"include_parent_projects"`
 	IncludeRangeSuggestions bool     `json:"include_range_suggestions"`
-	AllowManualComplete     bool     `json:"allow_manual_complete"`
 	ScopeClass              string   `json:"scope_class,omitempty"` // root class qname for first-step suggestions
 
 	// ScopeAdditionalClasses lists secondary scope class qnames for
