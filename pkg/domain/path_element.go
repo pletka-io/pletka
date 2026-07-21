@@ -9,6 +9,7 @@ type PathElement struct {
 	LocalName         string `json:"local_name"`                    // Local name (e.g., "E21_Person")
 	Datatype          string `json:"datatype,omitempty"`            // For literals: "rdf:literal", "xsd:date"
 	Position          int    `json:"position"`                      // 0-indexed position in path
+	Complete          bool   `json:"complete,omitempty"`            // Editor-only: modeler marked the path finished in the path editor. Ignored by resolution, generators, and the path audit.
 	ClassCode         string `json:"class_code,omitempty"`          // Short class code (e.g., "E33_E41")
 	InstanceID        string `json:"instance_id,omitempty"`         // Legacy hand-coded bracket ID (e.g., "HERF.200_1"); persisted in path_elements JSONB
 	PathNode          string `json:"path_node,omitempty"`           // Generated structural ancestor chain (slugified qnames). Set on class elements while building generator snapshots; never persisted.

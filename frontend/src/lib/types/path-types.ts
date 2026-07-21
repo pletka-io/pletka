@@ -16,8 +16,11 @@ export interface PathElement {
   local_name: string; // Local name (e.g., "E21_Person")
   datatype?: string; // For literals: "rdf:literal", "xsd:date"
   position: number /* int */; // 0-indexed position in path
+  complete?: boolean; // Editor-only: modeler marked the path finished in the path editor. Ignored by resolution, generators, and the path audit.
   class_code?: string; // Short class code (e.g., "E33_E41")
-  instance_id?: string; // Bracket ID for RDF generation (e.g., "HERF.200_1")
+  instance_id?: string; // Legacy hand-coded bracket ID (e.g., "HERF.200_1"); persisted in path_elements JSONB
+  path_node?: string; // Generated structural ancestor chain (slugified qnames). Set on class elements while building generator snapshots; never persisted.
+  path_node_id?: string; // Short generated node id, {class_code}_{occurrence}, derived from PathNode. The X3ML variable / UI id. Supersedes InstanceID.
   ontology_version_id?: string; // FK to ontology version for compatibility checks
   /**
    * AdditionalTypes holds secondary class instantiations for multi-typed nodes.
