@@ -308,12 +308,10 @@
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   // Per-call autocomplete setting overrides. null → fall through to the
   // form/component defaults (effectiveIncludeInverse / Parent). The
-  // RangeSuggestions + ManualComplete switches are pure overrides with
-  // no upstream default.
+  // RangeSuggestions switch is a pure override with no upstream default.
   let includeInverseOverride = $state<boolean | null>(null);
   let includeParentProjectsOverride = $state<boolean | null>(null);
   let includeRangeSuggestionsOverride = $state<boolean>(false);
-  let allowManualCompleteOverride = $state<boolean>(false);
 
   // --- Derived state ---
 
@@ -439,7 +437,6 @@
         include_inverse: effectiveIncludeInverseSetting,
         include_parent_projects: effectiveIncludeParentProjectsSetting,
         include_range_suggestions: includeRangeSuggestionsOverride,
-        allow_manual_complete: allowManualCompleteOverride,
       };
       const res = await fetch('/api/v1/ontology/autocomplete', {
         method: 'POST',
@@ -809,14 +806,6 @@
                 onchange={(e) => includeRangeSuggestionsOverride = (e.currentTarget as HTMLInputElement).checked}
               />
               <span>Include range suggestions</span>
-            </label>
-            <label class="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={allowManualCompleteOverride}
-                onchange={(e) => allowManualCompleteOverride = (e.currentTarget as HTMLInputElement).checked}
-              />
-              <span>Allow manual complete</span>
             </label>
           </div>
         {/if}
