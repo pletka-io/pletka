@@ -4,27 +4,15 @@ package model
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/internal/testdb"
 )
 
 func usageTestPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		dsn = "postgres://postgres:pw123@localhost:5433/pletka_weave?sslmode=disable"
-	}
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Skip("database not available:", err)
-	}
-	if err := pool.Ping(context.Background()); err != nil {
-		t.Skip("database not reachable:", err)
-	}
-	t.Cleanup(func() { pool.Close() })
-	return pool
+	return testdb.Pool(t)
 }
 
 func TestUsageGlobal_CountsCrossProjectRefs(t *testing.T) {

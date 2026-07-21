@@ -57,7 +57,7 @@ func TestBuildSnapshot_WithMemberships(t *testing.T) {
 	})
 
 	if err := ws.Memberships().Upsert(ctx, domain.Membership{
-		ActorID: actorID, ScopeType: "project", ScopeID: "LA", Role: "maintainer",
+		ActorID: actorID, ScopeType: "project", ScopeID: testdb.FixtureChild, Role: "maintainer",
 	}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -69,7 +69,8 @@ func TestBuildSnapshot_WithMemberships(t *testing.T) {
 	if s.IsAnonymous {
 		t.Error("not anonymous")
 	}
-	if s.Roles["project:LA"] != "maintainer" {
-		t.Errorf("Roles[project:LA] = %q want maintainer", s.Roles["project:LA"])
+	roleKey := "project:" + testdb.FixtureChild
+	if s.Roles[roleKey] != "maintainer" {
+		t.Errorf("Roles[%s] = %q want maintainer", roleKey, s.Roles[roleKey])
 	}
 }

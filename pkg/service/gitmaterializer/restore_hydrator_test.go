@@ -19,20 +19,45 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// fixtureAdoptionSourceProject is the id of testdb.FixtureParent ("FXPARENT"),
+// a synthetic project hydrated into every clone. Adoption/fork receipts store a
+// source_project_id that FK-references weave_projects, so the source must be a
+// project that exists in the clone. This internal test package cannot import
+// internal/testdb (testdb imports gitmaterializer — the import would cycle), so
+// the fixture id is inlined here rather than referenced as testdb.FixtureParent.
+const fixtureAdoptionSourceProject = "FXPARENT"
+
+// hydrateTestPool serves the per-package clone provisioned by TestMain
+// (internal/testdb.Setup) via TEST_DATABASE_URL. This package's internal test
+// files (which use unexported gitmaterializer helpers) cannot import
+// internal/testdb — testdb imports gitmaterializer, so the import would cycle —
+// so they read the clone DSN Setup republishes into TEST_DATABASE_URL instead
+// of calling testdb.Pool directly. Behaviour matches testdb.Pool: skip when no
+// DB is available, fail under REQUIRE_DB.
 func hydrateTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
+	require := os.Getenv("REQUIRE_DB") != ""
 	if dsn == "" {
-		dsn = "postgres://postgres:pw123@localhost:5433/pletka_weave?sslmode=disable"
+		if require {
+			t.Fatal("REQUIRE_DB set but TEST_DATABASE_URL empty (testdb.Setup should populate it)")
+		}
+		t.Skip("no test database available")
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
+	if err == nil {
+		err = pool.Ping(context.Background())
+	}
 	if err != nil {
-		t.Skipf("database not available: %v", err)
+		if pool != nil {
+			pool.Close()
+		}
+		if require {
+			t.Fatalf("REQUIRE_DB set but test database unavailable: %v", err)
+		}
+		t.Skipf("test database unavailable: %v", err)
 	}
-	if err := pool.Ping(context.Background()); err != nil {
-		t.Skipf("database not reachable: %v", err)
-	}
-	t.Cleanup(func() { pool.Close() })
+	t.Cleanup(pool.Close)
 	return pool
 }
 
@@ -574,7 +599,7 @@ func TestHydrateProjectEntities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode adopted model: %v", err)
 	}
-	adoptedModelPayload, err = addAdoptionMarker(adoptedModelPayload, "LA")
+	adoptedModelPayload, err = addAdoptionMarker(adoptedModelPayload, fixtureAdoptionSourceProject)
 	if err != nil {
 		t.Fatalf("annotate adopted model: %v", err)
 	}
@@ -678,7 +703,7 @@ func TestHydrateProjectEntities(t *testing.T) {
 					EntityType: "model",
 					EntityID:   "LAM.13",
 					Source: AdoptionReceiptSource{
-						ProjectID: "LA",
+						ProjectID: fixtureAdoptionSourceProject,
 						EntityID:  "LAM.13",
 						Version:   "1.0.0",
 					},
@@ -706,7 +731,7 @@ func TestHydrateProjectEntities(t *testing.T) {
 					EntityType: "collection",
 					EntityID:   "RESTOREC.1",
 					Source: ForkReceiptSource{
-						ProjectID: "LA",
+						ProjectID: fixtureAdoptionSourceProject,
 						EntityID:  "LAC.4",
 						Version:   "1.0.0",
 					},

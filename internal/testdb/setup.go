@@ -96,6 +96,16 @@ func Setup(m *testing.M) int {
 	}
 	cloneDSN = cloneDSNValue
 
+	// Republish the clone DSN through TEST_DATABASE_URL so DB helpers that
+	// cannot import this package reach the same per-package clone. internal/testdb
+	// imports pkg/service/gitmaterializer and pkg/weave/ontology (for fixture
+	// hydration), so an *internal* test package for either of those (e.g.
+	// gitmaterializer's restore_hydrator_test.go, which needs unexported
+	// helpers) would form an import cycle if it imported testdb. Those helpers
+	// read TEST_DATABASE_URL directly instead; overwriting it here (process-local
+	// to this package's test binary) makes them clone-aware without the import.
+	os.Setenv("TEST_DATABASE_URL", cloneDSNValue)
+
 	return m.Run()
 }
 

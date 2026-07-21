@@ -4,27 +4,15 @@ package publication
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/internal/testdb"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		dsn = "postgres://postgres:pw123@localhost:5433/pletka_weave?sslmode=disable"
-	}
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Skipf("database not available: %v", err)
-	}
-	if err := pool.Ping(context.Background()); err != nil {
-		t.Skipf("database not reachable: %v", err)
-	}
-	t.Cleanup(func() { pool.Close() })
-	return pool
+	return testdb.Pool(t)
 }
 
 // seedPublicationFixture builds a released project TEST_PUB with fields/model in

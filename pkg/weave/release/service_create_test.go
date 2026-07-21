@@ -5,30 +5,17 @@ package release
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func releaseTestPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		dsn = "postgres://postgres:pw123@localhost:5433/pletka_weave?sslmode=disable"
-	}
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Skipf("database not available: %v", err)
-	}
-	if err := pool.Ping(context.Background()); err != nil {
-		t.Skipf("database not reachable: %v", err)
-	}
-	t.Cleanup(func() { pool.Close() })
-	return pool
+	return testdb.Pool(t)
 }
 
 func TestCreate_BlocksDraftParentDependencies(t *testing.T) {

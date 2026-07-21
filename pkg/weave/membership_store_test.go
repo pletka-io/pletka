@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave"
 )
@@ -25,7 +26,7 @@ func TestMembershipStore_UpsertAndList(t *testing.T) {
 	m := domain.Membership{
 		ActorID:   actorID,
 		ScopeType: "project",
-		ScopeID:   "LA",
+		ScopeID:   testdb.FixtureChild,
 		Role:      "maintainer",
 	}
 	if err := ms.Upsert(ctx, m); err != nil {
@@ -101,7 +102,7 @@ func TestMembershipStore_SnapshotForActor(t *testing.T) {
 	m := domain.Membership{
 		ActorID:   actorID,
 		ScopeType: "project",
-		ScopeID:   "LA",
+		ScopeID:   testdb.FixtureChild,
 		Role:      "maintainer",
 	}
 	if err := ms.Upsert(ctx, m); err != nil {
@@ -117,11 +118,11 @@ func TestMembershipStore_SnapshotForActor(t *testing.T) {
 	}
 	found := false
 	for _, r := range rows {
-		if r.ScopeID == "LA" && r.Role == "maintainer" && r.Kind == "membership" {
+		if r.ScopeID == testdb.FixtureChild && r.Role == "maintainer" && r.Kind == "membership" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected snapshot row for LA/maintainer, got %+v", rows)
+		t.Errorf("expected snapshot row for FixtureChild/maintainer, got %+v", rows)
 	}
 }
