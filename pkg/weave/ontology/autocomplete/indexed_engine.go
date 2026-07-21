@@ -160,9 +160,9 @@ func (e *IndexedEngine) suggestRangeForProperty(idx *Index, prop *Node, req Requ
 	}
 	// DatatypeProperty with no explicit range relation (or all ranges pointed
 	// at classes we don't have): still let the path terminate by emitting a
-	// generic rdf:literal.
+	// generic rdfs:Literal.
 	if isDatatype && len(out) == 0 {
-		out = append(out, literalSuggestionFromQname("rdf:literal"))
+		out = append(out, literalSuggestionFromQname(genericLiteralQname))
 	}
 	return out
 }

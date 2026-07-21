@@ -445,9 +445,9 @@ func (e *DirectEngine) suggestRangeForProperty(ctx context.Context, versionIDs [
 
 	// DatatypeProperty with no explicit range relation (or all ranges
 	// pointed at classes we don't have): still let the path terminate
-	// by emitting a generic rdf:literal.
+	// by emitting a generic rdfs:Literal.
 	if isDatatypeProperty && len(out) == 0 {
-		out = append(out, literalSuggestionFromQname("rdf:literal"))
+		out = append(out, literalSuggestionFromQname(genericLiteralQname))
 	}
 
 	return out, nil
@@ -575,6 +575,12 @@ func isFullURI(value string) bool {
 
 // literalSuggestionFromQname builds a synthetic Suggestion of type "literal"
 // from a canonical qname such as xsd:string or rdfs:Literal.
+// genericLiteralQname is the qname emitted for a literal path terminus when
+// the DatatypeProperty declares no specific range datatype. rdfs:Literal is
+// the RDFS class of all literal values — the standards-correct generic type,
+// used in place of the non-standard "rdf:literal" that has no such term.
+const genericLiteralQname = "rdfs:Literal"
+
 func literalSuggestionFromQname(qname string) Suggestion {
 	prefix, local, ok := strings.Cut(qname, ":")
 	if !ok {
