@@ -33,10 +33,13 @@ func RequireRealDataDB(t *testing.T) {
 
 // Pool returns a Postgres pool for DB-gated tests. When Setup has provisioned a
 // per-package clone its DSN is used; otherwise the DSN comes from
-// TEST_DATABASE_URL, defaulting to the local dev database. When the DB is
-// unavailable the test is skipped — unless REQUIRE_DB is set, in which case
-// it fails (so CI cannot silently skip DB tests). The pool is closed via
-// t.Cleanup.
+// TEST_DATABASE_URL. Pool never guesses a DSN: with no clone and no
+// TEST_DATABASE_URL it skips (or fails under REQUIRE_DB) rather than silently
+// connecting to a hardcoded local database — a default dev DSN once coupled
+// TestMain-less packages to the running dev DB, so a forgetful test appeared to
+// pass while reading shared mutable data. When the resolved DB is unavailable
+// the test is likewise skipped, or failed under REQUIRE_DB so CI cannot
+// silently skip DB tests. The pool is closed via t.Cleanup.
 func Pool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := cloneDSN
@@ -44,7 +47,11 @@ func Pool(t *testing.T) *pgxpool.Pool {
 		dsn = os.Getenv("TEST_DATABASE_URL")
 	}
 	if dsn == "" {
-		dsn = "postgres://postgres:pw123@localhost:5433/pletka_weave?sslmode=disable"
+		const msg = "no test database: add TestMain -> os.Exit(testdb.Setup(m)) for an isolated clone, or set TEST_DATABASE_URL"
+		if os.Getenv("REQUIRE_DB") != "" {
+			t.Fatal(msg)
+		}
+		t.Skip(msg)
 	}
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err == nil {
