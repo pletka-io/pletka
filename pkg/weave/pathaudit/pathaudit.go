@@ -62,7 +62,7 @@ WITH elems AS (
         WITH ORDINALITY AS e(elem, ord)
     WHERE f.path_elements IS NOT NULL
       AND jsonb_typeof(f.path_elements) = 'array'
-      AND coalesce(e.elem->>'type', '') <> 'literal'
+      AND coalesce(e.elem->>'type', '') NOT IN ('literal', 'complete')
       AND ($1 = '' OR pr.id = $1 OR pr.system_name = $1)
       AND ($2 = false OR coalesce(e.elem->>'prefix', '') NOT IN
             ('rdf', 'rdfs', 'xsd', 'xsl', 'dc', 'dcterms', 'skos', 'owl', 'schema'))
@@ -84,7 +84,7 @@ WITH elems AS (
         WITH ORDINALITY AS e(elem, ord)
     WHERE f.subfield_paths IS NOT NULL
       AND jsonb_typeof(f.subfield_paths) = 'array'
-      AND coalesce(e.elem->>'type', '') <> 'literal'
+      AND coalesce(e.elem->>'type', '') NOT IN ('literal', 'complete')
       AND ($1 = '' OR pr.id = $1 OR pr.system_name = $1)
       AND ($2 = false OR coalesce(e.elem->>'prefix', '') NOT IN
             ('rdf', 'rdfs', 'xsd', 'xsl', 'dc', 'dcterms', 'skos', 'owl', 'schema'))
