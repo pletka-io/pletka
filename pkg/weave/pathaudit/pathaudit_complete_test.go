@@ -1,3 +1,5 @@
+//go:build integration
+
 package pathaudit_test
 
 import (

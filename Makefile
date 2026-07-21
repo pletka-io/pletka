@@ -269,6 +269,10 @@ test:
 	@echo "$(YELLOW)Running tests...$(NC)"
 	@go test ./...
 
+.PHONY: test-integration
+test-integration: ## Run DB/integration tests (needs Docker or TEST_DATABASE_URL)
+	go test -tags=integration ./...
+
 # ---------------------------------------------------------------------------
 # Static analysis — all via `go tool` so the versions pinned in go.mod are used
 # on every machine and in CI (no separate installs, no toolchain drift; the
