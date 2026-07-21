@@ -12,6 +12,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/service/gitmaterializer"
+	"github.com/pletka-io/pletka/pkg/service/gitmaterializer/ontologyvendor"
 	weaveontology "github.com/pletka-io/pletka/pkg/weave/ontology"
 )
 
@@ -71,46 +72,17 @@ func fixturesRoot() (string, bool) {
 	}
 }
 
-// ontologyVendorImporter adapts the ontology Service to
-// gitmaterializer.VendoredOntologyImporter. It mirrors pkg/app's
-// NewOntologyVendorImporter; the logic is duplicated here (rather than imported)
-// because internal/testdb is imported by slice tests, and pulling in pkg/app —
-// which assembles every slice — would form an import cycle in those test
-// builds. gitmaterializer deliberately does not depend on the ontology slice,
-// so the adapter has to live on the wiring side.
-type ontologyVendorImporter struct{ svc *weaveontology.Service }
-
-// ImportVendoredOntology imports one vendored ontology manifest through the
-// ontology service. Idempotent per manifest.Ontology.VersionID.
-func (a ontologyVendorImporter) ImportVendoredOntology(ctx context.Context, imp gitmaterializer.VendoredOntologyImport) error {
-	root := imp.Manifest.Ontology
-	var files []string
-	if imp.Manifest.Sources != nil {
-		files = imp.Manifest.Sources.Files
-	}
-	return a.svc.ImportVendoredVersion(ctx, weaveontology.VendoredOntologyImportRequest{
-		OntologyID:    root.OntologyID,
-		VersionID:     root.VersionID,
-		VersionString: root.Version,
-		Slug:          root.Slug,
-		Title:         root.Title,
-		Kind:          root.Kind,
-		Namespace:     root.Namespace,
-		Prefixes:      root.Prefixes,
-		BaseDir:       imp.RootDir,
-		Files:         files,
-		Imports:       imp.Manifest.Imports,
-	})
-}
-
 // newHydrator builds a Materializer wired with the ontology importer — the same
 // wiring production restore uses — so vendored ontologies in a snapshot are
-// hydrated through the ontology slice.
+// hydrated through the ontology slice. The adapter comes from the shared leaf
+// package ontologyvendor (also used by pkg/app.NewOntologyVendorImporter)
+// rather than a local copy: internal/testdb is imported by slice tests, and
+// pulling in pkg/app — which assembles every slice — would form an import
+// cycle in those test builds, but ontologyvendor imports neither pkg/app nor
+// internal/testdb, so both callers can share it.
 func newHydrator(pool *pgxpool.Pool, baseDir string) *gitmaterializer.Materializer {
-	importer := ontologyVendorImporter{
-		svc: weaveontology.NewService(weaveontology.NewPostgresStore(pool), nil, nil),
-	}
-	return gitmaterializer.NewMaterializer(pool, baseDir, nil).WithOntologyImporter(importer)
+	svc := weaveontology.NewService(weaveontology.NewPostgresStore(pool), nil, nil)
+	return gitmaterializer.NewMaterializer(pool, baseDir, nil).WithOntologyImporter(ontologyvendor.New(svc))
 }
 
 // hydrateFixtures loads the curated fixture snapshots into the freshly migrated
