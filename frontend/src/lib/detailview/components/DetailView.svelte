@@ -137,10 +137,16 @@
     if (!ok) return;
     lifecycleBusy = true;
     try {
-      const res = await fetch(url, { method: 'DELETE' });
+      // X-Requested-With marks this as an XHR mutation so the CSRF
+      // middleware exempts it (see pkg/session/middleware.go). Without it
+      // nosurf rejects the delete with a bare 400 before the handler runs.
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error || `Delete failed: ${res.status}`);
+        throw new Error(body?.message || body?.error || `Delete failed: ${res.status}`);
       }
       try {
         sessionStorage.setItem(
