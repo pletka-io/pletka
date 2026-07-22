@@ -477,3 +477,45 @@ func TestResolvePrefixesReportsMissing(t *testing.T) {
 		t.Errorf("missing count = %d, want 2", missing[0].Count)
 	}
 }
+
+func TestParseDatatypeTypedNodes(t *testing.T) {
+	content := `<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#"
+         xmlns:xsd="http://www.w3.org/2001/XMLSchema#">
+  <owl:Ontology rdf:about="https://pletka.io/ontologies/defaults/">
+    <owl:versionInfo>1.0</owl:versionInfo>
+  </owl:Ontology>
+  <rdfs:Datatype rdf:about="http://www.w3.org/2001/XMLSchema#date">
+    <rdfs:label xml:lang="en">date</rdfs:label>
+  </rdfs:Datatype>
+  <rdfs:Class rdf:about="http://www.w3.org/2000/01/rdf-schema#Literal">
+    <rdfs:label xml:lang="en">Literal</rdfs:label>
+  </rdfs:Class>
+</rdf:RDF>`
+	parser := NewRDFParser()
+	result, err := parser.Parse(strings.NewReader(content), "defaults.rdfs", int64(len(content)))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	var got []string
+	for _, c := range result.Classes {
+		got = append(got, c.URI)
+	}
+	want := map[string]bool{
+		"http://www.w3.org/2001/XMLSchema#date":        true,
+		"http://www.w3.org/2000/01/rdf-schema#Literal": true,
+	}
+	for uri := range want {
+		found := false
+		for _, u := range got {
+			if u == uri {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("class %s not parsed; got %v", uri, got)
+		}
+	}
+}

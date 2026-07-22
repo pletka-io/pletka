@@ -19,6 +19,11 @@ type RDFRoot struct {
 	Classes    []RDFClass    `xml:"Class"`
 	Properties []RDFProperty `xml:"Property"`
 
+	// rdfs:Datatype typed nodes (xsd datatypes in the defaults ontology).
+	// RDFS defines rdfs:Datatype as a subclass of rdfs:Class, so these
+	// import as class rows.
+	Datatypes []RDFClass `xml:"Datatype"`
+
 	// OWL-style declarations (owl:ObjectProperty, owl:DatatypeProperty)
 	ObjectProperties   []RDFProperty `xml:"ObjectProperty"`
 	DatatypeProperties []RDFProperty `xml:"DatatypeProperty"`

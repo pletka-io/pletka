@@ -427,6 +427,24 @@ func (p *RDFParser) extractClasses(rdf *RDFRoot, versionID string) []*OntologyCl
 		classes = append(classes, class)
 	}
 
+	// rdfs:Datatype typed nodes (rdfs:Datatype is a subclass of rdfs:Class)
+	for _, rdfClass := range rdf.Datatypes {
+		// Resolve URI: rdf:about takes priority, then rdf:ID
+		uri := p.resolveURI(rdfClass.ResolvedAbout(baseURI), baseURI)
+
+		class := &OntologyClass{
+			OntologyVersionID: versionID,
+			URI:               uri,
+			LocalName:         p.extractLocalName(uri),
+			Prefix:            "",
+			Label:             domain.Translations(p.extractMultilingualText(rdfClass.Labels)),
+			Comment:           domain.Translations(p.extractMultilingualText(rdfClass.Comments)),
+			SuperClasses:      []string(p.resolveURIList(rdfClass.SubClassOf, baseURI)),
+		}
+
+		classes = append(classes, class)
+	}
+
 	// Extract classes from rdf:Description elements (Gap 2 pattern)
 	for _, desc := range rdf.Descriptions {
 		if desc.Type == nil {
