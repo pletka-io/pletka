@@ -2,10 +2,24 @@ package pathaudit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
+
+// defaultsOntologyPrefix is the well-known prefix of the implicit defaults
+// ontology (standard-vocabulary terms: rdfs:Literal, skos:Concept, xsd
+// datatypes, rdfs:label, ...). No project ever links it through
+// weave_project_ontology_versions — per the linkage decision it is an
+// ontology-level dependency implicit to every project — so its active
+// version is unioned into the resolution scope directly instead of being
+// discovered via a project link. Matches the constant gitmaterializer uses
+// to vendor it (pkg/service/gitmaterializer/vendor_snapshot.go).
+const defaultsOntologyPrefix = "defaults"
 
 // PathElementError is one invalid path step found by Audit.
 type PathElementError struct {
@@ -44,8 +58,15 @@ func NewService(pool *pgxpool.Pool) *Service {
 // stored type disagrees with the ontology tables, or whose qname resolves
 // to neither table. scanned is the count of non-literal elements
 // inspected. projectID empty means all projects (CLI mode); MCP callers
-// always pass one.
+// always pass one. Resolution scope for every project is its linked
+// ontology versions union the defaults ontology's active version, when one
+// is imported (see resolveDefaultsVersionID).
 func (s *Service) Audit(ctx context.Context, projectID string, excludeStandard bool) (errs []PathElementError, scanned int, err error) {
+	defaultsVersionID, err := s.resolveDefaultsVersionID(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	const query = `
 WITH elems AS (
     -- Primary path elements.
@@ -89,24 +110,37 @@ WITH elems AS (
       AND ($2 = false OR coalesce(e.elem->>'prefix', '') NOT IN
             ('rdf', 'rdfs', 'xsd', 'xsl', 'dc', 'dcterms', 'skos', 'owl', 'schema'))
 ), classified AS (
+    -- A qname resolves either through the project's own linked ontology
+    -- versions, or through the defaults ontology's active version ($3) —
+    -- an implicit, ontology-level dependency no project ever links.
     SELECT e.*,
         EXISTS (
             SELECT 1 FROM weave_ontology_classes c
-            JOIN weave_project_ontology_versions pov
-              ON pov.ontology_version_id = c.ontology_version_id
-            JOIN weave_projects p2 ON p2.id = pov.project_id
-            WHERE p2.system_name = e.project
-              AND c.prefix = e.prefix
+            WHERE c.prefix = e.prefix
               AND c.local_name = e.local_name
+              AND (
+                c.ontology_version_id = $3
+                OR EXISTS (
+                    SELECT 1 FROM weave_project_ontology_versions pov
+                    JOIN weave_projects p2 ON p2.id = pov.project_id
+                    WHERE p2.system_name = e.project
+                      AND pov.ontology_version_id = c.ontology_version_id
+                )
+              )
         ) AS in_classes,
         EXISTS (
             SELECT 1 FROM weave_ontology_properties pr2
-            JOIN weave_project_ontology_versions pov
-              ON pov.ontology_version_id = pr2.ontology_version_id
-            JOIN weave_projects p2 ON p2.id = pov.project_id
-            WHERE p2.system_name = e.project
-              AND pr2.prefix = e.prefix
+            WHERE pr2.prefix = e.prefix
               AND pr2.local_name = e.local_name
+              AND (
+                pr2.ontology_version_id = $3
+                OR EXISTS (
+                    SELECT 1 FROM weave_project_ontology_versions pov
+                    JOIN weave_projects p2 ON p2.id = pov.project_id
+                    WHERE p2.system_name = e.project
+                      AND pov.ontology_version_id = pr2.ontology_version_id
+                )
+              )
         ) AS in_props
     FROM elems e
 )
@@ -117,7 +151,7 @@ SELECT project, semantic_id, position, prefix, local_name, stored_type,
 FROM classified
 ORDER BY project, semantic_id, position`
 
-	rows, err := s.pool.Query(ctx, query, projectID, excludeStandard)
+	rows, err := s.pool.Query(ctx, query, projectID, excludeStandard, defaultsVersionID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query path elements: %w", err)
 	}
@@ -149,6 +183,30 @@ ORDER BY project, semantic_id, position`
 		return nil, 0, fmt.Errorf("iterate path element rows: %w", err)
 	}
 	return errs, scanned, nil
+}
+
+// resolveDefaultsVersionID looks up the active version of the implicit
+// defaults ontology (prefix "defaults") — the same lookup gitmaterializer
+// uses to vendor it. Returns "" when no defaults ontology is imported (or
+// it has no active version): callers treat that as "nothing to union",
+// leaving Audit's behavior identical to before defaults existed.
+func (s *Service) resolveDefaultsVersionID(ctx context.Context) (string, error) {
+	queries := sqlcgen.New(s.pool)
+	ontology, err := queries.WeaveGetOntologyByPrefix(ctx, defaultsOntologyPrefix)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("look up defaults ontology: %w", err)
+	}
+	version, err := queries.WeaveGetActiveOntologyVersion(ctx, ontology.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("look up defaults ontology active version: %w", err)
+	}
+	return version.ID, nil
 }
 
 // pathElementVerdict explains why an element failed verification.
