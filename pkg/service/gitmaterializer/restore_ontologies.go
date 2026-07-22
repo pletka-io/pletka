@@ -14,6 +14,22 @@ import (
 type VendoredOntologyImport struct {
 	Manifest OntologyVendorManifest
 	RootDir  string
+
+	// ExternalBindings carries the project snapshot's effective prefix->namespace
+	// bindings so the importer can resolve namespaces the vendored RDF
+	// references by full URI (e.g. AAAo -> crm) but does not itself declare.
+	// They come from the project manifest already on disk, so threading them
+	// keeps restore reproducible from the git snapshot alone.
+	ExternalBindings []VendoredOntologyExternalBinding
+}
+
+// VendoredOntologyExternalBinding is one prefix->namespace binding threaded
+// into a vendored ontology import from the project snapshot's effective
+// bindings. It is a primitive so gitmaterializer's restore seam does not
+// depend on the ontology slice's types.
+type VendoredOntologyExternalBinding struct {
+	Prefix    string
+	Namespace string
 }
 
 // VendoredOntologyImporter imports a vendored ontology snapshot into the
@@ -46,6 +62,24 @@ func (m *Materializer) hydrateVendoredOntologies(ctx context.Context, plan *Rest
 		return fmt.Errorf("restore: snapshot vendors ontologies but no ontology importer is wired")
 	}
 
+	// The project's effective namespace bindings (crm, aaao, …) are needed so a
+	// vendored ontology that references an external namespace by full URI can
+	// resolve it — the ontology's own prefix is not enough. They live in the
+	// project manifest already loaded from the snapshot, keeping restore
+	// git-only.
+	var externalBindings []VendoredOntologyExternalBinding
+	if snapshot.Manifest.Namespaces != nil {
+		for _, b := range snapshot.Manifest.Namespaces.EffectiveBindings {
+			if strings.TrimSpace(b.Prefix) == "" || strings.TrimSpace(b.Namespace) == "" {
+				continue
+			}
+			externalBindings = append(externalBindings, VendoredOntologyExternalBinding{
+				Prefix:    b.Prefix,
+				Namespace: b.Namespace,
+			})
+		}
+	}
+
 	for _, dep := range ontologies {
 		if dep.Snapshot == nil {
 			continue
@@ -62,8 +96,9 @@ func (m *Materializer) hydrateVendoredOntologies(ctx context.Context, plan *Rest
 		}
 
 		imp := VendoredOntologyImport{
-			Manifest: dep.Snapshot.Manifest,
-			RootDir:  dep.Snapshot.RootDir,
+			Manifest:         dep.Snapshot.Manifest,
+			RootDir:          dep.Snapshot.RootDir,
+			ExternalBindings: externalBindings,
 		}
 		if err := m.ontologyImporter.ImportVendoredOntology(ctx, imp); err != nil {
 			return fmt.Errorf("hydrate vendored ontologies: import %s@%s: %w", dep.Module, dep.Version, err)

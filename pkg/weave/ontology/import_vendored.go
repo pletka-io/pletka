@@ -27,6 +27,15 @@ type VendoredOntologyImportRequest struct {
 	BaseDir       string   // directory containing the RDF source files
 	Files         []string // RDF filenames relative to BaseDir (first = primary)
 	Imports       []string // imported ontology modules (metadata only; not yet persisted)
+
+	// ExternalBindings carries prefix->namespace bindings for namespaces the
+	// RDF references by full URI (e.g. an rdfs:subClassOf pointing at a CRM
+	// class) but does not declare an xmlns prefix for. Real vendored
+	// ontologies (AAAo -> crm) need these to resolve such URIs to qnames;
+	// req.Prefixes alone only covers the ontology's own namespace. The
+	// vendored-restore path populates this from the project snapshot's
+	// effective namespace bindings so restore stays self-contained.
+	ExternalBindings []NamespaceBinding
 }
 
 // ImportVendoredVersion imports one vendored ontology version snapshot.
@@ -61,7 +70,7 @@ func (s *Service) ImportVendoredVersion(ctx context.Context, req VendoredOntolog
 		Ontology:          ont,
 		VersionID:         req.VersionID,
 		VersionString:     req.VersionString,
-		NamespaceBindings: vendoredNamespaceBindings(req),
+		NamespaceBindings: MergeNamespaceBindings(vendoredNamespaceBindings(req), req.ExternalBindings),
 	})
 	if err != nil {
 		return fmt.Errorf("import vendored ontology %s@%s: %w", req.Slug, req.VersionString, err)

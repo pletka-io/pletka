@@ -37,17 +37,22 @@ func (a importer) ImportVendoredOntology(ctx context.Context, imp gitmaterialize
 	if imp.Manifest.Sources != nil {
 		files = imp.Manifest.Sources.Files
 	}
+	external := make([]weaveontology.NamespaceBinding, 0, len(imp.ExternalBindings))
+	for _, b := range imp.ExternalBindings {
+		external = append(external, weaveontology.NamespaceBinding{Prefix: b.Prefix, Namespace: b.Namespace})
+	}
 	return a.svc.ImportVendoredVersion(ctx, weaveontology.VendoredOntologyImportRequest{
-		OntologyID:    root.OntologyID,
-		VersionID:     root.VersionID,
-		VersionString: root.Version,
-		Slug:          root.Slug,
-		Title:         root.Title,
-		Kind:          root.Kind,
-		Namespace:     root.Namespace,
-		Prefixes:      root.Prefixes,
-		BaseDir:       imp.RootDir,
-		Files:         files,
-		Imports:       imp.Manifest.Imports,
+		OntologyID:       root.OntologyID,
+		VersionID:        root.VersionID,
+		VersionString:    root.Version,
+		Slug:             root.Slug,
+		Title:            root.Title,
+		Kind:             root.Kind,
+		Namespace:        root.Namespace,
+		Prefixes:         root.Prefixes,
+		BaseDir:          imp.RootDir,
+		Files:            files,
+		Imports:          imp.Manifest.Imports,
+		ExternalBindings: external,
 	})
 }
