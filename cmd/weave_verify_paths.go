@@ -18,9 +18,8 @@ import (
 )
 
 var weaveVerifyPathsOpts struct {
-	project         string
-	format          string
-	excludeStandard bool
+	project string
+	format  string
 }
 
 func newWeaveVerifyPathsCommand() *cobra.Command {
@@ -38,13 +37,12 @@ Report-only: nothing is modified. Exits non-zero when any error is found.
 Examples:
   pletka weave verify-paths
   pletka weave verify-paths --project LA
-  pletka weave verify-paths --exclude-standard --format json`,
+  pletka weave verify-paths --format json`,
 		RunE: runWeaveVerifyPaths,
 	}
 
 	weaveVerifyPathsCmd.Flags().StringVar(&weaveVerifyPathsOpts.project, "project", "", "limit to one project (id or system_name); all projects when omitted")
 	weaveVerifyPathsCmd.Flags().StringVar(&weaveVerifyPathsOpts.format, "format", "text", "output format: text, json, or csv (csv lists type-mismatched fields with their raw path)")
-	weaveVerifyPathsCmd.Flags().BoolVar(&weaveVerifyPathsOpts.excludeStandard, "exclude-standard", false, "skip rdf/rdfs/xsd/xsl/dc/dcterms/skos/owl/schema elements (not part of CRM-family ontologies)")
 	return weaveVerifyPathsCmd
 }
 
@@ -62,7 +60,7 @@ func runWeaveVerifyPaths(cmd *cobra.Command, args []string) error {
 	}
 	defer pool.Close()
 
-	errs, scanned, err := pathaudit.NewService(pool).Audit(ctx, weaveVerifyPathsOpts.project, weaveVerifyPathsOpts.excludeStandard)
+	errs, scanned, err := pathaudit.NewService(pool).Audit(ctx, weaveVerifyPathsOpts.project)
 	if err != nil {
 		return err
 	}

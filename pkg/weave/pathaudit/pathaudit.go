@@ -61,7 +61,7 @@ func NewService(pool *pgxpool.Pool) *Service {
 // always pass one. Resolution scope for every project is its linked
 // ontology versions union the defaults ontology's active version, when one
 // is imported (see resolveDefaultsVersionID).
-func (s *Service) Audit(ctx context.Context, projectID string, excludeStandard bool) (errs []PathElementError, scanned int, err error) {
+func (s *Service) Audit(ctx context.Context, projectID string) (errs []PathElementError, scanned int, err error) {
 	defaultsVersionID, err := s.resolveDefaultsVersionID(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -85,8 +85,6 @@ WITH elems AS (
       AND jsonb_typeof(f.path_elements) = 'array'
       AND coalesce(e.elem->>'type', '') NOT IN ('literal', 'complete')
       AND ($1 = '' OR pr.id = $1 OR pr.system_name = $1)
-      AND ($2 = false OR coalesce(e.elem->>'prefix', '') NOT IN
-            ('rdf', 'rdfs', 'xsd', 'xsl', 'dc', 'dcterms', 'skos', 'owl', 'schema'))
     UNION ALL
     -- Legacy subfield path elements (first-class). The subfield index is
     -- appended to the field id ("SRD1F.5#1") so failures are attributable.
@@ -107,11 +105,9 @@ WITH elems AS (
       AND jsonb_typeof(f.subfield_paths) = 'array'
       AND coalesce(e.elem->>'type', '') NOT IN ('literal', 'complete')
       AND ($1 = '' OR pr.id = $1 OR pr.system_name = $1)
-      AND ($2 = false OR coalesce(e.elem->>'prefix', '') NOT IN
-            ('rdf', 'rdfs', 'xsd', 'xsl', 'dc', 'dcterms', 'skos', 'owl', 'schema'))
 ), classified AS (
     -- A qname resolves either through the project's own linked ontology
-    -- versions, or through the defaults ontology's active version ($3) —
+    -- versions, or through the defaults ontology's active version ($2) —
     -- an implicit, ontology-level dependency no project ever links.
     SELECT e.*,
         EXISTS (
@@ -119,7 +115,7 @@ WITH elems AS (
             WHERE c.prefix = e.prefix
               AND c.local_name = e.local_name
               AND (
-                c.ontology_version_id = $3
+                c.ontology_version_id = $2
                 OR EXISTS (
                     SELECT 1 FROM weave_project_ontology_versions pov
                     JOIN weave_projects p2 ON p2.id = pov.project_id
@@ -133,7 +129,7 @@ WITH elems AS (
             WHERE pr2.prefix = e.prefix
               AND pr2.local_name = e.local_name
               AND (
-                pr2.ontology_version_id = $3
+                pr2.ontology_version_id = $2
                 OR EXISTS (
                     SELECT 1 FROM weave_project_ontology_versions pov
                     JOIN weave_projects p2 ON p2.id = pov.project_id
@@ -151,7 +147,7 @@ SELECT project, semantic_id, position, prefix, local_name, stored_type,
 FROM classified
 ORDER BY project, semantic_id, position`
 
-	rows, err := s.pool.Query(ctx, query, projectID, excludeStandard, defaultsVersionID)
+	rows, err := s.pool.Query(ctx, query, projectID, defaultsVersionID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query path elements: %w", err)
 	}

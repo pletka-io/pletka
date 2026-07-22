@@ -11,17 +11,21 @@ import (
 )
 
 // TestAudit_HER_MatchesCLIBaseline is the equivalence oracle for the lift:
-// it asserts Audit(ctx, "HER", false) reproduces the exact verdict-class
-// counts captured from `pletka weave verify-paths --project HER` before
-// this refactor (scanned=2071, errors=12: missing=11, type-mismatch=1,
+// it asserts Audit(ctx, "HER") reproduces the exact verdict-class counts
+// captured from `pletka weave verify-paths --project HER` before this
+// refactor (scanned=2071, errors=12: missing=11, type-mismatch=1,
 // ambiguous=0, malformed=0). A drift here means the lifted SQL or verdict
-// logic diverged from the original CLI behavior.
+// logic diverged from the original CLI behavior. NOTE: these baseline
+// counts predate the defaults-ontology resolution-scope union and the
+// --exclude-standard retirement; if the real-data fixture DB gains a
+// defaults ontology import or HER has standard-prefix path elements, these
+// counts may need re-capturing.
 func TestAudit_HER_MatchesCLIBaseline(t *testing.T) {
 	testdb.RequireRealDataDB(t)
 	pool := testdb.Pool(t)
 	svc := pathaudit.NewService(pool)
 
-	errs, scanned, err := svc.Audit(context.Background(), "HER", false)
+	errs, scanned, err := svc.Audit(context.Background(), "HER")
 	if err != nil {
 		t.Fatalf("Audit: %v", err)
 	}

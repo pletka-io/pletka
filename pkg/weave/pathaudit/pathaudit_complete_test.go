@@ -77,7 +77,7 @@ func TestAuditSkipsCompleteMarker(t *testing.T) {
 
 	seedProjectWithCompletePath(t, pool)
 
-	errs, _, err := pathaudit.NewService(pool).Audit(ctx, completeTestProjectID, false)
+	errs, _, err := pathaudit.NewService(pool).Audit(ctx, completeTestProjectID)
 	if err != nil {
 		t.Fatalf("Audit: %v", err)
 	}
