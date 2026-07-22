@@ -81,6 +81,32 @@ func (s *Service) ImportVendoredVersion(ctx context.Context, req VendoredOntolog
 	}); err != nil {
 		return fmt.Errorf("import vendored ontology %s@%s: %w", req.Slug, req.VersionString, err)
 	}
+
+	if err := s.activateIfOntologyHasNoActiveVersion(ctx, ont.ID, req.VersionID); err != nil {
+		return fmt.Errorf("import vendored ontology %s@%s: %w", req.Slug, req.VersionString, err)
+	}
+	return nil
+}
+
+// activateIfOntologyHasNoActiveVersion sets versionID active when ont has no
+// active version at all. A vendored/restored ontology whose only version is
+// inactive (CreateVersionInput.IsActive is always false on import) is never
+// the desired end state — pathaudit's resolveDefaultsVersionID and the
+// implicit-vendoring rule both resolve against the ACTIVE version, so an
+// ontology stuck with none is silently unusable. Guarded to the no-active-
+// version case only: a repeat/idempotent vendored import must never flip an
+// admin's later choice of active version.
+func (s *Service) activateIfOntologyHasNoActiveVersion(ctx context.Context, ontologyID, versionID string) error {
+	active, err := s.store.GetActiveVersion(ctx, ontologyID)
+	if err != nil {
+		return fmt.Errorf("check active version: %w", err)
+	}
+	if active != nil {
+		return nil
+	}
+	if err := s.store.SetActiveVersion(ctx, ontologyID, versionID); err != nil {
+		return fmt.Errorf("activate imported version: %w", err)
+	}
 	return nil
 }
 

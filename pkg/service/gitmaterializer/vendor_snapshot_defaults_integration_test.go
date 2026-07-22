@@ -267,3 +267,80 @@ func TestVendorSnapshotIncludesDefaultsOntology(t *testing.T) {
 		}
 	})
 }
+
+// TestImportVendoredVersion_ActivatesFirstImportedVersion verifies the fix
+// for the "restored databases never have an active defaults version" review
+// finding: ImportVendoredVersion must set the just-imported version active
+// when the ontology has no active version yet. Without this, every vendored
+// ontology (import_builder.go's CreateVersionInput always sets
+// IsActive: false) lands permanently inactive after a restore, and
+// pathaudit's resolveDefaultsVersionID finds nothing to resolve standard
+// terms against.
+func TestImportVendoredVersion_ActivatesFirstImportedVersion(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Pool(t)
+	ontologyStore := weaveontology.NewPostgresStore(pool)
+	ontologySvc := weaveontology.NewService(ontologyStore, nil, nil)
+
+	ontologyID, versionID := importTinyOntology(t, ctx, ontologySvc, "activate-first-test", "https://example.org/activate-first/", "Thing", false)
+	t.Cleanup(func() {
+		_ = ontologySvc.DeleteVersion(context.Background(), versionID)
+		_ = ontologySvc.DeleteOntology(context.Background(), ontologyID)
+	})
+
+	active, err := ontologySvc.GetActiveVersion(ctx, ontologyID)
+	if err != nil {
+		t.Fatalf("GetActiveVersion: %v", err)
+	}
+	if active.ID != versionID {
+		t.Fatalf("active version = %s, want %s (the just-imported version, since the ontology had none active)", active.ID, versionID)
+	}
+}
+
+// TestImportVendoredVersion_DoesNotOverrideExistingActiveVersion verifies the
+// fix's idempotency guard: importing a second version for an ontology that
+// already has an active version must NOT flip activation onto the new
+// version — an admin's (or an earlier restore's) choice of active version is
+// preserved. The fix only activates when no active version currently exists.
+func TestImportVendoredVersion_DoesNotOverrideExistingActiveVersion(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Pool(t)
+	ontologyStore := weaveontology.NewPostgresStore(pool)
+	ontologySvc := weaveontology.NewService(ontologyStore, nil, nil)
+
+	slug := "activate-guard-test"
+	namespace := "https://example.org/activate-guard/"
+	ontologyID, firstVersionID := importTinyOntology(t, ctx, ontologySvc, slug, namespace, "Thing", false)
+
+	rdfDir := t.TempDir()
+	secondVersionID := weaveontology.GenerateVersionID(slug, "2.0")
+	filename := slug + "-v2.rdf"
+	writeTinyOntologyFixture(t, filepath.Join(rdfDir, filename), namespace, "Actor")
+	if err := ontologySvc.ImportVendoredVersion(ctx, weaveontology.VendoredOntologyImportRequest{
+		OntologyID:    ontologyID,
+		VersionID:     secondVersionID,
+		VersionString: "2.0",
+		Slug:          slug,
+		Title:         slug,
+		Kind:          "base",
+		Namespace:     namespace,
+		Prefixes:      []string{slug},
+		BaseDir:       rdfDir,
+		Files:         []string{filename},
+	}); err != nil {
+		t.Fatalf("import second version: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = ontologySvc.DeleteVersion(context.Background(), secondVersionID)
+		_ = ontologySvc.DeleteVersion(context.Background(), firstVersionID)
+		_ = ontologySvc.DeleteOntology(context.Background(), ontologyID)
+	})
+
+	active, err := ontologySvc.GetActiveVersion(ctx, ontologyID)
+	if err != nil {
+		t.Fatalf("GetActiveVersion: %v", err)
+	}
+	if active.ID != firstVersionID {
+		t.Fatalf("active version = %s, want %s (first-imported version; second import must not steal activation)", active.ID, firstVersionID)
+	}
+}
