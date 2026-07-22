@@ -78,7 +78,12 @@ func (m *Materializer) hydrateVendoredProjectsAtDepth(ctx context.Context, plan 
 		return fmt.Errorf("hydrate vendored projects: exceeded max recursion depth %d at %s", maxVendoredProjectDepth, plan.ProjectID)
 	}
 
-	for _, dep := range deps {
+	// Collect the vendored parents not already present, keyed by project id.
+	// deps arrives sorted by module path — an arbitrary order relative to
+	// inheritance (DHI sorts before its own parent LA).
+	pendingIdx := map[string]int{}
+	var pendingIDs []string
+	for i, dep := range deps {
 		if dep.Snapshot == nil {
 			continue
 		}
@@ -86,13 +91,27 @@ func (m *Materializer) hydrateVendoredProjectsAtDepth(ctx context.Context, plan 
 		if projectID == "" {
 			return fmt.Errorf("hydrate vendored projects: %s@%s missing project id", dep.Module, dep.Version)
 		}
-
 		if _, err := m.queries.WeaveGetProjectByID(ctx, projectID); err == nil {
 			continue // already present: skip, idempotent
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("hydrate vendored projects: get project %s: %w", projectID, err)
 		}
+		pendingIdx[projectID] = i
+		pendingIDs = append(pendingIDs, projectID)
+	}
 
+	ordered, err := topoOrderVendoredProjects(deps, pendingIdx, pendingIDs)
+	if err != nil {
+		return err
+	}
+
+	// Pass 1: shell + entities for every pending parent, in dependency order.
+	// Overrides are deferred so every vendored field row exists before any
+	// override resolves — a parent's override may reference another vendored
+	// project's field (SRD -> LAF.10) regardless of inheritance order.
+	subPlans := make(map[string]*RestorePlan, len(ordered))
+	for _, projectID := range ordered {
+		dep := deps[pendingIdx[projectID]]
 		subPlan := BuildRestorePlan(dep.Snapshot)
 		if err := m.hydrateVendoredProjectsAtDepth(ctx, subPlan, depth+1); err != nil {
 			return err
@@ -106,10 +125,57 @@ func (m *Materializer) hydrateVendoredProjectsAtDepth(ctx context.Context, plan 
 		if err := m.HydrateProjectEntities(ctx, subPlan); err != nil {
 			return fmt.Errorf("hydrate vendored projects: hydrate entities for %s: %w", projectID, err)
 		}
-		if err := m.HydrateProjectOverridesAndProvenance(ctx, subPlan); err != nil {
+		subPlans[projectID] = subPlan
+	}
+
+	// Pass 2: overrides + provenance, after all vendored entities exist.
+	for _, projectID := range ordered {
+		if err := m.HydrateProjectOverridesAndProvenance(ctx, subPlans[projectID]); err != nil {
 			return fmt.Errorf("hydrate vendored projects: hydrate overrides for %s: %w", projectID, err)
 		}
 	}
 
 	return nil
+}
+
+// topoOrderVendoredProjects orders the pending vendored project ids so a
+// project's own vendored parent hydrates first — HydrateProjectShell writes
+// weave_project_inheritance rows that require the parent project row to
+// exist. Parents outside the pending set (already in the database) impose no
+// ordering. pendingIdx maps a pending project id to its index in deps;
+// pendingIDs preserves deps order as the deterministic traversal seed.
+func topoOrderVendoredProjects(deps []VendoredProjectSnapshot, pendingIdx map[string]int, pendingIDs []string) ([]string, error) {
+	const (
+		visiting = 1
+		done     = 2
+	)
+	state := map[string]int{}
+	ordered := make([]string, 0, len(pendingIDs))
+	var visit func(projectID string) error
+	visit = func(projectID string) error {
+		idx, pending := pendingIdx[projectID]
+		if !pending || state[projectID] == done {
+			return nil
+		}
+		if state[projectID] == visiting {
+			return fmt.Errorf("hydrate vendored projects: inheritance cycle involving %s", projectID)
+		}
+		state[projectID] = visiting
+		if inh := deps[idx].Snapshot.Manifest.Inheritance; inh != nil {
+			for _, parent := range inh.Parents {
+				if err := visit(strings.TrimSpace(parent.ProjectID)); err != nil {
+					return err
+				}
+			}
+		}
+		state[projectID] = done
+		ordered = append(ordered, projectID)
+		return nil
+	}
+	for _, projectID := range pendingIDs {
+		if err := visit(projectID); err != nil {
+			return nil, err
+		}
+	}
+	return ordered, nil
 }

@@ -176,6 +176,15 @@ SELECT * FROM weave_fields
 WHERE (semantic_id = $1 OR system_name = $1 OR id = $1)
   AND project_id = $2;
 
+-- name: WeaveGetFieldByGlobalIdentifier :one
+-- Project-agnostic lookup for identifiers that are globally unique
+-- (semantic_id encodes the owning project prefix; id is a ULID). Used by
+-- restore to resolve a cross-project override reference (e.g. a vendored
+-- parent's override pointing at another vendored project's field). System
+-- names are project-scoped and deliberately excluded.
+SELECT * FROM weave_fields
+WHERE semantic_id = $1 OR id = $1;
+
 -- name: WeaveGetFieldModels :many
 -- Returns models that reference a field via weave_field_overrides
 -- (entity_type='model'). Replaces the legacy model_fields junction.

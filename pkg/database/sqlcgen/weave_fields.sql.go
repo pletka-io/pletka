@@ -299,6 +299,42 @@ func (q *Queries) WeaveFieldUsageModels(ctx context.Context, arg WeaveFieldUsage
 	return items, nil
 }
 
+const weaveGetFieldByGlobalIdentifier = `-- name: WeaveGetFieldByGlobalIdentifier :one
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, ontology_scope, ontology_path, path_elements, expected_value_type, examples, staging_id, deprecated, version_number, subfield_paths FROM weave_fields
+WHERE semantic_id = $1 OR id = $1
+`
+
+// Project-agnostic lookup for identifiers that are globally unique
+// (semantic_id encodes the owning project prefix; id is a ULID). Used by
+// restore to resolve a cross-project override reference (e.g. a vendored
+// parent's override pointing at another vendored project's field). System
+// names are project-scoped and deliberately excluded.
+func (q *Queries) WeaveGetFieldByGlobalIdentifier(ctx context.Context, semanticID *string) (WeaveField, error) {
+	row := q.db.QueryRow(ctx, weaveGetFieldByGlobalIdentifier, semanticID)
+	var i WeaveField
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SemanticID,
+		&i.SystemName,
+		&i.UiName,
+		&i.Description,
+		&i.Status,
+		&i.ProjectID,
+		&i.OntologyScope,
+		&i.OntologyPath,
+		&i.PathElements,
+		&i.ExpectedValueType,
+		&i.Examples,
+		&i.StagingID,
+		&i.Deprecated,
+		&i.VersionNumber,
+		&i.SubfieldPaths,
+	)
+	return i, err
+}
+
 const weaveGetFieldByID = `-- name: WeaveGetFieldByID :one
 SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, ontology_scope, ontology_path, path_elements, expected_value_type, examples, staging_id, deprecated, version_number, subfield_paths FROM weave_fields WHERE id = $1
 `

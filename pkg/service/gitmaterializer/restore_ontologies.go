@@ -80,6 +80,8 @@ func (m *Materializer) hydrateVendoredOntologies(ctx context.Context, plan *Rest
 		}
 	}
 
+	externalBindings = poolVendoredOntologyBindings(externalBindings, ontologies)
+
 	for _, dep := range ontologies {
 		if dep.Snapshot == nil {
 			continue
@@ -106,4 +108,38 @@ func (m *Materializer) hydrateVendoredOntologies(ctx context.Context, plan *Rest
 	}
 
 	return nil
+}
+
+// poolVendoredOntologyBindings appends every vendored ontology's own
+// namespace and recorded aliases to the effective bindings, each bound to
+// that ontology's prefix. The effective bindings keep one namespace per
+// prefix, but a vendored RDF may use a drift variant of its own or a sibling
+// ontology's namespace (crmgeo's ics.forth.gr base vs the bound dlnarratives
+// URI) — the vendor manifests carry those variants, so pooling them keeps
+// restore resolvable from the git snapshot alone.
+func poolVendoredOntologyBindings(effective []VendoredOntologyExternalBinding, ontologies []VendoredOntologySnapshot) []VendoredOntologyExternalBinding {
+	pooled := effective
+	for _, dep := range ontologies {
+		if dep.Snapshot == nil {
+			continue
+		}
+		root := dep.Snapshot.Manifest.Ontology
+		prefix := strings.TrimSpace(root.Slug)
+		if len(root.Prefixes) > 0 && strings.TrimSpace(root.Prefixes[0]) != "" {
+			prefix = strings.TrimSpace(root.Prefixes[0])
+		}
+		if prefix == "" {
+			continue
+		}
+		for _, ns := range append([]string{root.Namespace}, root.NamespaceAliases...) {
+			if strings.TrimSpace(ns) == "" {
+				continue
+			}
+			pooled = append(pooled, VendoredOntologyExternalBinding{
+				Prefix:    prefix,
+				Namespace: ns,
+			})
+		}
+	}
+	return pooled
 }

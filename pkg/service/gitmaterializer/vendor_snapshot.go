@@ -194,8 +194,15 @@ type ontologyVendorManifestRoot struct {
 	Title      string   `json:"title,omitempty"`
 	Kind       string   `json:"kind,omitempty"`
 	Namespace  string   `json:"namespace,omitempty"`
-	Prefixes   []string `json:"prefixes,omitempty"`
-	SourceURL  string   `json:"source_url,omitempty"`
+	// NamespaceAliases lists every additional namespace URI the prefix is
+	// globally bound to — the URI variants this ontology's serializations
+	// answer to beyond the canonical Namespace (e.g. crmgeo's
+	// ics.forth.gr base alongside the registry namespace). Restore binds
+	// the prefix to each alias so a vendored RDF that uses a variant URI
+	// still resolves from the git snapshot alone.
+	NamespaceAliases []string `json:"namespace_aliases,omitempty"`
+	Prefixes         []string `json:"prefixes,omitempty"`
+	SourceURL        string   `json:"source_url,omitempty"`
 }
 
 type ontologyVendorSources struct {
@@ -222,19 +229,25 @@ func (m *Materializer) writeVendoredOntology(ctx context.Context, workDir string
 	}
 	sourceFiles = append(sourceFiles, rel)
 
+	aliases, err := m.vendoredNamespaceAliases(ctx, ontology.Prefix, ontology.Namespace)
+	if err != nil {
+		return err
+	}
+
 	manifest := ontologyVendorManifest{
 		SchemaVersion: 1,
 		Ontology: ontologyVendorManifestRoot{
-			Module:     m.ontologyModulePath(moduleSlug),
-			OntologyID: ontology.ID,
-			VersionID:  version.ID,
-			Version:    version.VersionString,
-			Slug:       moduleSlug,
-			Title:      ontology.Name,
-			Kind:       ontology.OntologyType,
-			Namespace:  ontology.Namespace,
-			Prefixes:   compactStrings([]string{ontology.Prefix}),
-			SourceURL:  derefStr(ontology.SourceUrl),
+			Module:           m.ontologyModulePath(moduleSlug),
+			OntologyID:       ontology.ID,
+			VersionID:        version.ID,
+			Version:          version.VersionString,
+			Slug:             moduleSlug,
+			Title:            ontology.Name,
+			Kind:             ontology.OntologyType,
+			Namespace:        ontology.Namespace,
+			NamespaceAliases: aliases,
+			Prefixes:         compactStrings([]string{ontology.Prefix}),
+			SourceURL:        derefStr(ontology.SourceUrl),
 		},
 		Imports: append([]string(nil), version.ImportedOntologies...),
 	}
@@ -247,6 +260,40 @@ func (m *Materializer) writeVendoredOntology(ctx context.Context, workDir string
 		return err
 	}
 	return writeEntityFile(workDir, "ontology.yaml", payload)
+}
+
+// vendoredNamespaceAliases returns every additional namespace URI the prefix
+// is globally bound to beyond canonical — the drift variants a version's
+// serialization may use (weave_namespace_bindings keeps one row per URI per
+// prefix, e.g. crmgeo → ics.forth.gr + dlnarratives + registry namespace).
+func (m *Materializer) vendoredNamespaceAliases(ctx context.Context, prefix, canonical string) ([]string, error) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return nil, nil
+	}
+	rows, err := m.queries.WeaveListGlobalNamespaceBindings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list namespace bindings for vendored ontology aliases: %w", err)
+	}
+	return namespaceAliasesFromBindings(rows, prefix, canonical), nil
+}
+
+// namespaceAliasesFromBindings filters the global binding rows down to the
+// distinct non-canonical namespaces bound to prefix, sorted for stable
+// manifest output.
+func namespaceAliasesFromBindings(rows []sqlcgen.WeaveNamespaceBinding, prefix, canonical string) []string {
+	seen := map[string]bool{canonical: true}
+	var aliases []string
+	for _, row := range rows {
+		ns := strings.TrimSpace(row.Namespace)
+		if row.Prefix != prefix || ns == "" || seen[ns] {
+			continue
+		}
+		seen[ns] = true
+		aliases = append(aliases, ns)
+	}
+	sort.Strings(aliases)
+	return aliases
 }
 
 func encodeOntologyVendorManifest(manifest ontologyVendorManifest) ([]byte, error) {

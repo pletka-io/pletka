@@ -285,13 +285,24 @@ func resolveFieldIdentifier(ctx context.Context, q *sqlcgen.Queries, projectID, 
 		SemanticID: nullableString(identifier),
 		ProjectID:  projectID,
 	})
+	if err == nil {
+		return row.ID, nil
+	}
+	if err != pgx.ErrNoRows {
+		return "", fmt.Errorf("get field %s: %w", identifier, err)
+	}
+	// Not in the referencing project: a vendored parent's override can point
+	// at another project's field (SRD -> LAF.10). Semantic ids and ULIDs are
+	// globally unique, so fall back to a project-agnostic lookup; project-
+	// scoped system names stay excluded to avoid ambiguous matches.
+	global, err := q.WeaveGetFieldByGlobalIdentifier(ctx, nullableString(identifier))
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return "", fmt.Errorf("field %s not found", identifier)
 		}
 		return "", fmt.Errorf("get field %s: %w", identifier, err)
 	}
-	return row.ID, nil
+	return global.ID, nil
 }
 
 // resolveCategoryIdentifier re-resolves a category reference captured in a
