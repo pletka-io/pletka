@@ -3,15 +3,25 @@ package gitmaterializer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
 )
+
+// defaultsOntologyPrefix is the well-known prefix of the implicit defaults
+// ontology (standard-vocabulary terms: rdfs:Literal, skos:Concept, xsd
+// datatypes). No project ever links it directly, so it never appears in
+// ontologyReqs — it is vendored unconditionally whenever any other ontology
+// is, since a restored database needs it for path audits and qname joins.
+const defaultsOntologyPrefix = "defaults"
 
 type InitProjectOptions struct {
 	SelfContained bool
@@ -135,38 +145,92 @@ func (m *Materializer) vendorDependenciesForProject(ctx context.Context, rootDir
 		return nil, fmt.Errorf("load vendored ontology requirements for %s@%s: %w", projectID, strings.TrimSpace(version), err)
 	}
 	for _, req := range ontologyReqs {
-		key := req.OntologyVersionID
-		if key == "" {
-			key = req.Module + "@" + req.Version
-		}
-		if state.ontologies[key] {
-			continue
-		}
-		state.ontologies[key] = true
-		version, err := m.queries.WeaveGetOntologyVersionByID(ctx, req.OntologyVersionID)
+		entry, err := m.vendorOntologyVersion(ctx, rootDir, req.Module, req.OntologyVersionID, req.Version, state)
 		if err != nil {
-			return nil, fmt.Errorf("get vendored ontology version %s: %w", req.OntologyVersionID, err)
-		}
-		ontology, err := m.queries.WeaveGetOntologyByID(ctx, version.OntologyID)
-		if err != nil {
-			return nil, fmt.Errorf("get vendored ontology %s: %w", version.OntologyID, err)
-		}
-		vendorDir := filepath.Join(rootDir, "vendor", "ontologies", filepath.FromSlash(req.Module), vendorVersionDir(version.VersionString, version.ID))
-		if err := m.writeVendoredOntology(ctx, vendorDir, ontology, version); err != nil {
 			return nil, err
 		}
-		treeHash, err := hashDirectoryTree(vendorDir)
-		if err != nil {
-			return nil, fmt.Errorf("hash vendored ontology %s@%s: %w", req.Module, req.Version, err)
+		if entry != nil {
+			entries = append(entries, *entry)
 		}
-		entries = append(entries, pletkaSumEntry{
-			Module:  req.Module,
-			Version: req.Version,
-			TreeSHA: treeHash,
-		})
+	}
+
+	// Any snapshot that vendors ontologies also vendors the defaults
+	// ontology: standard-vocabulary terms (rdfs:Literal, skos:Concept, xsd
+	// datatypes) are first-class rows a restored database needs for path
+	// audits and qname joins, but no project links the defaults ontology
+	// directly — it is an implicit ontology-level dependency.
+	if len(ontologyReqs) > 0 {
+		defaultsEntry, err := m.vendorDefaultsOntology(ctx, rootDir, state)
+		if err != nil {
+			return nil, err
+		}
+		if defaultsEntry != nil {
+			entries = append(entries, *defaultsEntry)
+		}
 	}
 
 	return entries, nil
+}
+
+// vendorOntologyVersion writes one ontology version into the vendor tree
+// (version lookup -> writeVendoredOntology -> hash -> pletkaSumEntry),
+// de-duplicating against state.ontologies. Returns a nil entry (and nil
+// error) when the version was already vendored by an earlier call for the
+// same snapshot — this is a normal skip, not a failure.
+func (m *Materializer) vendorOntologyVersion(ctx context.Context, rootDir, module, versionID, versionLabel string, state *vendorState) (*pletkaSumEntry, error) {
+	key := versionID
+	if key == "" {
+		key = module + "@" + versionLabel
+	}
+	if state.ontologies[key] {
+		return nil, nil
+	}
+	state.ontologies[key] = true
+
+	version, err := m.queries.WeaveGetOntologyVersionByID(ctx, versionID)
+	if err != nil {
+		return nil, fmt.Errorf("get vendored ontology version %s: %w", versionID, err)
+	}
+	ontology, err := m.queries.WeaveGetOntologyByID(ctx, version.OntologyID)
+	if err != nil {
+		return nil, fmt.Errorf("get vendored ontology %s: %w", version.OntologyID, err)
+	}
+	vendorDir := filepath.Join(rootDir, "vendor", "ontologies", filepath.FromSlash(module), vendorVersionDir(version.VersionString, version.ID))
+	if err := m.writeVendoredOntology(ctx, vendorDir, ontology, version); err != nil {
+		return nil, err
+	}
+	treeHash, err := hashDirectoryTree(vendorDir)
+	if err != nil {
+		return nil, fmt.Errorf("hash vendored ontology %s@%s: %w", module, versionLabel, err)
+	}
+	return &pletkaSumEntry{
+		Module:  module,
+		Version: versionLabel,
+		TreeSHA: treeHash,
+	}, nil
+}
+
+// vendorDefaultsOntology vendors the active version of the defaults
+// ontology when one exists. A database without a defaults ontology vendors
+// nothing — older deployments, and any DB predating the defaults ontology's
+// introduction, stay snapshot-compatible.
+func (m *Materializer) vendorDefaultsOntology(ctx context.Context, rootDir string, state *vendorState) (*pletkaSumEntry, error) {
+	ontology, err := m.queries.WeaveGetOntologyByPrefix(ctx, defaultsOntologyPrefix)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("look up defaults ontology: %w", err)
+	}
+	version, err := m.queries.WeaveGetActiveOntologyVersion(ctx, ontology.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("look up defaults ontology active version: %w", err)
+	}
+	module := m.ontologyModulePath(ontologyModuleSlug(ontology.Prefix, ontology.Name, ontology.ID))
+	return m.vendorOntologyVersion(ctx, rootDir, module, version.ID, version.VersionString, state)
 }
 
 func vendoredProjectDir(rootDir string, req pletkaProjectRequirement) string {
