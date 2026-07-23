@@ -25,10 +25,17 @@ func (s *postgresStore) DeleteBlockers(ctx context.Context, id string) (DeleteBl
 		     FROM weave_override_refs r
 		     JOIN weave_field_overrides fo ON r.override_id = fo.id
 		     JOIN weave_fields f ON fo.field_id = f.id
-		    WHERE f.project_id <> $1
-		      AND (r.target_id IN (SELECT semantic_id FROM weave_fields WHERE project_id = $1 AND semantic_id IS NOT NULL)
+		    WHERE (r.target_id IN (SELECT semantic_id FROM weave_fields WHERE project_id = $1 AND semantic_id IS NOT NULL)
 		        OR r.target_id IN (SELECT id FROM weave_models WHERE project_id = $1)
-		        OR r.target_id IN (SELECT id FROM weave_collections WHERE project_id = $1)))
+		        OR r.target_id IN (SELECT id FROM weave_collections WHERE project_id = $1))
+		      -- A ref is external only when the OVERRIDE ROW itself belongs to
+		      -- another project. Ownership follows the container for scoped
+		      -- rows (a child project placing an ADOPTED foreign field in its
+		      -- own model owns that row) and the field for base rows.
+		      AND NOT (
+		        fo.entity_id IN (SELECT id FROM weave_models WHERE project_id = $1)
+		        OR fo.entity_id IN (SELECT id FROM weave_collections WHERE project_id = $1)
+		        OR (fo.entity_type = '' AND f.project_id = $1)))
 	`, id)
 	if err := row.Scan(&b.Children, &b.AdoptionsElsewhere, &b.ExternalPlacements, &b.ExternalValueRefs); err != nil {
 		return DeleteBlockers{}, fmt.Errorf("count delete blockers for %s: %w", id, err)

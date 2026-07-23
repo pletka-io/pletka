@@ -81,12 +81,25 @@ func TestDeleteProject_GuardsAndCascade(t *testing.T) {
 	mustExec(`INSERT INTO weave_memberships (actor_id, scope_type, scope_id, role, created_at)
 	          VALUES ('ZDEL_OWNER','project',$1,'owner',NOW())`, pid)
 
+	// Regression (vessy/TPV false positive): an override row in the
+	// project's OWN container holding an ADOPTED foreign field, with a
+	// value ref targeting the project's own model, is INTERNAL — ref
+	// ownership follows the container, not the field. Must not block.
+	mustExec(`INSERT INTO weave_field_overrides (field_id, entity_type, entity_id, project_id, created_at, updated_at)
+	          SELECT f.id, 'model', 'ZDELM.1', $1, NOW(), NOW()
+	          FROM weave_fields f WHERE f.project_id = $2 AND f.semantic_id IS NOT NULL LIMIT 1`, pid, testdb.FixtureParent)
+	mustExec(`INSERT INTO weave_override_refs (override_id, ref_type, target_id, semantic_id, position)
+	          SELECT fo.id, 'resource_model', 'ZDELM.1', 'ZDELM.1', 0
+	          FROM weave_field_overrides fo
+	          JOIN weave_fields f ON fo.field_id = f.id
+	          WHERE fo.entity_id = 'ZDELM.1' AND f.project_id = $1`, testdb.FixtureParent)
+
 	blockers, err = store.DeleteBlockers(ctx, pid)
 	if err != nil {
 		t.Fatalf("DeleteBlockers(%s): %v", pid, err)
 	}
 	if blockers.Blocked() {
-		t.Fatalf("synthetic project unexpectedly blocked: %+v", blockers)
+		t.Fatalf("adopted-field ref in own container wrongly blocks: %+v", blockers)
 	}
 
 	before := countProjects(ctx, t, pool)
@@ -94,7 +107,7 @@ func TestDeleteProject_GuardsAndCascade(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeleteProject(%s): %v", pid, err)
 	}
-	if !stats.ProjectDeleted || stats.Fields != 1 || stats.Models != 1 || stats.Categories != 1 || stats.Overrides != 1 {
+	if !stats.ProjectDeleted || stats.Fields != 1 || stats.Models != 1 || stats.Categories != 1 || stats.Overrides != 2 {
 		t.Fatalf("unexpected delete stats: %+v", stats)
 	}
 
