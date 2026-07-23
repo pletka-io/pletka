@@ -3,9 +3,11 @@ package settings
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
@@ -34,6 +36,17 @@ func (s *postgresStore) ReleaseVersions(ctx context.Context, projectID string) (
 		out = append(out, strings.TrimSpace(version))
 	}
 	return out, nil
+}
+
+func (s *postgresStore) ReleaseArchived(ctx context.Context, projectID, version string) (bool, error) {
+	archived, err := s.queries.WeaveIsReleaseArchived(ctx, sqlcgen.WeaveIsReleaseArchivedParams{ProjectID: projectID, Version: version})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check release archived: %w", err)
+	}
+	return archived, nil
 }
 
 func (s *postgresStore) VocabularySettingsState(ctx context.Context, projectID string) (VocabularySettingsState, error) {

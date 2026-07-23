@@ -179,6 +179,24 @@ func (q *Queries) WeaveGetProjectParentID(ctx context.Context, id string) (*stri
 	return parent_project_id, err
 }
 
+const weaveIsReleaseArchived = `-- name: WeaveIsReleaseArchived :one
+SELECT (archived_at IS NOT NULL)::bool
+FROM weave_releases
+WHERE project_id = $1 AND version = $2
+`
+
+type WeaveIsReleaseArchivedParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+func (q *Queries) WeaveIsReleaseArchived(ctx context.Context, arg WeaveIsReleaseArchivedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, weaveIsReleaseArchived, arg.ProjectID, arg.Version)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const weaveListChildProjects = `-- name: WeaveListChildProjects :many
 SELECT id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave FROM weave_projects
 WHERE parent_project_id = $1
@@ -230,7 +248,7 @@ func (q *Queries) WeaveListChildProjects(ctx context.Context, parentProjectID *s
 const weaveListProjectReleaseVersions = `-- name: WeaveListProjectReleaseVersions :many
 SELECT version
 FROM weave_releases
-WHERE project_id = $1
+WHERE project_id = $1 AND archived_at IS NULL
 ORDER BY created_at DESC, version DESC
 `
 

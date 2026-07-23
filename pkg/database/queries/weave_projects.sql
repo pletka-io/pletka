@@ -37,8 +37,13 @@ WHERE id = $1;
 -- name: WeaveListProjectReleaseVersions :many
 SELECT version
 FROM weave_releases
-WHERE project_id = $1
+WHERE project_id = $1 AND archived_at IS NULL
 ORDER BY created_at DESC, version DESC;
+
+-- name: WeaveIsReleaseArchived :one
+SELECT (archived_at IS NOT NULL)::bool
+FROM weave_releases
+WHERE project_id = $1 AND version = $2;
 
 -- name: WeaveDeleteProject :exec
 DELETE FROM weave_projects WHERE id = $1;

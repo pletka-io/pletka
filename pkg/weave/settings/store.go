@@ -24,6 +24,7 @@ type VocabularySettingsState struct {
 
 type Store interface {
 	ReleaseVersions(ctx context.Context, projectID string) ([]string, error)
+	ReleaseArchived(ctx context.Context, projectID, version string) (bool, error)
 	VocabularySettingsState(ctx context.Context, projectID string) (VocabularySettingsState, error)
 	GlobalVocabularyIDs(ctx context.Context) (map[string]bool, error)
 	UpdateVocabularySettings(ctx context.Context, projectID string, vocabularyIDs []string, enforceConceptLists bool) error

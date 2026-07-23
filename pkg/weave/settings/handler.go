@@ -1062,7 +1062,16 @@ func (h *Handler) validateInheritanceSource(ctx context.Context, parentProjectID
 			}
 		}
 		if !found {
-			errs["source_version"] = []string{"selected parent release does not exist"}
+			archived, aerr := h.store.ReleaseArchived(ctx, parentProjectID, sourceVersion)
+			if aerr != nil {
+				h.log.Error("check archived parent release", "parent_id", parentProjectID, "err", aerr)
+				return map[string][]string{"source_version": {"failed to load parent releases"}}
+			}
+			if archived {
+				errs["source_version"] = []string{"selected parent release is archived and can no longer be pinned"}
+			} else {
+				errs["source_version"] = []string{"selected parent release does not exist"}
+			}
 		}
 	}
 	return errs
