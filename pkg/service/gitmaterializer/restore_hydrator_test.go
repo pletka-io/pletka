@@ -19,13 +19,18 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// fixtureAdoptionSourceProject is the id of testdb.FixtureParent ("FXPARENT"),
-// a synthetic project hydrated into every clone. Adoption/fork receipts store a
-// source_project_id that FK-references weave_projects, so the source must be a
-// project that exists in the clone. This internal test package cannot import
-// internal/testdb (testdb imports gitmaterializer — the import would cycle), so
-// the fixture id is inlined here rather than referenced as testdb.FixtureParent.
-const fixtureAdoptionSourceProject = "FXPARENT"
+// fixtureAdoptionSourceProject is the id of testdb.FixtureParent ("LA", Living
+// Archives), a real project hydrated into every clone. Adoption/fork receipts
+// store a source_project_id that FK-references weave_projects
+// (weave_adoptions_source_project_id_fkey / the forks equivalent), so the
+// source must be a project that exists in the clone — LA qualifies since
+// testdb.Setup hydrates it into the template. This internal test package
+// cannot import internal/testdb (testdb imports gitmaterializer — the import
+// would cycle), so the fixture id is inlined here rather than referenced as
+// testdb.FixtureParent. There is no FK on source_entity_id, so the adopted
+// LAM.13/LAC.4 ids below need not exist as real rows in LA — only the LA
+// project itself must exist.
+const fixtureAdoptionSourceProject = "LA"
 
 // hydrateTestPool serves the per-package clone provisioned by TestMain
 // (internal/testdb.Setup) via TEST_DATABASE_URL. This package's internal test

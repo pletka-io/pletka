@@ -24,8 +24,9 @@ func TestBundleForVersions_SmokesAgainstDB(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 
-	// FixtureChild inherits FixtureParent (see test/fixturegen); the parent
-	// links an extra ontology version 2.0 the child does not link directly.
+	// FixtureChild (ING) inherits FixtureParent (LA, see
+	// internal/testdb/fixtures.go); the parent links an extra ontology
+	// version 2.0 the child does not link directly.
 	projectID := testdb.FixtureChild
 
 	store := projectontologyversion.NewPostgresStore(pool)

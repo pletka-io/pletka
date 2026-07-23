@@ -29,12 +29,16 @@ import (
 //	GET fields list     -> real HTTP -> field service -> DB read (200 + fixture field)
 //	GET field turtle     -> real HTTP -> generator service -> RDF export (200 + crm qname)
 //
-// The clone already contains FixtureSingle (project FXSINGLE, a linked crm
-// ontology, and three crm: fields), so no ontology import happens mid-test —
-// the flow operates against the seeded fixture. It is intentionally a READ +
-// EXPORT flow: a write would require assembling a valid ontology-path payload,
-// which is disproportionate for a starter net. The path is still a full
-// HTTP -> service -> DB -> generator roundtrip.
+// The clone already contains testdb.FixtureParent (project LA, "Living
+// Archives" — a real, self-contained fixture with no inheritance parents of
+// its own, linked to the vendored CIDOC-CRM ontology and hundreds of crm:
+// fields), so no ontology import happens mid-test — the flow operates
+// against the seeded fixture. It is intentionally a READ + EXPORT flow: a
+// write would require assembling a valid ontology-path payload, which is
+// disproportionate for a starter net. The path is still a full
+// HTTP -> service -> DB -> generator roundtrip. LA is used rather than the
+// larger AME fixture since this test only needs one project with one
+// crm-scoped field, not AME's cross-ontology/vendored-parent breadth.
 func TestRoundtripReadAndExport(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
@@ -96,12 +100,15 @@ func TestRoundtripReadAndExport(t *testing.T) {
 	// Read back the ULID the generator route needs. The /gen/fields/{id} route
 	// resolves fields by primary key (ULID), which the HTTP surface never
 	// exposes for a fixture semantic id, so this one read is out-of-band.
-	fieldULID := fieldULIDBySemanticID(t, pool, "FXSINGLE", "FXSINGLEF.1")
+	fieldULID := fieldULIDBySemanticID(t, pool, "LA", "LAF.230")
 
 	// --- Stage 1 (READ): list the project's fields over HTTP. Real path is
 	// HTTP -> field slice handler -> field service -> Postgres clone.
 	t.Run("read fields list", func(t *testing.T) {
-		resp, err := client.Get(srv.URL + "/projects/FXSINGLE/fields/")
+		// LA has 600+ fields and the list endpoint paginates (default 50/page),
+		// so search for the target field by name rather than relying on it
+		// landing on an unfiltered first page.
+		resp, err := client.Get(srv.URL + "/projects/LA/fields/?search=gender")
 		if err != nil {
 			t.Fatalf("list fields request: %v", err)
 		}
@@ -110,12 +117,12 @@ func TestRoundtripReadAndExport(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("list fields: got %d, want 200; body=%s", resp.StatusCode, truncate(body))
 		}
-		// The seeded fixture field FXSINGLEF.1 has system_name "actor_name" —
-		// its presence proves the DB read returned the hydrated fixture data.
-		if !bytes.Contains(body, []byte("actor_name")) {
-			t.Fatalf("list fields: response missing fixture field %q; body=%s", "actor_name", truncate(body))
+		// The seeded fixture field LAF.230 has system_name "gender" — its
+		// presence proves the DB read returned the hydrated fixture data.
+		if !bytes.Contains(body, []byte("gender")) {
+			t.Fatalf("list fields: response missing fixture field %q; body=%s", "gender", truncate(body))
 		}
-		t.Logf("stage read: 200 OK, fields list includes fixture field actor_name")
+		t.Logf("stage read: 200 OK, fields list includes fixture field gender")
 	})
 
 	// --- Stage 2 (EXPORT): request a turtle RDF export of the field. Real path

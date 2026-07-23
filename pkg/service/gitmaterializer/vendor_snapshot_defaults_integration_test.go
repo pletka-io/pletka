@@ -5,15 +5,42 @@ package gitmaterializer_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/service/gitmaterializer"
 	weaveontology "github.com/pletka-io/pletka/pkg/weave/ontology"
 )
+
+// moduleSlugForOntology mirrors gitmaterializer's unexported
+// ontologyModuleSlug (pletka_mod.go). Duplicated here because this file is in
+// the external gitmaterializer_test package: it needs the same slug the
+// vendor path derives, to locate the vendored directory of whichever
+// ontology currently carries the "defaults" prefix, without asserting
+// against a specific ontology name/title.
+func moduleSlugForOntology(prefix, name, fallback string) string {
+	name = strings.TrimSpace(strings.ToLower(name))
+	if name != "" {
+		replacer := strings.NewReplacer(" ", "-", "_", "-", "/", "-", "\\", "-", ".", "-", ":", "-")
+		name = replacer.Replace(name)
+		name = strings.Trim(name, "-")
+		if name != "" {
+			return name
+		}
+	}
+	prefix = strings.TrimSpace(prefix)
+	if prefix != "" {
+		return prefix
+	}
+	return strings.TrimSpace(fallback)
+}
 
 // writeTinyOntologyFixture writes a minimal valid RDFS/OWL document under a
 // given namespace, just enough for the ontology import pipeline to parse
@@ -82,6 +109,17 @@ func importTinyOntology(t *testing.T, ctx context.Context, ontologySvc *weaveont
 // vendor/ontologies/<defaults-module>/ alongside the linked ontology. Given a
 // DB with NO defaults ontology, vendoring must succeed unchanged (backward
 // compatible).
+//
+// The real-fixture template (internal/testdb.Setup) now always hydrates a
+// real "defaults" ontology (prefix "defaults", module w3c-defaults — see
+// test/fixtures/*/vendor/ontologies/ontology.pletka.io/w3c-defaults) into
+// every clone, since it is a genuine dependency of the AME/LA/ING fixtures.
+// "defaults" is globally unique (weave_ontologies_prefix_key), so the first
+// subtest below exercises that real ontology instead of seeding a synthetic
+// one under the same prefix (which would collide). The second subtest, which
+// needs a true no-defaults DB to exercise the backward-compatible path,
+// deletes the real defaults ontology from this package's own disposable
+// clone first — see the comment there for why that is safe.
 func TestVendorSnapshotIncludesDefaultsOntology(t *testing.T) {
 	ctx := context.Background()
 
@@ -94,24 +132,18 @@ func TestVendorSnapshotIncludesDefaultsOntology(t *testing.T) {
 			projectID = "DEFAULTS_VENDOR_PROJECT_A"
 		)
 
-		var ordinaryOntologyID, ordinaryVersionID, defaultsOntologyID, defaultsVersionID string
+		var ordinaryOntologyID, ordinaryVersionID string
 
 		cleanup := func() {
 			_, _ = pool.Exec(ctx, `DELETE FROM weave_project_ontology_versions WHERE project_id = $1`, projectID)
 			_, _ = pool.Exec(ctx, `DELETE FROM weave_projects WHERE id = $1`, projectID)
-			for _, versionID := range []string{ordinaryVersionID, defaultsVersionID} {
-				if versionID == "" {
-					continue
-				}
-				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_relations r USING weave_ontology_classes c WHERE r.source_id = c.id AND c.ontology_version_id = $1`, versionID)
-				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_classes WHERE ontology_version_id = $1`, versionID)
-				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_versions WHERE id = $1`, versionID)
+			if ordinaryVersionID != "" {
+				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_relations r USING weave_ontology_classes c WHERE r.source_id = c.id AND c.ontology_version_id = $1`, ordinaryVersionID)
+				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_classes WHERE ontology_version_id = $1`, ordinaryVersionID)
+				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_versions WHERE id = $1`, ordinaryVersionID)
 			}
-			for _, ontologyID := range []string{ordinaryOntologyID, defaultsOntologyID} {
-				if ontologyID == "" {
-					continue
-				}
-				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontologies WHERE id = $1`, ontologyID)
+			if ordinaryOntologyID != "" {
+				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontologies WHERE id = $1`, ordinaryOntologyID)
 			}
 			_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id = $1`, ownerID)
 		}
@@ -132,7 +164,18 @@ func TestVendorSnapshotIncludesDefaultsOntology(t *testing.T) {
 		ontologySvc := weaveontology.NewService(ontologyStore, nil, nil)
 
 		ordinaryOntologyID, ordinaryVersionID = importTinyOntology(t, ctx, ontologySvc, "dvsa-ordinary", "https://example.org/dvsa-ordinary/", "Thing", true)
-		defaultsOntologyID, defaultsVersionID = importTinyOntology(t, ctx, ontologySvc, "defaults", "https://example.org/defaults/", "Literal", true)
+
+		// The template clone already carries a real "defaults" ontology (see
+		// the TestVendorSnapshotIncludesDefaultsOntology doc comment) — use
+		// it rather than seeding a synthetic one under the same prefix.
+		defaultsOntology, err := queries.WeaveGetOntologyByPrefix(ctx, "defaults")
+		if err != nil {
+			t.Fatalf("expected template clone to carry a real defaults ontology: %v", err)
+		}
+		defaultsVersion, err := queries.WeaveGetActiveOntologyVersion(ctx, defaultsOntology.ID)
+		if err != nil {
+			t.Fatalf("expected real defaults ontology to have an active version: %v", err)
+		}
 
 		uiName, _ := json.Marshal(map[string]string{"en": "Defaults Vendor Project"})
 		description, _ := json.Marshal(map[string]string{"en": "Project for TestVendorSnapshotIncludesDefaultsOntology"})
@@ -173,7 +216,8 @@ func TestVendorSnapshotIncludesDefaultsOntology(t *testing.T) {
 			t.Fatalf("expected linked ontology vendored at %s, ontology.pletka.io entries: %v (stat err: %v)", ordinaryDir, entries, err)
 		}
 
-		defaultsDir := filepath.Join(rootDir, "vendor", "ontologies", "ontology.pletka.io", "defaults", "1.0")
+		defaultsModule := moduleSlugForOntology(defaultsOntology.Prefix, defaultsOntology.Name, defaultsOntology.ID)
+		defaultsDir := filepath.Join(rootDir, "vendor", "ontologies", "ontology.pletka.io", defaultsModule, defaultsVersion.VersionString)
 		if _, err := os.Stat(defaultsDir); err != nil {
 			entries, _ := os.ReadDir(filepath.Join(rootDir, "vendor", "ontologies", "ontology.pletka.io"))
 			t.Fatalf("expected defaults ontology to be vendored implicitly at %s, ontology.pletka.io entries: %v (stat err: %v)", defaultsDir, entries, err)
@@ -206,10 +250,35 @@ func TestVendorSnapshotIncludesDefaultsOntology(t *testing.T) {
 		}
 		t.Cleanup(func() { cleanup() })
 
-		// Guard: this DB clone must not already carry a "defaults" ontology —
-		// otherwise this subtest wouldn't be exercising the no-defaults path.
-		if _, err := queries.WeaveGetOntologyByPrefix(ctx, "defaults"); err == nil {
-			t.Skip("clone already has a defaults ontology; no-defaults path not exercised here")
+		// The fixture-hydrated template always carries a real "defaults"
+		// ontology now (see the doc comment on the parent test), so exercising
+		// the true no-defaults / backward-compatible path requires removing it
+		// from this package's own clone first. This is safe and isolated:
+		// internal/testdb.Setup cuts one disposable clone per package, and no
+		// other test in this package (pkg/service/gitmaterializer) reads or
+		// depends on the defaults ontology — this subtest's "present" sibling
+		// runs first (t.Run order within the parent Test function) and does
+		// not depend on the defaults ontology surviving into this one.
+		if defaultsOntology, err := queries.WeaveGetOntologyByPrefix(ctx, "defaults"); err == nil {
+			if defaultsVersion, verr := queries.WeaveGetActiveOntologyVersion(ctx, defaultsOntology.ID); verr == nil {
+				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_relations r USING weave_ontology_classes c WHERE r.source_id = c.id AND c.ontology_version_id = $1`, defaultsVersion.ID)
+				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_classes WHERE ontology_version_id = $1`, defaultsVersion.ID)
+			} else if !errors.Is(verr, pgx.ErrNoRows) {
+				t.Fatalf("look up active version of defaults ontology: %v", verr)
+			}
+			if _, err := pool.Exec(ctx, `DELETE FROM weave_ontology_versions WHERE ontology_id = $1`, defaultsOntology.ID); err != nil {
+				t.Fatalf("delete defaults ontology versions: %v", err)
+			}
+			if _, err := pool.Exec(ctx, `DELETE FROM weave_ontologies WHERE id = $1`, defaultsOntology.ID); err != nil {
+				t.Fatalf("delete defaults ontology: %v", err)
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("look up defaults ontology: %v", err)
+		}
+
+		// Guard: confirm the no-defaults path is actually exercised now.
+		if _, err := queries.WeaveGetOntologyByPrefix(ctx, "defaults"); !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("expected defaults ontology removed from this clone, got err=%v", err)
 		}
 
 		if _, err := queries.WeaveCreateActor(ctx, sqlcgen.WeaveCreateActorParams{
