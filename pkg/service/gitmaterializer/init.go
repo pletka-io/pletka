@@ -27,6 +27,13 @@ func (m *Materializer) InitProject(ctx context.Context, projectID string) error 
 
 func (m *Materializer) InitProjectWithOptions(ctx context.Context, projectID string, opts InitProjectOptions) error {
 	workDir := filepath.Join(m.baseDir, projectID)
+	if m.baseDir != "" {
+		unlock, err := acquireProjectLock(m.baseDir, projectID)
+		if err != nil {
+			return fmt.Errorf("acquire project lock %s: %w", projectID, err)
+		}
+		defer unlock()
+	}
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return fmt.Errorf("create work dir: %w", err)
 	}

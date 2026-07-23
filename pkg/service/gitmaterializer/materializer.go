@@ -130,6 +130,12 @@ func (m *Materializer) processChangeSet(ctx context.Context, cs sqlcgen.WeaveCha
 		})
 	}
 
+	unlock, err := acquireProjectLock(m.baseDir, cs.ProjectID)
+	if err != nil {
+		return fmt.Errorf("acquire project lock %s: %w", cs.ProjectID, err)
+	}
+	defer unlock()
+
 	workDir := filepath.Join(m.baseDir, cs.ProjectID)
 	git := newGitRunner(workDir, m.logger)
 
