@@ -1,6 +1,7 @@
 package entityschema
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -337,6 +338,10 @@ func (h *Handler) ProjectModelOptions(w http.ResponseWriter, r *http.Request) {
 			h.logger.Warn("list models for chain segment", "project", projectID, "ancestor", pid, "err", listErr)
 			continue
 		}
+		var sourceLabel string
+		if pid != projectID {
+			sourceLabel = h.projectLabel(ctx, pid)
+		}
 		for _, m := range modelsList {
 			if seen[m.ID] {
 				continue
@@ -345,6 +350,7 @@ func (h *Handler) ProjectModelOptions(w http.ResponseWriter, r *http.Request) {
 			opt := formschema.SelectOption{Value: m.ID, Label: m.UIName, Status: m.Status, SemanticID: m.SemanticID}
 			if pid != projectID {
 				opt.SourceProjectID = pid
+				opt.SourceProjectLabel = sourceLabel
 			}
 			opts = append(opts, opt)
 		}
@@ -376,6 +382,10 @@ func (h *Handler) ProjectCollectionOptions(w http.ResponseWriter, r *http.Reques
 			h.logger.Warn("list collections for chain segment", "project", projectID, "ancestor", pid, "err", listErr)
 			continue
 		}
+		var sourceLabel string
+		if pid != projectID {
+			sourceLabel = h.projectLabel(ctx, pid)
+		}
 		for _, c := range collections {
 			if seen[c.ID] {
 				continue
@@ -384,6 +394,7 @@ func (h *Handler) ProjectCollectionOptions(w http.ResponseWriter, r *http.Reques
 			opt := formschema.SelectOption{Value: c.ID, Label: c.UIName, Status: c.Status, SemanticID: c.SemanticID}
 			if pid != projectID {
 				opt.SourceProjectID = pid
+				opt.SourceProjectLabel = sourceLabel
 			}
 			opts = append(opts, opt)
 		}
@@ -393,6 +404,18 @@ func (h *Handler) ProjectCollectionOptions(w http.ResponseWriter, r *http.Reques
 	if err := json.NewEncoder(w).Encode(opts); err != nil {
 		h.logger.Error("failed to encode collection options response", "err", err)
 	}
+}
+
+// projectLabel resolves the friendly UI name for an ancestor project id,
+// used to give chain-walked picker options a readable provenance label
+// instead of a raw project id. Returns "" if the project cannot be loaded;
+// callers fall back to the id.
+func (h *Handler) projectLabel(ctx context.Context, projectID string) string {
+	project, err := h.weave.Projects().GetByID(ctx, projectID)
+	if err != nil || project == nil {
+		return ""
+	}
+	return project.UIName.Get("en", project.ID)
 }
 
 func (h *Handler) currentLang(r *http.Request) string {

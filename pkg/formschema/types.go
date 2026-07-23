@@ -179,6 +179,12 @@ type SelectOption struct {
 	// option came from. Empty for options that belong to the current
 	// project. Drives an "inherited from X" affordance in the picker.
 	SourceProjectID string `json:"source_project_id,omitempty"`
+	// SourceProjectLabel is the friendly UI name of SourceProjectID's
+	// project, resolved once per ancestor in the chain walk (not per
+	// option). Empty for options that belong to the current project.
+	// The frontend prefers this over SourceProjectID, falling back to
+	// the raw id when a label could not be resolved.
+	SourceProjectLabel string `json:"source_project_label,omitempty"`
 }
 
 // Widget type constants.

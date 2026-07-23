@@ -91,3 +91,118 @@ func TestSidebarCollectionOptions_SemanticIDIsRealID(t *testing.T) {
 		t.Fatalf("collection option for %q not found in %+v", collectionID, opts)
 	}
 }
+
+// TestSidebarModelOptions_CarriesSourceProjectLabel is the regression test
+// for the picker-provenance fix: a model inherited from an ancestor project
+// via the chain walk must carry SourceProjectLabel (the ancestor's friendly
+// UI name) alongside SourceProjectID, so the sidebar model picker can
+// distinguish same-named models across parent projects.
+func TestSidebarModelOptions_CarriesSourceProjectLabel(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := context.Background()
+	parentID := ids.GenerateULID()
+	childID := ids.GenerateULID()
+	modelID := ids.GenerateULID()
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_projects (id, owner_id, ui_name) VALUES ($1, 'fixture-user-owner', $2)`,
+		parentID, []byte(`{"en":"Ancestor Project"}`),
+	); err != nil {
+		t.Fatalf("seed parent project: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_projects (id, owner_id, parent_project_id) VALUES ($1, 'fixture-user-owner', $2)`,
+		childID, parentID,
+	); err != nil {
+		t.Fatalf("seed child project: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_models (id, status, project_id, system_name, ui_name)
+		 VALUES ($1, 'draft', $2, 'ancestor_model', $3)`,
+		modelID, parentID, []byte(`{"en":"Ancestor Model"}`),
+	); err != nil {
+		t.Fatalf("seed model: %v", err)
+	}
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM weave_models WHERE project_id = $1`, parentID)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_projects WHERE id = $1`, childID)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_projects WHERE id = $1`, parentID)
+	})
+
+	h := &Handler{weave: weave.NewPostgresStore(pool)}
+	opts := h.sidebarModelOptions(ctx, childID, "Model")
+
+	var found bool
+	for _, opt := range opts {
+		if opt.Value != modelID {
+			continue
+		}
+		found = true
+		if opt.SourceProjectID != parentID {
+			t.Errorf("SourceProjectID = %q, want %q", opt.SourceProjectID, parentID)
+		}
+		if opt.SourceProjectLabel != "Ancestor Project" {
+			t.Errorf("SourceProjectLabel = %q, want %q", opt.SourceProjectLabel, "Ancestor Project")
+		}
+	}
+	if !found {
+		t.Fatalf("model option for %q not found in %+v", modelID, opts)
+	}
+}
+
+// TestSidebarCollectionOptions_CarriesSourceProjectLabel mirrors
+// TestSidebarModelOptions_CarriesSourceProjectLabel for collections.
+func TestSidebarCollectionOptions_CarriesSourceProjectLabel(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := context.Background()
+	parentID := ids.GenerateULID()
+	childID := ids.GenerateULID()
+	collectionID := ids.GenerateULID()
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_projects (id, owner_id, ui_name) VALUES ($1, 'fixture-user-owner', $2)`,
+		parentID, []byte(`{"en":"Ancestor Project"}`),
+	); err != nil {
+		t.Fatalf("seed parent project: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_projects (id, owner_id, parent_project_id) VALUES ($1, 'fixture-user-owner', $2)`,
+		childID, parentID,
+	); err != nil {
+		t.Fatalf("seed child project: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_collections (id, status, project_id, system_name, ui_name)
+		 VALUES ($1, 'draft', $2, 'ancestor_collection', $3)`,
+		collectionID, parentID, []byte(`{"en":"Ancestor Collection"}`),
+	); err != nil {
+		t.Fatalf("seed collection: %v", err)
+	}
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM weave_collections WHERE project_id = $1`, parentID)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_projects WHERE id = $1`, childID)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_projects WHERE id = $1`, parentID)
+	})
+
+	h := &Handler{weave: weave.NewPostgresStore(pool)}
+	opts := h.sidebarCollectionOptions(ctx, childID, "Collection")
+
+	var found bool
+	for _, opt := range opts {
+		if opt.Value != collectionID {
+			continue
+		}
+		found = true
+		if opt.SourceProjectID != parentID {
+			t.Errorf("SourceProjectID = %q, want %q", opt.SourceProjectID, parentID)
+		}
+		if opt.SourceProjectLabel != "Ancestor Project" {
+			t.Errorf("SourceProjectLabel = %q, want %q", opt.SourceProjectLabel, "Ancestor Project")
+		}
+	}
+	if !found {
+		t.Fatalf("collection option for %q not found in %+v", collectionID, opts)
+	}
+}

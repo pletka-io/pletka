@@ -127,6 +127,10 @@ func (h *Handler) sidebarModelOptions(ctx context.Context, projectID, expectedVa
 		if mErr != nil {
 			continue
 		}
+		var sourceLabel string
+		if pid != projectID {
+			sourceLabel = h.projectLabel(ctx, pid)
+		}
 		for _, model := range models {
 			if seen[model.ID] {
 				continue
@@ -140,6 +144,7 @@ func (h *Handler) sidebarModelOptions(ctx context.Context, projectID, expectedVa
 			}
 			if pid != projectID {
 				opt.SourceProjectID = pid
+				opt.SourceProjectLabel = sourceLabel
 			}
 			out = append(out, opt)
 		}
@@ -162,6 +167,10 @@ func (h *Handler) sidebarCollectionOptions(ctx context.Context, projectID, expec
 		if cErr != nil {
 			continue
 		}
+		var sourceLabel string
+		if pid != projectID {
+			sourceLabel = h.projectLabel(ctx, pid)
+		}
 		for _, collection := range collections {
 			if seen[collection.ID] {
 				continue
@@ -175,6 +184,7 @@ func (h *Handler) sidebarCollectionOptions(ctx context.Context, projectID, expec
 			}
 			if pid != projectID {
 				opt.SourceProjectID = pid
+				opt.SourceProjectLabel = sourceLabel
 			}
 			out = append(out, opt)
 		}
@@ -197,6 +207,10 @@ func (h *Handler) sidebarConceptListOptions(ctx context.Context, projectID, expe
 		if lErr != nil {
 			continue
 		}
+		var sourceLabel string
+		if pid != projectID {
+			sourceLabel = h.projectLabel(ctx, pid)
+		}
 		for _, list := range lists {
 			if seen[list.ID] {
 				continue
@@ -211,9 +225,22 @@ func (h *Handler) sidebarConceptListOptions(ctx context.Context, projectID, expe
 			}
 			if pid != projectID {
 				opt.SourceProjectID = pid
+				opt.SourceProjectLabel = sourceLabel
 			}
 			out = append(out, opt)
 		}
 	}
 	return out
+}
+
+// projectLabel resolves the friendly UI name for an ancestor project id,
+// used to give chain-walked sidebar options a readable provenance label
+// instead of a raw project id. Returns "" if the project cannot be loaded;
+// callers fall back to the id.
+func (h *Handler) projectLabel(ctx context.Context, projectID string) string {
+	project, err := h.weave.Projects().GetByID(ctx, projectID)
+	if err != nil || project == nil {
+		return ""
+	}
+	return project.UIName.Get("en", project.ID)
 }
