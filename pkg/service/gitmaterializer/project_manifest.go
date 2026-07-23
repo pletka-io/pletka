@@ -23,7 +23,12 @@ type projectManifest struct {
 }
 
 type projectManifestProject struct {
-	ID          string              `json:"id"`
+	ID string `json:"id"`
+	// SystemName is the project's snake_case slug. It must round-trip
+	// through the snapshot: pathaudit and other consumers read
+	// weave_projects.system_name, and a restore that leaves it NULL breaks
+	// them on every restored project.
+	SystemName  string              `json:"system_name,omitempty"`
 	Title       domain.Translations `json:"title,omitempty"`
 	Description domain.Translations `json:"description,omitempty"`
 	Readme      domain.Translations `json:"readme,omitempty"`
@@ -112,6 +117,7 @@ func (m *Materializer) loadProjectManifest(ctx context.Context, projectID string
 		SchemaVersion: 1,
 		Project: projectManifestProject{
 			ID:          row.ID,
+			SystemName:  derefStr(row.SystemName),
 			Title:       unmarshalTranslations(row.UiName),
 			Description: unmarshalTranslations(row.Description),
 			Readme:      unmarshalTranslations(row.Readme),

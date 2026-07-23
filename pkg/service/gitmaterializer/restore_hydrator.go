@@ -90,11 +90,12 @@ func (m *Materializer) hydrateProjectManifestTx(ctx context.Context, tx pgx.Tx, 
 			parent_project_id, owner_id, staging_id, visibility, created_by_id,
 			license, readme, topics, base_url, created_at, updated_at
 		) VALUES (
-			$1, NULL, $2, $3, 'draft', $4,
+			$1, $13, $2, $3, 'draft', $4,
 			$5, $6, NULL, $7, $8,
 			$9, $10, $11, $12, NOW(), NOW()
 		)
 		ON CONFLICT (id) DO UPDATE SET
+			system_name = COALESCE(EXCLUDED.system_name, weave_projects.system_name),
 			ui_name = EXCLUDED.ui_name,
 			description = EXCLUDED.description,
 			namespace = EXCLUDED.namespace,
@@ -107,7 +108,7 @@ func (m *Materializer) hydrateProjectManifestTx(ctx context.Context, tx pgx.Tx, 
 			topics = EXCLUDED.topics,
 			base_url = EXCLUDED.base_url,
 			updated_at = NOW()
-	`, projectID, uiName, description, nullableString(project.Namespace), parentProjectID, ownerID, project.Visibility, createdByID, project.License, readme, topics, project.BaseURL)
+	`, projectID, uiName, description, nullableString(project.Namespace), parentProjectID, ownerID, project.Visibility, createdByID, project.License, readme, topics, project.BaseURL, nullableString(project.SystemName))
 	if err != nil {
 		return fmt.Errorf("hydrate project manifest: upsert project %s: %w", projectID, err)
 	}

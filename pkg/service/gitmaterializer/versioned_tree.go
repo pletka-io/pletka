@@ -70,6 +70,7 @@ func (m *Materializer) loadProjectManifestAtVersion(ctx context.Context, project
 		SchemaVersion: 1,
 		Project: projectManifestProject{
 			ID:          row.ID,
+			SystemName:  row.SystemName,
 			Title:       row.UIName,
 			Description: row.Description,
 			Readme:      row.Readme,
@@ -117,6 +118,7 @@ func (m *Materializer) loadProjectManifestAtVersion(ctx context.Context, project
 
 type archivedProjectManifestRow struct {
 	ID          string
+	SystemName  string
 	UIName      domain.Translations
 	Description domain.Translations
 	Readme      domain.Translations
@@ -131,13 +133,13 @@ type archivedProjectManifestRow struct {
 
 func (m *Materializer) loadArchivedProject(ctx context.Context, projectID, version string) (*archivedProjectManifestRow, error) {
 	row := m.pool.QueryRow(ctx, `
-		SELECT id, ui_name, description, readme, COALESCE(namespace, ''), visibility, owner_id, created_by_id, license, base_url, topics
+		SELECT id, COALESCE(system_name, ''), ui_name, description, readme, COALESCE(namespace, ''), visibility, owner_id, created_by_id, license, base_url, topics
 		FROM weave_projects_archive
 		WHERE id = $1 AND version_number = $2
 	`, projectID, version)
 	var out archivedProjectManifestRow
 	var uiName, description, readme []byte
-	if err := row.Scan(&out.ID, &uiName, &description, &readme, &out.Namespace, &out.Visibility, &out.OwnerID, &out.CreatedByID, &out.License, &out.BaseURL, &out.Topics); err != nil {
+	if err := row.Scan(&out.ID, &out.SystemName, &uiName, &description, &readme, &out.Namespace, &out.Visibility, &out.OwnerID, &out.CreatedByID, &out.License, &out.BaseURL, &out.Topics); err != nil {
 		return nil, fmt.Errorf("get archived project %s@%s: %w", projectID, version, err)
 	}
 	out.UIName = unmarshalTranslations(uiName)
