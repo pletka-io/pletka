@@ -1120,6 +1120,20 @@ func (s *postgresStore) ImportVersion(ctx context.Context, in ImportVersionInput
 		return nil, err
 	}
 
+	// Persist companion sources verbatim (the delete above cascaded any
+	// previous rows) so self-contained snapshots can vendor them.
+	for i, companion := range in.CompanionFiles {
+		if err := qtx.WeaveUpsertOntologyVersionCompanion(ctx, sqlcgen.WeaveUpsertOntologyVersionCompanionParams{
+			OntologyVersionID: version.ID,
+			Filename:          companion.Filename,
+			Description:       companion.Description,
+			Content:           companion.Content,
+			Position:          int32(i),
+		}); err != nil {
+			return nil, fmt.Errorf("import companion %s: %w", companion.Filename, err)
+		}
+	}
+
 	// Bulk-insert classes. Versions typically have hundreds-to-thousands
 	// of rows; one INSERT per row stays manageable inside a single tx for
 	// CRM-scale ontologies (5000 classes + properties takes ~1-2s).

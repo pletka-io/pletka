@@ -25,8 +25,15 @@ type VendoredOntologyImportRequest struct {
 	Namespace     string
 	Prefixes      []string
 	BaseDir       string   // directory containing the RDF source files
-	Files         []string // RDF filenames relative to BaseDir (first = primary)
+	Files         []string // RDF filenames relative to BaseDir (sorted; see Primary)
+	Primary       string   // primary RDF filename; empty = Files[0] (legacy manifests)
 	Imports       []string // imported ontology modules (metadata only; not yet persisted)
+
+	// Companions are the non-primary RDF sources (e.g. CIDOC-CRM's PC
+	// module) recorded in the vendor manifest. They are re-imported through
+	// the same companion pipeline the live import uses, so class/property
+	// rows and companion persistence match the source database exactly.
+	Companions []VendoredOntologyCompanion
 
 	// ExternalBindings carries prefix->namespace bindings for namespaces the
 	// RDF references by full URI (e.g. an rdfs:subClassOf pointing at a CRM
@@ -38,12 +45,26 @@ type VendoredOntologyImportRequest struct {
 	ExternalBindings []NamespaceBinding
 }
 
+// VendoredOntologyCompanion is one companion source file listed in a
+// vendored ontology manifest.
+type VendoredOntologyCompanion struct {
+	File        string // relative to BaseDir, like Files entries
+	Description string
+}
+
 // ImportVendoredVersion imports one vendored ontology version snapshot.
 // It is idempotent per req.VersionID and reuses the existing file-based
 // import pipeline (BuildImportVersionInputFromFile +
 // ImportVersionWithOptions) rather than reimplementing RDF parsing.
 func (s *Service) ImportVendoredVersion(ctx context.Context, req VendoredOntologyImportRequest) error {
 	if err := validateVendoredFiles(req.Files); err != nil {
+		return fmt.Errorf("import vendored ontology %s@%s: %w", req.Slug, req.VersionString, err)
+	}
+	companionFiles := make([]string, 0, len(req.Companions))
+	for _, companion := range req.Companions {
+		companionFiles = append(companionFiles, companion.File)
+	}
+	if err := validateVendoredFiles(companionFiles); err != nil {
 		return fmt.Errorf("import vendored ontology %s@%s: %w", req.Slug, req.VersionString, err)
 	}
 
@@ -64,13 +85,26 @@ func (s *Service) ImportVendoredVersion(ctx context.Context, req VendoredOntolog
 		return fmt.Errorf("import vendored ontology %s@%s: no source files", req.Slug, req.VersionString)
 	}
 
+	primary := strings.TrimSpace(req.Primary)
+	if primary == "" {
+		primary = req.Files[0]
+	}
+	companions := make([]ImportCompanionFile, 0, len(req.Companions))
+	for _, companion := range req.Companions {
+		companions = append(companions, ImportCompanionFile{
+			File:        companion.File,
+			Description: companion.Description,
+		})
+	}
+
 	built, err := BuildImportVersionInputFromFile(ImportVersionFileOptions{
 		BaseDir:           req.BaseDir,
-		File:              req.Files[0],
+		File:              primary,
 		Ontology:          ont,
 		VersionID:         req.VersionID,
 		VersionString:     req.VersionString,
 		NamespaceBindings: MergeNamespaceBindings(vendoredNamespaceBindings(req), req.ExternalBindings),
+		Companions:        companions,
 	})
 	if err != nil {
 		return fmt.Errorf("import vendored ontology %s@%s: %w", req.Slug, req.VersionString, err)

@@ -104,3 +104,17 @@ LEFT JOIN weave_project_ontology_versions pov
        ON pov.ontology_version_id = v.id
 WHERE v.ontology_id = $1
 GROUP BY v.id;
+
+-- name: WeaveUpsertOntologyVersionCompanion :exec
+INSERT INTO weave_ontology_version_companions (ontology_version_id, filename, description, content, position)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (ontology_version_id, filename) DO UPDATE SET
+    description = EXCLUDED.description,
+    content = EXCLUDED.content,
+    position = EXCLUDED.position;
+
+-- name: WeaveListOntologyVersionCompanions :many
+SELECT ontology_version_id, filename, description, content, position
+FROM weave_ontology_version_companions
+WHERE ontology_version_id = $1
+ORDER BY position, filename;

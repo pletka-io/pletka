@@ -34,8 +34,17 @@ type importer struct{ svc *weaveontology.Service }
 func (a importer) ImportVendoredOntology(ctx context.Context, imp gitmaterializer.VendoredOntologyImport) error {
 	root := imp.Manifest.Ontology
 	var files []string
+	var primary string
+	var companions []weaveontology.VendoredOntologyCompanion
 	if imp.Manifest.Sources != nil {
 		files = imp.Manifest.Sources.Files
+		primary = imp.Manifest.Sources.Primary
+		for _, companion := range imp.Manifest.Sources.Companions {
+			companions = append(companions, weaveontology.VendoredOntologyCompanion{
+				File:        companion.File,
+				Description: companion.Description,
+			})
+		}
 	}
 	external := make([]weaveontology.NamespaceBinding, 0, len(imp.ExternalBindings))
 	for _, b := range imp.ExternalBindings {
@@ -52,6 +61,8 @@ func (a importer) ImportVendoredOntology(ctx context.Context, imp gitmaterialize
 		Prefixes:         root.Prefixes,
 		BaseDir:          imp.RootDir,
 		Files:            files,
+		Primary:          primary,
+		Companions:       companions,
 		Imports:          imp.Manifest.Imports,
 		ExternalBindings: external,
 	})

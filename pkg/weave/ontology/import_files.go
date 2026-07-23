@@ -54,7 +54,7 @@ func BuildImportVersionInputFromFile(opts ImportVersionFileOptions) (*ImportVers
 	}
 
 	nsBindings := MergeNamespaceBindings(opts.NamespaceBindings, NamespaceBindingsFromDeclarations(pr.DeclaredNamespaces))
-	companionSources, companions, skipped, err := mergeImportCompanions(opts.BaseDir, opts.Companions, pr, opts.SkipMissingCompanions, nsBindings)
+	companionSources, companions, companionFiles, skipped, err := mergeImportCompanions(opts.BaseDir, opts.Companions, pr, opts.SkipMissingCompanions, nsBindings)
 	if err != nil {
 		return nil, err
 	}
@@ -67,6 +67,7 @@ func BuildImportVersionInputFromFile(opts ImportVersionFileOptions) (*ImportVers
 		SetActive:              opts.SetActive,
 		CompanionSources:       companionSources,
 	}, pr, BuildImportNamespaceResolver(nsBindings))
+	input.CompanionFiles = companionFiles
 
 	return &ImportVersionFileResult{
 		Input:             input,
@@ -76,40 +77,55 @@ func BuildImportVersionInputFromFile(opts ImportVersionFileOptions) (*ImportVers
 	}, nil
 }
 
-func mergeImportCompanions(baseDir string, companions []ImportCompanionFile, pr *parsedontology.ParseResult, skipMissing bool, nsBindings []NamespaceBinding) (map[string]string, []ImportCompanionResult, []string, error) {
+func mergeImportCompanions(baseDir string, companions []ImportCompanionFile, pr *parsedontology.ParseResult, skipMissing bool, nsBindings []NamespaceBinding) (map[string]string, []ImportCompanionResult, []CompanionFileInput, []string, error) {
 	if len(companions) == 0 {
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	parser := NewImportRDFParser(nsBindings)
 	sources := map[string]string{}
 	results := make([]ImportCompanionResult, 0, len(companions))
+	var files []CompanionFileInput
 	var skipped []string
 	var meta []map[string]any
 	for _, companion := range companions {
 		companionPath := filepath.Join(baseDir, companion.File)
+		// Record companions under their bare filename: the live import
+		// passes bare names while a snapshot restore passes "src/<name>",
+		// and source_module rows plus companion metadata must match
+		// byte-for-byte across both paths.
+		companionName := filepath.Base(companion.File)
 		if _, err := os.Stat(companionPath); err != nil {
 			if skipMissing {
 				skipped = append(skipped, companion.File)
 				continue
 			}
-			return nil, nil, nil, fmt.Errorf("companion file %s: %w", companion.File, err)
+			return nil, nil, nil, nil, fmt.Errorf("companion file %s: %w", companion.File, err)
 		}
 		cpr, err := parser.ParseFile(companionPath)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("parse companion %s: %w", companion.File, err)
+			return nil, nil, nil, nil, fmt.Errorf("parse companion %s: %w", companion.File, err)
 		}
+		raw, err := os.ReadFile(companionPath)
+		if err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("read companion %s: %w", companion.File, err)
+		}
+		files = append(files, CompanionFileInput{
+			Filename:    companionName,
+			Description: companion.Description,
+			Content:     string(raw),
+		})
 		for _, c := range cpr.Classes {
-			sources[c.URI] = companion.File
+			sources[c.URI] = companionName
 		}
 		for _, p := range cpr.Properties {
-			sources[p.URI] = companion.File
+			sources[p.URI] = companionName
 		}
 		pr.Classes = append(pr.Classes, cpr.Classes...)
 		pr.Properties = append(pr.Properties, cpr.Properties...)
 		pr.DeclaredNamespaces = append(pr.DeclaredNamespaces, cpr.DeclaredNamespaces...)
 		pr.MissingNamespaces = append(pr.MissingNamespaces, cpr.MissingNamespaces...)
 		result := ImportCompanionResult{
-			File:          companion.File,
+			File:          companionName,
 			Description:   companion.Description,
 			ClassCount:    len(cpr.Classes),
 			PropertyCount: len(cpr.Properties),
@@ -125,7 +141,7 @@ func mergeImportCompanions(baseDir string, companions []ImportCompanionFile, pr 
 	if len(meta) > 0 && pr.Version != nil {
 		pr.Version.OntologyMetadata = mergeCompanionMetadata(pr.Version.OntologyMetadata, meta)
 	}
-	return sources, results, skipped, nil
+	return sources, results, files, skipped, nil
 }
 
 // mergeCompanionMetadata folds the companion descriptors into the version's

@@ -226,6 +226,39 @@ func (q *Queries) WeaveGetOntologyVersionByOntologyAndString(ctx context.Context
 	return i, err
 }
 
+const weaveListOntologyVersionCompanions = `-- name: WeaveListOntologyVersionCompanions :many
+SELECT ontology_version_id, filename, description, content, position
+FROM weave_ontology_version_companions
+WHERE ontology_version_id = $1
+ORDER BY position, filename
+`
+
+func (q *Queries) WeaveListOntologyVersionCompanions(ctx context.Context, ontologyVersionID string) ([]WeaveOntologyVersionCompanion, error) {
+	rows, err := q.db.Query(ctx, weaveListOntologyVersionCompanions, ontologyVersionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveOntologyVersionCompanion{}
+	for rows.Next() {
+		var i WeaveOntologyVersionCompanion
+		if err := rows.Scan(
+			&i.OntologyVersionID,
+			&i.Filename,
+			&i.Description,
+			&i.Content,
+			&i.Position,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveListOntologyVersionsByOntology = `-- name: WeaveListOntologyVersionsByOntology :many
 SELECT id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at FROM weave_ontology_versions
 WHERE ontology_id = $1
@@ -492,4 +525,32 @@ func (q *Queries) WeaveUpdateOntologyVersionMetadata(ctx context.Context, arg We
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const weaveUpsertOntologyVersionCompanion = `-- name: WeaveUpsertOntologyVersionCompanion :exec
+INSERT INTO weave_ontology_version_companions (ontology_version_id, filename, description, content, position)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (ontology_version_id, filename) DO UPDATE SET
+    description = EXCLUDED.description,
+    content = EXCLUDED.content,
+    position = EXCLUDED.position
+`
+
+type WeaveUpsertOntologyVersionCompanionParams struct {
+	OntologyVersionID string `json:"ontology_version_id"`
+	Filename          string `json:"filename"`
+	Description       string `json:"description"`
+	Content           string `json:"content"`
+	Position          int32  `json:"position"`
+}
+
+func (q *Queries) WeaveUpsertOntologyVersionCompanion(ctx context.Context, arg WeaveUpsertOntologyVersionCompanionParams) error {
+	_, err := q.db.Exec(ctx, weaveUpsertOntologyVersionCompanion,
+		arg.OntologyVersionID,
+		arg.Filename,
+		arg.Description,
+		arg.Content,
+		arg.Position,
+	)
+	return err
 }

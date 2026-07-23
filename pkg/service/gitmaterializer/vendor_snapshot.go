@@ -271,6 +271,18 @@ type ontologyVendorManifestRoot struct {
 
 type ontologyVendorSources struct {
 	Files []string `json:"files,omitempty"`
+	// Primary names the main RDF file (the one whose bytes live in
+	// rdf_content). Files is kept sorted for stable manifests, so without
+	// this marker a companion could alphabetically displace the primary.
+	Primary string `json:"primary,omitempty"`
+	// Companions lists the non-primary sources with their descriptions, so
+	// restore can re-import them exactly as the live import did.
+	Companions []ontologyVendorCompanion `json:"companions,omitempty"`
+}
+
+type ontologyVendorCompanion struct {
+	File        string `json:"file"`
+	Description string `json:"description,omitempty"`
 }
 
 func (m *Materializer) writeVendoredOntology(ctx context.Context, workDir string, ontology sqlcgen.WeaveOntology, version sqlcgen.WeaveOntologyVersion) error {
@@ -292,6 +304,27 @@ func (m *Materializer) writeVendoredOntology(ctx context.Context, workDir string
 		return err
 	}
 	sourceFiles = append(sourceFiles, rel)
+	primaryFile := rel
+
+	// Companion sources (e.g. CIDOC-CRM's PC module) are separate files the
+	// version's class/property rows were parsed from — a source-complete
+	// snapshot must vendor them or restore silently drops their terms.
+	companions, err := m.queries.WeaveListOntologyVersionCompanions(ctx, version.ID)
+	if err != nil {
+		return fmt.Errorf("list companions for vendored ontology %s@%s: %w", ontology.ID, version.VersionString, err)
+	}
+	var companionManifests []ontologyVendorCompanion
+	for _, companion := range companions {
+		companionRel := filepath.ToSlash(filepath.Join("src", companion.Filename))
+		if err := writeEntityFile(workDir, companionRel, []byte(companion.Content)); err != nil {
+			return err
+		}
+		sourceFiles = append(sourceFiles, companionRel)
+		companionManifests = append(companionManifests, ontologyVendorCompanion{
+			File:        companionRel,
+			Description: companion.Description,
+		})
+	}
 
 	aliases, err := m.vendoredNamespaceAliases(ctx, ontology.Prefix, ontology.Namespace)
 	if err != nil {
@@ -317,7 +350,11 @@ func (m *Materializer) writeVendoredOntology(ctx context.Context, workDir string
 	}
 	if len(sourceFiles) > 0 {
 		sort.Strings(sourceFiles)
-		manifest.Sources = &ontologyVendorSources{Files: sourceFiles}
+		manifest.Sources = &ontologyVendorSources{
+			Files:      sourceFiles,
+			Primary:    primaryFile,
+			Companions: companionManifests,
+		}
 	}
 	payload, err := encodeOntologyVendorManifest(manifest)
 	if err != nil {

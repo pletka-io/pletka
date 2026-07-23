@@ -710,6 +710,14 @@ type WeaveOntologyVersion struct {
 	UpdatedAt              time.Time          `json:"updated_at"`
 }
 
+type WeaveOntologyVersionCompanion struct {
+	OntologyVersionID string `json:"ontology_version_id"`
+	Filename          string `json:"filename"`
+	Description       string `json:"description"`
+	Content           string `json:"content"`
+	Position          int32  `json:"position"`
+}
+
 type WeaveOverrideRef struct {
 	OverrideID int64  `json:"override_id"`
 	RefType    string `json:"ref_type"`

@@ -287,6 +287,18 @@ type ImportVersionInput struct {
 	// in this version (subclass_of, subproperty_of, equivalent_*,
 	// disjoint_*, domain, range, inverse_property).
 	Relations []domain.OntologyRelation
+	// CompanionFiles carries the raw bytes of every companion source the
+	// version was parsed from (e.g. CIDOC-CRM's PC module). Persisted to
+	// weave_ontology_version_companions so self-contained snapshots can
+	// vendor every source file, not just the primary rdf_content.
+	CompanionFiles []CompanionFileInput
+}
+
+// CompanionFileInput is one companion RDF source to persist verbatim.
+type CompanionFileInput struct {
+	Filename    string
+	Description string
+	Content     string
 }
 
 // ImportClass is the input shape for one class row inside ImportVersion.
