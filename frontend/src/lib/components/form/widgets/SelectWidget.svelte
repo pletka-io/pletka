@@ -198,7 +198,7 @@
       <option value="">—</option>
     {/if}
     {#each options as option}
-      <option value={option.value}>{tr(option.label, lang)}{option.source_project_id ? ` (${option.source_project_id})` : ''}</option>
+      <option value={option.value}>{tr(option.label, lang)}{option.source_project_id ? ` (${option.source_project_label || option.source_project_id})` : ''}</option>
     {/each}
   </select>
 

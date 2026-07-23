@@ -20,6 +20,8 @@
     isDraft: boolean;
     id: string;
     sourceProjectId: string;
+    sourceProjectLabel: string;
+    semanticId: string;
   }
 
   function parseValue(val: string[], opts: SelectOption[]): PillItem[] {
@@ -34,6 +36,8 @@
         isDraft: opt?.status === 'draft',
         id: ref,
         sourceProjectId: opt?.source_project_id ?? '',
+        sourceProjectLabel: opt?.source_project_label ?? '',
+        semanticId: opt?.semantic_id ?? '',
       };
     });
   }
@@ -235,7 +239,13 @@
     {#each pills as pill (pill.ref)}
       <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-sm
         {pill.isDraft ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}">
-        <span>{pill.label}{pill.isDraft ? ' [Draft]' : ''}{pill.sourceProjectId ? ` (${pill.sourceProjectId})` : ''}</span>
+        <span>{pill.label}{pill.isDraft ? ' [Draft]' : ''}</span>
+        {#if pill.semanticId}
+          <span class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-600">{pill.semanticId}</span>
+        {/if}
+        {#if pill.sourceProjectId}
+          <span class="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700">from {pill.sourceProjectLabel || pill.sourceProjectId}</span>
+        {/if}
         {#if !field.readonly}
           <button
             type="button"
@@ -258,7 +268,7 @@
       <option value="">{loading ? 'Loading...' : '+ Add...'}</option>
       {#each availableOptions as opt (opt.value)}
         <option value={opt.value}>
-          {tr(opt.label, lang)}{opt.status === 'draft' ? ' [Draft]' : ''}{opt.source_project_id ? ` (${opt.source_project_id})` : ''}
+          {opt.semantic_id ? `[${opt.semantic_id}] ` : ''}{tr(opt.label, lang)}{opt.status === 'draft' ? ' [Draft]' : ''}{opt.source_project_id ? ` (from ${opt.source_project_label || opt.source_project_id})` : ''}
         </option>
       {/each}
     </select>

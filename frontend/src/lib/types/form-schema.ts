@@ -124,6 +124,10 @@ export interface SelectOption {
    *  render it so same-named models/collections from a parent project
    *  are distinguishable from local ones. */
   source_project_id?: string;
+  /** Friendly UI name of source_project_id's project. Preferred over
+   *  source_project_id wherever both are present; falls back to the
+   *  raw id when a label could not be resolved. */
+  source_project_label?: string;
   /** Optional inline hint shown below the dropdown when this option
    *  is selected. Free-form plain text (URL, last-synced timestamp,
    *  health note). Surfaced by /admin/arches/api/instances/options. */

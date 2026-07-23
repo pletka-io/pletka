@@ -71,7 +71,7 @@
     });
   });
   let menuOptions = $derived.by(() => {
-    const items: Array<{ option: SelectOption | null; label: string; description?: string; semanticID?: string; status?: string; sourceProjectId?: string }> = [];
+    const items: Array<{ option: SelectOption | null; label: string; description?: string; semanticID?: string; status?: string; sourceProjectId?: string; sourceProjectLabel?: string }> = [];
     if (!field.required) {
       items.push({ option: null, label: '—' });
     }
@@ -83,6 +83,7 @@
         semanticID: option.semantic_id,
         status: option.status,
         sourceProjectId: option.source_project_id,
+        sourceProjectLabel: option.source_project_label,
       });
     }
     return items;
@@ -191,7 +192,7 @@
       {#if loadingOptions}
         {field.required ? 'Loading options...' : 'Loading…'}
       {:else if selectedOption}
-        {tr(selectedOption.label, lang)}{selectedOption.source_project_id ? ` (${selectedOption.source_project_id})` : ''}
+        {tr(selectedOption.label, lang)}{selectedOption.source_project_id ? ` (${selectedOption.source_project_label || selectedOption.source_project_id})` : ''}
       {:else}
         {field.required ? 'Select…' : '—'}
       {/if}
@@ -233,7 +234,7 @@
                     <span class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-600">{item.semanticID}</span>
                   {/if}
                   {#if item.sourceProjectId}
-                    <span class="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700">from {item.sourceProjectId}</span>
+                    <span class="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700">from {item.sourceProjectLabel || item.sourceProjectId}</span>
                   {/if}
                   {#if item.description}
                     <span class="truncate">{item.description}</span>
