@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Settings contains the connection parameters needed to open the app database.
@@ -42,10 +43,19 @@ func (s Settings) WithEnvOverrides() Settings {
 	return s
 }
 
-// PgxConnString returns a pgx-compatible connection URL.
+// PgxConnString returns a pgx-compatible keyword/value connection string.
+// The keyword form (not a postgres:// URL) is used deliberately: a URL
+// cannot express a unix-socket directory host (/var/run/postgresql —
+// net/url rejects both the raw slashes and %2F escapes), while the
+// keyword form handles TCP hosts and socket directories alike. Every
+// consumer feeds pgx (sql.Open("pgx", …) / pgxpool.New), which accepts
+// both forms.
 func (s Settings) PgxConnString() string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		s.User, s.Password, s.Host, s.Port, s.Name, s.SSLMode)
+	quote := func(v string) string {
+		return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(v) + "'"
+	}
+	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		quote(s.Host), s.Port, quote(s.User), quote(s.Password), quote(s.Name), quote(s.SSLMode))
 }
 
 // DefaultSettings returns development defaults for the weave database.
