@@ -130,6 +130,20 @@ func (m *Materializer) processChangeSet(ctx context.Context, cs sqlcgen.WeaveCha
 		})
 	}
 
+	// Release change sets never touch the default-branch draft tree; they
+	// commit to refs/heads/releases and cut annotated tags. These processors
+	// acquire the project lock themselves and record their own outcome/failure
+	// accounting, so dispatch here — before the draft path's lock acquisition —
+	// to avoid deadlocking on a second flock of the same lock file.
+	switch cs.Kind {
+	case "release":
+		m.processReleaseChangeSet(ctx, cs)
+		return nil
+	case "release_archived":
+		m.processReleaseArchivedChangeSet(ctx, cs)
+		return nil
+	}
+
 	unlock, err := acquireProjectLock(m.baseDir, cs.ProjectID)
 	if err != nil {
 		return fmt.Errorf("acquire project lock %s: %w", cs.ProjectID, err)
