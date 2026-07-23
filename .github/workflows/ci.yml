@@ -28,9 +28,31 @@ jobs:
       # the ~2.5k-issue backlog is cleaned separately (`make lint`).
       - run: git fetch origin main
       - run: go tool golangci-lint run --new-from-merge-base=origin/main ./...
-      # DB-gated tests skip themselves when REQUIRE_DB is unset (see
-      # internal/testdb/testdb.go) — no Postgres service here yet (integration
-      # tests in CI are a planned follow-up).
       - run: go test ./...
       # Vulnerability gate — pinned via `go tool` (same version as local).
       - run: go tool govulncheck ./...
+
+  # Integration lane: hydrates the real-project fixtures (AME/LA/ING, the
+  # private pletka-fixtures submodule) into a testcontainers Postgres and
+  # runs every `//go:build integration` test — restore fidelity, ontology
+  # smokes, pathaudit, the works. Template build ~7s, whole lane ~10s wall
+  # locally; runner Docker is a bit slower but the same order of magnitude.
+  #
+  # REQUIRES the FIXTURES_SUBMODULE_TOKEN repo secret: a fine-grained PAT
+  # with Contents:read on BOTH pletka-io/pletka and pletka-io/pletka-fixtures
+  # — actions/checkout's `token:` replaces auth for the main repo as well as
+  # submodules (learned the hard way with CORE_SUBMODULE_TOKEN, 2026-07-19).
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+          token: ${{ secrets.FIXTURES_SUBMODULE_TOKEN }}
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.26.x' }
+      # cmd packages embed pkg/assets/static/dist (gitignored Vite output).
+      # The integration lane never serves assets, so the documented
+      # placeholder stands in for a full frontend build.
+      - run: mkdir -p pkg/assets/static/dist && touch pkg/assets/static/dist/.placeholder
+      - run: make test-integration
