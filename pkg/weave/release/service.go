@@ -143,6 +143,15 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 		}
 	}
 
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO weave_change_set (project_id, actor_id, actor_name, actor_email,
+			commit_message, started_at, closed_at, kind, release_version)
+		VALUES ($1, $2, 'pletka-system', 'system@pletka.local', $3, NOW(), NOW(), 'release', $4)
+	`, projectID, principal.ActorID,
+		fmt.Sprintf("Release v%s", in.Version), in.Version); err != nil {
+		return nil, fmt.Errorf("enqueue release change set: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit release tx: %w", err)
 	}

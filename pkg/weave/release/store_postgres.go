@@ -18,7 +18,7 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 
 func (s *PostgresStore) ListByProject(ctx context.Context, projectID string) ([]Release, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT project_id, version, title, description, created_at, created_by_id
+		SELECT project_id, version, title, description, created_at, created_by_id, archived_at, archived_message
 		FROM weave_releases
 		WHERE project_id = $1
 		ORDER BY created_at DESC, version DESC
@@ -38,6 +38,8 @@ func (s *PostgresStore) ListByProject(ctx context.Context, projectID string) ([]
 			&item.Description,
 			&item.CreatedAt,
 			&item.CreatedByID,
+			&item.ArchivedAt,
+			&item.ArchivedMessage,
 		); err != nil {
 			return nil, err
 		}
@@ -54,7 +56,7 @@ func (s *PostgresStore) ListByProject(ctx context.Context, projectID string) ([]
 func (s *PostgresStore) Get(ctx context.Context, projectID, version string) (*Release, error) {
 	var item Release
 	err := s.pool.QueryRow(ctx, `
-		SELECT project_id, version, title, description, created_at, created_by_id
+		SELECT project_id, version, title, description, created_at, created_by_id, archived_at, archived_message
 		FROM weave_releases
 		WHERE project_id = $1 AND version = $2
 	`, projectID, version).Scan(
@@ -64,6 +66,8 @@ func (s *PostgresStore) Get(ctx context.Context, projectID, version string) (*Re
 		&item.Description,
 		&item.CreatedAt,
 		&item.CreatedByID,
+		&item.ArchivedAt,
+		&item.ArchivedMessage,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
