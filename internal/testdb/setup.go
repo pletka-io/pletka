@@ -23,13 +23,33 @@ import (
 
 // templateDBName is the migrated database that every per-package clone is
 // cut from. It is built once per server and reused across runs.
-const templateDBName = "fixture_template"
+//
+// Reuse is name-keyed, not content-hashed: ensureTemplate only checks that a
+// database of this exact name exists and contains sentinelTable (see
+// templateHasSentinel) — it never hashes the fixture snapshots' content to
+// detect drift. Across a `go test` run this is fine (the template is built
+// fresh in a throwaway container), but container_integration.go attaches to a
+// *reuse-by-name* Postgres container (reuseContainerName) that can survive
+// between local runs and even between checkouts, so a stale template built
+// from an older, incompatible fixture generation would otherwise be reused
+// silently — it has the sentinel table, so ensureTemplate would trust it.
+// The name is versioned for exactly this reason: bump the suffix whenever the
+// fixture snapshots change shape enough that an old template must not be
+// reused (e.g. the FXSINGLE/FXPARENT/FXCHILD synthetic generator -> real
+// AME/LA/ING project fixtures switch). A version bump makes ensureTemplate
+// look for a database that cannot exist yet in a container built under the
+// old name, forcing a rebuild; the old, now-orphaned "fixture_template"
+// database is harmless and can be dropped manually or left for the container
+// to be recycled.
+const templateDBName = "fixture_template_v2"
 
 // templateBuildingDBName is the fixed temp name the template is built under
 // before it is atomically promoted (renamed) to templateDBName. A crash before
 // the rename leaves only this half-built name, which the next run drops and
-// rebuilds — templateDBName is never observed in a half-built state.
-const templateBuildingDBName = "fixture_template_building"
+// rebuilds — templateDBName is never observed in a half-built state. Kept in
+// sync with templateDBName's version suffix so a stale building-db from an
+// older generation cannot collide with (or be mistaken for) the current one.
+const templateBuildingDBName = "fixture_template_v2_building"
 
 // sentinelTable is the schema table whose presence proves a template is fully
 // migrated (not an empty, poisoned shell). ensureTemplate reuses a template
