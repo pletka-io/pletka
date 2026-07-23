@@ -10,7 +10,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/service/gitmaterializer"
 	"github.com/pletka-io/pletka/pkg/service/gitmaterializer/ontologyvendor"
 	weaveontology "github.com/pletka-io/pletka/pkg/weave/ontology"
@@ -31,12 +30,6 @@ const (
 	// the inheritance, search-across-parent, bundle, and vendored-parent
 	// restore paths.
 	FixtureChild = "FXCHILD"
-
-	// fixtureOwnerID is the synthetic organization actor that owns every fixture
-	// project. It must match the owner baked into the snapshots by
-	// test/fixturegen: project snapshots reference the owner by id but do not
-	// carry the actor row itself, so the template seeds it before hydration.
-	fixtureOwnerID = "FXORG"
 )
 
 // hydrateFixtureOrder lists the fixture snapshots to load into the template, in
@@ -106,7 +99,7 @@ func hydrateFixtures(ctx context.Context, dsn string) error {
 	}
 	defer pool.Close()
 
-	if err := seedFixtureOwner(ctx, pool); err != nil {
+	if err := seedFixtureIdentities(ctx, pool); err != nil {
 		return err
 	}
 
@@ -122,23 +115,11 @@ func hydrateFixtures(ctx context.Context, dsn string) error {
 			return fmt.Errorf("hydrate fixture %s: %w", id, err)
 		}
 	}
-	return nil
-}
 
-// seedFixtureOwner creates the synthetic owner organization the fixture
-// snapshots reference. Snapshots restore projects, ontologies, and inheritance
-// but not the owning actor, so it must exist before HydrateProjectSnapshot runs.
-func seedFixtureOwner(ctx context.Context, pool *pgxpool.Pool) error {
-	q := sqlcgen.New(pool)
-	if _, err := q.WeaveCreateActor(ctx, sqlcgen.WeaveCreateActorParams{
-		ID:          fixtureOwnerID,
-		Type:        "organization",
-		DisplayName: "Fixture Org",
-		Slug:        "fixture-org",
-		Role:        "",
-		Visibility:  "private",
-	}); err != nil {
-		return fmt.Errorf("seed fixture owner actor: %w", err)
+	// Project-scope rights reference project ids that only exist once the
+	// snapshots above are hydrated, so they are seeded last.
+	if err := seedFixtureProjectRights(ctx, pool); err != nil {
+		return err
 	}
 	return nil
 }
