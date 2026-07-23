@@ -49,10 +49,16 @@ jobs:
         with:
           submodules: true
           token: ${{ secrets.FIXTURES_SUBMODULE_TOKEN }}
+      - uses: actions/setup-node@v7
+        with: { node-version: '22' }
+      # `-tags=integration ./...` runs the untagged tests too, and the
+      # frontend-manifest validation tests (pkg/app, pkg/assets, test/e2e)
+      # check the real Vite build output — a static/dist placeholder is not
+      # enough for this lane.
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
       - uses: actions/setup-go@v7
         with: { go-version: '1.26.x' }
-      # cmd packages embed pkg/assets/static/dist (gitignored Vite output).
-      # The integration lane never serves assets, so the documented
-      # placeholder stands in for a full frontend build.
-      - run: mkdir -p pkg/assets/static/dist && touch pkg/assets/static/dist/.placeholder
       - run: make test-integration
