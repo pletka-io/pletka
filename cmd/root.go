@@ -97,6 +97,7 @@ func AddOperationalCommands(root *cobra.Command, opts OperationalOptions) {
 		newProjectCommand(),
 		newDBCommand(),
 		newAPIKeyCommand(),
+		newReleaseCommand(),
 	)
 }
 

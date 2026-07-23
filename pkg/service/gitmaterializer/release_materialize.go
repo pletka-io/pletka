@@ -356,6 +356,95 @@ func (m *Materializer) recordReleaseFailure(ctx context.Context, csID int64, err
 	m.logger.Error("release materialization failed", "change_set_id", csID, "err", err)
 }
 
+// EnqueueMissingReleases walks weave_releases and enqueues a 'release' change
+// set for every version whose tag is absent from the project's git repo.
+// Idempotent: safe to run once per instance after deploy (the fleet's ~45
+// pre-stage-1 releases predate the outbox 'release' kind and have no change
+// set at all), and safe to re-run mid-drain or later to heal future drift —
+// a version already tagged, or one with an unprocessed 'release' change set
+// still pending, is skipped rather than re-enqueued.
+func (m *Materializer) EnqueueMissingReleases(ctx context.Context) (enqueued, skipped int, err error) {
+	rows, err := m.pool.Query(ctx, `
+		SELECT project_id, version FROM weave_releases
+		ORDER BY project_id, created_at, version`)
+	if err != nil {
+		return 0, 0, fmt.Errorf("list releases: %w", err)
+	}
+	type releaseRow struct {
+		projectID string
+		version   string
+	}
+	var releases []releaseRow
+	for rows.Next() {
+		var r releaseRow
+		if err := rows.Scan(&r.projectID, &r.version); err != nil {
+			rows.Close()
+			return 0, 0, fmt.Errorf("scan release row: %w", err)
+		}
+		releases = append(releases, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, 0, fmt.Errorf("iterate release rows: %w", err)
+	}
+
+	for _, r := range releases {
+		tagged, err := m.releaseTagExists(ctx, r.projectID, r.version)
+		if err != nil {
+			return enqueued, skipped, err
+		}
+		if tagged {
+			skipped++
+			continue
+		}
+
+		var pending bool
+		if err := m.pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM weave_change_set
+				WHERE project_id = $1 AND kind = 'release' AND release_version = $2
+				  AND processed_at IS NULL
+			)`, r.projectID, r.version).Scan(&pending); err != nil {
+			return enqueued, skipped, fmt.Errorf("check pending release change set %s@%s: %w", r.projectID, r.version, err)
+		}
+		if pending {
+			skipped++
+			continue
+		}
+
+		message := fmt.Sprintf("Release v%s (backfill)", r.version)
+		if _, err := m.pool.Exec(ctx, `
+			INSERT INTO weave_change_set (project_id, actor_id, actor_name, actor_email,
+				commit_message, started_at, closed_at, kind, release_version)
+			VALUES ($1, '', 'pletka-system', 'system@pletka.local', $2, NOW(), NOW(), 'release', $3)
+		`, r.projectID, message, r.version); err != nil {
+			return enqueued, skipped, fmt.Errorf("enqueue backfill release %s@%s: %w", r.projectID, r.version, err)
+		}
+		enqueued++
+	}
+	return enqueued, skipped, nil
+}
+
+// releaseTagExists reports whether projectID has a git repo in m.baseDir with
+// tag v<version> already present. A project with no repo yet on disk (never
+// materialized) is treated as not tagged, never initialized here — scanning
+// must not have the side effect of creating repos for untouched projects.
+func (m *Materializer) releaseTagExists(ctx context.Context, projectID, version string) (bool, error) {
+	workDir := filepath.Join(m.baseDir, projectID)
+	if _, err := os.Stat(filepath.Join(workDir, ".git")); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("stat %s: %w", workDir, err)
+	}
+	git := newGitRunner(workDir, m.logger)
+	_, exists, err := git.RefSHA(ctx, "refs/tags/v"+version)
+	if err != nil {
+		return false, fmt.Errorf("resolve tag v%s for %s: %w", version, projectID, err)
+	}
+	return exists, nil
+}
+
 // releaseTagMessage builds the annotated-tag message for version from its index
 // entry (title + description), falling back to "Release v<version>".
 func releaseTagMessage(idx releasesIndex, version string) string {
