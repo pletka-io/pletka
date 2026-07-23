@@ -157,3 +157,69 @@ func TestProjectInheritanceStore_AddPersistsSourceSelector(t *testing.T) {
 		t.Fatalf("draft default not preserved: %#v", links[1])
 	}
 }
+
+// TestProjectInheritanceStore_CycleGuard exercises migration 004's database
+// trigger: any write that would close an inheritance loop is rejected at the
+// DB layer, regardless of writer (store, import waves, restore, raw SQL).
+// The SI <-> SUR cycle that blocked release-baseline came from a writer that
+// bypassed the UI-level guard — the trigger is the backstop.
+func TestProjectInheritanceStore_CycleGuard(t *testing.T) {
+	pool := testPool(t)
+	store := weave.NewPostgresStore(pool)
+	inheritances := store.ProjectInheritances()
+	ctx := context.Background()
+
+	ownerID := seedTestActor(t, pool, "TEST_CYCLE_OWNER")
+	a, b, c := "TEST_CYCLE_A", "TEST_CYCLE_B", "TEST_CYCLE_C"
+
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM weave_project_inheritance WHERE project_id LIKE 'TEST_CYCLE_%' OR parent_project_id LIKE 'TEST_CYCLE_%'`)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_projects WHERE id LIKE 'TEST_CYCLE_%'`)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_actors WHERE id = $1`, ownerID)
+	})
+
+	seedProject(t, pool, ctx, a, ownerID, nil)
+	seedProject(t, pool, ctx, b, ownerID, nil)
+	seedProject(t, pool, ctx, c, ownerID, nil)
+
+	// Legit chain: A -> B -> C.
+	if err := inheritances.Add(ctx, domain.ProjectInheritance{ProjectID: a, ParentProjectID: b}); err != nil {
+		t.Fatalf("add A->B: %v", err)
+	}
+	if err := inheritances.Add(ctx, domain.ProjectInheritance{ProjectID: b, ParentProjectID: c}); err != nil {
+		t.Fatalf("add B->C: %v", err)
+	}
+
+	// Self-link rejected.
+	if err := inheritances.Add(ctx, domain.ProjectInheritance{ProjectID: a, ParentProjectID: a}); err == nil {
+		t.Fatal("self-link A->A unexpectedly succeeded")
+	}
+	// Direct cycle rejected: B -> A while A -> B exists.
+	if err := inheritances.Add(ctx, domain.ProjectInheritance{ProjectID: b, ParentProjectID: a}); err == nil {
+		t.Fatal("direct cycle B->A unexpectedly succeeded")
+	}
+	// Transitive cycle rejected: C -> A while A -> B -> C exists.
+	if err := inheritances.Add(ctx, domain.ProjectInheritance{ProjectID: c, ParentProjectID: a}); err == nil {
+		t.Fatal("transitive cycle C->A unexpectedly succeeded")
+	}
+	// The guard lives in the database, not the store: a raw INSERT that
+	// bypasses every Go code path is rejected too.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO weave_project_inheritance (project_id, parent_project_id)
+		VALUES ($1, $2)`, c, a); err == nil {
+		t.Fatal("raw-SQL transitive cycle C->A unexpectedly succeeded")
+	}
+
+	// Graph unchanged; a further legit link still works.
+	links, err := inheritances.List(ctx, a)
+	if err != nil {
+		t.Fatalf("List(A): %v", err)
+	}
+	if len(links) != 1 || links[0].ParentProjectID != b {
+		t.Fatalf("graph changed after rejected writes: %#v", links)
+	}
+	if err := inheritances.Add(ctx, domain.ProjectInheritance{ProjectID: a, ParentProjectID: c}); err != nil {
+		t.Fatalf("legit add A->C after rejections: %v", err)
+	}
+}
