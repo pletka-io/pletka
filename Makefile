@@ -296,6 +296,23 @@ test-integration: ## Run DB/integration tests (needs Docker or TEST_DATABASE_URL
 # (removed from the DB since the last regeneration) don't linger; the
 # per-project .git created by init-git is stripped since the whole tree is
 # committed once, inside the submodule, as a snapshot.
+#
+# After regenerating, re-verify these content anchors before committing the
+# submodule bump — each hardcodes an assumption about fixture content that a
+# regeneration can silently invalidate:
+#   - test/e2e/roundtrip_e2e_test.go — LAF.230 "gender" field value
+#   - internal/testdb/setup_integration_test.go — aaao ZE19_Naming subclass-of
+#     crm:E13 edge; the 6 fixture project ids it asserts on
+#   - internal/testdb/fixtures.go — hydrateFixtureOrder (AME, then LA, then
+#     ING; AME vendors the widest parent set so it hydrates first)
+#   - pkg/service/gitmaterializer/vendor_snapshot_defaults_integration_test.go
+#     — the "defaults"-prefixed ontology module with an active rdf_content version
+#   - pkg/service/gitmaterializer/integration_test.go — AME (self-contained,
+#     vendors SRD/GLB/LA/DHI/PIR) + LA (roundtrip) defaults, and the vendored
+#     takin org path (pletka.io/orgs/takin/projects/LA, not takin-solutions)
+#   - internal/testdb/setup.go's templateDBName version-bump rule — bump the
+#     suffix whenever fixture content changes shape, so ensureTemplate doesn't
+#     serve a stale template built from the previous fixtures
 .PHONY: update-fixtures
 update-fixtures: build ## Regenerate real-project fixtures (AME, LA, ING) from PLETKA_DB_* (needs those projects locally)
 	@echo "$(YELLOW)Regenerating test/fixtures from $(WEAVE_DB)...$(NC)"

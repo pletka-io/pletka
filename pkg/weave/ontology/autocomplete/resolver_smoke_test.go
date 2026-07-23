@@ -29,7 +29,7 @@ func TestScopeResolver_Smoke(t *testing.T) {
 
 	resolver, err := svc.NewScopeResolver(context.Background(), "LA")
 	if err == autocomplete.ErrNoCoverage {
-		t.Skip("project LA has no ontology coverage; smoke test needs a fixture project")
+		t.Fatal("fixture regression: project LA has no ontology coverage (fixture LA links 5 ontology versions in test/fixtures/LA/project.yaml; this must not be empty)")
 	}
 	if err != nil {
 		t.Fatalf("NewScopeResolver: %v", err)

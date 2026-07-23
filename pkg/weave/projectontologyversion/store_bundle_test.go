@@ -44,7 +44,7 @@ func TestBundleForVersions_SmokesAgainstDB(t *testing.T) {
 		t.Fatalf("ResolvedOntologyVersions: %v", err)
 	}
 	if len(resolved) == 0 {
-		t.Skipf("project %s has no resolved ontology versions (own or inherited); skipping", projectID)
+		t.Fatalf("fixture regression: project %s has no resolved ontology versions (own or inherited); ING links 9 of its own plus inherits LA and SRD", projectID)
 	}
 
 	versionIDs := make([]string, 0, len(resolved))

@@ -92,7 +92,11 @@ func TestInitProject_SelfContainedSnapshot_Integration(t *testing.T) {
 		t.Skip("git not available on PATH")
 	}
 
-	projectID := "TPC"
+	// AME is the vendor-rich fixture: a self-contained snapshot that also
+	// vendors its inheritance parents (SRD, GLB, LA, DHI, plus PIR) and their
+	// linked ontologies, including CIDOC-CRM 7.1.3 — see
+	// internal/testdb/fixtures.go's FixtureOntology doc comment.
+	projectID := "AME"
 
 	pool := testPool(t)
 	workDir := t.TempDir()
@@ -103,7 +107,7 @@ func TestInitProject_SelfContainedSnapshot_Integration(t *testing.T) {
 		SelfContained: true,
 	}); err != nil {
 		if strings.Contains(err.Error(), "get project "+projectID+": no rows in result set") {
-			t.Skipf("self-contained snapshot fixture project %s not available: %v", projectID, err)
+			t.Fatalf("fixture regression: self-contained snapshot fixture project %s not available: %v", projectID, err)
 		}
 		if strings.Contains(err.Error(), "is missing rdf_content") {
 			t.Skipf("self-contained snapshot requires ontology rdf_content in fixture data: %v", err)
@@ -123,7 +127,7 @@ func TestInitProject_SelfContainedSnapshot_Integration(t *testing.T) {
 	if !hasVendoredProjectManifest(t, filepath.Join(projectDir, "vendor", "projects")) {
 		t.Fatalf("expected vendored parent project manifest")
 	}
-	if _, err := os.Stat(filepath.Join(projectDir, "vendor", "projects", "pletka.io", "orgs", "takin-solutions", "projects", "LA", ".git")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(projectDir, "vendor", "projects", "pletka.io", "orgs", "takin", "projects", "LA", ".git")); !os.IsNotExist(err) {
 		t.Fatalf("expected vendored parent project to omit .git, got: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(projectDir, "vendor", "ontologies", "ontology.pletka.io", "cidoc-crm", "7.1.3", "ontology.yaml")); err != nil {
@@ -141,7 +145,7 @@ func TestProjectSnapshot_RoundTripHydrate_Integration(t *testing.T) {
 
 	sourceProjectID := os.Getenv("TEST_ROUNDTRIP_PROJECT_ID")
 	if sourceProjectID == "" {
-		sourceProjectID = "TPC"
+		sourceProjectID = "LA"
 	}
 	targetProjectID := os.Getenv("TEST_ROUNDTRIP_TARGET_PROJECT_ID")
 	if targetProjectID == "" {
@@ -162,7 +166,7 @@ func TestProjectSnapshot_RoundTripHydrate_Integration(t *testing.T) {
 	sourceMat := gitmaterializer.NewMaterializer(pool, sourceDir, logger)
 	if err := sourceMat.InitProject(ctx, sourceProjectID); err != nil {
 		if strings.Contains(err.Error(), "get project "+sourceProjectID+": no rows in result set") {
-			t.Skipf("round-trip fixture project %s not available: %v", sourceProjectID, err)
+			t.Fatalf("fixture regression: round-trip fixture project %s not available: %v", sourceProjectID, err)
 		}
 		t.Fatalf("InitProject(source): %v", err)
 	}

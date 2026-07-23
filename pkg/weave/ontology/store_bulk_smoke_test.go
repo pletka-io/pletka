@@ -47,7 +47,7 @@ func TestStore_ListClassesByVersions_EqualsUnion_Smoke(t *testing.T) {
 		versionIDs = append(versionIDs, r.Link.OntologyVersionID)
 	}
 	if len(versionIDs) < 2 {
-		t.Skipf("AME expected multiple linked versions, got %d", len(versionIDs))
+		t.Fatalf("fixture regression: AME expected multiple linked versions (it vendors SRD/GLB/LA/DHI/PIR and ~16 ontologies), got %d", len(versionIDs))
 	}
 
 	bulk, err := store.ListClassesByVersions(context.Background(), versionIDs)
