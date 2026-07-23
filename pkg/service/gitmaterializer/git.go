@@ -144,3 +144,20 @@ func (g *gitRunner) run(ctx context.Context, extraEnv []string, args ...string) 
 	}
 	return nil
 }
+
+// runOut behaves like run but returns the command's trimmed stdout.
+func (g *gitRunner) runOut(ctx context.Context, extraEnv []string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = g.workDir
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
+	var out, stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("git %s: %w (stderr: %s)",
+			strings.Join(args, " "), err, stderr.String())
+	}
+	return strings.TrimSpace(out.String()), nil
+}
