@@ -282,26 +282,30 @@ test-integration: ## Run DB/integration tests (needs Docker or TEST_DATABASE_URL
 	docker rm -f pletka-testdb-pg18 >/dev/null 2>&1 || true; \
 	exit $$status
 
-# build-test-snapshot regenerates the synthetic fixture snapshots under
-# test/fixtures/ (the pletka-fixtures submodule). It provisions a throwaway
-# postgres:18-alpine via `docker run`, hands its URL to the DSN-driven
-# generator, and removes the container after — so the generator itself never
-# imports a Docker/testcontainers dependency (`go list -deps ./...` stays
-# clean). Run when the schema or the fixture definitions change, then commit
-# the regenerated tree inside the submodule and bump the pin here.
-.PHONY: build-test-snapshot
-build-test-snapshot: ## Regenerate test/fixtures from a scratch DB (run when schema/fixtures change)
-	@echo "$(YELLOW)Regenerating test/fixtures from a scratch Postgres...$(NC)"
-	@name=pletka-fixturegen-pg; port=55432; \
-	docker rm -f $$name >/dev/null 2>&1 || true; \
-	docker run -d --name $$name \
-		-e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres \
-		-p $$port:5432 postgres:18-alpine >/dev/null; \
-	trap "docker rm -f $$name >/dev/null 2>&1 || true" EXIT; \
-	echo "waiting for postgres to accept connections..."; \
-	for i in $$(seq 1 60); do docker exec $$name pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done; \
-	FIXTURE_DB_DSN="postgres://postgres:postgres@localhost:$$port/postgres?sslmode=disable" \
-		go run ./test/fixturegen -out test/fixtures
+# update-fixtures regenerates the real-project fixture snapshots under
+# test/fixtures/ (the pletka-fixtures submodule) via `pletka project init-git
+# --self-contained` against a local DB that already contains the three named
+# projects (AME, LA, ING). DSN comes from the normal PLETKA_DB_HOST/PORT/NAME/
+# USER/PASSWORD/SSLMODE env overrides (see .env.example) — point them at a dev
+# DB with those projects before running. init-git is read-only on that DB.
+#
+# --output-dir is the *parent* directory (the materializer appends
+# <baseDir>/<projectID> itself — passing the project's own directory as
+# --output-dir double-nests it). Each project directory is removed and
+# rewritten from scratch first so the run is idempotent and stale entities
+# (removed from the DB since the last regeneration) don't linger; the
+# per-project .git created by init-git is stripped since the whole tree is
+# committed once, inside the submodule, as a snapshot.
+.PHONY: update-fixtures
+update-fixtures: build ## Regenerate real-project fixtures (AME, LA, ING) from PLETKA_DB_* (needs those projects locally)
+	@echo "$(YELLOW)Regenerating test/fixtures from $(WEAVE_DB)...$(NC)"
+	@for id in AME LA ING; do \
+		echo "  -> $$id"; \
+		rm -rf test/fixtures/$$id; \
+		./$(BIN_DIR)/$(BINARY_NAME) project init-git $$id --output-dir test/fixtures --self-contained || exit 1; \
+		rm -rf test/fixtures/$$id/.git; \
+	done
+	@echo "$(GREEN)Done. Review with: git -C test/fixtures status$(NC)"
 
 # ---------------------------------------------------------------------------
 # Static analysis — all via `go tool` so the versions pinned in go.mod are used
