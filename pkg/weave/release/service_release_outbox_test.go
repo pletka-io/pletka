@@ -6,12 +6,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 )
+
+// zrelReleaseVersions are the only release versions this test file ever
+// creates. Create's snapshot step archives weave_namespace_bindings rows
+// that have a NULL or empty project_id alongside ZREL's own rows (the
+// source query matches project_id = $1 OR project_id IS NULL OR project_id
+// is the empty string, since global/unscoped namespace bindings have no
+// project_id at all). Cleanup can't scope those rows by project_id, so it
+// scopes by version_number instead, kept ZREL-prefix-unique (9.0.x) so it
+// can never collide with a version another test in this package creates.
+var zrelReleaseVersions = []string{"9.0.1", "9.0.2", "9.9.9"}
 
 // seedZREL creates a synthetic project ("ZREL") mirroring the ZDEL seed
 // block in pkg/weave/project/delete_integration_test.go: one owner actor,
@@ -24,7 +35,7 @@ func seedZREL(t *testing.T, pool *pgxpool.Pool) (ctx context.Context, ownerID, p
 	ownerID = "ZREL_OWNER"
 	projectID = "ZREL"
 
-	cleanup := func() {
+	purge := func() {
 		bg := context.Background()
 		for _, stmt := range []string{
 			`DELETE FROM weave_change_set WHERE project_id='ZREL'`,
@@ -41,12 +52,35 @@ func seedZREL(t *testing.T, pool *pgxpool.Pool) (ctx context.Context, ownerID, p
 			`DELETE FROM weave_models_archive WHERE project_id='ZREL'`,
 			`DELETE FROM weave_categories_archive WHERE project_id='ZREL'`,
 			`DELETE FROM weave_projects_archive WHERE id='ZREL'`,
+			`DELETE FROM weave_namespace_bindings_archive WHERE version_number = ANY($1)`,
 		} {
+			if strings.Contains(stmt, "$1") {
+				_, _ = pool.Exec(bg, stmt, zrelReleaseVersions)
+				continue
+			}
 			_, _ = pool.Exec(bg, stmt)
 		}
 	}
-	cleanup()
-	t.Cleanup(cleanup)
+	purge()
+	t.Cleanup(func() {
+		purge()
+		// Regression guard for the leak this cleanup was added to fix:
+		// Create's snapshot step archives global/unscoped namespace bindings
+		// (project_id IS NULL OR '') under this test's release versions
+		// alongside ZREL's own rows, so the purge above deletes by
+		// version_number rather than project_id. Confirm nothing survives.
+		var leaked int
+		bg := context.Background()
+		if err := pool.QueryRow(bg, `
+			SELECT count(*) FROM weave_namespace_bindings_archive WHERE version_number = ANY($1)
+		`, zrelReleaseVersions).Scan(&leaked); err != nil {
+			t.Errorf("verify namespace bindings archive cleanup: %v", err)
+			return
+		}
+		if leaked != 0 {
+			t.Errorf("weave_namespace_bindings_archive leaked %d row(s) for versions %v", leaked, zrelReleaseVersions)
+		}
+	})
 
 	mustExec := func(sql string, args ...any) {
 		t.Helper()
@@ -83,7 +117,7 @@ func TestCreateEnqueuesReleaseChangeSet(t *testing.T) {
 	authCtx := releaseAuthCtx(ctx, ownerID)
 
 	svc := NewService(NewPostgresStore(pool), pool, nil)
-	if _, err := svc.Create(authCtx, projectID, CreateInput{Version: "1.0.0"}); err != nil {
+	if _, err := svc.Create(authCtx, projectID, CreateInput{Version: "9.0.1"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -121,7 +155,7 @@ func TestCreateEnqueuesReleaseChangeSet(t *testing.T) {
 		t.Fatalf("expected exactly one change set row, got %d: %+v", len(got), got)
 	}
 	r := got[0]
-	if r.projectID != "ZREL" || r.kind != "release" || r.releaseVersion != "1.0.0" {
+	if r.projectID != "ZREL" || r.kind != "release" || r.releaseVersion != "9.0.1" {
 		t.Fatalf("unexpected change set row: %+v", r)
 	}
 	if r.closedAt == nil {
@@ -141,11 +175,11 @@ func TestArchiveSetsFlagsAndEnqueues(t *testing.T) {
 	authCtx := releaseAuthCtx(ctx, ownerID)
 
 	svc := NewService(NewPostgresStore(pool), pool, nil)
-	if _, err := svc.Create(authCtx, projectID, CreateInput{Version: "1.0.0"}); err != nil {
+	if _, err := svc.Create(authCtx, projectID, CreateInput{Version: "9.0.1"}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	archived, err := svc.Archive(authCtx, projectID, "1.0.0", ArchiveInput{Message: "superseded by 2.x"})
+	archived, err := svc.Archive(authCtx, projectID, "9.0.1", ArchiveInput{Message: "superseded by 2.x"})
 	if err != nil {
 		t.Fatalf("Archive: %v", err)
 	}
@@ -156,7 +190,7 @@ func TestArchiveSetsFlagsAndEnqueues(t *testing.T) {
 		t.Fatalf("expected ArchivedMessage to be set, got %q", archived.ArchivedMessage)
 	}
 
-	got, err := svc.Get(authCtx, projectID, "1.0.0")
+	got, err := svc.Get(authCtx, projectID, "9.0.1")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -167,7 +201,7 @@ func TestArchiveSetsFlagsAndEnqueues(t *testing.T) {
 	var count int
 	if err := pool.QueryRow(ctx, `
 		SELECT count(*) FROM weave_change_set
-		WHERE project_id = $1 AND kind = 'release_archived' AND release_version = '1.0.0'
+		WHERE project_id = $1 AND kind = 'release_archived' AND release_version = '9.0.1'
 	`, projectID).Scan(&count); err != nil {
 		t.Fatalf("count change set: %v", err)
 	}
@@ -176,7 +210,7 @@ func TestArchiveSetsFlagsAndEnqueues(t *testing.T) {
 	}
 
 	// Second archive call: already archived -> ErrValidation.
-	_, err = svc.Archive(authCtx, projectID, "1.0.0", ArchiveInput{Message: "again"})
+	_, err = svc.Archive(authCtx, projectID, "9.0.1", ArchiveInput{Message: "again"})
 	var verr *ErrValidation
 	if !errors.As(err, &verr) {
 		t.Fatalf("expected *ErrValidation on re-archive, got %T: %v", err, err)
@@ -189,10 +223,10 @@ func TestArchiveSetsFlagsAndEnqueues(t *testing.T) {
 	}
 
 	// Archive with empty message -> ErrValidation.
-	if _, err := svc.Create(authCtx, projectID, CreateInput{Version: "2.0.0"}); err != nil {
-		t.Fatalf("Create 2.0.0: %v", err)
+	if _, err := svc.Create(authCtx, projectID, CreateInput{Version: "9.0.2"}); err != nil {
+		t.Fatalf("Create 9.0.2: %v", err)
 	}
-	_, err = svc.Archive(authCtx, projectID, "2.0.0", ArchiveInput{Message: "  "})
+	_, err = svc.Archive(authCtx, projectID, "9.0.2", ArchiveInput{Message: "  "})
 	if !errors.As(err, &verr) {
 		t.Fatalf("expected *ErrValidation for empty message, got %T: %v", err, err)
 	}
