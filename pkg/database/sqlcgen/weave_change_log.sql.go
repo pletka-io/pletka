@@ -71,7 +71,7 @@ INSERT INTO weave_change_set (
     project_id, actor_id, actor_name, actor_email, commit_message
 ) VALUES (
     $1, $2, $3, $4, $5
-) RETURNING id, project_id, actor_id, actor_name, actor_email, commit_message, started_at, closed_at, processed_at, git_commit_sha, materialized_duration_ms, materialized_files, materialized_changed, materialized_outcome, materialized_error
+) RETURNING id, project_id, actor_id, actor_name, actor_email, commit_message, started_at, closed_at, processed_at, git_commit_sha, materialized_duration_ms, materialized_files, materialized_changed, materialized_outcome, materialized_error, kind, release_version
 `
 
 type WeaveCreateChangeSetParams struct {
@@ -107,12 +107,14 @@ func (q *Queries) WeaveCreateChangeSet(ctx context.Context, arg WeaveCreateChang
 		&i.MaterializedChanged,
 		&i.MaterializedOutcome,
 		&i.MaterializedError,
+		&i.Kind,
+		&i.ReleaseVersion,
 	)
 	return i, err
 }
 
 const weaveGetChangeSet = `-- name: WeaveGetChangeSet :one
-SELECT id, project_id, actor_id, actor_name, actor_email, commit_message, started_at, closed_at, processed_at, git_commit_sha, materialized_duration_ms, materialized_files, materialized_changed, materialized_outcome, materialized_error FROM weave_change_set WHERE id = $1
+SELECT id, project_id, actor_id, actor_name, actor_email, commit_message, started_at, closed_at, processed_at, git_commit_sha, materialized_duration_ms, materialized_files, materialized_changed, materialized_outcome, materialized_error, kind, release_version FROM weave_change_set WHERE id = $1
 `
 
 func (q *Queries) WeaveGetChangeSet(ctx context.Context, id int64) (WeaveChangeSet, error) {
@@ -134,6 +136,8 @@ func (q *Queries) WeaveGetChangeSet(ctx context.Context, id int64) (WeaveChangeS
 		&i.MaterializedChanged,
 		&i.MaterializedOutcome,
 		&i.MaterializedError,
+		&i.Kind,
+		&i.ReleaseVersion,
 	)
 	return i, err
 }
@@ -177,7 +181,7 @@ func (q *Queries) WeaveListChangeLogForChangeSet(ctx context.Context, changeSetI
 }
 
 const weaveListUnprocessedChangeSets = `-- name: WeaveListUnprocessedChangeSets :many
-SELECT id, project_id, actor_id, actor_name, actor_email, commit_message, started_at, closed_at, processed_at, git_commit_sha, materialized_duration_ms, materialized_files, materialized_changed, materialized_outcome, materialized_error FROM weave_change_set
+SELECT id, project_id, actor_id, actor_name, actor_email, commit_message, started_at, closed_at, processed_at, git_commit_sha, materialized_duration_ms, materialized_files, materialized_changed, materialized_outcome, materialized_error, kind, release_version FROM weave_change_set
 WHERE closed_at IS NOT NULL AND processed_at IS NULL
 ORDER BY closed_at ASC
 LIMIT $1
@@ -208,6 +212,8 @@ func (q *Queries) WeaveListUnprocessedChangeSets(ctx context.Context, limit int3
 			&i.MaterializedChanged,
 			&i.MaterializedOutcome,
 			&i.MaterializedError,
+			&i.Kind,
+			&i.ReleaseVersion,
 		); err != nil {
 			return nil, err
 		}

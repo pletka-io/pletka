@@ -192,6 +192,8 @@ type WeaveChangeSet struct {
 	MaterializedChanged    *int32             `json:"materialized_changed"`
 	MaterializedOutcome    *string            `json:"materialized_outcome"`
 	MaterializedError      *string            `json:"materialized_error"`
+	Kind                   string             `json:"kind"`
+	ReleaseVersion         string             `json:"release_version"`
 }
 
 type WeaveChangeSetAll struct {
@@ -872,12 +874,14 @@ type WeaveProjectsArchive struct {
 }
 
 type WeaveRelease struct {
-	ProjectID   string    `json:"project_id"`
-	Version     string    `json:"version"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	CreatedAt   time.Time `json:"created_at"`
-	CreatedByID string    `json:"created_by_id"`
+	ProjectID       string             `json:"project_id"`
+	Version         string             `json:"version"`
+	Title           string             `json:"title"`
+	Description     string             `json:"description"`
+	CreatedAt       time.Time          `json:"created_at"`
+	CreatedByID     string             `json:"created_by_id"`
+	ArchivedAt      pgtype.Timestamptz `json:"archived_at"`
+	ArchivedMessage string             `json:"archived_message"`
 }
 
 type WeaveVocabulary struct {
