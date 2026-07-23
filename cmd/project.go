@@ -49,6 +49,7 @@ round-trip verification work.`,
 	projectCmd.AddCommand(initGitCmd)
 	projectCmd.AddCommand(loadGitCmd)
 	projectCmd.AddCommand(newReleaseBaselineCommand())
+	projectCmd.AddCommand(newProjectDeleteCommand())
 	initGitCmd.Flags().StringVar(&initGitOutputDir, "output-dir", "",
 		"directory for the project working tree (default: ./data/git-projects/<projectID>)")
 	initGitCmd.Flags().BoolVar(&initGitSelfContained, "self-contained", false,

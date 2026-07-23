@@ -42,6 +42,16 @@ type Store interface {
 
 	Delete(ctx context.Context, id string) error
 
+	// DeleteBlockers counts external dependents (children, adoption
+	// receipts elsewhere, cross-project placements and value refs) that
+	// prevent deleting the project.
+	DeleteBlockers(ctx context.Context, id string) (DeleteBlockers, error)
+
+	// DeleteCascade removes the project and every row it owns (entities,
+	// overrides, bindings, memberships, archives, change log/sets, …) in
+	// one transaction. Callers must check DeleteBlockers first.
+	DeleteCascade(ctx context.Context, id string) (DeleteStats, error)
+
 	// List returns projects + total count for pagination. opts honours
 	// search, institution_id filter, sort, limit, offset.
 	List(ctx context.Context, opts ...domain.QueryOption) ([]*domain.Project, int64, error)
