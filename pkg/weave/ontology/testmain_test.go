@@ -1,6 +1,6 @@
 //go:build integration
 
-package autocomplete_test
+package ontology_test
 
 import (
 	"os"
@@ -12,7 +12,5 @@ import (
 // TestMain provisions the schema+fixture template and an isolated per-package
 // clone via testdb.Setup, then points testdb.Pool at that clone for the
 // duration of this package's DB tests. See internal/testdb for the
-// container/template/clone lifecycle. Every integration-tagged test here is a
-// smoke built on the real cross-version CRM/AAT/crmgeo ontology data hydrated
-// into the fixture template (AME, LA, GLB, ...).
+// container/template/clone lifecycle.
 func TestMain(m *testing.M) { os.Exit(testdb.Setup(m)) }

@@ -67,11 +67,9 @@ func seedProjectWithCompletePath(t *testing.T, pool *pgxpool.Pool) {
 // {type:"complete"} element and asserts the audit does not flag it, the same
 // way it already ignores type='literal'.
 func TestAuditSkipsCompleteMarker(t *testing.T) {
-	// pathaudit is co-located with the HER real-data smoke, so it cannot run
-	// testdb.Setup (a fixture clone would break TestAudit_HER's guard). Without
-	// Setup this self-seeding test has no isolated clone, so it too runs only
-	// against a seeded DB rather than silently falling through to the dev DB.
-	testdb.RequireRealDataDB(t)
+	// Runs against this package's per-package fixture clone (TestMain ->
+	// testdb.Setup). The test seeds its own throwaway project/actor/field, so
+	// it needs nothing from the hydrated fixture set beyond a working clone.
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 

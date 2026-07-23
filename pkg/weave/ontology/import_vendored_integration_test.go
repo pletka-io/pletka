@@ -43,15 +43,12 @@ func writeVendoredTestRDF(t *testing.T, path, namespace string) {
 	}
 }
 
-// newVendoredImportTestService wires a Service against a seeded real-data test
-// database. Although these imports self-seed, this package cannot run
-// testdb.Setup (its co-located real-data smokes would fail against a fixture
-// clone), so there is no isolated clone here; the guard skips these tests in
-// the fixture lane rather than letting them silently fall through to the dev DB,
-// and they run only when TEST_DATABASE_URL points at a seeded database.
+// newVendoredImportTestService wires a Service against this package's
+// per-package fixture clone, provisioned by TestMain (testdb.Setup). These
+// imports self-seed their own ontology/version rows under test-local ids, so
+// they need nothing from the hydrated fixture set beyond a working clone.
 func newVendoredImportTestService(t *testing.T) *weaveontology.Service {
 	t.Helper()
-	testdb.RequireRealDataDB(t)
 	pool := testdb.Pool(t)
 	store := weaveontology.NewPostgresStore(pool)
 	return weaveontology.NewService(store, nil, nil)
