@@ -133,7 +133,8 @@ func runReleaseBaseline(cmd *cobra.Command, _ []string) error {
 		if baseDir == "" {
 			baseDir = "./data/git-projects"
 		}
-		mat := gitmaterializer.NewMaterializer(pool, baseDir, log)
+		mat := gitmaterializer.NewMaterializer(pool, baseDir, log).
+			WithModuleHosts(cliruntime.ModuleHostFromViper(), cliruntime.OntologyHostFromViper())
 		n, err := mat.ProcessPending(ctx, 100000)
 		if err != nil {
 			return fmt.Errorf("materialize baseline: %w", err)

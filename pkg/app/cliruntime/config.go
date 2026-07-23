@@ -38,3 +38,21 @@ func DatabaseSettingsFromViper() database.Settings {
 func GitDataDirFromViper() string {
 	return viper.GetString("git_materializer.data_dir")
 }
+
+// ModuleHostFromViper reads the git materializer's module-path host override
+// used by command surfaces that materialize project snapshots — the same
+// `git_materializer.module_host` key the server reads into
+// serverruntime.Config.ModuleHost. An empty return leaves the materializer on
+// its own built-in default (gitmaterializer.WithModuleHosts treats "" as
+// "keep default"), so unset config behaves identically to before this host
+// was threaded through.
+func ModuleHostFromViper() string {
+	return viper.GetString("git_materializer.module_host")
+}
+
+// OntologyHostFromViper reads the git materializer's ontology-path host
+// override, mirroring ModuleHostFromViper for the
+// `git_materializer.ontology_host` key.
+func OntologyHostFromViper() string {
+	return viper.GetString("git_materializer.ontology_host")
+}

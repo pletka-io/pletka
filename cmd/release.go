@@ -125,7 +125,8 @@ func runReleaseMaterializeMissing(cmd *cobra.Command, _ []string) error {
 		baseDir = "./data/git-projects"
 	}
 
-	mat := gitmaterializer.NewMaterializer(pool, baseDir, log)
+	mat := gitmaterializer.NewMaterializer(pool, baseDir, log).
+		WithModuleHosts(cliruntime.ModuleHostFromViper(), cliruntime.OntologyHostFromViper())
 	enq, skip, err := mat.EnqueueMissingReleases(ctx)
 	if err != nil {
 		return fmt.Errorf("enqueue missing releases: %w", err)
@@ -145,7 +146,7 @@ func runReleaseMaterializeMissing(cmd *cobra.Command, _ []string) error {
 	}
 	remaining := start
 	for remaining > 0 {
-		if _, err := mat.ProcessPending(ctx, 100); err != nil {
+		if _, err := mat.ProcessPending(ctx, 100000); err != nil {
 			return fmt.Errorf("materialize backfilled releases: %w", err)
 		}
 		next, err := countUnprocessedReleaseChangeSets(ctx, pool)
