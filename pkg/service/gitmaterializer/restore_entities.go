@@ -25,42 +25,57 @@ type canonicalCategoryDoc struct {
 	CanonicalOrder int                 `json:"canonical_order,omitempty"`
 }
 
+// canonicalPathElement is one path/scope element as read from a snapshot.
+// Two formats exist: the current lossless full-map form (every JSONB key of
+// domain.PathElement) and the legacy compact qname string
+// ("crm:E21_Person" / "E29/crmdig:D1"). json.RawMessage defers the choice
+// to decode time so old snapshots keep restoring.
+type canonicalPathElement = json.RawMessage
+
+type canonicalSubfieldPathDoc struct {
+	PathElements      []canonicalPathElement `json:"path_elements"`
+	ExpectedValueType string                 `json:"expected_value_type,omitempty"`
+	Scope             string                 `json:"scope,omitempty"`
+	Source            string                 `json:"source,omitempty"`
+}
+
 type canonicalFieldDoc struct {
-	AdoptedFrom       string                `json:"_adopted_from,omitempty"`
-	SemanticID        string                `json:"semantic_id"`
-	SystemName        string                `json:"system_name,omitempty"`
-	UIName            domain.Translations   `json:"ui_name,omitempty"`
-	Description       domain.Translations   `json:"description,omitempty"`
-	OntologyScope     string                `json:"ontology_scope,omitempty"`
-	PathElements      []string              `json:"path_elements,omitempty"`
-	ExpectedValueType string                `json:"expected_value_type,omitempty"`
-	Status            string                `json:"status,omitempty"`
-	Deprecated        bool                  `json:"deprecated,omitempty"`
-	Examples          []domain.FieldExample `json:"examples,omitempty"`
+	AdoptedFrom       string                     `json:"_adopted_from,omitempty"`
+	SemanticID        string                     `json:"semantic_id"`
+	SystemName        string                     `json:"system_name,omitempty"`
+	UIName            domain.Translations        `json:"ui_name,omitempty"`
+	Description       domain.Translations        `json:"description,omitempty"`
+	OntologyScope     canonicalPathElement       `json:"ontology_scope,omitempty"`
+	PathElements      []canonicalPathElement     `json:"path_elements,omitempty"`
+	SubfieldPaths     []canonicalSubfieldPathDoc `json:"subfield_paths,omitempty"`
+	ExpectedValueType string                     `json:"expected_value_type,omitempty"`
+	Status            string                     `json:"status,omitempty"`
+	Deprecated        bool                       `json:"deprecated,omitempty"`
+	Examples          []domain.FieldExample      `json:"examples,omitempty"`
 }
 
 type canonicalModelDoc struct {
-	AdoptedFrom   string              `json:"_adopted_from,omitempty"`
-	SemanticID    string              `json:"semantic_id"`
-	SystemName    string              `json:"system_name,omitempty"`
-	UIName        domain.Translations `json:"ui_name,omitempty"`
-	Description   domain.Translations `json:"description,omitempty"`
-	OntologyScope string              `json:"ontology_scope,omitempty"`
-	Status        string              `json:"status,omitempty"`
-	Deprecated    bool                `json:"deprecated,omitempty"`
+	AdoptedFrom   string               `json:"_adopted_from,omitempty"`
+	SemanticID    string               `json:"semantic_id"`
+	SystemName    string               `json:"system_name,omitempty"`
+	UIName        domain.Translations  `json:"ui_name,omitempty"`
+	Description   domain.Translations  `json:"description,omitempty"`
+	OntologyScope canonicalPathElement `json:"ontology_scope,omitempty"`
+	Status        string               `json:"status,omitempty"`
+	Deprecated    bool                 `json:"deprecated,omitempty"`
 }
 
 type canonicalCollectionDoc struct {
-	AdoptedFrom              string              `json:"_adopted_from,omitempty"`
-	SemanticID               string              `json:"semantic_id"`
-	SystemName               string              `json:"system_name,omitempty"`
-	UIName                   domain.Translations `json:"ui_name,omitempty"`
-	Description              domain.Translations `json:"description,omitempty"`
-	OntologyScope            string              `json:"ontology_scope,omitempty"`
-	Status                   string              `json:"status,omitempty"`
-	Deprecated               bool                `json:"deprecated,omitempty"`
-	CollectionNumber         int                 `json:"collection_number,omitempty"`
-	CanonicalCollectionOrder int                 `json:"canonical_collection_order,omitempty"`
+	AdoptedFrom              string               `json:"_adopted_from,omitempty"`
+	SemanticID               string               `json:"semantic_id"`
+	SystemName               string               `json:"system_name,omitempty"`
+	UIName                   domain.Translations  `json:"ui_name,omitempty"`
+	Description              domain.Translations  `json:"description,omitempty"`
+	OntologyScope            canonicalPathElement `json:"ontology_scope,omitempty"`
+	Status                   string               `json:"status,omitempty"`
+	Deprecated               bool                 `json:"deprecated,omitempty"`
+	CollectionNumber         int                  `json:"collection_number,omitempty"`
+	CanonicalCollectionOrder int                  `json:"canonical_collection_order,omitempty"`
 }
 
 func (m *Materializer) HydrateProjectEntities(ctx context.Context, plan *RestorePlan) error {
@@ -175,13 +190,17 @@ func hydrateFieldFile(ctx context.Context, q *sqlcgen.Queries, projectID string,
 	if semanticID == "" {
 		return fmt.Errorf("hydrate field %s: missing semantic_id", item.Path)
 	}
-	scope, err := parsePathElement(doc.OntologyScope, "class", 0)
+	scope, err := decodePathElement(doc.OntologyScope, "class", 0)
 	if err != nil {
 		return fmt.Errorf("hydrate field %s: parse ontology_scope: %w", item.Path, err)
 	}
-	pathElements, err := parsePathElements(doc.PathElements)
+	pathElements, err := decodePathElements(doc.PathElements)
 	if err != nil {
 		return fmt.Errorf("hydrate field %s: parse path_elements: %w", item.Path, err)
+	}
+	subfieldPaths, err := decodeSubfieldPaths(doc.SubfieldPaths)
+	if err != nil {
+		return fmt.Errorf("hydrate field %s: parse subfield_paths: %w", item.Path, err)
 	}
 
 	existing, err := q.WeaveGetFieldByIdentifier(ctx, sqlcgen.WeaveGetFieldByIdentifierParams{
@@ -212,6 +231,9 @@ func hydrateFieldFile(ctx context.Context, q *sqlcgen.Queries, projectID string,
 		if err != nil {
 			return fmt.Errorf("hydrate field %s: create: %w", item.Path, err)
 		}
+		if err := setFieldSubfieldPaths(ctx, q, created.ID, subfieldPaths); err != nil {
+			return fmt.Errorf("hydrate field %s: set subfield_paths: %w", item.Path, err)
+		}
 		if err := setDeprecatedStateField(ctx, q, created.ID, doc.Deprecated); err != nil {
 			return fmt.Errorf("hydrate field %s: set deprecated: %w", item.Path, err)
 		}
@@ -232,6 +254,9 @@ func hydrateFieldFile(ctx context.Context, q *sqlcgen.Queries, projectID string,
 	}); err != nil {
 		return fmt.Errorf("hydrate field %s: update: %w", item.Path, err)
 	}
+	if err := setFieldSubfieldPaths(ctx, q, existing.ID, subfieldPaths); err != nil {
+		return fmt.Errorf("hydrate field %s: set subfield_paths: %w", item.Path, err)
+	}
 	if err := setDeprecatedStateField(ctx, q, existing.ID, doc.Deprecated); err != nil {
 		return fmt.Errorf("hydrate field %s: set deprecated: %w", item.Path, err)
 	}
@@ -250,7 +275,7 @@ func hydrateModelFile(ctx context.Context, q *sqlcgen.Queries, projectID string,
 	if semanticID == "" {
 		return fmt.Errorf("hydrate model %s: missing semantic_id", item.Path)
 	}
-	scope, err := parsePathElement(doc.OntologyScope, "class", 0)
+	scope, err := decodePathElement(doc.OntologyScope, "class", 0)
 	if err != nil {
 		return fmt.Errorf("hydrate model %s: parse ontology_scope: %w", item.Path, err)
 	}
@@ -311,7 +336,7 @@ func hydrateCollectionFile(ctx context.Context, q *sqlcgen.Queries, projectID st
 	if semanticID == "" {
 		return fmt.Errorf("hydrate collection %s: missing semantic_id", item.Path)
 	}
-	scope, err := parsePathElement(doc.OntologyScope, "class", 0)
+	scope, err := decodePathElement(doc.OntologyScope, "class", 0)
 	if err != nil {
 		return fmt.Errorf("hydrate collection %s: parse ontology_scope: %w", item.Path, err)
 	}
@@ -364,6 +389,18 @@ func hydrateCollectionFile(ctx context.Context, q *sqlcgen.Queries, projectID st
 	return nil
 }
 
+// setFieldSubfieldPaths persists the restored subfield paths; nil keeps the
+// column NULL (the common non-legacy case).
+func setFieldSubfieldPaths(ctx context.Context, q *sqlcgen.Queries, fieldID string, subfields []domain.SubfieldPath) error {
+	if subfields == nil {
+		return nil
+	}
+	return q.WeaveSetFieldSubfieldPaths(ctx, sqlcgen.WeaveSetFieldSubfieldPathsParams{
+		ID:            fieldID,
+		SubfieldPaths: marshalJSONForRestore(subfields),
+	})
+}
+
 func marshalTranslationsForRestore(t domain.Translations) []byte {
 	if t == nil {
 		return nil
@@ -388,14 +425,57 @@ func restoreStatus(v string) string {
 	return v
 }
 
-func parsePathElements(items []string) ([]domain.PathElement, error) {
+// decodePathElement restores one snapshot element. The lossless full-map
+// form decodes straight into domain.PathElement — every stored attribute
+// (type, position, class_code, instance_id, datatype, additional_types,
+// sub_property_of, complete) survives verbatim. The legacy compact string
+// form falls back to parsePathElement's best-effort reconstruction.
+func decodePathElement(raw canonicalPathElement, defaultType string, position int) (domain.PathElement, error) {
+	if len(raw) == 0 {
+		return domain.PathElement{}, nil
+	}
+	var compact string
+	if err := json.Unmarshal(raw, &compact); err == nil {
+		return parsePathElement(compact, defaultType, position)
+	}
+	var pe domain.PathElement
+	if err := json.Unmarshal(raw, &pe); err != nil {
+		return domain.PathElement{}, fmt.Errorf("decode path element: %w", err)
+	}
+	return pe, nil
+}
+
+func decodePathElements(items []canonicalPathElement) ([]domain.PathElement, error) {
 	out := make([]domain.PathElement, 0, len(items))
 	for i, item := range items {
-		pe, err := parsePathElement(item, "", i)
+		pe, err := decodePathElement(item, "", i)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, pe)
+	}
+	return out, nil
+}
+
+// decodeSubfieldPaths restores the legacy subfield paths with the same
+// element fidelity as the primary path. Returns nil for none, so the
+// subfield_paths column stays NULL rather than becoming an empty array.
+func decodeSubfieldPaths(items []canonicalSubfieldPathDoc) ([]domain.SubfieldPath, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	out := make([]domain.SubfieldPath, 0, len(items))
+	for _, item := range items {
+		elements, err := decodePathElements(item.PathElements)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, domain.SubfieldPath{
+			PathElements:      elements,
+			ExpectedValueType: item.ExpectedValueType,
+			Scope:             item.Scope,
+			Source:            item.Source,
+		})
 	}
 	return out, nil
 }
@@ -450,6 +530,10 @@ func parseSingleTypeRef(input string) (domain.TypeRef, error) {
 	}, nil
 }
 
+// pathString rebuilds the derived ontology_path cache column in the exact
+// format the importer writes: "->qname" per element, with the legacy
+// instance id appended in brackets ("crm:E55_Type[AME.1_1]") when present —
+// so a restored row's cache is byte-identical to the source row's.
 func pathString(elements []domain.PathElement) string {
 	if len(elements) == 0 {
 		return ""
@@ -458,6 +542,11 @@ func pathString(elements []domain.PathElement) string {
 	for _, pe := range elements {
 		b.WriteString("->")
 		b.WriteString(pe.PrefixedName())
+		if pe.InstanceID != "" {
+			b.WriteString("[")
+			b.WriteString(pe.InstanceID)
+			b.WriteString("]")
+		}
 	}
 	return b.String()
 }

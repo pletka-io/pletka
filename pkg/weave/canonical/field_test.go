@@ -41,7 +41,7 @@ func TestField_Populated(t *testing.T) {
 	for _, want := range []string{
 		"semantic_id: LAF.18",
 		"system_name: person_name",
-		"ontology_scope: crm:E21_Person",
+		"local_name: E21_Person",
 		"expected_value_type: literal",
 		"status: published",
 		"deprecated: false",

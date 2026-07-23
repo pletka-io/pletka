@@ -34,7 +34,7 @@ func TestModel_Populated(t *testing.T) {
 	for _, want := range []string{
 		"semantic_id: LAM.15",
 		"system_name: person",
-		"ontology_scope: crm:E21_Person",
+		"local_name: E21_Person",
 		"status: published",
 		"deprecated: false",
 	} {
@@ -116,7 +116,7 @@ func TestCollection_Populated(t *testing.T) {
 
 	for _, want := range []string{
 		"semantic_id: LAC.8",
-		"ontology_scope: crm:E67_Birth",
+		"local_name: E67_Birth",
 		"collection_number: 8",
 		"canonical_collection_order: 3",
 		"deprecated: false",

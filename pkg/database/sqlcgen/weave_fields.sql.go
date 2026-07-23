@@ -738,6 +738,23 @@ func (q *Queries) WeaveListReferenceAdoptedFields(ctx context.Context, projectID
 	return items, nil
 }
 
+const weaveSetFieldSubfieldPaths = `-- name: WeaveSetFieldSubfieldPaths :exec
+UPDATE weave_fields SET subfield_paths = $2, updated_at = NOW() WHERE id = $1
+`
+
+type WeaveSetFieldSubfieldPathsParams struct {
+	ID            string `json:"id"`
+	SubfieldPaths []byte `json:"subfield_paths"`
+}
+
+// Restore-only companion to WeaveCreateField/WeaveUpdateField, which do not
+// carry the legacy subfield_paths column: git restore must round-trip it
+// losslessly without widening the live create/update surface.
+func (q *Queries) WeaveSetFieldSubfieldPaths(ctx context.Context, arg WeaveSetFieldSubfieldPathsParams) error {
+	_, err := q.db.Exec(ctx, weaveSetFieldSubfieldPaths, arg.ID, arg.SubfieldPaths)
+	return err
+}
+
 const weaveUpdateField = `-- name: WeaveUpdateField :one
 UPDATE weave_fields SET
     updated_at = NOW(),

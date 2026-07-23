@@ -176,6 +176,12 @@ SELECT * FROM weave_fields
 WHERE (semantic_id = $1 OR system_name = $1 OR id = $1)
   AND project_id = $2;
 
+-- name: WeaveSetFieldSubfieldPaths :exec
+-- Restore-only companion to WeaveCreateField/WeaveUpdateField, which do not
+-- carry the legacy subfield_paths column: git restore must round-trip it
+-- losslessly without widening the live create/update surface.
+UPDATE weave_fields SET subfield_paths = $2, updated_at = NOW() WHERE id = $1;
+
 -- name: WeaveGetFieldByGlobalIdentifier :one
 -- Project-agnostic lookup for identifiers that are globally unique
 -- (semantic_id encodes the owning project prefix; id is a ULID). Used by

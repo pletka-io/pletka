@@ -87,6 +87,9 @@ func rowToField(row sqlcgen.WeaveField) *domain.Field {
 	if len(row.Examples) > 0 {
 		_ = json.Unmarshal(row.Examples, &f.Examples)
 	}
+	if len(row.SubfieldPaths) > 0 {
+		_ = json.Unmarshal(row.SubfieldPaths, &f.SubfieldPaths)
+	}
 	return f
 }
 
@@ -113,6 +116,9 @@ func rowToFieldList(row sqlcgen.WeaveListFieldsRow) *domain.Field {
 	}
 	if len(row.Examples) > 0 {
 		_ = json.Unmarshal(row.Examples, &f.Examples)
+	}
+	if len(row.SubfieldPaths) > 0 {
+		_ = json.Unmarshal(row.SubfieldPaths, &f.SubfieldPaths)
 	}
 	return f
 }
