@@ -351,7 +351,11 @@ func TestReleaseTagMismatchFailsLoudly(t *testing.T) {
 	// Corrupt: retag v7.2.0 at a dummy commit whose tree differs from the
 	// archive-derived snapshot (empty tree).
 	emptyTree := gitOut(t, repo, "hash-object", "-t", "tree", "/dev/null")
-	dummy, err := exec.Command("git", "-C", repo, "commit-tree", emptyTree, "-m", "dummy").Output()
+	// -c identity flags: CI runners have no global git identity and both
+	// commit-tree and annotated tags refuse to run without one.
+	dummy, err := exec.Command("git", "-C", repo,
+		"-c", "user.name=pletka-test", "-c", "user.email=test@pletka.local",
+		"commit-tree", emptyTree, "-m", "dummy").Output()
 	if err != nil {
 		t.Fatalf("commit-tree dummy: %v", err)
 	}
@@ -359,7 +363,9 @@ func TestReleaseTagMismatchFailsLoudly(t *testing.T) {
 	if _, err := exec.Command("git", "-C", repo, "tag", "-d", "v7.2.0").Output(); err != nil {
 		t.Fatalf("tag -d: %v", err)
 	}
-	if err := exec.Command("git", "-C", repo, "tag", "-a", "v7.2.0", "-m", "corrupt", dummySHA).Run(); err != nil {
+	if err := exec.Command("git", "-C", repo,
+		"-c", "user.name=pletka-test", "-c", "user.email=test@pletka.local",
+		"tag", "-a", "v7.2.0", "-m", "corrupt", dummySHA).Run(); err != nil {
 		t.Fatalf("retag: %v", err)
 	}
 	tagBefore, _ := revParseQuiet(t, repo, "v7.2.0")
