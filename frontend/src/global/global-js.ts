@@ -30,13 +30,13 @@ if (typeof document !== 'undefined') {
 // Global session-expiry detection. Any mutation that returns 401 with the
 // canonical envelope code "unauthorized" means the session lapsed (backend:
 // pkg/weave/project writeEditDenied). Surface the shared prompt once — the
-// caller's own inline error handling is untouched. Scoped OUT: auth
-// endpoints, where a 401 is an expected credential rejection (a
-// wrong-password /login, an API-key /mcp), not a lapsed session.
+// caller's own inline error handling is untouched. Scoped OUT: the
+// /api/v1/auth/* credential endpoints, where a 401 is an expected credential
+// rejection (a wrong-password login or register), not a lapsed session.
 function isAuthEndpoint(url: string): boolean {
   try {
     const path = new URL(url, window.location.origin).pathname;
-    return path === '/login' || path.startsWith('/auth/') || path === '/mcp';
+    return path.startsWith('/api/v1/auth/');
   } catch {
     return false;
   }
