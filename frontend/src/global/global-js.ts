@@ -27,12 +27,15 @@ if (typeof document !== 'undefined') {
   }, { once: true });
 }
 
-// Global session-expiry detection. Any mutation that returns 401 with the
-// canonical envelope code "unauthorized" means the session lapsed (backend:
-// pkg/weave/project writeEditDenied). Surface the shared prompt once — the
-// caller's own inline error handling is untouched. Scoped OUT: the
-// /api/v1/auth/* credential endpoints, where a 401 is an expected credential
-// rejection (a wrong-password login or register), not a lapsed session.
+// Global session-expiry detection. The auth middleware sets an
+// "X-Session-Expired: 1" response header whenever a request arrives with a
+// stale session cookie (expired/invalidated). On any failed response carrying
+// it, surface the shared prompt — this works regardless of the status the
+// route returns (401 from writeEditDenied, or a 404 from the existence-hiding
+// project-read gate on a private project). The caller's own inline error
+// handling is untouched; only headers are read, so the body is never consumed.
+// Scoped OUT: the /api/v1/auth/* credential endpoints, where an anonymous
+// request with a leftover cookie is expected (logging in), not a lapse.
 function isAuthEndpoint(url: string): boolean {
   try {
     const path = new URL(url, window.location.origin).pathname;
@@ -45,14 +48,10 @@ function isAuthEndpoint(url: string): boolean {
 const nativeFetch = window.fetch.bind(window);
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const res = await nativeFetch(input, init);
-  if (res.status === 401) {
+  if (!res.ok && res.headers.get('X-Session-Expired') === '1') {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (!isAuthEndpoint(url)) {
-      // clone() so reading the body here does not consume it for the caller.
-      const body = await res.clone().json().catch(() => null);
-      if (body && body.code === 'unauthorized') {
-        triggerSessionExpired();
-      }
+      triggerSessionExpired();
     }
   }
   return res;

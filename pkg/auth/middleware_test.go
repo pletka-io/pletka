@@ -56,6 +56,37 @@ func TestMiddleware_AnonymousRequest(t *testing.T) {
 	if principal != nil {
 		t.Errorf("anon request should not set principal, got %+v", principal)
 	}
+	// No session cookie present → not a lapsed session, no stale-session header.
+	if got := rr.Header().Get("X-Session-Expired"); got != "" {
+		t.Errorf("X-Session-Expired = %q, want empty for a request with no session cookie", got)
+	}
+}
+
+// A request carrying a session cookie that resolves to no user (expired or
+// deleted server-side session) must get the X-Session-Expired header so the
+// frontend can prompt re-login regardless of the downstream status code.
+func TestMiddleware_StaleSessionCookieSetsHeader(t *testing.T) {
+	pool := testPool(t)
+	ensureSessionsTable(t, pool)
+	ws := weave.NewPostgresStore(pool)
+	sm := session.NewManager(nil)
+	_ = sm.SetupPgxStore(pool)
+
+	mw := auth.NewMiddleware(sm, ws)
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound) // downstream may 404 (private read gate)
+	}))
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/projects/TES/models/TESM.3/overrides", nil)
+	// A leftover cookie whose token is not in the store → scs loads an empty
+	// (anonymous) session, so userID stays "" while the cookie is present.
+	req.AddCookie(&http.Cookie{Name: sm.Cookie.Name, Value: "stale-token-not-in-store"})
+	sm.LoadAndSave(h).ServeHTTP(rr, req)
+
+	if got := rr.Header().Get("X-Session-Expired"); got != "1" {
+		t.Errorf("X-Session-Expired = %q, want \"1\" for a stale session cookie", got)
+	}
 }
 
 func TestMiddleware_AuthenticatedRequest(t *testing.T) {

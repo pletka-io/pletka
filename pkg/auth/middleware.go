@@ -23,6 +23,22 @@ func NewMiddleware(sm *session.Manager, ws domain.WeaveStore) func(http.Handler)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			userID := sm.UserID(ctx)
+
+			// Stale-session signal for the frontend. A request that carries a
+			// session cookie but resolves to no user has an expired/invalidated
+			// session (the browser still holds the old cookie). Flagging it here
+			// — before any downstream handler writes its status — lets the
+			// client's fetch interceptor show the "session expired" prompt on
+			// whatever the request returns (401/403, or a 404 from the
+			// existence-hiding project-read gate), without changing any status
+			// code or leaking project existence. Header set on every matching
+			// response; the interceptor only acts on non-ok ones.
+			if userID == "" {
+				if c, cerr := r.Cookie(sm.Cookie.Name); cerr == nil && c.Value != "" {
+					w.Header().Set("X-Session-Expired", "1")
+				}
+			}
+
 			snap, err := BuildSnapshot(ctx, ws, userID)
 			if err != nil {
 				slog.Error("build auth snapshot", "err", err, "user_id", userID, "path", r.URL.Path)
