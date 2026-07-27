@@ -36,8 +36,16 @@ linters:
     - nilerr
     - noctx
     - copyloopvar
+    - forbidigo
 
   settings:
+    forbidigo:
+      forbid:
+        - pattern: '^http\.Error$'
+          msg: "use weaverouter.Error (or apierror.Write) for the negotiated error envelope/page; bare http.Error breaks the branded/JSON contract"
+        - pattern: '^http\.NotFound$'
+          msg: "use weaverouter.Error(w, r, 404, \"not_found\", ...) — bare http.NotFound emits raw text"
+      analyze-types: true
     revive:
       severity: warning
       rules:

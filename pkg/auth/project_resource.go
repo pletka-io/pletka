@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 type projectVersionReader interface {
@@ -145,7 +146,7 @@ func requireProject(projects ProjectReader, capability Capability) func(http.Han
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			projectID := chi.URLParam(r, "projectID")
 			if projectID == "" {
-				http.NotFound(w, r)
+				notFound(w, r)
 				return
 			}
 			version := ProjectVersionFromContext(r.Context())
@@ -159,14 +160,26 @@ func requireProject(projects ProjectReader, capability Capability) func(http.Han
 				}
 			}
 			if err != nil || project == nil {
-				http.NotFound(w, r)
+				notFound(w, r)
 				return
 			}
 			if !FromContext(r.Context()).Can(capability, ProjectResource(project), nil) {
-				http.NotFound(w, r)
+				notFound(w, r)
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(WithProject(r.Context(), project)))
 		})
 	}
+}
+
+// notFound emits the existence-hiding 404 through the request's negotiated
+// responder (branded page for HTML, envelope for JSON), falling back to the
+// bare 404 when no responder is stashed (e.g. a route mounted outside the
+// weave router).
+func notFound(w http.ResponseWriter, r *http.Request) {
+	if resp, ok := errresp.FromContext(r.Context()); ok {
+		resp(w, r, http.StatusNotFound, "not_found", "not found")
+		return
+	}
+	http.NotFound(w, r) //nolint:forbidigo // fallback outside the weave router
 }

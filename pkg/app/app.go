@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/app/observability"
@@ -192,6 +193,12 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		Session:        sessionManager,
 		StaticAssets:   opts.Contributions.StaticAssets,
 		ObsMiddleware:  obs.Middleware,
+		Error500: func(w http.ResponseWriter, r *http.Request) {
+			templateRenderer.RespondInternalError(w, r, weavetemplates.ErrorPageDeps{
+				Lang:      "en",
+				RequestID: chimiddleware.GetReqID(r.Context()),
+			})
+		},
 	})
 
 	authHandler := weaveauth.NewAuthHandler(logger, weaveStore, sessionManager)

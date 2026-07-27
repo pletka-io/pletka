@@ -20,6 +20,8 @@ type ErrorPageDeps struct {
 	Languages []i18n.Language
 	Principal *auth.Principal
 	Labels    ShellLabels
+	RequestID string
+	Detail    string
 }
 
 // ErrorPageContent describes the body of one error page. Status code
@@ -31,6 +33,8 @@ type ErrorPageContent struct {
 	Heading     string
 	Body        string
 	RequestPath string
+	RequestID   string
+	Detail      string
 	Links       []ErrorLink
 }
 
@@ -50,6 +54,8 @@ type errorBodyView struct {
 	Heading     string
 	Body        string
 	RequestPath string
+	RequestID   string
+	Detail      string
 	Links       []ErrorLink
 }
 
@@ -160,6 +166,8 @@ func (r *Renderer) RenderInternalError(w http.ResponseWriter, req *http.Request,
 		Body: r.t(deps.Lang, "errors.internal.body",
 			"An unexpected error occurred. The team has been notified — please try again in a moment, or head back to a known-good page."),
 		RequestPath: req.URL.Path,
+		RequestID:   deps.RequestID,
+		Detail:      deps.Detail,
 		Links:       defaultErrorLinks(r, deps.Lang),
 	})
 }
@@ -212,6 +220,8 @@ func (r *Renderer) errorBody(content ErrorPageContent) template.HTML {
 		Heading:     content.Heading,
 		Body:        content.Body,
 		RequestPath: content.RequestPath,
+		RequestID:   content.RequestID,
+		Detail:      content.Detail,
 		Links:       content.Links,
 	}
 	var buf bytes.Buffer

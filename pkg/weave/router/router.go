@@ -2,9 +2,11 @@ package router
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -22,6 +24,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/drafts"
 	"github.com/pletka-io/pletka/pkg/weave/entityschema"
 	"github.com/pletka-io/pletka/pkg/weave/errortracking"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/example"
 	"github.com/pletka-io/pletka/pkg/weave/exports"
 	"github.com/pletka-io/pletka/pkg/weave/field"
@@ -105,85 +108,106 @@ type ErrorPageHost struct {
 }
 
 // Mount registers every weave slice on parent.
+//
+// parent may already have routes registered on it before Mount runs (the
+// app-level auth Group and admin.Mount both register directly on the root
+// mux before calling Mount — see pkg/app/app.go). chi panics if .Use() is
+// called on a mux that already has routes, so every weave route (and the
+// stashResponder middleware that must wrap it) is built on a fresh sub-mux,
+// root, which is only attached to parent at the very end via a single
+// parent.Mount("/", root). Because root has no routes yet when
+// stashResponder is installed, and chi prefers static/specific matches over
+// a wildcard mount regardless of registration order, this does not disturb
+// whatever parent already had registered.
 func Mount(parent chi.Router, projects ProjectMiddlewareHost, errors ErrorPageHost, options ...Options) {
 	var opts Options
 	if len(options) > 0 {
 		opts = options[0]
 	}
-	actoradmin.Mount(parent, opts.ActorAdmin)
+
+	root := chi.NewMux()
+
+	// Stash a request-scoped error responder before any route mounts so
+	// every handler in the tree — including pkg/auth, which this package
+	// imports and which therefore cannot import back into it — can emit a
+	// consistent negotiated error via weaverouter.Error /
+	// errresp.FromContext instead of a bare http.Error.
+	root.Use(stashResponder(errors))
+
+	actoradmin.Mount(root, opts.ActorAdmin)
 	if opts.APIKey.Service != nil {
-		apikey.Mount(parent, opts.APIKey)
+		apikey.Mount(root, opts.APIKey)
 	}
-	authpages.Mount(parent, opts.AuthPages)
-	organization.Mount(parent, opts.Organization)
-	orgmembers.Mount(parent, opts.OrgMembers)
-	projectpage.Mount(parent, opts.ProjectPage)
-	entityschema.Mount(parent, opts.EntitySchema)
-	search.Mount(parent, opts.Search)
-	vocabulary.Mount(parent, opts.Vocabulary)
+	authpages.Mount(root, opts.AuthPages)
+	organization.Mount(root, opts.Organization)
+	orgmembers.Mount(root, opts.OrgMembers)
+	projectpage.Mount(root, opts.ProjectPage)
+	entityschema.Mount(root, opts.EntitySchema)
+	search.Mount(root, opts.Search)
+	vocabulary.Mount(root, opts.Vocabulary)
 
 	// Build identity — /version + /api/v1/version. Public, used by
 	// the footer pill so user-test bug reports include a bisect
 	// fingerprint (commit + build time + migration + frontend hash).
-	version.Mount(parent, opts.Version)
+	version.Mount(root, opts.Version)
 
 	// Health probes — /healthz, /readyz, /health, /api/v1/health.
 	// All return the same JSON liveness payload + ping the pgx pool.
-	health.Mount(parent, opts.Health)
+	health.Mount(root, opts.Health)
 
 	// Error tracking — POST /errors/client (browser reporter) and
 	// GET /admin/errors (super-admin viewer). The capture middleware
 	// is wired separately in root.go's global stack.
-	errortracking.Mount(parent, opts.ErrorTracking)
+	errortracking.Mount(root, opts.ErrorTracking)
 	// GET /admin/materialization (super-admin viewer) — async save cost + health.
-	materializationadmin.Mount(parent, opts.MaterializationAdmin)
-	gitrestoreadmin.Mount(parent, opts.GitRestoreAdmin)
+	materializationadmin.Mount(root, opts.MaterializationAdmin)
+	gitrestoreadmin.Mount(root, opts.GitRestoreAdmin)
 
-	if err := pages.Mount(parent, opts.ProjectPages); err != nil {
+	if err := pages.Mount(root, opts.ProjectPages); err != nil {
 		panic(err)
 	}
 
 	if errors.Templates != nil && projects.Weave != nil {
-		workspace.Mount(parent, opts.Workspace)
+		workspace.Mount(root, opts.Workspace)
 	}
 
-	mountSlice(parent, "/projects/{projectID}/categories", projects, func(r chi.Router) {
+	mountSlice(root, "/projects/{projectID}/categories", projects, func(r chi.Router) {
 		mountCategory(r, opts.Category)
 	})
 
-	mountSlice(parent, "/projects/{projectID}/settings/attributions", projects, func(r chi.Router) {
+	mountSlice(root, "/projects/{projectID}/settings/attributions", projects, func(r chi.Router) {
 		mountAttribution(r, opts.Attribution)
 	})
 
-	mountSlice(parent, "/projects/{projectID}/namespace-bindings", projects, func(r chi.Router) {
+	mountSlice(root, "/projects/{projectID}/namespace-bindings", projects, func(r chi.Router) {
 		mountNamespaceBinding(r, opts.NamespaceBinding)
 	})
 
-	mountSlice(parent, "/projects/{projectID}/members", projects, func(r chi.Router) {
+	mountSlice(root, "/projects/{projectID}/members", projects, func(r chi.Router) {
 		members.Mount(r, opts.Members)
 	})
 
-	mountSlice(parent, "/projects/{projectID}/project-ontology-versions", projects, func(r chi.Router) {
+	mountSlice(root, "/projects/{projectID}/project-ontology-versions", projects, func(r chi.Router) {
 		projectontologyversion.Mount(r, opts.ProjectOntologyVersion)
 	})
 
-	mountSlice(parent, "/projects/{projectID}/releases", projects, func(r chi.Router) {
+	mountSlice(root, "/projects/{projectID}/releases", projects, func(r chi.Router) {
 		release.Mount(r, opts.Release)
 	})
 
-	mountSlice(parent, "/projects/{projectID}/examples", projects, func(r chi.Router) {
+	mountSlice(root, "/projects/{projectID}/examples", projects, func(r chi.Router) {
 		example.Mount(r, opts.Example)
 	})
 
-	mountSlice(parent, "/projects/{projectID}/fields", projects, func(r chi.Router) {
+	mountSlice(root, "/projects/{projectID}/fields", projects, func(r chi.Router) {
 		field.Mount(r, opts.Field)
 	})
 
-	mountSlice(parent, "/projects/{projectID}/models", projects, func(r chi.Router) {
+	mountSlice(root, "/projects/{projectID}/models", projects, func(r chi.Router) {
 		model.Mount(r, opts.Model)
 	})
 
-	mountSlice(parent, "/projects/{projectID}/collections", projects, func(r chi.Router) {
+	mountSlice(root, "/projects/{projectID}/collections", projects, func(r chi.Router) {
 		collection.Mount(r, opts.Collection)
 	})
 
@@ -193,7 +217,7 @@ func Mount(parent chi.Router, projects ProjectMiddlewareHost, errors ErrorPageHo
 	//   - exports:  per-entity CSV at /{kind}/{id}.csv
 	// Both gate on project membership (Phase 1 of the CSV export/
 	// restore plan).
-	mountSlice(parent, "/projects/{projectID}/exports", projects, func(r chi.Router) {
+	mountSlice(root, "/projects/{projectID}/exports", projects, func(r chi.Router) {
 		weavecsvexport.Mount(r, opts.ProjectCSVExport)
 		exports.Mount(r, opts.Exports)
 	})
@@ -201,27 +225,27 @@ func Mount(parent chi.Router, projects ProjectMiddlewareHost, errors ErrorPageHo
 	// Backward-compat: the legacy /projects/{id}/downloads URL the
 	// migration team trained against now redirects to the new
 	// /exports surface. Drop after one release cycle.
-	parent.Get("/projects/{projectID}/downloads", redirectToExports)
-	parent.Get("/projects/{projectID}/downloads/", redirectToExports)
-	parent.Get("/projects/{projectID}/downloads/*", redirectToExports)
+	root.Get("/projects/{projectID}/downloads", redirectToExports)
+	root.Get("/projects/{projectID}/downloads/", redirectToExports)
+	root.Get("/projects/{projectID}/downloads/*", redirectToExports)
 
 	// Drafts — POST /api/v1/drafts (unified inline-create endpoint).
-	// Mounted directly on parent because the project ID is in the body,
+	// Mounted directly on root because the project ID is in the body,
 	// not the URL.
-	drafts.Mount(parent, opts.Drafts)
+	drafts.Mount(root, opts.Drafts)
 
 	// Visualization — generator-output endpoints under /gen/. Mounted
-	// directly on parent (entity IDs are global, no projectID in URL);
+	// directly on root (entity IDs are global, no projectID in URL);
 	// the slice's handlers do project-read auth gating themselves.
-	visualization.Mount(parent, opts.Visualization)
+	visualization.Mount(root, opts.Visualization)
 
 	// Settings — settings-v2 surface mounted under
 	// /projects/{projectID}/settings/. Each sub-path mounts via chi.Mount.
-	settings.Mount(parent, opts.Settings)
+	settings.Mount(root, opts.Settings)
 
-	// Project slice mounts directly on parent (it owns several sibling
+	// Project slice mounts directly on root (it owns several sibling
 	// sub-paths under /projects, not a single mount point).
-	project.Mount(parent, opts.Project)
+	project.Mount(root, opts.Project)
 
 	// Master ontology slice. One app-built Service backs admin CRUD,
 	// API autocomplete/labels, public browse pages, and detailview
@@ -233,41 +257,51 @@ func Mount(parent chi.Router, projects ProjectMiddlewareHost, errors ErrorPageHo
 
 	// Mount detailview after the ontology service is fully wired so app
 	// composition can pass the shared autocomplete preloader to the slice host.
-	if err := detailview.Mount(parent, opts.DetailView); err != nil {
+	if err := detailview.Mount(root, opts.DetailView); err != nil {
 		panic(err)
 	}
 
 	adminNamespaces := chi.NewMux()
 	adminNamespaces.Use(admin.RequireSuperAdmin)
 	mountNamespaceBindingAdmin(adminNamespaces, opts.NamespaceBinding)
-	parent.Mount("/admin/namespaces", adminNamespaces)
+	root.Mount("/admin/namespaces", adminNamespaces)
 
 	adminOntologies := chi.NewMux()
 	adminOntologies.Use(admin.RequireSuperAdmin)
 	weaveontology.MountAdmin(adminOntologies, opts.OntologyAdmin)
-	parent.Mount("/admin/ontologies", adminOntologies)
+	root.Mount("/admin/ontologies", adminOntologies)
 
 	// Autocomplete + ontology-labels endpoints keep their stable URLs
 	// so the OntologyPathBuilder Svelte widget + ontology-labels client
 	// keep working without frontend changes. Backed by the shared Service.
-	weaveontology.MountAPI(parent, opts.OntologyAPI)
+	weaveontology.MountAPI(root, opts.OntologyAPI)
 
 	// Public ontology browse pages (/ontologies/...) — Phase F2 of
 	// the master ontology slice plan. Read-only views of families /
 	// ontologies / versions / classes / properties, replacing the
 	// gohtml templates dropped in Phase F1.
-	weaveontology.MountPages(parent, opts.OntologyPages)
+	weaveontology.MountPages(root, opts.OntologyPages)
 
 	// Global 404 + 405 handlers — replace chi's default plain
 	// "404 page not found" / "405 method not allowed" with friendly
 	// shell-rendered error pages for HTML traffic, while keeping
 	// API/JSON callers on a machine-readable JSON response. Must run
 	// AFTER all routes mount; chi only fires these when no registered
-	// pattern matches (or matches but with a different verb).
+	// pattern matches (or matches but with a different verb). Installed
+	// on root (not parent) so they fire for unrouted weave paths — see
+	// the chi.Mount dispatch note on root's mSTUB below.
 	if errors.Templates != nil {
-		parent.NotFound(errorDispatch(errors, errorKindNotFound))
-		parent.MethodNotAllowed(errorDispatch(errors, errorKindMethodNotAllowed))
+		root.NotFound(errorDispatch(errors, errorKindNotFound))
+		root.MethodNotAllowed(errorDispatch(errors, errorKindMethodNotAllowed))
 	}
+
+	// Attach the fully assembled weave tree to parent as a single mount at
+	// "/". chi's radix tree gives static/specific patterns registered
+	// directly on parent (e.g. the auth Group's routes, /admin/schema)
+	// priority over this wildcard mount, so already-registered parent
+	// routes keep working unchanged; every other path falls through into
+	// root, which already carries stashResponder.
+	parent.Mount("/", root)
 }
 
 // errorKind selects which renderer + JSON status the dispatcher uses.
@@ -332,6 +366,7 @@ func BuildErrorPageDeps(h ErrorPageHost, r *http.Request) weavetemplates.ErrorPa
 		Lang:      lang,
 		Languages: languages,
 		Principal: auth.PrincipalFromContext(r.Context()),
+		RequestID: chimiddleware.GetReqID(r.Context()),
 	}
 	if h.Templates != nil {
 		deps.Labels = h.Templates.ShellLabels(lang)
@@ -367,6 +402,62 @@ func RespondInternalError(h ErrorPageHost, w http.ResponseWriter, r *http.Reques
 // handles handler-internal 404s consistently.
 func RespondNotFound(h ErrorPageHost, w http.ResponseWriter, r *http.Request) {
 	errorDispatch(h, errorKindNotFound)(w, r)
+}
+
+// Error emits a negotiated error (branded HTML shell or JSON envelope) using
+// the request-scoped responder the router stashed. It is the one-line
+// replacement for bare http.Error in weave handlers. Falls back to plain
+// http.Error only if no responder is on the context (route mounted outside
+// the router's stash middleware).
+func Error(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	if resp, ok := errresp.FromContext(r.Context()); ok {
+		resp(w, r, status, code, message)
+		return
+	}
+	http.Error(w, message, status) //nolint:forbidigo // fallback when unrouted
+}
+
+// stashResponder installs a request-scoped errresp.Responder built from h so
+// any handler in the mounted tree can call weaverouter.Error (or read the
+// responder directly via errresp.FromContext, which is how pkg/auth reaches
+// it without importing this package) instead of a bare http.Error. Installed
+// at the top of Mount so it wraps every route that mounts afterward.
+func stashResponder(h ErrorPageHost) func(http.Handler) http.Handler {
+	respond := errrespHostResponder(h)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(errresp.WithResponder(r.Context(), respond)))
+		})
+	}
+}
+
+// errrespHostResponder builds the concrete errresp.Responder backed by h:
+// JSON requests (per weavetemplates.WantsJSON) get the canonical apierror
+// envelope; everything else gets the branded shell at the given status via
+// RenderErrorPage. Falls back to plain http.Error if h has no renderer
+// wired (e.g. a degraded/test host).
+func errrespHostResponder(h ErrorPageHost) errresp.Responder {
+	return func(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+		if weavetemplates.WantsJSON(r) {
+			apierror.Write(w, &apierror.Error{Status: status, Code: apierror.Code(code), Message: message})
+			return
+		}
+		if h.Templates == nil {
+			http.Error(w, message, status) //nolint:forbidigo // no renderer wired
+			return
+		}
+		heading := http.StatusText(status)
+		if heading == "" {
+			heading = "Error"
+		}
+		h.Templates.RenderErrorPage(w, r, BuildErrorPageDeps(h, r), weavetemplates.ErrorPageContent{
+			StatusCode:  status,
+			Code:        strconv.Itoa(status),
+			Heading:     heading,
+			Body:        message,
+			RequestPath: r.URL.Path,
+		})
+	}
 }
 
 // mountSlice mounts a slice's sub-mux at pattern. Using chi.Mount with a

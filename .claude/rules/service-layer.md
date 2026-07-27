@@ -68,3 +68,4 @@ A handler-only module that needs a list- or form-schema calls `<slice>.BuildXSch
 - Two packages building the same entity's schema — collapse to the slice
 - Business logic inside a store method (stores query, services decide)
 - Generators depending on the `domain.WeaveStore` aggregate instead of narrow readers
+- A handler emitting `http.Error`/`http.NotFound` instead of `weaverouter.Error`/`apierror.Write`
