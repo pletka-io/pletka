@@ -9,6 +9,13 @@
         <p class="mt-2 break-all rounded bg-gray-100 px-3 py-2 font-mono text-xs text-gray-500">{{.RequestPath}}</p>
         {{end}}
 
+        {{if .RequestID}}
+        <p class="mt-2 text-xs text-gray-400">Reference: <span class="font-mono">{{.RequestID}}</span></p>
+        {{end}}
+        {{if .Detail}}
+        <pre class="mt-4 overflow-x-auto rounded bg-gray-100 px-3 py-2 text-left font-mono text-xs text-gray-600">{{.Detail}}</pre>
+        {{end}}
+
         <div class="mt-10 flex flex-wrap items-center justify-center gap-3">
             {{range .Links}}
             <a href="{{.Href}}"

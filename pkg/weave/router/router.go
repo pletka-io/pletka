@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -332,6 +333,7 @@ func BuildErrorPageDeps(h ErrorPageHost, r *http.Request) weavetemplates.ErrorPa
 		Lang:      lang,
 		Languages: languages,
 		Principal: auth.PrincipalFromContext(r.Context()),
+		RequestID: chimiddleware.GetReqID(r.Context()),
 	}
 	if h.Templates != nil {
 		deps.Labels = h.Templates.ShellLabels(lang)
