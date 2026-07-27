@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
@@ -54,7 +55,7 @@ func newErrorTestRouter(t *testing.T) *chi.Mux {
 func TestError_HTML_RendersBrandedShell(t *testing.T) {
 	r := newErrorTestRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/boom", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/boom", nil)
 	req.Header.Set("Accept", "text/html")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -78,7 +79,7 @@ func TestError_HTML_RendersBrandedShell(t *testing.T) {
 func TestError_JSON_WritesEnvelope(t *testing.T) {
 	r := newErrorTestRouter(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/boom", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/boom", nil)
 	req.Header.Set("Accept", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -105,7 +106,7 @@ func TestError_NoResponderStashed_FallsBackToPlainHTTPError(t *testing.T) {
 		Error(w, r, http.StatusNotFound, "not_found", "nope")
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/boom", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/boom", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

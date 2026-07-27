@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +18,7 @@ func TestRecoverMiddleware_BrandedHTML(t *testing.T) {
 	h := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") }))
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/x", nil))
+	h.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", "/x", nil))
 	if w.Code != http.StatusInternalServerError || !rendered {
 		t.Fatalf("want branded 500 rendered; code=%d rendered=%v", w.Code, rendered)
 	}
@@ -27,7 +28,7 @@ func TestRecoverMiddleware_NilRendererFallsBackToPlain500(t *testing.T) {
 	mw := recoverMiddleware(nil, slog.New(slog.DiscardHandler))
 	h := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") }))
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/x", nil))
+	h.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", "/x", nil))
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("nil renderer should still 500, got %d", w.Code)
 	}

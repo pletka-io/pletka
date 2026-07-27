@@ -21,7 +21,7 @@ func TestResponder_RoundTrip(t *testing.T) {
 		t.Fatal("responder not found in context")
 	}
 	w := httptest.NewRecorder()
-	got(w, httptest.NewRequest("GET", "/", nil).WithContext(ctx), 404, "not_found", "nope")
+	got(w, httptest.NewRequestWithContext(context.Background(), "GET", "/", nil).WithContext(ctx), 404, "not_found", "nope")
 	if !called || w.Code != 404 {
 		t.Fatalf("responder not invoked; called=%v code=%d", called, w.Code)
 	}

@@ -182,7 +182,7 @@ func TestWithProjectResource_PublicFallback(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/PUB/check", nil))
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/projects/PUB/check", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%q want 200 (public-fallback should grant viewer)", rec.Code, rec.Body.String())
@@ -205,7 +205,7 @@ func TestRequireProjectRead_PublicFallback(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/PUB/check", nil))
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/projects/PUB/check", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%q want 200", rec.Code, rec.Body.String())
@@ -234,7 +234,7 @@ func TestWithProjectResource_PrivateAnonymousDenied(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/PRIV/check", nil))
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/projects/PRIV/check", nil))
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status=%d want 403 (anonymous on private project)", rec.Code)
@@ -254,7 +254,7 @@ func TestRequireProjectRead_PrivateAnonymousDenied(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/PRIV/check", nil))
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/projects/PRIV/check", nil))
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status=%d want 404", rec.Code)
@@ -275,7 +275,7 @@ func TestWithProjectResource_NotFound(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/MISSING/check", nil))
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/projects/MISSING/check", nil))
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status=%d want 404", rec.Code)
@@ -298,7 +298,7 @@ func TestRequireProjectRead_MissingProjectUsesResponder(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/MISSING/check", nil))
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/projects/MISSING/check", nil))
 
 	if handlerCalled {
 		t.Fatal("handler ran despite missing project")
@@ -336,7 +336,7 @@ func TestRequireProjectRead_ForbiddenPrivateProjectUsesResponder(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest("GET", "/projects/PRIV/check", nil))
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/projects/PRIV/check", nil))
 
 	if handlerCalled {
 		t.Fatal("handler ran despite private anonymous project")
@@ -388,7 +388,7 @@ func TestWithProjectResource_UsesArchivedProjectWhenVersionRequested(t *testing.
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/projects/TPC/check?version=1.0.0", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/projects/TPC/check?version=1.0.0", nil)
 	r.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -411,7 +411,7 @@ func TestWithProjectResource_NoProjectID(t *testing.T) {
 	parent.Mount("/", sub)
 
 	rec := httptest.NewRecorder()
-	parent.ServeHTTP(rec, httptest.NewRequest("GET", "/no-project-here", nil))
+	parent.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), "GET", "/no-project-here", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status=%d want 200 (middleware should be a no-op without {projectID})", rec.Code)

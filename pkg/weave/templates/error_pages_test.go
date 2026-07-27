@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +24,7 @@ func newTestRenderer(t *testing.T) *Renderer {
 func TestRenderNotFound(t *testing.T) {
 	r := newTestRenderer(t)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/missing-page", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/missing-page", nil)
 
 	r.RenderNotFound(rec, req, ErrorPageDeps{Lang: "en"})
 
@@ -44,7 +45,7 @@ func TestRenderNotFound(t *testing.T) {
 func TestRenderMethodNotAllowed(t *testing.T) {
 	r := newTestRenderer(t)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/vision", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/vision", nil)
 
 	r.RenderMethodNotAllowed(rec, req, ErrorPageDeps{Lang: "en"})
 
@@ -65,7 +66,7 @@ func TestRenderMethodNotAllowed(t *testing.T) {
 func TestRenderForbidden_Anonymous(t *testing.T) {
 	r := newTestRenderer(t)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/admin/secret", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/secret", nil)
 
 	r.RenderForbidden(rec, req, ErrorPageDeps{Lang: "en"}) // Principal nil = anon
 
@@ -83,7 +84,7 @@ func TestRenderForbidden_Anonymous(t *testing.T) {
 func TestRenderInternalError(t *testing.T) {
 	r := newTestRenderer(t)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/some-page", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/some-page", nil)
 
 	r.RenderInternalError(rec, req, ErrorPageDeps{Lang: "en"})
 
@@ -101,7 +102,7 @@ func TestRenderInternalError(t *testing.T) {
 func TestRenderInternalError_ShowsRequestIDAndDevDetail(t *testing.T) {
 	r := newTestRenderer(t) // reuse the file's existing renderer constructor
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/boom", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/boom", nil)
 	r.RenderInternalError(w, req, ErrorPageDeps{Lang: "en", RequestID: "req-123", Detail: "boom detail"})
 	body := w.Body.String()
 	if w.Code != http.StatusInternalServerError {
@@ -118,7 +119,7 @@ func TestRenderInternalError_ShowsRequestIDAndDevDetail(t *testing.T) {
 func TestRenderInternalError_NoDetailWhenEmpty(t *testing.T) {
 	r := newTestRenderer(t)
 	w := httptest.NewRecorder()
-	r.RenderInternalError(w, httptest.NewRequest("GET", "/boom", nil), ErrorPageDeps{Lang: "en", RequestID: "req-9"})
+	r.RenderInternalError(w, httptest.NewRequestWithContext(context.Background(), "GET", "/boom", nil), ErrorPageDeps{Lang: "en", RequestID: "req-9"})
 	if strings.Contains(w.Body.String(), "boom detail") {
 		t.Error("detail block should be absent when Detail is empty")
 	}
@@ -142,7 +143,7 @@ func TestWantsJSON(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, tc.path, nil)
 			if tc.accept != "" {
 				req.Header.Set("Accept", tc.accept)
 			}

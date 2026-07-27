@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -79,7 +80,7 @@ func TestMount_SurvivesParentWithPreexistingRoutes(t *testing.T) {
 
 	// The route registered on parent before the weave tree was mounted
 	// must keep working untouched.
-	loginReq := httptest.NewRequest(http.MethodGet, "/login", nil)
+	loginReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/login", nil)
 	loginW := httptest.NewRecorder()
 	parent.ServeHTTP(loginW, loginReq)
 	if loginW.Code != http.StatusOK || loginW.Body.String() != "login-page" {
@@ -88,7 +89,7 @@ func TestMount_SurvivesParentWithPreexistingRoutes(t *testing.T) {
 
 	// The newly-mounted slice route must be reachable and must have seen
 	// the stashed responder in its request context.
-	widgetReq := httptest.NewRequest(http.MethodGet, "/projects/ABC/widgets", nil)
+	widgetReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/ABC/widgets", nil)
 	widgetW := httptest.NewRecorder()
 	parent.ServeHTTP(widgetW, widgetReq)
 	if widgetW.Code != http.StatusOK || widgetW.Body.String() != "widget-list" {
@@ -123,7 +124,7 @@ func TestStashResponder_InstalledBeforeRoutes(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/probe", nil)
 	w := httptest.NewRecorder()
 	root.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
