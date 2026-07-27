@@ -433,3 +433,25 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 func writeError(w http.ResponseWriter, status int, msg string) {
 	apierror.Write(w, &apierror.Error{Status: status, Message: msg})
 }
+
+// writeEditDenied writes the correct failure for a blocked edit. An anonymous
+// caller means the session lapsed — common when an editor page sits open past
+// the session lifetime — so return 401 (code "unauthorized") to signal the
+// client should prompt re-login and preserve unsaved edits, rather than a 403
+// that reads as a permissions problem. An authenticated caller that reaches
+// here genuinely lacks ProjectEdit, so keep the 403.
+func writeEditDenied(w http.ResponseWriter, r *http.Request) {
+	if snap := auth.FromContext(r.Context()); snap == nil || snap.IsAnonymous {
+		apierror.Write(w, &apierror.Error{
+			Status:  http.StatusUnauthorized,
+			Code:    apierror.CodeUnauthorized,
+			Message: "session expired: sign in again to save your changes",
+		})
+		return
+	}
+	apierror.Write(w, &apierror.Error{
+		Status:  http.StatusForbidden,
+		Code:    apierror.CodeForbidden,
+		Message: "forbidden: requires ProjectEdit on project",
+	})
+}

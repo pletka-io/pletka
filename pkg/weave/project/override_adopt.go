@@ -37,7 +37,7 @@ func (h *Handler) AdoptCollectionIntoModel(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !h.svc.CanEdit(ctx, projectID, project.Visibility) {
-		writeError(w, http.StatusForbidden, "forbidden: requires ProjectEdit on project")
+		writeEditDenied(w, r)
 		return
 	}
 

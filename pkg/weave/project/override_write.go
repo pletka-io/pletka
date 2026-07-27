@@ -53,7 +53,7 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 		return
 	}
 	if !h.svc.CanEdit(ctx, projectID, project.Visibility) {
-		writeError(w, http.StatusForbidden, "forbidden: requires ProjectEdit on project")
+		writeEditDenied(w, r)
 		return
 	}
 
