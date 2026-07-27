@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -23,6 +24,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/drafts"
 	"github.com/pletka-io/pletka/pkg/weave/entityschema"
 	"github.com/pletka-io/pletka/pkg/weave/errortracking"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/example"
 	"github.com/pletka-io/pletka/pkg/weave/exports"
 	"github.com/pletka-io/pletka/pkg/weave/field"
@@ -111,6 +113,14 @@ func Mount(parent chi.Router, projects ProjectMiddlewareHost, errors ErrorPageHo
 	if len(options) > 0 {
 		opts = options[0]
 	}
+
+	// Stash a request-scoped error responder before any route mounts so
+	// every handler in the tree — including pkg/auth, which this package
+	// imports and which therefore cannot import back into it — can emit a
+	// consistent negotiated error via weaverouter.Error /
+	// errresp.FromContext instead of a bare http.Error.
+	parent.Use(stashResponder(errors))
+
 	actoradmin.Mount(parent, opts.ActorAdmin)
 	if opts.APIKey.Service != nil {
 		apikey.Mount(parent, opts.APIKey)
@@ -369,6 +379,62 @@ func RespondInternalError(h ErrorPageHost, w http.ResponseWriter, r *http.Reques
 // handles handler-internal 404s consistently.
 func RespondNotFound(h ErrorPageHost, w http.ResponseWriter, r *http.Request) {
 	errorDispatch(h, errorKindNotFound)(w, r)
+}
+
+// Error emits a negotiated error (branded HTML shell or JSON envelope) using
+// the request-scoped responder the router stashed. It is the one-line
+// replacement for bare http.Error in weave handlers. Falls back to plain
+// http.Error only if no responder is on the context (route mounted outside
+// the router's stash middleware).
+func Error(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	if resp, ok := errresp.FromContext(r.Context()); ok {
+		resp(w, r, status, code, message)
+		return
+	}
+	http.Error(w, message, status) //nolint:forbidigo // fallback when unrouted
+}
+
+// stashResponder installs a request-scoped errresp.Responder built from h so
+// any handler in the mounted tree can call weaverouter.Error (or read the
+// responder directly via errresp.FromContext, which is how pkg/auth reaches
+// it without importing this package) instead of a bare http.Error. Installed
+// at the top of Mount so it wraps every route that mounts afterward.
+func stashResponder(h ErrorPageHost) func(http.Handler) http.Handler {
+	respond := errrespHostResponder(h)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(errresp.WithResponder(r.Context(), respond)))
+		})
+	}
+}
+
+// errrespHostResponder builds the concrete errresp.Responder backed by h:
+// JSON requests (per weavetemplates.WantsJSON) get the canonical apierror
+// envelope; everything else gets the branded shell at the given status via
+// RenderErrorPage. Falls back to plain http.Error if h has no renderer
+// wired (e.g. a degraded/test host).
+func errrespHostResponder(h ErrorPageHost) errresp.Responder {
+	return func(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+		if weavetemplates.WantsJSON(r) {
+			apierror.Write(w, &apierror.Error{Status: status, Code: apierror.Code(code), Message: message})
+			return
+		}
+		if h.Templates == nil {
+			http.Error(w, message, status) //nolint:forbidigo // no renderer wired
+			return
+		}
+		heading := http.StatusText(status)
+		if heading == "" {
+			heading = "Error"
+		}
+		h.Templates.RenderErrorPage(w, r, BuildErrorPageDeps(h, r), weavetemplates.ErrorPageContent{
+			StatusCode:  status,
+			Code:        strconv.Itoa(status),
+			Heading:     heading,
+			Body:        message,
+			RequestPath: r.URL.Path,
+		})
+	}
 }
 
 // mountSlice mounts a slice's sub-mux at pattern. Using chi.Mount with a
