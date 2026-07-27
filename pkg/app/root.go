@@ -43,6 +43,10 @@ type rootDependencies struct {
 
 	// ObsMiddleware instruments requests for Prometheus (nil = no-op).
 	ObsMiddleware func(http.Handler) http.Handler
+
+	// Error500 renders the branded 500 page/JSON when a panic is recovered
+	// (nil = plain-text "Internal Server Error" fallback).
+	Error500 func(http.ResponseWriter, *http.Request)
 }
 
 func buildRootMux(d rootDependencies) *chi.Mux {
@@ -114,7 +118,7 @@ func setupGlobalMiddleware(r *chi.Mux, d rootDependencies) {
 	r.Use(devModeMiddleware(d.DevMode))
 	r.Use(loggerMiddleware(d.Logger, d.DevMode, d.LogStaticFiles))
 	r.Use(errortracking.Middleware(errortracking.NewStore(d.Pool), d.Logger))
-	r.Use(chimiddleware.Recoverer)
+	r.Use(recoverMiddleware(d.Error500, d.Logger))
 	r.Use(securityHeaders)
 	r.Use(corsHeaders(d.AllowedOrigins, d.DevMode))
 
