@@ -18,9 +18,13 @@ type Manager struct {
 
 // Config holds session configuration
 type Config struct {
-	// Session lifetime
+	// Session lifetime (absolute cap; scs requires one).
 	Lifetime time.Duration
-	
+	// IdleTimeout expires a session after this much inactivity; each request
+	// renews the window. Sliding, so an active user is not logged out
+	// mid-work. Zero disables idle expiry (absolute Lifetime only).
+	IdleTimeout time.Duration
+
 	// Cookie settings
 	CookieName     string
 	CookieDomain   string
@@ -42,7 +46,8 @@ type Config struct {
 // DefaultConfig returns sensible defaults
 func DefaultConfig() Config {
 	return Config{
-		Lifetime:        24 * time.Hour,
+		Lifetime:        30 * 24 * time.Hour, // absolute backstop
+		IdleTimeout:     8 * time.Hour,       // sliding: active users stay in
 		CookieName:      "session",
 		CookiePath:      "/",
 		CookieSecure:    true,
@@ -62,6 +67,7 @@ func New(cfg Config) *Manager {
 	
 	// Configure session
 	sm.Lifetime = cfg.Lifetime
+	sm.IdleTimeout = cfg.IdleTimeout
 	sm.Cookie.Name = cfg.CookieName
 	sm.Cookie.Domain = cfg.CookieDomain
 	sm.Cookie.Path = cfg.CookiePath
@@ -69,7 +75,7 @@ func New(cfg Config) *Manager {
 	sm.Cookie.HttpOnly = cfg.CookieHTTPOnly
 	sm.Cookie.SameSite = cfg.CookieSameSite
 	sm.Cookie.Persist = cfg.CookiePersist
-	
+
 	return &Manager{
 		SessionManager: sm,
 		config:        cfg,
@@ -83,6 +89,7 @@ func NewWithLogger(cfg Config, logger *slog.Logger) *Manager {
 	
 	// Configure session
 	sm.Lifetime = cfg.Lifetime
+	sm.IdleTimeout = cfg.IdleTimeout
 	sm.Cookie.Name = cfg.CookieName
 	sm.Cookie.Domain = cfg.CookieDomain
 	sm.Cookie.Path = cfg.CookiePath
@@ -90,7 +97,7 @@ func NewWithLogger(cfg Config, logger *slog.Logger) *Manager {
 	sm.Cookie.HttpOnly = cfg.CookieHTTPOnly
 	sm.Cookie.SameSite = cfg.CookieSameSite
 	sm.Cookie.Persist = cfg.CookiePersist
-	
+
 	return &Manager{
 		SessionManager: sm,
 		config:        cfg,

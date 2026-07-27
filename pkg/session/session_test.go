@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // newTestManagerContext returns a Manager backed by the default in-memory
@@ -31,5 +32,26 @@ func TestEstablishAuthenticatedSession(t *testing.T) {
 	}
 	if !m.GetBool(ctx, KeyIsAuthenticated) {
 		t.Error("KeyIsAuthenticated = false, want true")
+	}
+}
+
+func TestDefaultConfig_SlidingIdleTimeout(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.IdleTimeout != 8*time.Hour {
+		t.Errorf("IdleTimeout = %v, want 8h", cfg.IdleTimeout)
+	}
+	if cfg.Lifetime != 30*24*time.Hour {
+		t.Errorf("Lifetime = %v, want 720h (30d)", cfg.Lifetime)
+	}
+}
+
+func TestNew_AppliesIdleTimeout(t *testing.T) {
+	m := New(Config{IdleTimeout: 8 * time.Hour, Lifetime: 30 * 24 * time.Hour})
+	// Manager embeds *scs.SessionManager; IdleTimeout is a public field on it.
+	if m.IdleTimeout != 8*time.Hour {
+		t.Errorf("scs IdleTimeout = %v, want 8h", m.IdleTimeout)
+	}
+	if m.Lifetime != 30*24*time.Hour {
+		t.Errorf("scs Lifetime = %v, want 720h", m.Lifetime)
 	}
 }
