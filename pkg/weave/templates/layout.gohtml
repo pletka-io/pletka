@@ -64,8 +64,10 @@
 
     <div data-island="toast-container"></div>
     <div data-island="confirm-dialog"></div>
+    <div data-island="session-expired-dialog"></div>
     {{islandScripts "toast"}}
     {{islandScripts "confirm"}}
+    {{islandScripts "session-expired"}}
     {{islandScripts "user-menu"}}
     {{range .Island.Dependencies}}{{islandScripts .}}{{end}}
     {{matomo}}

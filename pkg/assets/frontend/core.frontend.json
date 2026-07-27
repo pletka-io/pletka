@@ -11,6 +11,7 @@
     { "name": "autocomplete-playground", "source": "./src/islands/autocomplete-playground.ts" },
     { "name": "build-badge", "source": "./src/islands/build-badge.ts" },
     { "name": "confirm", "source": "./src/islands/confirm.ts" },
+    { "name": "session-expired", "source": "./src/islands/session-expired.ts" },
     { "name": "content", "source": "./src/islands/content.ts" },
     { "name": "entity-form", "source": "./src/islands/entity-form.ts" },
     { "name": "entity-list", "source": "./src/islands/entity-list.ts" },
