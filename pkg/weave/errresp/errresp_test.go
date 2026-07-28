@@ -33,6 +33,29 @@ func TestFromContext_Absent(t *testing.T) {
 	}
 }
 
+func TestError_UsesStashedResponder(t *testing.T) {
+	var gotStatus int
+	var gotCode string
+	resp := errresp.Responder(func(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
+		gotStatus, gotCode = status, code
+		w.WriteHeader(status)
+	})
+	ctx := errresp.WithResponder(context.Background(), resp)
+	w := httptest.NewRecorder()
+	errresp.Error(w, httptest.NewRequestWithContext(ctx, "GET", "/x", nil), 404, "not_found", "nope")
+	if gotStatus != 404 || gotCode != "not_found" || w.Code != 404 {
+		t.Fatalf("responder not invoked correctly: status=%d code=%q w=%d", gotStatus, gotCode, w.Code)
+	}
+}
+
+func TestError_FallsBackWhenNoResponder(t *testing.T) {
+	w := httptest.NewRecorder()
+	errresp.Error(w, httptest.NewRequestWithContext(context.Background(), "GET", "/x", nil), 404, "not_found", "nope")
+	if w.Code != 404 {
+		t.Fatalf("fallback should still 404, got %d", w.Code)
+	}
+}
+
 func TestHolder_StashMiddlewareInjectsWhenSet(t *testing.T) {
 	h := &errresp.Holder{}
 	mw := errresp.StashMiddleware(h)

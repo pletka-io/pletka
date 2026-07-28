@@ -28,6 +28,19 @@ func FromContext(ctx context.Context) (Responder, bool) {
 	return resp, ok
 }
 
+// Error emits a negotiated error (branded HTML shell or JSON envelope) using
+// the request-scoped responder the router stashed. The one-line replacement
+// for bare http.Error in weave handlers — usable from packages that cannot
+// import pkg/weave/router (which imports the slices). Falls back to plain
+// http.Error only if no responder is on the context.
+func Error(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	if resp, ok := FromContext(r.Context()); ok {
+		resp(w, r, status, code, message)
+		return
+	}
+	http.Error(w, message, status) //nolint:forbidigo // fallback when unrouted
+}
+
 // Holder carries the process-wide error Responder, set once after the
 // error-page host is assembled and read by StashMiddleware on every request.
 // Lets the stash middleware install before any routes (avoiding chi's
