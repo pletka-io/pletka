@@ -13,8 +13,13 @@ import (
 const weaveClosureOverrideOwner = `-- name: WeaveClosureOverrideOwner :one
 SELECT entity_type, entity_id, field_id
 FROM weave_field_overrides
-WHERE id = $1
+WHERE id = $1 AND project_id = $2
 `
+
+type WeaveClosureOverrideOwnerParams struct {
+	ID        int64  `json:"id"`
+	ProjectID string `json:"project_id"`
+}
 
 type WeaveClosureOverrideOwnerRow struct {
 	EntityType string `json:"entity_type"`
@@ -24,9 +29,10 @@ type WeaveClosureOverrideOwnerRow struct {
 
 // gitmaterializer closure(): resolves a change_log "override" entry's
 // entity_id (a weave_field_overrides.id) to its owning model/collection, or
-// (entity_type ”, field_id) for a base override.
-func (q *Queries) WeaveClosureOverrideOwner(ctx context.Context, id int64) (WeaveClosureOverrideOwnerRow, error) {
-	row := q.db.QueryRow(ctx, weaveClosureOverrideOwner, id)
+// (entity_type ”, field_id) for a base override. Scoped by project_id so
+// the within-project invariant is self-enforcing.
+func (q *Queries) WeaveClosureOverrideOwner(ctx context.Context, arg WeaveClosureOverrideOwnerParams) (WeaveClosureOverrideOwnerRow, error) {
+	row := q.db.QueryRow(ctx, weaveClosureOverrideOwner, arg.ID, arg.ProjectID)
 	var i WeaveClosureOverrideOwnerRow
 	err := row.Scan(&i.EntityType, &i.EntityID, &i.FieldID)
 	return i, err

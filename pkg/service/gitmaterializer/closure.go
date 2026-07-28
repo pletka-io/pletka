@@ -64,7 +64,7 @@ func (m *Materializer) closure(ctx context.Context, cs sqlcgen.WeaveChangeSet) (
 				add(o.EntityType, o.EntityID, false)
 			}
 		case "override":
-			owner, ok, err := m.overrideOwner(ctx, e.EntityID)
+			owner, ok, err := m.overrideOwner(ctx, cs.ProjectID, e.EntityID)
 			if err != nil {
 				return nil, err
 			}
@@ -102,14 +102,19 @@ func (m *Materializer) placingOwners(ctx context.Context, projectID, fieldID str
 // weave_field_overrides row id, encoded as a decimal string) to the entity
 // whose materialized file(s) must be rewritten: the owning model/collection
 // for a model/collection override, or the field itself for a base override
-// (entity_type ""). ok is false when the override row no longer exists —
-// the caller skips the entry (see closure's comment on that case).
-func (m *Materializer) overrideOwner(ctx context.Context, overrideID string) (ScopedRef, bool, error) {
+// (entity_type ""). Scoped to projectID — a cross-project override id (which
+// should never happen) is treated the same as a missing row. ok is false
+// when the override row doesn't exist in this project — the caller skips
+// the entry (see closure's comment on that case).
+func (m *Materializer) overrideOwner(ctx context.Context, projectID, overrideID string) (ScopedRef, bool, error) {
 	id, err := strconv.ParseInt(overrideID, 10, 64)
 	if err != nil {
 		return ScopedRef{}, false, fmt.Errorf("parse override id %q: %w", overrideID, err)
 	}
-	row, err := m.queries.WeaveClosureOverrideOwner(ctx, id)
+	row, err := m.queries.WeaveClosureOverrideOwner(ctx, sqlcgen.WeaveClosureOverrideOwnerParams{
+		ID:        id,
+		ProjectID: projectID,
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ScopedRef{}, false, nil

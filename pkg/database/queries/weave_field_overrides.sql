@@ -209,7 +209,8 @@ WHERE field_id = $1 AND project_id = $2 AND entity_type IN ('model', 'collection
 -- name: WeaveClosureOverrideOwner :one
 -- gitmaterializer closure(): resolves a change_log "override" entry's
 -- entity_id (a weave_field_overrides.id) to its owning model/collection, or
--- (entity_type '', field_id) for a base override.
+-- (entity_type '', field_id) for a base override. Scoped by project_id so
+-- the within-project invariant is self-enforcing.
 SELECT entity_type, entity_id, field_id
 FROM weave_field_overrides
-WHERE id = $1;
+WHERE id = $1 AND project_id = $2;

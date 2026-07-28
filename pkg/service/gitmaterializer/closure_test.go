@@ -58,6 +58,7 @@ func setupClosureFixture(t *testing.T) *closureFixture {
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_change_set WHERE project_id = $1`, closureProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_field_overrides WHERE project_id = $1`, closureProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_models WHERE project_id = $1`, closureProjectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_collections WHERE project_id = $1`, closureProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_fields WHERE project_id = $1`, closureProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_projects WHERE id = $1`, closureProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id = $1`, closureOwnerActorID)
@@ -155,6 +156,25 @@ func (f *closureFixture) model(id string) {
 	}
 }
 
+// collection creates a bare collection row in the fixture's project.
+func (f *closureFixture) collection(id string) {
+	f.t.Helper()
+	uiName, _ := json.Marshal(map[string]string{"en": "Closure Collection " + id})
+	desc, _ := json.Marshal(map[string]string{"en": "closure test collection"})
+	scope, _ := json.Marshal(map[string]string{"prefix": "crm", "local_name": "E67_Birth"})
+	if _, err := f.queries.WeaveCreateCollection(f.ctx, sqlcgen.WeaveCreateCollectionParams{
+		ID:            id,
+		SystemName:    stringPtr("closure_collection_" + id),
+		UiName:        uiName,
+		Description:   desc,
+		Status:        "draft",
+		ProjectID:     f.projectID,
+		OntologyScope: scope,
+	}); err != nil {
+		f.t.Fatalf("create collection %s: %v", id, err)
+	}
+}
+
 // field creates a bare field row in the fixture's project.
 func (f *closureFixture) field(id string) {
 	f.t.Helper()
@@ -186,6 +206,22 @@ func (f *closureFixture) placeFieldOnModel(fieldID, modelID string) int64 {
 	})
 	if err != nil {
 		f.t.Fatalf("create override placing field %s on model %s: %v", fieldID, modelID, err)
+	}
+	return o.ID
+}
+
+// placeFieldOnCollection creates a collection-owned override row placing
+// fieldID on collectionID, and returns the override row's id.
+func (f *closureFixture) placeFieldOnCollection(fieldID, collectionID string) int64 {
+	f.t.Helper()
+	o, err := f.queries.WeaveCreateOverride(f.ctx, sqlcgen.WeaveCreateOverrideParams{
+		FieldID:    fieldID,
+		ProjectID:  f.projectID,
+		EntityType: "collection",
+		EntityID:   collectionID,
+	})
+	if err != nil {
+		f.t.Fatalf("create override placing field %s on collection %s: %v", fieldID, collectionID, err)
 	}
 	return o.ID
 }
@@ -241,6 +277,26 @@ func TestClosureFieldUpdateIncludesPlacingModels(t *testing.T) {
 	}
 }
 
+func TestClosureFieldUpdateIncludesPlacingCollections(t *testing.T) {
+	f := setupClosureFixture(t)
+	f.field("CLOSURE_FIELD_UPD_C")
+	f.collection("CLOSURE_COLLECTION_PLACES_UPD")
+	f.placeFieldOnCollection("CLOSURE_FIELD_UPD_C", "CLOSURE_COLLECTION_PLACES_UPD")
+	cs := f.changeSet(entry("field", "CLOSURE_FIELD_UPD_C", "update"))
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	want := []ScopedRef{
+		{EntityType: "field", EntityID: "CLOSURE_FIELD_UPD_C"},
+		{EntityType: "collection", EntityID: "CLOSURE_COLLECTION_PLACES_UPD"},
+	}
+	if diff := cmp.Diff(want, refs, sortRefs); diff != "" {
+		t.Fatalf("closure mismatch (-want +got):\n%s", diff)
+	}
+}
+
 // TestClosureFieldDeleteStillRewritesPlacingModels covers the brief's edge
 // case explicitly: a field DELETE still emits the placing model as a
 // non-delete rewrite, even though the placement override row is gone by the
@@ -281,6 +337,23 @@ func TestClosureOverrideEntryResolvesOwningModel(t *testing.T) {
 	}
 }
 
+func TestClosureOverrideEntryResolvesOwningCollection(t *testing.T) {
+	f := setupClosureFixture(t)
+	f.field("CLOSURE_FIELD_OV_C")
+	f.collection("CLOSURE_COLLECTION_OV")
+	overrideID := f.placeFieldOnCollection("CLOSURE_FIELD_OV_C", "CLOSURE_COLLECTION_OV")
+	cs := f.changeSet(entry("override", fmt.Sprintf("%d", overrideID), "update"))
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	want := []ScopedRef{{EntityType: "collection", EntityID: "CLOSURE_COLLECTION_OV"}}
+	if diff := cmp.Diff(want, refs, sortRefs); diff != "" {
+		t.Fatalf("closure mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestClosureOverrideEntryBaseResolvesToField(t *testing.T) {
 	f := setupClosureFixture(t)
 	f.field("CLOSURE_FIELD_BASE")
@@ -311,5 +384,47 @@ func TestClosureOverrideEntryMissingRowSkipped(t *testing.T) {
 	}
 	if len(refs) != 0 {
 		t.Fatalf("expected no refs for a missing override row, got %+v", refs)
+	}
+}
+
+// TestClosureDedupFirstOccurrenceWins proves closure()'s dedup-by-
+// (EntityType, EntityID) behavior documented on closure()'s doc comment: two
+// change_log entries that resolve to the SAME ref — here a direct "model
+// delete" entry and a later "field update" entry whose sole placing owner is
+// that same model — collapse to exactly one ScopedRef, keyed on the first
+// occurrence. add() no-ops on a repeat key (see closure.go), so the first
+// occurrence's Delete flag wins outright: a later non-delete placement ref
+// for the same entity does NOT downgrade an earlier delete to a rewrite.
+// (The code has no symmetric protection the other way — an earlier non-delete
+// occurrence would likewise not be *upgraded* by a later delete for the same
+// key, since the second add() call is a no-op regardless of its Delete
+// argument. That asymmetry-free "first wins, period" behavior is what this
+// test pins down.)
+func TestClosureDedupFirstOccurrenceWins(t *testing.T) {
+	f := setupClosureFixture(t)
+	f.model("CLOSURE_MODEL_DEDUP")
+	f.field("CLOSURE_FIELD_DEDUP")
+	f.placeFieldOnModel("CLOSURE_FIELD_DEDUP", "CLOSURE_MODEL_DEDUP")
+	// change_log entries are processed in id (insertion) order: the direct
+	// model delete is written first, then the field update whose
+	// placingOwners() fan-out re-adds the same model as a non-delete ref.
+	cs := f.changeSet(
+		entry("model", "CLOSURE_MODEL_DEDUP", "delete"),
+		entry("field", "CLOSURE_FIELD_DEDUP", "update"),
+	)
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	want := []ScopedRef{
+		// Exactly one ref for the model — the field-placement fan-out's
+		// duplicate add() for the same key is a no-op, so Delete stays true
+		// from the first (direct model delete) occurrence.
+		{EntityType: "model", EntityID: "CLOSURE_MODEL_DEDUP", Delete: true},
+		{EntityType: "field", EntityID: "CLOSURE_FIELD_DEDUP", Delete: false},
+	}
+	if diff := cmp.Diff(want, refs, sortRefs); diff != "" {
+		t.Fatalf("closure mismatch (-want +got):\n%s", diff)
 	}
 }
