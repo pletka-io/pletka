@@ -51,7 +51,9 @@
     if (!url || adopting) return;
     adopting = true;
     try {
-      const res = await fetch(url, { method: 'POST' });
+      // X-Requested-With marks this as an XHR mutation so the CSRF
+      // middleware exempts it (bodyless POST carries no application/json).
+      const res = await fetch(url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(body?.error || `Adopt failed: ${res.status}`);
@@ -68,7 +70,9 @@
     if (!url || forking) return;
     forking = true;
     try {
-      const res = await fetch(url, { method: 'POST' });
+      // X-Requested-With marks this as an XHR mutation so the CSRF
+      // middleware exempts it (bodyless POST carries no application/json).
+      const res = await fetch(url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(body?.error || `Adapt failed: ${res.status}`);
@@ -107,7 +111,9 @@
     lifecycleBusy = true;
     showHeaderMenu = false;
     try {
-      const res = await fetch(url, { method: 'POST' });
+      // X-Requested-With marks this as an XHR mutation so the CSRF
+      // middleware exempts it (bodyless POST carries no application/json).
+      const res = await fetch(url, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || `Request failed: ${res.status}`);
