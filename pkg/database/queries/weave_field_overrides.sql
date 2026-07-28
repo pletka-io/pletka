@@ -79,6 +79,15 @@ SELECT * FROM weave_field_overrides
 WHERE entity_type = $1 AND entity_id = $2
 ORDER BY position;
 
+-- name: WeaveListOverridesForOwner :many
+-- gitmaterializer scopedRewrite(): overrides placed on a single model/
+-- collection owner, scoped to the project. Drives writeOverridesForOwner,
+-- which regenerates one owner's overrides/ subtree after a scoped rewrite
+-- (mirrors WeaveListOverridesByProjectAndType, narrowed to one entity_id).
+SELECT * FROM weave_field_overrides
+WHERE project_id = $1 AND entity_type = $2 AND entity_id = $3
+ORDER BY position;
+
 -- name: WeaveListOverridesForField :many
 SELECT * FROM weave_field_overrides WHERE field_id = $1
 ORDER BY CASE entity_type WHEN 'model' THEN 0 WHEN 'collection' THEN 1 ELSE 2 END, position;

@@ -692,6 +692,68 @@ func (q *Queries) WeaveListOverridesForField(ctx context.Context, fieldID string
 	return items, nil
 }
 
+const weaveListOverridesForOwner = `-- name: WeaveListOverridesForOwner :many
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides
+WHERE project_id = $1 AND entity_type = $2 AND entity_id = $3
+ORDER BY position
+`
+
+type WeaveListOverridesForOwnerParams struct {
+	ProjectID  string `json:"project_id"`
+	EntityType string `json:"entity_type"`
+	EntityID   string `json:"entity_id"`
+}
+
+// gitmaterializer scopedRewrite(): overrides placed on a single model/
+// collection owner, scoped to the project. Drives writeOverridesForOwner,
+// which regenerates one owner's overrides/ subtree after a scoped rewrite
+// (mirrors WeaveListOverridesByProjectAndType, narrowed to one entity_id).
+func (q *Queries) WeaveListOverridesForOwner(ctx context.Context, arg WeaveListOverridesForOwnerParams) ([]WeaveFieldOverride, error) {
+	rows, err := q.db.Query(ctx, weaveListOverridesForOwner, arg.ProjectID, arg.EntityType, arg.EntityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveFieldOverride{}
+	for rows.Next() {
+		var i WeaveFieldOverride
+		if err := rows.Scan(
+			&i.ID,
+			&i.FieldID,
+			&i.ProjectID,
+			&i.EntityType,
+			&i.EntityID,
+			&i.Position,
+			&i.CollectionOrder,
+			&i.DisplayName,
+			&i.Description,
+			&i.CollectionName,
+			&i.CategoryID,
+			&i.PartOfCollectionID,
+			&i.ExpectedValueType,
+			&i.SetValue,
+			&i.IsRequired,
+			&i.MinOccurs,
+			&i.MaxOccurs,
+			&i.IsHidden,
+			&i.Visibility,
+			&i.StagingID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ContentHash,
+			&i.VersionNumber,
+			&i.SetValueEntryID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveListRefsForOverrides = `-- name: WeaveListRefsForOverrides :many
 SELECT override_id, ref_type, target_id, semantic_id, position FROM weave_override_refs WHERE override_id = ANY($1::bigint[])
 ORDER BY override_id, ref_type, position
