@@ -11,6 +11,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 type Handler struct {
@@ -39,7 +40,7 @@ func (h *Handler) lang(r *http.Request) string {
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	rows, err := h.svc.List(r.Context(), org.ID)
@@ -63,7 +64,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) OptionsActors(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	rows, err := h.svc.ListAvailableActors(r.Context(), org.ID)
@@ -102,7 +103,7 @@ func actorOptionLabel(m MemberRow) domain.Translations {
 func (h *Handler) FormSchemaEdit(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	actorID := chi.URLParam(r, "actorID")
@@ -112,7 +113,7 @@ func (h *Handler) FormSchemaEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if member == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildEditForm(org.Slug, actorID, member, h.lang(r), h.languages))
@@ -121,7 +122,7 @@ func (h *Handler) FormSchemaEdit(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	var body AddInput
@@ -140,7 +141,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	actorID := chi.URLParam(r, "actorID")
@@ -160,7 +161,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	actorID := chi.URLParam(r, "actorID")

@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"net/http"
+
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 type projectVersionKey struct{}
@@ -32,7 +34,7 @@ func WithProjectVersionContext(next http.Handler) http.Handler {
 			return
 		}
 		if !isSafeMethod(r.Method) {
-			http.Error(w, "versioned project views are read-only", http.StatusMethodNotAllowed)
+			errresp.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "versioned project views are read-only")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithProjectVersion(r.Context(), version)))

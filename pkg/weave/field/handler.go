@@ -15,6 +15,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/publication"
 )
 
@@ -118,7 +119,7 @@ func flattenField(f *domain.Field, projectID string) fieldListItem {
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		http.Error(w, "project ID is required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project ID is required")
 		return
 	}
 
@@ -478,21 +479,21 @@ func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	fieldID := chi.URLParam(r, "fieldID")
 	if projectID == "" || fieldID == "" {
-		http.Error(w, "Project ID and Field ID are required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Project ID and Field ID are required")
 		return
 	}
 
 	field, err := h.svc.Get(r.Context(), projectID, fieldID)
 	if err != nil {
 		if IsNotFound(err) {
-			http.Error(w, "Field not found", http.StatusNotFound)
+			errresp.Error(w, r, http.StatusNotFound, "not_found", "Field not found")
 			return
 		}
 		h.writeServiceError(w, err)
 		return
 	}
 	if field == nil {
-		http.Error(w, "Field not found", http.StatusNotFound)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "Field not found")
 		return
 	}
 
@@ -505,7 +506,7 @@ func (h *Handler) ModelRefs(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	fieldID := chi.URLParam(r, "fieldID")
 	if fieldID == "" {
-		http.Error(w, "Field ID is required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Field ID is required")
 		return
 	}
 
@@ -524,7 +525,7 @@ func (h *Handler) CollectionRefs(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	fieldID := chi.URLParam(r, "fieldID")
 	if fieldID == "" {
-		http.Error(w, "Field ID is required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Field ID is required")
 		return
 	}
 

@@ -11,6 +11,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 type LangResolver func(*http.Request) string
@@ -105,7 +106,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	version := chi.URLParam(r, "version")
 	item, err := h.svc.Get(r.Context(), projectID, version)
 	if errors.Is(err, ErrNotFound) {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 type Handler struct {
@@ -128,7 +129,7 @@ func (h *Handler) UserFormSchema(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildUserFormSchema(formschema.ModeEdit, user, h.lang(r), h.languages))
@@ -154,7 +155,7 @@ func (h *Handler) InstitutionFormSchema(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if institution == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildInstitutionFormSchema(formschema.ModeEdit, institution, h.lang(r), h.languages))
@@ -184,7 +185,7 @@ func (h *Handler) SelfProfileFormSchema(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if current == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildSelfProfileFormSchema(current, h.lang(r), h.languages))
@@ -285,7 +286,7 @@ func (h *Handler) UpdateSelf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if row == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": row.ID})
@@ -330,7 +331,7 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if row == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": row.ID})
@@ -489,7 +490,7 @@ func (h *Handler) UpdateInstitution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if row == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": row.ID})

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 type Host struct {
@@ -48,7 +49,7 @@ func csvDispatcher(svc *Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		file := chi.URLParam(r, "file")
 		if !strings.HasSuffix(file, ".csv") {
-			http.NotFound(w, r)
+			errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 			return
 		}
 		exportType := strings.TrimSuffix(file, ".csv")

@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/formschema"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // Handler exposes the HTTP surface of the attribution slice.
@@ -45,7 +46,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	rows, err := h.svc.ListForProject(ctx, projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"attributions": rows})
@@ -70,7 +71,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		Note:    body.Note,
 	})
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, row)
@@ -95,7 +96,7 @@ func (h *Handler) UpdateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.UpdateNote(ctx, projectID, actorID, kind, position, body.Note); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -113,7 +114,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.svc.Delete(ctx, projectID, actorID, kind, position); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -133,7 +134,7 @@ func (h *Handler) Reorder(w http.ResponseWriter, r *http.Request) {
 	}
 	body.Kind = strings.TrimSpace(body.Kind)
 	if err := h.svc.Reorder(ctx, projectID, body.Kind, body.ActorIDsInOrder); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -164,7 +165,7 @@ func (h *Handler) OptionsActors(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	rows, err := h.svc.ListAllActors(ctx, projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	// Sort organisations to the top so curators can spot the
@@ -202,18 +203,18 @@ func (h *Handler) OptionsActors(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, opts)
 }
 
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	var verr *ValidationError
 	switch {
 	case errors.As(err, &verr):
 		writeValidationError(w, verr.Errors)
 	case errors.Is(err, ErrNotFound):
-		http.Error(w, "project not found", http.StatusNotFound)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
 	case errors.Is(err, ErrForbidden):
-		http.Error(w, "forbidden", http.StatusForbidden)
+		errresp.Error(w, r, http.StatusForbidden, "forbidden", "forbidden")
 	default:
 		h.log.Error("attribution handler error", "err", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "internal server error")
 	}
 }
 

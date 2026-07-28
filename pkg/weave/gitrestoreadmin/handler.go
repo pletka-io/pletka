@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/pletka-io/pletka/pkg/service/gitmaterializer"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 type PreviewResult = gitmaterializer.RestorePreview
@@ -105,7 +106,7 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 	job, err := h.svc.Get(r.Context(), chi.URLParam(r, "jobID"))
 	if errors.Is(err, ErrJobNotFound) {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	if err != nil {
@@ -118,7 +119,7 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RunJob(w http.ResponseWriter, r *http.Request) {
 	job, err := h.svc.Run(r.Context(), chi.URLParam(r, "jobID"))
 	if errors.Is(err, ErrJobNotFound) {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	if err != nil {
