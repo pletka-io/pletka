@@ -10,6 +10,67 @@ import (
 	"time"
 )
 
+const weaveClosureOverrideOwner = `-- name: WeaveClosureOverrideOwner :one
+SELECT entity_type, entity_id, field_id
+FROM weave_field_overrides
+WHERE id = $1
+`
+
+type WeaveClosureOverrideOwnerRow struct {
+	EntityType string `json:"entity_type"`
+	EntityID   string `json:"entity_id"`
+	FieldID    string `json:"field_id"`
+}
+
+// gitmaterializer closure(): resolves a change_log "override" entry's
+// entity_id (a weave_field_overrides.id) to its owning model/collection, or
+// (entity_type ”, field_id) for a base override.
+func (q *Queries) WeaveClosureOverrideOwner(ctx context.Context, id int64) (WeaveClosureOverrideOwnerRow, error) {
+	row := q.db.QueryRow(ctx, weaveClosureOverrideOwner, id)
+	var i WeaveClosureOverrideOwnerRow
+	err := row.Scan(&i.EntityType, &i.EntityID, &i.FieldID)
+	return i, err
+}
+
+const weaveClosurePlacementsForField = `-- name: WeaveClosurePlacementsForField :many
+SELECT DISTINCT entity_type, entity_id
+FROM weave_field_overrides
+WHERE field_id = $1 AND project_id = $2 AND entity_type IN ('model', 'collection')
+`
+
+type WeaveClosurePlacementsForFieldParams struct {
+	FieldID   string `json:"field_id"`
+	ProjectID string `json:"project_id"`
+}
+
+type WeaveClosurePlacementsForFieldRow struct {
+	EntityType string `json:"entity_type"`
+	EntityID   string `json:"entity_id"`
+}
+
+// gitmaterializer closure(): models/collections in this project that place
+// fieldID via an override row. Editing/deleting the field must also rewrite
+// each placing owner's overrides/ subtree.
+func (q *Queries) WeaveClosurePlacementsForField(ctx context.Context, arg WeaveClosurePlacementsForFieldParams) ([]WeaveClosurePlacementsForFieldRow, error) {
+	rows, err := q.db.Query(ctx, weaveClosurePlacementsForField, arg.FieldID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveClosurePlacementsForFieldRow{}
+	for rows.Next() {
+		var i WeaveClosurePlacementsForFieldRow
+		if err := rows.Scan(&i.EntityType, &i.EntityID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveCountFieldUsage = `-- name: WeaveCountFieldUsage :one
 SELECT
     count(DISTINCT entity_id) FILTER (WHERE entity_type = 'model')::bigint

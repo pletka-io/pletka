@@ -197,3 +197,19 @@ SELECT
         AS override_count
 FROM weave_field_overrides
 WHERE field_id = $1 AND project_id = $2;
+
+-- name: WeaveClosurePlacementsForField :many
+-- gitmaterializer closure(): models/collections in this project that place
+-- fieldID via an override row. Editing/deleting the field must also rewrite
+-- each placing owner's overrides/ subtree.
+SELECT DISTINCT entity_type, entity_id
+FROM weave_field_overrides
+WHERE field_id = $1 AND project_id = $2 AND entity_type IN ('model', 'collection');
+
+-- name: WeaveClosureOverrideOwner :one
+-- gitmaterializer closure(): resolves a change_log "override" entry's
+-- entity_id (a weave_field_overrides.id) to its owning model/collection, or
+-- (entity_type '', field_id) for a base override.
+SELECT entity_type, entity_id, field_id
+FROM weave_field_overrides
+WHERE id = $1;
