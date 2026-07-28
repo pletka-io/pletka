@@ -376,15 +376,12 @@ func RespondNotFound(h ErrorPageHost, w http.ResponseWriter, r *http.Request) {
 
 // Error emits a negotiated error (branded HTML shell or JSON envelope) using
 // the request-scoped responder the router stashed. It is the one-line
-// replacement for bare http.Error in weave handlers. Falls back to plain
-// http.Error only if no responder is on the context (route mounted outside
-// the router's stash middleware).
+// replacement for bare http.Error in weave handlers (host handlers only —
+// in-slice handlers that cannot import this package call errresp.Error
+// directly). Delegates to errresp.Error, which falls back to plain
+// http.Error only if no responder is on the context.
 func Error(w http.ResponseWriter, r *http.Request, status int, code, message string) {
-	if resp, ok := errresp.FromContext(r.Context()); ok {
-		resp(w, r, status, code, message)
-		return
-	}
-	http.Error(w, message, status) //nolint:forbidigo // fallback when unrouted
+	errresp.Error(w, r, status, code, message)
 }
 
 // BuildResponder builds the concrete errresp.Responder backed by h: JSON

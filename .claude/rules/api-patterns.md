@@ -23,7 +23,7 @@ Client-side substitution of `{id}`-style placeholders into a schema-provided `ur
 - `code` — machine-readable branch key; frontend switches on this, not `error` text. Constants: `bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `validation`, `in_use`, `internal`, `method_not_allowed`, `unprocessable`.
 - `error` — human summary, always present. `message` — optional longer help text. `errors` — per-field messages, only on `422`.
 - `field_count` on a delete conflict is slice-specific (`collection`, `model`, and `projectontologyversion` handlers add it) — don't assume every `in_use` 409 has one.
-- Error responses in weave handlers use `weaverouter.Error(w, r, status, code, message)` (negotiates branded HTML vs JSON envelope) or `apierror.Write`; **bare `http.Error`/`http.NotFound` are forbidden and lint-enforced (`forbidigo`)** — the sanctioned exceptions carry `//nolint:forbidigo` with a reason.
+- Error responses in weave handlers use `weaverouter.Error(w, r, status, code, message)` (negotiates branded HTML vs JSON envelope) or `apierror.Write`; **bare `http.Error`/`http.NotFound` are forbidden and lint-enforced (`forbidigo`)** — the sanctioned exceptions carry `//nolint:forbidigo` with a reason. Slices that cannot import `pkg/weave/router` (the ones it mounts) call `errresp.Error` instead; host handlers call `weaverouter.Error` — both negotiate identically.
 
 ## Status Codes
 
