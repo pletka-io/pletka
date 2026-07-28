@@ -18,6 +18,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/weave/actorlabels"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/publication"
 	"github.com/pletka-io/pletka/pkg/weave/release"
 )
@@ -174,21 +175,21 @@ func (h *Handler) ProjectPageSchema(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		http.Error(w, "project ID is required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project ID is required")
 		return
 	}
 
 	project := auth.ProjectFromContext(ctx)
 	if project == nil {
 		h.logger.Error("project missing from request context", "id", projectID)
-		http.Error(w, "project not found", http.StatusNotFound)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
 		return
 	}
 
 	statsMap, err := h.weave.Projects().StatsForProjects(ctx, []string{projectID})
 	if err != nil {
 		h.logger.Error("failed to compute project stats", "id", projectID, "err", err)
-		http.Error(w, "failed to load project stats", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load project stats")
 		return
 	}
 	stats := statsMap[projectID]
@@ -341,7 +342,7 @@ func (h *Handler) ProjectAdoptionsTabSchema(w http.ResponseWriter, r *http.Reque
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		http.Error(w, "project ID is required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project ID is required")
 		return
 	}
 
@@ -363,7 +364,7 @@ func (h *Handler) ProjectAdoptionsTabSchema(w http.ResponseWriter, r *http.Reque
 	allAdoptions, err := h.weave.Adoptions().List(ctx, opts...)
 	if err != nil {
 		h.logger.Error("failed to load project adoptions", "project", projectID, "err", err)
-		http.Error(w, "failed to load adoptions", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load adoptions")
 		return
 	}
 	adoptions := allAdoptions[:0]
@@ -520,7 +521,7 @@ func (h *Handler) ProjectReleaseTabSchema(w http.ResponseWriter, r *http.Request
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		http.Error(w, "project ID is required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project ID is required")
 		return
 	}
 
@@ -528,7 +529,7 @@ func (h *Handler) ProjectReleaseTabSchema(w http.ResponseWriter, r *http.Request
 	items, err := h.releases.ListByProject(ctx, projectID)
 	if err != nil {
 		h.logger.Error("failed to load project releases", "project", projectID, "err", err)
-		http.Error(w, "failed to load releases", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load releases")
 		return
 	}
 
@@ -547,7 +548,7 @@ func (h *Handler) ProjectReleaseTabSchema(w http.ResponseWriter, r *http.Request
 		links, ierr := h.weave.ProjectInheritances().List(ctx, projectID)
 		if ierr != nil {
 			h.logger.Error("failed to load parent dependencies for release tab", "project", projectID, "err", ierr)
-			http.Error(w, "failed to load releases", http.StatusInternalServerError)
+			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load releases")
 			return
 		}
 		for _, link := range links {
@@ -662,14 +663,14 @@ func (h *Handler) ProjectAdoptionClosure(w http.ResponseWriter, r *http.Request)
 	sourceProjectID := chi.URLParam(r, "sourceProjectID")
 	sourceEntityID := chi.URLParam(r, "sourceEntityID")
 	if projectID == "" || sourceProjectID == "" || sourceEntityID == "" {
-		http.Error(w, "projectID, sourceProjectID, and sourceEntityID are required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "projectID, sourceProjectID, and sourceEntityID are required")
 		return
 	}
 	kind := strings.TrimSpace(r.URL.Query().Get("kind"))
 	switch kind {
 	case "models", "collections", "fields":
 	default:
-		http.Error(w, "kind must be one of models, collections, fields", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "kind must be one of models, collections, fields")
 		return
 	}
 
@@ -685,11 +686,11 @@ func (h *Handler) ProjectAdoptionClosure(w http.ResponseWriter, r *http.Request)
 	)
 	if err != nil {
 		h.logger.Error("load receipt for closure", "project", projectID, "source", sourceEntityID, "err", err)
-		http.Error(w, "failed to load receipt", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load receipt")
 		return
 	}
 	if len(receipts) == 0 {
-		http.Error(w, "receipt not found", http.StatusNotFound)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "receipt not found")
 		return
 	}
 	seedKind := receipts[0].EntityType
@@ -701,7 +702,7 @@ func (h *Handler) ProjectAdoptionClosure(w http.ResponseWriter, r *http.Request)
 		ids, err := h.weave.Models().ListReceiptModelClosure(ctx, sourceEntityID, seedKind)
 		if err != nil {
 			h.logger.Error("receipt model closure", "err", err)
-			http.Error(w, "failed to compute closure", http.StatusInternalServerError)
+			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to compute closure")
 			return
 		}
 		resp.Items = make([]ProjectAdoptionClosureItem, 0, len(ids))
@@ -721,7 +722,7 @@ func (h *Handler) ProjectAdoptionClosure(w http.ResponseWriter, r *http.Request)
 		ids, err := h.weave.Collections().ListReceiptCollectionClosure(ctx, sourceEntityID, seedKind)
 		if err != nil {
 			h.logger.Error("receipt collection closure", "err", err)
-			http.Error(w, "failed to compute closure", http.StatusInternalServerError)
+			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to compute closure")
 			return
 		}
 		resp.Items = make([]ProjectAdoptionClosureItem, 0, len(ids))
@@ -741,7 +742,7 @@ func (h *Handler) ProjectAdoptionClosure(w http.ResponseWriter, r *http.Request)
 		ids, err := h.weave.WeaveFields().ListReceiptFieldClosure(ctx, sourceEntityID, seedKind)
 		if err != nil {
 			h.logger.Error("receipt field closure", "err", err)
-			http.Error(w, "failed to compute closure", http.StatusInternalServerError)
+			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to compute closure")
 			return
 		}
 		resp.Items = make([]ProjectAdoptionClosureItem, 0, len(ids))
@@ -882,21 +883,21 @@ func (h *Handler) ProjectOverviewSchema(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		http.Error(w, "project ID is required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project ID is required")
 		return
 	}
 
 	project := auth.ProjectFromContext(ctx)
 	if project == nil {
 		h.logger.Error("project missing from request context", "id", projectID)
-		http.Error(w, "project not found", http.StatusNotFound)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
 		return
 	}
 
 	statsMap, err := h.weave.Projects().StatsForProjects(ctx, []string{projectID})
 	if err != nil {
 		h.logger.Error("failed to compute project stats", "id", projectID, "err", err)
-		http.Error(w, "failed to load project stats", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load project stats")
 		return
 	}
 	stats := statsMap[projectID]
