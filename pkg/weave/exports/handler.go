@@ -11,6 +11,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 )
 
@@ -41,18 +42,18 @@ func (h *Handler) loadAndGate(w http.ResponseWriter, r *http.Request, projectID 
 	project := auth.ProjectFromContext(ctx)
 	if project == nil || project.ID != projectID {
 		if h.projects == nil {
-			http.Error(w, "project not found", http.StatusNotFound)
+			errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
 			return nil, false
 		}
 		var err error
 		project, err = h.projects.GetByID(ctx, projectID)
 		if err != nil || project == nil {
-			http.Error(w, "project not found", http.StatusNotFound)
+			errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
 			return nil, false
 		}
 	}
 	if !auth.FromContext(ctx).IsProjectMember(auth.ProjectResource(project)) {
-		http.Error(w, "project not found", http.StatusNotFound)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
 		return nil, false
 	}
 	return project, true
@@ -60,7 +61,7 @@ func (h *Handler) loadAndGate(w http.ResponseWriter, r *http.Request, projectID 
 
 func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	if h.service == nil {
-		http.Error(w, "exports unavailable", http.StatusServiceUnavailable)
+		errresp.Error(w, r, http.StatusServiceUnavailable, "internal", "exports unavailable")
 		return
 	}
 
@@ -83,7 +84,7 @@ func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	case generators.EntityField:
 		err = h.service.GenerateField(r.Context(), projectID, entityID, generators.FormatCSV, w, generators.Options{})
 	default:
-		http.Error(w, "unknown export entity kind", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "unknown export entity kind")
 		return
 	}
 	if err != nil {

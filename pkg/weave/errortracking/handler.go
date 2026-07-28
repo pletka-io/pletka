@@ -9,6 +9,7 @@ import (
 	"time"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // clientReportLimit caps how many client error reports we accept per
@@ -73,7 +74,7 @@ func (h *Handler) PostClient(w http.ResponseWriter, r *http.Request) {
 	// dropping the very errors worth capturing.
 	var report ClientReport
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&report); err != nil {
-		http.Error(w, "invalid payload", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "invalid payload")
 		return
 	}
 
@@ -117,7 +118,7 @@ func (h *Handler) PostClient(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.Insert(r.Context(), ev); err != nil {
 		h.logger.Warn("errortracking: client insert failed", "err", err, "route", route)
-		http.Error(w, "store insert failed", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "store insert failed")
 		return
 	}
 
@@ -140,7 +141,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.logger.Error("errortracking: list failed", "err", err)
-		http.Error(w, "list failed", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "list failed")
 		return
 	}
 

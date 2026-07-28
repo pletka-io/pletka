@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // Host is the explicit contract required by the error tracking routes.
@@ -42,7 +43,7 @@ func requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		snap := weaveauth.FromContext(r.Context())
 		if snap == nil || snap.IsAnonymous || !snap.IsSuperAdmin {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			errresp.Error(w, r, http.StatusForbidden, "forbidden", "forbidden")
 			return
 		}
 		next.ServeHTTP(w, r)

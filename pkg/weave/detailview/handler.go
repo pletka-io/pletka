@@ -23,6 +23,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/session"
 	weavepkg "github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/actorlabels"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/publication"
 	weaveroutes "github.com/pletka-io/pletka/pkg/weave/routes"
@@ -195,7 +196,7 @@ func (h *Handler) Page(entityType string) http.HandlerFunc {
 		}
 
 		if projectID == "" || entityID == "" {
-			http.Error(w, "project and entity ID are required", http.StatusBadRequest)
+			errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project and entity ID are required")
 			return
 		}
 
@@ -206,7 +207,7 @@ func (h *Handler) Page(entityType string) http.HandlerFunc {
 			var err error
 			project, err = h.weave.Projects().GetByID(ctx, projectID)
 			if err != nil || project == nil {
-				http.Error(w, "project not found", http.StatusNotFound)
+				errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
 				return
 			}
 		}
@@ -219,7 +220,7 @@ func (h *Handler) Page(entityType string) http.HandlerFunc {
 		// 403) so we don't leak project existence.
 		snap := auth.FromContext(ctx)
 		if !snap.Can(auth.ProjectRead, auth.ProjectResource(project), nil) {
-			http.Error(w, "project not found", http.StatusNotFound)
+			errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
 			return
 		}
 
@@ -234,7 +235,7 @@ func (h *Handler) Page(entityType string) http.HandlerFunc {
 		projectName := project.UIName.Get(lang, projectID)
 		entityName, entityTypeLabel, err := h.entityPageMeta(ctx, entityType, entityID, lang)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			errresp.Error(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
 		}
 

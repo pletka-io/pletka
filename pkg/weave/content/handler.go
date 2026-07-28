@@ -14,6 +14,7 @@ import (
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/frontendrefs"
 	"github.com/pletka-io/pletka/pkg/i18n"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
 )
 
@@ -116,7 +117,7 @@ func (h *Handler) Serve(slug string) http.HandlerFunc {
 		}
 		schema := h.lookup(slug, lang)
 		if schema == nil {
-			http.NotFound(w, r)
+			errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 			return
 		}
 
