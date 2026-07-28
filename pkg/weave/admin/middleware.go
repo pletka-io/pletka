@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // RequireSuperAdmin hides admin routes from non-superadmins with the same
@@ -12,7 +13,7 @@ func RequireSuperAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		snap := weaveauth.FromContext(r.Context())
 		if snap == nil || snap.IsAnonymous || !snap.IsSuperAdmin {
-			http.NotFound(w, r)
+			errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 			return
 		}
 		next.ServeHTTP(w, r)

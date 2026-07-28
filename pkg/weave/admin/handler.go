@@ -6,6 +6,7 @@ import (
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/formschema"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // Handler serves the global admin schema shell. Slice-owned content is mounted
@@ -22,7 +23,7 @@ func NewHandler(extraSections ...formschema.AdminSection) *Handler {
 func (h *Handler) Schema(w http.ResponseWriter, r *http.Request) {
 	snap := weaveauth.FromContext(r.Context())
 	if snap == nil || !snap.IsSuperAdmin {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, formschema.BuildAdminSchema(snap, h.extraSections...))

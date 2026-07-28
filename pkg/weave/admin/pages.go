@@ -11,6 +11,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/frontendrefs"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/session"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
 )
 
@@ -41,7 +42,7 @@ func (p *Pages) Mount(r chi.Router) {
 func (p *Pages) AdminPage(w http.ResponseWriter, r *http.Request) {
 	snap := weaveauth.FromContext(r.Context())
 	if snap == nil || !snap.IsSuperAdmin {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 

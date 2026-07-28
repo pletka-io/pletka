@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // Handler serves GET /admin/materialization.
@@ -35,13 +37,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	summary, err := h.store.Summary(r.Context(), windowHours)
 	if err != nil {
 		h.logger.Error("materializationadmin: summary failed", "err", err)
-		http.Error(w, "summary failed", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "summary failed")
 		return
 	}
 	runs, err := h.store.Recent(r.Context(), limit)
 	if err != nil {
 		h.logger.Error("materializationadmin: recent failed", "err", err)
-		http.Error(w, "recent failed", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "recent failed")
 		return
 	}
 
