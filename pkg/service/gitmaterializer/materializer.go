@@ -159,22 +159,25 @@ func (m *Materializer) processChangeSet(ctx context.Context, cs sqlcgen.WeaveCha
 		}
 	}
 
-	// Reuse the init-git whole-project writer so incremental materialization
-	// and a full rebuild are byte-identical by construction — one writer, no
-	// per-entity drift. The change_log rows remain as the Postgres audit /
-	// rollback substrate; they do not drive file output here.
-	//
-	// Clear the tracked tree first so entities deleted since the last commit
-	// drop out; `git add -A` then stages adds, edits, and deletions together
-	// and git computes the real diff.
-	if err := resetWorkTree(workDir); err != nil {
-		return fmt.Errorf("reset work tree for %s: %w", cs.ProjectID, err)
+	// Scoped rewrite: expand this change_set's change_log entries to the
+	// within-project closure of entities whose materialized files derive
+	// from them, then rewrite/delete exactly those files. Reuses the same
+	// single-entity writers the whole-tree path uses, so scoped and full
+	// output stay byte-identical (see TestScopedEqualsFullRebuild_*). This
+	// replaces the previous full-tree rebuild-and-diff, which re-read
+	// CURRENT DB state on every change_set — when two change_sets landed
+	// close together, the first one processed could absorb a later,
+	// unrelated change_set's diff and commit it under the wrong message,
+	// leaving the later change_set a no-op (see TestNoCrossEntityStealing).
+	refs, err := m.closure(ctx, cs)
+	if err != nil {
+		return fmt.Errorf("compute closure for %s change set %d: %w", cs.ProjectID, cs.ID, err)
 	}
-	if err := m.writeProjectTree(ctx, workDir, cs.ProjectID); err != nil {
-		return fmt.Errorf("materialize project tree %s: %w", cs.ProjectID, err)
+	if err := m.scopedRewrite(ctx, workDir, cs.ProjectID, refs); err != nil {
+		return fmt.Errorf("scoped rewrite %s change set %d: %w", cs.ProjectID, cs.ID, err)
 	}
-	// files = total files written this run (cost of the whole-tree rewrite).
-	files := countTreeFiles(workDir)
+	// files = scoped write size (this change_set's closure), not whole-tree.
+	files := len(refs)
 	if err := git.AddAll(ctx); err != nil {
 		return fmt.Errorf("git add: %w", err)
 	}
@@ -261,25 +264,6 @@ func (m *Materializer) markChangeSetProcessed(ctx context.Context, csID int64, s
 		MaterializedChanged:    &changed,
 	}); err != nil {
 		return fmt.Errorf("mark change_set processed: %w", err)
-	}
-	return nil
-}
-
-// resetWorkTree removes every entry in workDir except .git, so a fresh
-// writeProjectTree reflects deletions — files for entities removed since the
-// last commit disappear rather than lingering as stale tracked files.
-func resetWorkTree(workDir string) error {
-	entries, err := os.ReadDir(workDir)
-	if err != nil {
-		return fmt.Errorf("read work dir: %w", err)
-	}
-	for _, e := range entries {
-		if e.Name() == ".git" {
-			continue
-		}
-		if err := os.RemoveAll(filepath.Join(workDir, e.Name())); err != nil {
-			return fmt.Errorf("remove %s: %w", e.Name(), err)
-		}
 	}
 	return nil
 }
