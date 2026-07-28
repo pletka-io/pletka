@@ -14,6 +14,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	overridepkg "github.com/pletka-io/pletka/pkg/weave/override"
 )
 
@@ -88,7 +89,7 @@ func (h *Handler) Data(w http.ResponseWriter, r *http.Request) {
 	projects, total, err := h.svc.ListVisible(ctx, opts...)
 	if err != nil {
 		h.log.Error("list projects failed", "err", err)
-		http.Error(w, "failed to list projects", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list projects")
 		return
 	}
 
@@ -199,7 +200,7 @@ func (h *Handler) FilterInstitutions(w http.ResponseWriter, r *http.Request) {
 	actors, err := h.svc.ListVisibleOwnerInstitutions(r.Context())
 	if err != nil {
 		h.log.Error("load institutions failed", "err", err)
-		http.Error(w, "failed to load institutions", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load institutions")
 		return
 	}
 	options := make([]formschema.FilterOption, 0, len(actors)+1)
@@ -267,7 +268,7 @@ func (h *Handler) InheritanceTree(w http.ResponseWriter, r *http.Request) {
 
 	project, err := h.svc.Get(ctx, projectID)
 	if err != nil || project == nil {
-		http.Error(w, "Project not found", http.StatusNotFound)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "Project not found")
 		return
 	}
 
@@ -295,7 +296,7 @@ func (h *Handler) InheritanceTree(w http.ResponseWriter, r *http.Request) {
 	resolved, err := h.svc.ResolvedOntologyVersions(ctx, projectID, domain.ResolvedOntologyVersionOpts{})
 	if err != nil {
 		h.log.Error("resolve ontology versions for inheritance tree", "project_id", projectID, "err", err)
-		http.Error(w, "failed to resolve ontology tree", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to resolve ontology tree")
 		return
 	}
 

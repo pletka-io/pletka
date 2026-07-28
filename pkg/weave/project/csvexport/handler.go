@@ -12,6 +12,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 const exportListLimit = 10000
@@ -139,7 +140,7 @@ func (s *Service) DownloadCSV(w http.ResponseWriter, r *http.Request) {
 	exportType := chi.URLParam(r, "type")
 
 	if !validExportTypes[exportType] {
-		http.Error(w, "unknown export type", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "unknown export type")
 		return
 	}
 
@@ -380,23 +381,23 @@ func (s *Service) writeOntologies(ctx context.Context, w io.Writer, projectID st
 // callers are denied — the verification CSV exposes drafts and override
 // detail, so it should not be a drive-by surface.
 func (s *Service) loadAndGate(w http.ResponseWriter, r *http.Request, projectID string) (*domain.Project, bool) {
-	return s.loadAndGateCtx(r.Context(), w, projectID)
+	return s.loadAndGateCtx(r.Context(), w, r, projectID)
 }
 
-func (s *Service) loadAndGateCtx(ctx context.Context, w http.ResponseWriter, projectID string) (*domain.Project, bool) {
+func (s *Service) loadAndGateCtx(ctx context.Context, w http.ResponseWriter, r *http.Request, projectID string) (*domain.Project, bool) {
 	project := auth.ProjectFromContext(ctx)
 	if project == nil || project.ID != projectID {
 		var err error
 		project, err = s.weave.Projects().GetByID(ctx, projectID)
 		if err != nil || project == nil {
 			s.logger.Error("fetch project for csv export", "err", err, "project_id", projectID)
-			http.Error(w, "project not found", http.StatusNotFound)
+			errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
 			return nil, false
 		}
 	}
 	snap := auth.FromContext(ctx)
 	if !snap.IsProjectMember(auth.ProjectResource(project)) {
-		http.Error(w, "project not found", http.StatusNotFound)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
 		return nil, false
 	}
 	return project, true

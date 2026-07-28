@@ -15,6 +15,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/publication"
 )
 
@@ -53,7 +54,7 @@ func NewHandler(svc *Service, log *slog.Logger, languages []formschema.LanguageI
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		http.Error(w, "project ID is required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project ID is required")
 		return
 	}
 
@@ -395,7 +396,7 @@ func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if m == nil {
-		http.Error(w, "Model not found", http.StatusNotFound)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "Model not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, m)
@@ -426,7 +427,7 @@ func (h *Handler) Fork(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	modelID := chi.URLParam(r, "modelID")
 	if projectID == "" || modelID == "" {
-		http.Error(w, "Project ID and Model ID are required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Project ID and Model ID are required")
 		return
 	}
 	model, err := h.svc.ForkFromSource(r.Context(), projectID, modelID)
