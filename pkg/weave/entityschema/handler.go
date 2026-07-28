@@ -15,6 +15,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	schemaregistry "github.com/pletka-io/pletka/pkg/schemaui/registry"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/organization"
 	weaveproject "github.com/pletka-io/pletka/pkg/weave/project"
 )
@@ -93,7 +94,7 @@ func (h *Handler) EntityListSchema(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	entityType := chi.URLParam(r, "entityType")
 	if projectID == "" || entityType == "" {
-		http.Error(w, "Project ID and entity type are required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Project ID and entity type are required")
 		return
 	}
 
@@ -101,7 +102,7 @@ func (h *Handler) EntityListSchema(w http.ResponseWriter, r *http.Request) {
 
 	provider, ok := h.schemas.EntityListProvider(entityType)
 	if !ok {
-		http.Error(w, fmt.Sprintf("Unknown entity type: %s", entityType), http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", fmt.Sprintf("Unknown entity type: %s", entityType))
 		return
 	}
 	schema, err := provider.BuildEntityListSchema(r.Context(), schemaregistry.EntityListRequest{
@@ -113,11 +114,11 @@ func (h *Handler) EntityListSchema(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.logger.Error("failed to build entity list schema", "project_id", projectID, "entity_type", entityType, "err", err)
-		http.Error(w, "Failed to build schema", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "Failed to build schema")
 		return
 	}
 	if schema == nil {
-		http.Error(w, "Failed to build schema", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "Failed to build schema")
 		return
 	}
 
@@ -263,7 +264,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	entityType := chi.URLParam(r, "entityType")
 	if projectID == "" || entityType == "" {
-		http.Error(w, "Project ID and entity type are required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Project ID and entity type are required")
 		return
 	}
 
@@ -283,7 +284,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 
 	provider, ok := h.schemas.FormProvider(entityType)
 	if !ok {
-		http.Error(w, fmt.Sprintf("Unknown entity type: %s", entityType), http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", fmt.Sprintf("Unknown entity type: %s", entityType))
 		return
 	}
 	schema, err := provider.BuildFormSchema(ctx, schemaregistry.FormRequest{
@@ -297,12 +298,12 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.logger.Error("failed to build form schema", "project_id", projectID, "entity_type", entityType, "mode", mode, "entity_id", entityID, "err", err)
-		http.Error(w, "Failed to build schema", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "Failed to build schema")
 		return
 	}
 
 	if schema == nil {
-		http.Error(w, "Failed to build schema", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "Failed to build schema")
 		return
 	}
 
@@ -322,7 +323,7 @@ func (h *Handler) ProjectModelOptions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		http.Error(w, "Project ID is required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Project ID is required")
 		return
 	}
 
@@ -366,7 +367,7 @@ func (h *Handler) ProjectCollectionOptions(w http.ResponseWriter, r *http.Reques
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		http.Error(w, "Project ID is required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Project ID is required")
 		return
 	}
 
