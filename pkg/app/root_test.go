@@ -1,12 +1,16 @@
 package app
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"testing/fstest"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/pletka-io/pletka/pkg/session"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 func TestMountStaticAssetsMergesContributedFilesystems(t *testing.T) {
@@ -135,5 +139,57 @@ func TestDevModeMiddlewareStoresExplicitMode(t *testing.T) {
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusNoContent)
+	}
+}
+
+// TestSetupGlobalMiddlewareStashesErrResponderAfterHolderSet is the boot/
+// wiring proof for the global error responder (a full app.New() boot test
+// needs a live DB pool plus ~20 slice host fakes, which is impractical here —
+// see the app.go/root.go wiring instead). It exercises the real
+// setupGlobalMiddleware chain the same way csrf_wiring_test.go does, and
+// proves the two-step dance app.go performs actually works end to end:
+// errresp.StashMiddleware is installed on the mux before any route exists
+// (buildRootMux calls setupGlobalMiddleware before route registration, so
+// this never panics chi's "middleware after routes" guard), and once
+// Holder.Set is called — mirroring the Set app.go issues right after
+// weaverouter.Mount builds the concrete responder from the error-page host —
+// the same already-built router carries that exact responder on the request
+// context for every subsequent request.
+func TestSetupGlobalMiddlewareStashesErrResponderAfterHolderSet(t *testing.T) {
+	r := chi.NewRouter()
+	holder := &errresp.Holder{}
+	setupGlobalMiddleware(r, rootDependencies{
+		Session:      session.New(session.DefaultConfig()),
+		ErrResponder: holder,
+	})
+
+	var gotOK bool
+	var gotResp errresp.Responder
+	r.Get("/probe", func(w http.ResponseWriter, req *http.Request) {
+		gotResp, gotOK = errresp.FromContext(req.Context())
+		w.WriteHeader(http.StatusOK)
+	})
+
+	probe := func() {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/probe", nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+	}
+
+	probe()
+	if gotOK {
+		t.Fatal("errresp.FromContext ok = true before Holder.Set, want false")
+	}
+
+	var responderCalled bool
+	holder.Set(func(http.ResponseWriter, *http.Request, int, string, string) { responderCalled = true })
+
+	probe()
+	if !gotOK {
+		t.Fatal("errresp.FromContext ok = false after Holder.Set, want true")
+	}
+	gotResp(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/probe", nil), 404, "not_found", "x")
+	if !responderCalled {
+		t.Fatal("stashed responder is not the one Holder.Set installed")
 	}
 }
