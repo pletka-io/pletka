@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 type organizationBySlugReader interface {
@@ -57,11 +58,11 @@ func WithOrgResource(reader organizationBySlugReader) func(http.Handler) http.Ha
 			}
 			org, err := reader.GetBySlug(r.Context(), slug)
 			if err != nil {
-				http.Error(w, "failed to load organization", http.StatusInternalServerError)
+				errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load organization")
 				return
 			}
 			if org == nil {
-				http.NotFound(w, r)
+				errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(WithOrg(r.Context(), org)))
@@ -87,7 +88,7 @@ func RequireOrgEdit(next http.Handler) http.Handler {
 func requireOrgCapability(capability Capability, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !FromContext(r.Context()).Can(capability, OrgResourceFromContext(r.Context()), nil) {
-			http.NotFound(w, r)
+			errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 			return
 		}
 		next.ServeHTTP(w, r)

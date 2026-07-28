@@ -323,7 +323,10 @@ func authRateLimit(next http.Handler) http.Handler {
 			host = r.RemoteAddr
 		}
 		if !authLimiter.get(host).Allow() {
-			http.Error(w, "too many requests", http.StatusTooManyRequests)
+			// Deliberately plain: this fires under brute-force load, and 429 has
+			// no canonical envelope code — rendering the branded page/envelope
+			// here would add work under exactly the attack it defends against.
+			http.Error(w, "too many requests", http.StatusTooManyRequests) //nolint:forbidigo // defensive rate-limit response stays plain
 			return
 		}
 		next.ServeHTTP(w, r)

@@ -103,11 +103,11 @@ func WithProjectResource(weave domain.WeaveStore) func(http.Handler) http.Handle
 				}
 			}
 			if err != nil {
-				http.Error(w, "failed to load project", http.StatusInternalServerError)
+				errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load project")
 				return
 			}
 			if project == nil {
-				http.Error(w, "Project not found", http.StatusNotFound)
+				errresp.Error(w, r, http.StatusNotFound, "not_found", "Project not found")
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(WithProject(r.Context(), project)))
