@@ -254,6 +254,39 @@ func (m *Materializer) Reconcile(ctx context.Context, projectID string) (int, er
 	return changed, nil
 }
 
+// projectIDsWithRepos enumerates every project that already has a
+// materialized git working tree under m.baseDir (a subdirectory containing
+// a .git dir), so the nightly sweep can Reconcile each one.
+//
+// This deliberately does not enumerate every project row in weave_projects:
+// there is no dedicated "projects with a materialized repo" query, and a
+// project with no on-disk repo yet has never been through the scoped hot
+// path, so it cannot have a closure gap to heal — it gets its first
+// materialization the normal way (InitProject / first change set), not by
+// being force-initialized here. Filesystem enumeration is also what keeps
+// the sweep's cost proportional to what's actually materialized, rather
+// than the whole system's project count.
+func (m *Materializer) projectIDsWithRepos(ctx context.Context) ([]string, error) {
+	entries, err := os.ReadDir(m.baseDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read base dir: %w", err)
+	}
+	var ids []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(m.baseDir, e.Name(), ".git"))
+		if err == nil && info.IsDir() {
+			ids = append(ids, e.Name())
+		}
+	}
+	return ids, nil
+}
+
 // resetWorkTree removes every tracked file and directory under workDir
 // (except .git) before a full rebuild, so deletions in the DB drop out of
 // the tree instead of lingering as stale files that writeProjectTree never
