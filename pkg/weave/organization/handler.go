@@ -7,6 +7,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -55,7 +56,7 @@ func (h *Handler) CreateSelf(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.log.Error("create organization failed", "err", err)
-		http.Error(w, "failed to create organization", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to create organization")
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -92,7 +93,7 @@ func (h *Handler) Data(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.log.Error("browse organizations failed", "err", err)
-		http.Error(w, "failed to load organizations", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load organizations")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -106,7 +107,7 @@ func (h *Handler) Data(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SettingsSchema(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildSettingsSchema(org, h.lang(r), h.languages))
@@ -115,7 +116,7 @@ func (h *Handler) SettingsSchema(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GeneralFormSchema(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildGeneralFormSchema(org, h.lang(r), h.languages))
@@ -124,7 +125,7 @@ func (h *Handler) GeneralFormSchema(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateGeneral(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		http.NotFound(w, r)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	var in UpdateGeneralInput
@@ -140,7 +141,7 @@ func (h *Handler) UpdateGeneral(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.log.Error("update organization failed", "slug", org.Slug, "err", err)
-		http.Error(w, "failed to update organization", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to update organization")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
