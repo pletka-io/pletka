@@ -55,6 +55,7 @@ func setupMatScopedFixture(t *testing.T) *matScopedFixture {
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_models WHERE project_id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_collections WHERE project_id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_fields WHERE project_id = $1`, matScopedProjectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_categories WHERE project_id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_projects WHERE id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id = $1`, matScopedOwnerActorID)
 	})
@@ -134,6 +135,166 @@ func (f *matScopedFixture) field(id string) {
 		OntologyScope: scope,
 	}); err != nil {
 		f.t.Fatalf("create field %s: %v", id, err)
+	}
+}
+
+// collection creates a bare collection row in the fixture's project.
+func (f *matScopedFixture) collection(id string) {
+	f.t.Helper()
+	uiName, _ := json.Marshal(map[string]string{"en": "Matscoped Collection " + id})
+	desc, _ := json.Marshal(map[string]string{"en": "matscoped test collection"})
+	scope, _ := json.Marshal(map[string]string{"prefix": "crm", "local_name": "E67_Birth"})
+	if _, err := f.queries.WeaveCreateCollection(f.ctx, sqlcgen.WeaveCreateCollectionParams{
+		ID:            id,
+		SystemName:    stringPtr("matscoped_collection_" + strings.ReplaceAll(id, ".", "_")),
+		UiName:        uiName,
+		Description:   desc,
+		Status:        "draft",
+		ProjectID:     f.projectID,
+		OntologyScope: scope,
+	}); err != nil {
+		f.t.Fatalf("create collection %s: %v", id, err)
+	}
+}
+
+// category creates a bare category row in the fixture's project.
+func (f *matScopedFixture) category(id string) {
+	f.t.Helper()
+	uiName, _ := json.Marshal(map[string]string{"en": "Matscoped Category " + id})
+	desc, _ := json.Marshal(map[string]string{"en": "matscoped test category"})
+	if _, err := f.queries.WeaveCreateCategory(f.ctx, sqlcgen.WeaveCreateCategoryParams{
+		ID:             id,
+		SystemName:     stringPtr("matscoped_category_" + strings.ReplaceAll(id, ".", "_")),
+		UiName:         uiName,
+		Description:    desc,
+		Status:         "draft",
+		ProjectID:      f.projectID,
+		CanonicalOrder: 0,
+	}); err != nil {
+		f.t.Fatalf("create category %s: %v", id, err)
+	}
+}
+
+// placeFieldOnModel creates a model-owned override row placing fieldID on
+// modelID, and returns the override row's id.
+func (f *matScopedFixture) placeFieldOnModel(fieldID, modelID string) int64 {
+	f.t.Helper()
+	o, err := f.queries.WeaveCreateOverride(f.ctx, sqlcgen.WeaveCreateOverrideParams{
+		FieldID:    fieldID,
+		ProjectID:  f.projectID,
+		EntityType: "model",
+		EntityID:   modelID,
+	})
+	if err != nil {
+		f.t.Fatalf("create override placing field %s on model %s: %v", fieldID, modelID, err)
+	}
+	return o.ID
+}
+
+// placeFieldOnCollection creates a collection-owned override row placing
+// fieldID on collectionID, and returns the override row's id.
+func (f *matScopedFixture) placeFieldOnCollection(fieldID, collectionID string) int64 {
+	f.t.Helper()
+	o, err := f.queries.WeaveCreateOverride(f.ctx, sqlcgen.WeaveCreateOverrideParams{
+		FieldID:    fieldID,
+		ProjectID:  f.projectID,
+		EntityType: "collection",
+		EntityID:   collectionID,
+	})
+	if err != nil {
+		f.t.Fatalf("create override placing field %s on collection %s: %v", fieldID, collectionID, err)
+	}
+	return o.ID
+}
+
+// updateFieldUIName performs a real DB edit of a field's UI name, mirroring
+// what a save in the UI does — used by the equivalence test's "field EDIT"
+// case.
+func (f *matScopedFixture) updateFieldUIName(id, newName string) {
+	f.t.Helper()
+	row, err := f.queries.WeaveGetFieldByID(f.ctx, id)
+	if err != nil {
+		f.t.Fatalf("get field %s: %v", id, err)
+	}
+	uiName, _ := json.Marshal(map[string]string{"en": newName})
+	if _, err := f.queries.WeaveUpdateField(f.ctx, sqlcgen.WeaveUpdateFieldParams{
+		ID:                id,
+		UiName:            uiName,
+		Description:       row.Description,
+		SystemName:        row.SystemName,
+		Status:            row.Status,
+		OntologyScope:     row.OntologyScope,
+		OntologyPath:      row.OntologyPath,
+		PathElements:      row.PathElements,
+		ExpectedValueType: row.ExpectedValueType,
+		Examples:          row.Examples,
+	}); err != nil {
+		f.t.Fatalf("update field %s: %v", id, err)
+	}
+}
+
+// deleteField performs a real DB delete of a field row, mirroring what a
+// delete in the UI does.
+func (f *matScopedFixture) deleteField(id string) {
+	f.t.Helper()
+	if err := f.queries.WeaveDeleteField(f.ctx, id); err != nil {
+		f.t.Fatalf("delete field %s: %v", id, err)
+	}
+}
+
+// updateCollectionUIName performs a real DB edit of a collection's UI name,
+// mirroring what a save in the UI does — used by the equivalence test's
+// "collection EDIT" case.
+func (f *matScopedFixture) updateCollectionUIName(id, newName string) {
+	f.t.Helper()
+	row, err := f.queries.WeaveGetCollectionByID(f.ctx, id)
+	if err != nil {
+		f.t.Fatalf("get collection %s: %v", id, err)
+	}
+	uiName, _ := json.Marshal(map[string]string{"en": newName})
+	if _, err := f.queries.WeaveUpdateCollection(f.ctx, sqlcgen.WeaveUpdateCollectionParams{
+		ID:                       id,
+		UiName:                   uiName,
+		Description:              row.Description,
+		SystemName:               row.SystemName,
+		Status:                   row.Status,
+		OntologyScope:            row.OntologyScope,
+		CollectionNumber:         row.CollectionNumber,
+		CanonicalCollectionOrder: row.CanonicalCollectionOrder,
+		DefaultCategoryID:        row.DefaultCategoryID,
+	}); err != nil {
+		f.t.Fatalf("update collection %s: %v", id, err)
+	}
+}
+
+// deleteCollection performs a real DB delete of a collection row, mirroring
+// what a delete in the UI does.
+func (f *matScopedFixture) deleteCollection(id string) {
+	f.t.Helper()
+	if err := f.queries.WeaveDeleteCollection(f.ctx, id); err != nil {
+		f.t.Fatalf("delete collection %s: %v", id, err)
+	}
+}
+
+// updateCategoryUIName performs a real DB edit of a category's UI name,
+// mirroring what a save in the UI does — used by the equivalence test's
+// "category EDIT" case.
+func (f *matScopedFixture) updateCategoryUIName(id, newName string) {
+	f.t.Helper()
+	row, err := f.queries.WeaveGetCategoryByID(f.ctx, id)
+	if err != nil {
+		f.t.Fatalf("get category %s: %v", id, err)
+	}
+	uiName, _ := json.Marshal(map[string]string{"en": newName})
+	if _, err := f.queries.WeaveUpdateCategory(f.ctx, sqlcgen.WeaveUpdateCategoryParams{
+		ID:             id,
+		UiName:         uiName,
+		Description:    row.Description,
+		SystemName:     row.SystemName,
+		Status:         row.Status,
+		CanonicalOrder: row.CanonicalOrder,
+	}); err != nil {
+		f.t.Fatalf("update category %s: %v", id, err)
 	}
 }
 
@@ -387,6 +548,198 @@ func TestScopedEqualsFullRebuild_ModelDelete(t *testing.T) {
 
 	if diff := diffTrees(t, full2, scoped); diff != "" {
 		t.Fatalf("scoped tree drifted from full rebuild after a model delete:\n%s", diff)
+	}
+}
+
+// TestScopedEqualsFullRebuild_FieldEdit is the field-edit sibling of
+// TestScopedEqualsFullRebuild_ModelEdit: the field is placed on a model via
+// a model-owned override, so closure()'s field->placing-owner fan-out must
+// rewrite both the field's own file and the placing model's overrides/
+// subtree. scopedRewrite() starting from the pre-edit baseline must land on
+// exactly the tree a full rebuild at the post-edit DB state produces.
+func TestScopedEqualsFullRebuild_FieldEdit(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	f.field("MATSCOPED_FIELD_EDIT")
+	f.model("MATSCOPED_MODEL_PLACES_EDIT")
+	f.placeFieldOnModel("MATSCOPED_FIELD_EDIT", "MATSCOPED_MODEL_PLACES_EDIT")
+
+	full1 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full1, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S1: %v", err)
+	}
+
+	f.updateFieldUIName("MATSCOPED_FIELD_EDIT", "Edited Field Name")
+	cs := f.changeSet("edit field", entry("field", "MATSCOPED_FIELD_EDIT", "update"))
+
+	full2 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full2, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S2: %v", err)
+	}
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+
+	scoped := t.TempDir()
+	copyMatTree(t, full1, scoped)
+	if err := f.mat.scopedRewrite(f.ctx, scoped, f.projectID, refs); err != nil {
+		t.Fatalf("scopedRewrite: %v", err)
+	}
+
+	if diff := diffTrees(t, full2, scoped); diff != "" {
+		t.Fatalf("scoped tree drifted from full rebuild after a field edit (placed on a model):\n%s", diff)
+	}
+}
+
+// TestScopedEqualsFullRebuild_FieldDelete is the delete-case sibling of
+// TestScopedEqualsFullRebuild_FieldEdit: an unplaced field (no non-base
+// placements, so the delete is allowed) is deleted; scopedRewrite() must
+// remove the field's directory and land on exactly the same tree a full
+// rebuild at the post-delete DB state produces.
+func TestScopedEqualsFullRebuild_FieldDelete(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	f.field("MATSCOPED_FIELD_DEL")
+
+	full1 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full1, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S1: %v", err)
+	}
+
+	f.deleteField("MATSCOPED_FIELD_DEL")
+	cs := f.changeSet("delete field", entry("field", "MATSCOPED_FIELD_DEL", "delete"))
+
+	full2 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full2, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S2: %v", err)
+	}
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+
+	scoped := t.TempDir()
+	copyMatTree(t, full1, scoped)
+	if err := f.mat.scopedRewrite(f.ctx, scoped, f.projectID, refs); err != nil {
+		t.Fatalf("scopedRewrite: %v", err)
+	}
+
+	if diff := diffTrees(t, full2, scoped); diff != "" {
+		t.Fatalf("scoped tree drifted from full rebuild after a field delete:\n%s", diff)
+	}
+}
+
+// TestScopedEqualsFullRebuild_CollectionEdit mirrors the model-edit
+// equivalence case for collections. The collection has a field placement, so
+// its overrides/ subtree is materialized and must regenerate identically
+// under scopedRewrite().
+func TestScopedEqualsFullRebuild_CollectionEdit(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	f.field("MATSCOPED_FIELD_FOR_COLLECTION_EDIT")
+	f.collection("MATSCOPED_COLLECTION_EDIT")
+	f.placeFieldOnCollection("MATSCOPED_FIELD_FOR_COLLECTION_EDIT", "MATSCOPED_COLLECTION_EDIT")
+
+	full1 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full1, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S1: %v", err)
+	}
+
+	f.updateCollectionUIName("MATSCOPED_COLLECTION_EDIT", "Edited Collection Name")
+	cs := f.changeSet("edit collection", entry("collection", "MATSCOPED_COLLECTION_EDIT", "update"))
+
+	full2 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full2, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S2: %v", err)
+	}
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+
+	scoped := t.TempDir()
+	copyMatTree(t, full1, scoped)
+	if err := f.mat.scopedRewrite(f.ctx, scoped, f.projectID, refs); err != nil {
+		t.Fatalf("scopedRewrite: %v", err)
+	}
+
+	if diff := diffTrees(t, full2, scoped); diff != "" {
+		t.Fatalf("scoped tree drifted from full rebuild after a collection edit:\n%s", diff)
+	}
+}
+
+// TestScopedEqualsFullRebuild_CollectionDelete is the delete-case sibling of
+// TestScopedEqualsFullRebuild_CollectionEdit: scopedRewrite() must remove the
+// deleted collection's directory and land on exactly the same tree a full
+// rebuild at the post-delete DB state produces.
+func TestScopedEqualsFullRebuild_CollectionDelete(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	f.collection("MATSCOPED_COLLECTION_DEL")
+
+	full1 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full1, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S1: %v", err)
+	}
+
+	f.deleteCollection("MATSCOPED_COLLECTION_DEL")
+	cs := f.changeSet("delete collection", entry("collection", "MATSCOPED_COLLECTION_DEL", "delete"))
+
+	full2 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full2, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S2: %v", err)
+	}
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+
+	scoped := t.TempDir()
+	copyMatTree(t, full1, scoped)
+	if err := f.mat.scopedRewrite(f.ctx, scoped, f.projectID, refs); err != nil {
+		t.Fatalf("scopedRewrite: %v", err)
+	}
+
+	if diff := diffTrees(t, full2, scoped); diff != "" {
+		t.Fatalf("scoped tree drifted from full rebuild after a collection delete:\n%s", diff)
+	}
+}
+
+// TestScopedEqualsFullRebuild_CategoryEdit mirrors the model-edit
+// equivalence case for categories. Categories own a single file (no
+// overrides/ subtree), so this exercises the simplest closure()/
+// scopedRewrite() path.
+func TestScopedEqualsFullRebuild_CategoryEdit(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	f.category("MATSCOPED_CATEGORY_EDIT")
+
+	full1 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full1, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S1: %v", err)
+	}
+
+	f.updateCategoryUIName("MATSCOPED_CATEGORY_EDIT", "Edited Category Name")
+	cs := f.changeSet("edit category", entry("category", "MATSCOPED_CATEGORY_EDIT", "update"))
+
+	full2 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full2, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S2: %v", err)
+	}
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+
+	scoped := t.TempDir()
+	copyMatTree(t, full1, scoped)
+	if err := f.mat.scopedRewrite(f.ctx, scoped, f.projectID, refs); err != nil {
+		t.Fatalf("scopedRewrite: %v", err)
+	}
+
+	if diff := diffTrees(t, full2, scoped); diff != "" {
+		t.Fatalf("scoped tree drifted from full rebuild after a category edit:\n%s", diff)
 	}
 }
 
