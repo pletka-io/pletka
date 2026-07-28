@@ -15,6 +15,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/ontology/autocomplete"
 	parsedontology "github.com/pletka-io/pletka/pkg/weave/ontology/rdf"
 )
@@ -44,7 +45,7 @@ func (h *Handler) ListFamilies(w http.ResponseWriter, r *http.Request) {
 	families, err := h.svc.ListFamilies(r.Context())
 	if err != nil {
 		h.log.Error("list families", "err", err)
-		http.Error(w, "failed to list families", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list families")
 		return
 	}
 	writeJSON(w, http.StatusOK, families)
@@ -54,7 +55,7 @@ func (h *Handler) OptionsFamilies(w http.ResponseWriter, r *http.Request) {
 	families, err := h.svc.ListFamilies(r.Context())
 	if err != nil {
 		h.log.Error("list family options", "err", err)
-		http.Error(w, "failed to list families", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list families")
 		return
 	}
 	opts := make([]formschema.SelectOption, 0, len(families))
@@ -80,7 +81,7 @@ func (h *Handler) ListFamiliesData(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.log.Error("browse families", "err", err)
-		http.Error(w, "failed to browse families", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to browse families")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -92,12 +93,12 @@ func (h *Handler) ListFamiliesData(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetFamily(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "familyID")
 	if id == "" {
-		http.Error(w, "family id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "family id required")
 		return
 	}
 	f, err := h.svc.GetFamily(r.Context(), id)
 	if err != nil {
-		h.writeServiceError(w, err, "family")
+		h.writeServiceError(w, r, err, "family")
 		return
 	}
 	writeJSON(w, http.StatusOK, f)
@@ -114,7 +115,7 @@ func (h *Handler) ListOntologies(w http.ResponseWriter, r *http.Request) {
 		out, err := h.svc.SearchOntologies(ctx, q, limit)
 		if err != nil {
 			h.log.Error("search ontologies", "err", err)
-			http.Error(w, "failed to search ontologies", http.StatusInternalServerError)
+			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to search ontologies")
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -124,7 +125,7 @@ func (h *Handler) ListOntologies(w http.ResponseWriter, r *http.Request) {
 		out, err := h.svc.ListOntologiesByFamily(ctx, familyID)
 		if err != nil {
 			h.log.Error("list ontologies by family", "err", err)
-			http.Error(w, "failed to list ontologies", http.StatusInternalServerError)
+			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list ontologies")
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -133,7 +134,7 @@ func (h *Handler) ListOntologies(w http.ResponseWriter, r *http.Request) {
 	out, err := h.svc.ListOntologies(ctx)
 	if err != nil {
 		h.log.Error("list ontologies", "err", err)
-		http.Error(w, "failed to list ontologies", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list ontologies")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -143,7 +144,7 @@ func (h *Handler) OptionsOntologies(w http.ResponseWriter, r *http.Request) {
 	ontologies, err := h.svc.ListOntologies(r.Context())
 	if err != nil {
 		h.log.Error("list ontology options", "err", err)
-		http.Error(w, "failed to list ontologies", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list ontologies")
 		return
 	}
 	filterType := strings.TrimSpace(r.URL.Query().Get("ontology_type"))
@@ -180,7 +181,7 @@ func (h *Handler) ListOntologiesData(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.log.Error("browse ontologies", "err", err)
-		http.Error(w, "failed to browse ontologies", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to browse ontologies")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -192,12 +193,12 @@ func (h *Handler) ListOntologiesData(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetOntology(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "ontologyID")
 	if id == "" {
-		http.Error(w, "ontology id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "ontology id required")
 		return
 	}
 	o, err := h.svc.GetOntology(r.Context(), id)
 	if err != nil {
-		h.writeServiceError(w, err, "ontology")
+		h.writeServiceError(w, r, err, "ontology")
 		return
 	}
 	writeJSON(w, http.StatusOK, o)
@@ -206,13 +207,13 @@ func (h *Handler) GetOntology(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListExtensions(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "ontologyID")
 	if id == "" {
-		http.Error(w, "ontology id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "ontology id required")
 		return
 	}
 	out, err := h.svc.ListOntologyExtensions(r.Context(), id)
 	if err != nil {
 		h.log.Error("list extensions", "err", err)
-		http.Error(w, "failed to list extensions", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list extensions")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -225,13 +226,13 @@ func (h *Handler) ListExtensions(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListVersions(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "ontologyID")
 	if id == "" {
-		http.Error(w, "ontology id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "ontology id required")
 		return
 	}
 	out, err := h.svc.VersionListWithUsage(r.Context(), id)
 	if err != nil {
 		h.log.Error("list versions", "err", err)
-		http.Error(w, "failed to list versions", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list versions")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -240,12 +241,12 @@ func (h *Handler) ListVersions(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "versionID")
 	if id == "" {
-		http.Error(w, "version id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "version id required")
 		return
 	}
 	v, err := h.svc.GetVersion(r.Context(), id)
 	if err != nil {
-		h.writeServiceError(w, err, "version")
+		h.writeServiceError(w, r, err, "version")
 		return
 	}
 	writeJSON(w, http.StatusOK, v)
@@ -258,7 +259,7 @@ func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListClasses(w http.ResponseWriter, r *http.Request) {
 	versionID := chi.URLParam(r, "versionID")
 	if versionID == "" {
-		http.Error(w, "version id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "version id required")
 		return
 	}
 	if q := r.URL.Query().Get("q"); q != "" {
@@ -266,7 +267,7 @@ func (h *Handler) ListClasses(w http.ResponseWriter, r *http.Request) {
 		out, err := h.svc.SearchClasses(r.Context(), versionID, q, limit)
 		if err != nil {
 			h.log.Error("search classes", "err", err)
-			http.Error(w, "failed to search classes", http.StatusInternalServerError)
+			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to search classes")
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -275,7 +276,7 @@ func (h *Handler) ListClasses(w http.ResponseWriter, r *http.Request) {
 	out, err := h.svc.ListClasses(r.Context(), versionID)
 	if err != nil {
 		h.log.Error("list classes", "err", err)
-		http.Error(w, "failed to list classes", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list classes")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -284,7 +285,7 @@ func (h *Handler) ListClasses(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListProperties(w http.ResponseWriter, r *http.Request) {
 	versionID := chi.URLParam(r, "versionID")
 	if versionID == "" {
-		http.Error(w, "version id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "version id required")
 		return
 	}
 	if q := r.URL.Query().Get("q"); q != "" {
@@ -292,7 +293,7 @@ func (h *Handler) ListProperties(w http.ResponseWriter, r *http.Request) {
 		out, err := h.svc.SearchProperties(r.Context(), versionID, q, limit)
 		if err != nil {
 			h.log.Error("search properties", "err", err)
-			http.Error(w, "failed to search properties", http.StatusInternalServerError)
+			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to search properties")
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -301,7 +302,7 @@ func (h *Handler) ListProperties(w http.ResponseWriter, r *http.Request) {
 	out, err := h.svc.ListProperties(r.Context(), versionID)
 	if err != nil {
 		h.log.Error("list properties", "err", err)
-		http.Error(w, "failed to list properties", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list properties")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -331,7 +332,7 @@ func (h *Handler) Autocomplete(w http.ResponseWriter, r *http.Request) {
 	suggestions, err := h.svc.GetSuggestions(r.Context(), req)
 	if err != nil {
 		h.log.Error("autocomplete", "err", err)
-		http.Error(w, "autocomplete failed", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "autocomplete failed")
 		return
 	}
 	if suggestions == nil {
@@ -343,14 +344,14 @@ func (h *Handler) Autocomplete(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) OntologyLabels(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		http.Error(w, "project id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project id required")
 		return
 	}
 	lang := h.lang(r)
 	out, err := h.svc.OntologyLabels(r.Context(), projectID, lang)
 	if err != nil {
 		h.log.Error("ontology labels", "err", err)
-		http.Error(w, "labels lookup failed", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "labels lookup failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -381,7 +382,7 @@ func (h *Handler) FamilyEntityListSchema(w http.ResponseWriter, r *http.Request)
 func (h *Handler) VersionListSchema(w http.ResponseWriter, r *http.Request) {
 	ontologyID := chi.URLParam(r, "ontologyID")
 	if ontologyID == "" {
-		http.Error(w, "ontology id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "ontology id required")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildVersionListSchema(ontologyID, h.lang(r), h.languages))
@@ -441,7 +442,7 @@ func (h *Handler) AdminLandingPageSchema(w http.ResponseWriter, r *http.Request)
 	model, err := h.svc.FamilyLandingPageModel(r.Context(), lang)
 	if err != nil {
 		h.log.Error("admin ontology landing page schema", "err", err)
-		http.Error(w, "failed to build ontology page schema", http.StatusInternalServerError)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to build ontology page schema")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildAdminFamilyLandingPageSchema(model, lang, h.languages))
@@ -452,12 +453,12 @@ func (h *Handler) AdminFamilyPageSchema(w http.ResponseWriter, r *http.Request) 
 	familyID := chi.URLParam(r, "familyID")
 	family, err := h.svc.GetFamily(r.Context(), familyID)
 	if err != nil {
-		h.writeServiceError(w, err, "family")
+		h.writeServiceError(w, r, err, "family")
 		return
 	}
 	model, err := h.svc.FamilyDetailPageModel(r.Context(), family.Slug, r.URL.Query().Get("tab"), lang)
 	if err != nil {
-		h.writeServiceError(w, err, "family")
+		h.writeServiceError(w, r, err, "family")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildAdminFamilyDetailPageSchema(model, lang, h.languages))
@@ -467,7 +468,7 @@ func (h *Handler) AdminOntologyPageSchema(w http.ResponseWriter, r *http.Request
 	lang := h.lang(r)
 	model, err := h.svc.OntologyDetailPageModelByID(r.Context(), chi.URLParam(r, "ontologyID"), lang)
 	if err != nil {
-		h.writeServiceError(w, err, "ontology")
+		h.writeServiceError(w, r, err, "ontology")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildOntologyDetailPageSchema(model, lang, h.languages, true))
@@ -477,7 +478,7 @@ func (h *Handler) AdminVersionPageSchema(w http.ResponseWriter, r *http.Request)
 	lang := h.lang(r)
 	model, err := h.svc.VersionDetailPageModelByID(r.Context(), chi.URLParam(r, "versionID"), r.URL.Query().Get("tab"), lang)
 	if err != nil {
-		h.writeServiceError(w, err, "version")
+		h.writeServiceError(w, r, err, "version")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildVersionDetailPageSchema(model, lang, h.languages, true))
@@ -487,7 +488,7 @@ func (h *Handler) AdminImportVersionPageSchema(w http.ResponseWriter, r *http.Re
 	lang := h.lang(r)
 	model, err := h.svc.OntologyDetailPageModelByID(r.Context(), chi.URLParam(r, "ontologyID"), lang)
 	if err != nil {
-		h.writeServiceError(w, err, "ontology")
+		h.writeServiceError(w, r, err, "ontology")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildAdminImportVersionPageSchema(model, lang, h.languages))
@@ -503,7 +504,7 @@ func (h *Handler) ProbeImportVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	probe, _, err := h.svc.ProbeImportVersion(r.Context(), input)
 	if err != nil {
-		h.writeServiceError(w, err, "version import probe")
+		h.writeServiceError(w, r, err, "version import probe")
 		return
 	}
 	writeJSON(w, http.StatusOK, probe)
@@ -519,7 +520,7 @@ func (h *Handler) ImportVersionUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	probe, importInput, err := h.svc.ProbeImportVersion(r.Context(), input)
 	if err != nil {
-		h.writeServiceError(w, err, "version import")
+		h.writeServiceError(w, r, err, "version import")
 		return
 	}
 	if !probe.CanImport {
@@ -532,7 +533,7 @@ func (h *Handler) ImportVersionUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	version, err := h.svc.ImportVersionWithOptions(r.Context(), importInput, ImportVersionOptions{})
 	if err != nil {
-		h.writeServiceError(w, err, "version import")
+		h.writeServiceError(w, r, err, "version import")
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -571,12 +572,12 @@ const ontologyImportMaxBytes int64 = 25 << 20
 
 func decodeImportUpload(w http.ResponseWriter, r *http.Request, ontologyID string) (ImportUploadInput, bool) {
 	if ontologyID == "" {
-		http.Error(w, "ontology id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "ontology id required")
 		return ImportUploadInput{}, false
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, ontologyImportMaxBytes)
 	if err := r.ParseMultipartForm(ontologyImportMaxBytes); err != nil {
-		http.Error(w, "invalid multipart upload", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "invalid multipart upload")
 		return ImportUploadInput{}, false
 	}
 	file, header, err := r.FormFile("rdf_file")
@@ -587,7 +588,7 @@ func decodeImportUpload(w http.ResponseWriter, r *http.Request, ontologyID strin
 	defer file.Close() //nolint:errcheck
 	content, err := io.ReadAll(file)
 	if err != nil {
-		http.Error(w, "failed to read RDF file", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "failed to read RDF file")
 		return ImportUploadInput{}, false
 	}
 	if len(content) == 0 {
@@ -663,7 +664,7 @@ func (h *Handler) CreateFamily(w http.ResponseWriter, r *http.Request) {
 		DisplayOrder:   p.DisplayOrder,
 	})
 	if err != nil {
-		h.writeServiceError(w, err, "family")
+		h.writeServiceError(w, r, err, "family")
 		return
 	}
 	writeJSON(w, http.StatusCreated, f)
@@ -675,7 +676,7 @@ func (h *Handler) UpdateFamily(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "familyID")
 	if id == "" {
-		http.Error(w, "family id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "family id required")
 		return
 	}
 	var p familyPayload
@@ -696,7 +697,7 @@ func (h *Handler) UpdateFamily(w http.ResponseWriter, r *http.Request) {
 		DisplayOrder:   p.DisplayOrder,
 	})
 	if err != nil {
-		h.writeServiceError(w, err, "family")
+		h.writeServiceError(w, r, err, "family")
 		return
 	}
 	writeJSON(w, http.StatusOK, f)
@@ -708,11 +709,11 @@ func (h *Handler) DeleteFamily(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "familyID")
 	if id == "" {
-		http.Error(w, "family id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "family id required")
 		return
 	}
 	if err := h.svc.DeleteFamily(r.Context(), id); err != nil {
-		h.writeServiceError(w, err, "family")
+		h.writeServiceError(w, r, err, "family")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -760,7 +761,7 @@ func (h *Handler) CreateOntology(w http.ResponseWriter, r *http.Request) {
 		CreatedByID:       createdBy,
 	})
 	if err != nil {
-		h.writeServiceError(w, err, "ontology")
+		h.writeServiceError(w, r, err, "ontology")
 		return
 	}
 	writeJSON(w, http.StatusCreated, o)
@@ -772,7 +773,7 @@ func (h *Handler) UpdateOntology(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "ontologyID")
 	if id == "" {
-		http.Error(w, "ontology id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "ontology id required")
 		return
 	}
 	var p ontologyPayload
@@ -795,7 +796,7 @@ func (h *Handler) UpdateOntology(w http.ResponseWriter, r *http.Request) {
 		SourceURL:         p.SourceURL,
 	})
 	if err != nil {
-		h.writeServiceError(w, err, "ontology")
+		h.writeServiceError(w, r, err, "ontology")
 		return
 	}
 	writeJSON(w, http.StatusOK, o)
@@ -807,11 +808,11 @@ func (h *Handler) DeleteOntology(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "ontologyID")
 	if id == "" {
-		http.Error(w, "ontology id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "ontology id required")
 		return
 	}
 	if err := h.svc.DeleteOntology(r.Context(), id); err != nil {
-		h.writeServiceError(w, err, "ontology")
+		h.writeServiceError(w, r, err, "ontology")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -843,7 +844,7 @@ func (h *Handler) UpdateVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "versionID")
 	if id == "" {
-		http.Error(w, "version id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "version id required")
 		return
 	}
 	var p versionMetadataPayload
@@ -857,7 +858,7 @@ func (h *Handler) UpdateVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	existing, err := h.svc.GetVersion(r.Context(), id)
 	if err != nil {
-		h.writeServiceError(w, err, "version")
+		h.writeServiceError(w, r, err, "version")
 		return
 	}
 	if p.CompatibleBaseVersionsText != nil {
@@ -894,7 +895,7 @@ func (h *Handler) UpdateVersion(w http.ResponseWriter, r *http.Request) {
 		OntologyMetadata:       p.OntologyMetadata,
 	})
 	if err != nil {
-		h.writeServiceError(w, err, "version")
+		h.writeServiceError(w, r, err, "version")
 		return
 	}
 	writeJSON(w, http.StatusOK, v)
@@ -907,11 +908,11 @@ func (h *Handler) SetActiveVersion(w http.ResponseWriter, r *http.Request) {
 	ontologyID := chi.URLParam(r, "ontologyID")
 	versionID := chi.URLParam(r, "versionID")
 	if ontologyID == "" || versionID == "" {
-		http.Error(w, "ontology id and version id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "ontology id and version id required")
 		return
 	}
 	if err := h.svc.SetActiveVersion(r.Context(), ontologyID, versionID); err != nil {
-		h.writeServiceError(w, err, "version")
+		h.writeServiceError(w, r, err, "version")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -923,11 +924,11 @@ func (h *Handler) DeleteVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "versionID")
 	if id == "" {
-		http.Error(w, "version id required", http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "version id required")
 		return
 	}
 	if err := h.svc.DeleteVersion(r.Context(), id); err != nil {
-		h.writeServiceError(w, err, "version")
+		h.writeServiceError(w, r, err, "version")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -979,7 +980,7 @@ func parsePaging(w http.ResponseWriter, r *http.Request) (page int, perPage int,
 	if raw := strings.TrimSpace(r.URL.Query().Get("page")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 {
-			http.Error(w, "page must be a positive integer", http.StatusBadRequest)
+			errresp.Error(w, r, http.StatusBadRequest, "bad_request", "page must be a positive integer")
 			return 0, 0, false
 		}
 		page = parsed
@@ -987,7 +988,7 @@ func parsePaging(w http.ResponseWriter, r *http.Request) (page int, perPage int,
 	if raw := strings.TrimSpace(r.URL.Query().Get("per_page")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 {
-			http.Error(w, "per_page must be a positive integer", http.StatusBadRequest)
+			errresp.Error(w, r, http.StatusBadRequest, "bad_request", "per_page must be a positive integer")
 			return 0, 0, false
 		}
 		perPage = parsed
@@ -1010,9 +1011,9 @@ func (h *Handler) familyFilterOptions(ctx context.Context) []formschema.FilterOp
 	return options
 }
 
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error, label string) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error, label string) {
 	if errors.Is(err, ErrNotFound) {
-		http.Error(w, label+" not found", http.StatusNotFound)
+		errresp.Error(w, r, http.StatusNotFound, "not_found", label+" not found")
 		return
 	}
 	if errors.Is(err, ErrInUse) {
@@ -1025,7 +1026,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error, label stri
 		return
 	}
 	h.log.Error(label+" error", "err", err)
-	http.Error(w, "internal error", http.StatusInternalServerError)
+	errresp.Error(w, r, http.StatusInternalServerError, "internal", "internal error")
 }
 
 // requireSuperAdmin gates write endpoints on auth.AuthSnapshot.IsSuperAdmin.
@@ -1035,7 +1036,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error, label stri
 func (h *Handler) requireSuperAdmin(w http.ResponseWriter, r *http.Request) bool {
 	snap := auth.FromContext(r.Context())
 	if snap == nil || !snap.IsSuperAdmin {
-		http.Error(w, "super_admin required", http.StatusForbidden)
+		errresp.Error(w, r, http.StatusForbidden, "forbidden", "super_admin required")
 		return false
 	}
 	return true
@@ -1055,7 +1056,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "invalid JSON: "+err.Error())
 		return false
 	}
 	return true
