@@ -112,13 +112,14 @@ func (f *closureFixture) changeSet(entries ...changeLogSpec) sqlcgen.WeaveChange
 	}
 	for _, e := range entries {
 		if _, err := f.queries.WeaveCreateChangeLogEntry(f.ctx, sqlcgen.WeaveCreateChangeLogEntryParams{
-			ChangeSetID: cs.ID,
-			EntityType:  e.entityType,
-			EntityID:    e.entityID,
-			Operation:   e.operation,
-			ProjectID:   f.projectID,
-			FilePath:    "irrelevant.yaml",
-			Payload:     []byte(`{}`),
+			ChangeSetID:     cs.ID,
+			EntityType:      e.entityType,
+			EntityID:        e.entityID,
+			Operation:       e.operation,
+			ProjectID:       f.projectID,
+			FilePath:        "irrelevant.yaml",
+			Payload:         []byte(`{}`),
+			PreviousPayload: e.previousPayload,
 		}); err != nil {
 			f.t.Fatalf("create change log entry (%s %s %s): %v", e.operation, e.entityType, e.entityID, err)
 		}
@@ -127,13 +128,21 @@ func (f *closureFixture) changeSet(entries ...changeLogSpec) sqlcgen.WeaveChange
 }
 
 type changeLogSpec struct {
-	entityType string
-	entityID   string
-	operation  string
+	entityType      string
+	entityID        string
+	operation       string
+	previousPayload []byte
 }
 
 func entry(entityType, entityID, operation string) changeLogSpec {
 	return changeLogSpec{entityType: entityType, entityID: entityID, operation: operation}
+}
+
+// entryWithPreviousPayload is entry() plus a previous_payload blob, used by
+// tests that exercise closure()'s category-delete SemanticID resolution
+// (categorySemanticIDFromPayload reads previous_payload, not payload).
+func entryWithPreviousPayload(entityType, entityID, operation string, previousPayload []byte) changeLogSpec {
+	return changeLogSpec{entityType: entityType, entityID: entityID, operation: operation, previousPayload: previousPayload}
 }
 
 // model creates a bare model row in the fixture's project.
@@ -424,6 +433,115 @@ func TestClosureDedupFirstOccurrenceWins(t *testing.T) {
 		{EntityType: "model", EntityID: "CLOSURE_MODEL_DEDUP", Delete: true},
 		{EntityType: "field", EntityID: "CLOSURE_FIELD_DEDUP", Delete: false},
 	}
+	if diff := cmp.Diff(want, refs, sortRefs); diff != "" {
+		t.Fatalf("closure mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestClosureNamespaceBindingMapsToProjectManifest is the final-review Fix 1
+// regression: before this fix, closure() had no case for a "namespace_binding"
+// change_log entity type, so it produced NO refs at all — the change_set
+// would drain as a noop with no commit (the DB change unmaterialized until the
+// nightly reconcile sweep, under system attribution). namespace_binding
+// changes materialize into project.yaml, so they must map to a single
+// "project_manifest" ref, never a delete.
+func TestClosureNamespaceBindingMapsToProjectManifest(t *testing.T) {
+	f := setupClosureFixture(t)
+	cs := f.changeSet(entry("namespace_binding", "SOME_BINDING_ID", "update"))
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	want := []ScopedRef{{EntityType: "project_manifest", EntityID: f.projectID, Delete: false}}
+	if diff := cmp.Diff(want, refs, sortRefs); diff != "" {
+		t.Fatalf("closure mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestClosureProjectOntologyVersionMapsToProjectManifest is
+// TestClosureNamespaceBindingMapsToProjectManifest's sibling for the other
+// entity type Fix 1 covers: "project-ontology-version" changes materialize
+// into both project.yaml (linked_versions) and pletka.mod (ontology
+// requirements), so they map to the same synthetic "project_manifest" ref —
+// scopedRewrite() decides which files that ref rewrites.
+func TestClosureProjectOntologyVersionMapsToProjectManifest(t *testing.T) {
+	f := setupClosureFixture(t)
+	cs := f.changeSet(entry("project-ontology-version", "SOME_LINK_ID", "create"))
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	want := []ScopedRef{{EntityType: "project_manifest", EntityID: f.projectID, Delete: false}}
+	if diff := cmp.Diff(want, refs, sortRefs); diff != "" {
+		t.Fatalf("closure mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestClosureNamespaceAndOntologyDedupToOneProjectManifestRef proves the
+// closure() doc comment's dedup claim for the project-manifest case: a
+// change_set with BOTH a namespace_binding entry and a project-ontology-version
+// entry (e.g. one poller batch draining two related edits) collapses to
+// exactly one "project_manifest" ref, not two duplicate rewrites of the same
+// files.
+func TestClosureNamespaceAndOntologyDedupToOneProjectManifestRef(t *testing.T) {
+	f := setupClosureFixture(t)
+	cs := f.changeSet(
+		entry("namespace_binding", "SOME_BINDING_ID", "update"),
+		entry("project-ontology-version", "SOME_LINK_ID", "create"),
+	)
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	want := []ScopedRef{{EntityType: "project_manifest", EntityID: f.projectID, Delete: false}}
+	if diff := cmp.Diff(want, refs, sortRefs); diff != "" {
+		t.Fatalf("closure mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestClosureCategoryDeleteResolvesSemanticIDFromPreviousPayload is the
+// final-review Fix 2 regression: categories are the one entity where ID
+// (a ULID) != SemanticID, but files are written at
+// categories/<SemanticID>.yaml. A delete change_log entry's EntityID is the
+// ULID (matching production: category.Service.Delete logs the row's raw ID),
+// so closure() must resolve the SemanticID from previous_payload and use
+// THAT as the ref's EntityID — otherwise deletePathsFor computes the wrong
+// path and the real file lingers as noop drift.
+func TestClosureCategoryDeleteResolvesSemanticIDFromPreviousPayload(t *testing.T) {
+	f := setupClosureFixture(t)
+	prevPayload, err := json.Marshal(map[string]string{"semantic_id": "CLOSURE_PROJECT.CAT.7"})
+	if err != nil {
+		t.Fatalf("marshal previous payload: %v", err)
+	}
+	cs := f.changeSet(entryWithPreviousPayload("category", "01CATEGORY_ULID_NOT_SEMANTIC", "delete", prevPayload))
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	want := []ScopedRef{{EntityType: "category", EntityID: "CLOSURE_PROJECT.CAT.7", Delete: true}}
+	if diff := cmp.Diff(want, refs, sortRefs); diff != "" {
+		t.Fatalf("closure mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestClosureCategoryDeleteFallsBackToRawIDWhenPayloadMissing covers the
+// degraded-input edge closure()'s doc comment promises: when previous_payload
+// is empty or doesn't parse (e.g. a hand-crafted or legacy change_log row),
+// closure() falls back to the raw entity id rather than erroring — the
+// reconcile backstop heals any resulting drift.
+func TestClosureCategoryDeleteFallsBackToRawIDWhenPayloadMissing(t *testing.T) {
+	f := setupClosureFixture(t)
+	cs := f.changeSet(entry("category", "CLOSURE_CATEGORY_NO_PAYLOAD", "delete"))
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	want := []ScopedRef{{EntityType: "category", EntityID: "CLOSURE_CATEGORY_NO_PAYLOAD", Delete: true}}
 	if diff := cmp.Diff(want, refs, sortRefs); diff != "" {
 		t.Fatalf("closure mismatch (-want +got):\n%s", diff)
 	}

@@ -52,6 +52,10 @@ func setupMatScopedFixture(t *testing.T) *matScopedFixture {
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_change_log WHERE project_id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_change_set WHERE project_id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_field_overrides WHERE project_id = $1`, matScopedProjectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_namespace_bindings WHERE project_id = $1`, matScopedProjectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_project_ontology_versions WHERE project_id = $1`, matScopedProjectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_versions WHERE ontology_id IN (SELECT id FROM weave_ontologies WHERE prefix = 'mso')`)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_ontologies WHERE prefix = 'mso'`)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_models WHERE project_id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_collections WHERE project_id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_fields WHERE project_id = $1`, matScopedProjectID)
@@ -173,6 +177,100 @@ func (f *matScopedFixture) category(id string) {
 	}); err != nil {
 		f.t.Fatalf("create category %s: %v", id, err)
 	}
+}
+
+// categoryWithSemanticID creates a category row whose SemanticID differs
+// from its ULID id, matching how real categories are created
+// (category.Service.Create always mints a fresh ULID for ID separately from
+// the project-scoped SemanticID) — see Fix 2's category-delete path bug.
+func (f *matScopedFixture) categoryWithSemanticID(id, semanticID string) {
+	f.t.Helper()
+	uiName, _ := json.Marshal(map[string]string{"en": "Matscoped Category " + id})
+	desc, _ := json.Marshal(map[string]string{"en": "matscoped test category"})
+	if _, err := f.queries.WeaveCreateCategory(f.ctx, sqlcgen.WeaveCreateCategoryParams{
+		ID:             id,
+		SemanticID:     &semanticID,
+		SystemName:     stringPtr("matscoped_category_" + strings.ReplaceAll(id, ".", "_")),
+		UiName:         uiName,
+		Description:    desc,
+		Status:         "draft",
+		ProjectID:      f.projectID,
+		CanonicalOrder: 0,
+	}); err != nil {
+		f.t.Fatalf("create category %s (semantic id %s): %v", id, semanticID, err)
+	}
+}
+
+// deleteCategory performs a real DB delete of a category row, mirroring what
+// a delete in the UI does.
+func (f *matScopedFixture) deleteCategory(id string) {
+	f.t.Helper()
+	if err := f.queries.WeaveDeleteCategory(f.ctx, id); err != nil {
+		f.t.Fatalf("delete category %s: %v", id, err)
+	}
+}
+
+// ontologyVersion creates a bare ontology + one active version, for tests
+// that link a project-ontology-version. Returns the version id.
+func (f *matScopedFixture) ontologyVersion(ontologyID, versionID string) string {
+	f.t.Helper()
+	if _, err := f.queries.WeaveCreateOntology(f.ctx, sqlcgen.WeaveCreateOntologyParams{
+		ID:           ontologyID,
+		Prefix:       "mso",
+		Namespace:    "https://example.org/matscoped/",
+		Name:         "Matscoped Ontology",
+		Description:  []byte(`{"en":"Matscoped test ontology"}`),
+		OntologyType: "base",
+	}); err != nil {
+		f.t.Fatalf("create ontology %s: %v", ontologyID, err)
+	}
+	if _, err := f.queries.WeaveCreateOntologyVersion(f.ctx, sqlcgen.WeaveCreateOntologyVersionParams{
+		ID:                     versionID,
+		OntologyID:             ontologyID,
+		VersionString:          "1.0.0",
+		IsActive:               true,
+		CompatibleBaseVersions: []string{},
+		VersionInfo:            []byte(`{"en":"1.0.0"}`),
+		ImportedOntologies:     []string{},
+		OntologyLabel:          []byte(`{"en":"Matscoped Ontology"}`),
+		OntologyComment:        []byte(`{}`),
+		OntologyMetadata:       []byte(`{}`),
+		ClassCount:             1,
+		PropertyCount:          1,
+	}); err != nil {
+		f.t.Fatalf("create ontology version %s: %v", versionID, err)
+	}
+	return versionID
+}
+
+// linkProjectOntologyVersion links versionID to the fixture's project via a
+// weave_project_ontology_versions row, mirroring what
+// projectontologyversion.Service.Create does to a real project.
+func (f *matScopedFixture) linkProjectOntologyVersion(versionID string) {
+	f.t.Helper()
+	if _, err := f.queries.WeaveCreateProjectOntologyVersion(f.ctx, sqlcgen.WeaveCreateProjectOntologyVersionParams{
+		ProjectID:         f.projectID,
+		OntologyVersionID: versionID,
+	}); err != nil {
+		f.t.Fatalf("link project ontology version %s: %v", versionID, err)
+	}
+}
+
+// namespaceBinding creates a project-scoped namespace binding row, mirroring
+// what namespacebinding.Service.Create does. Returns the binding id.
+func (f *matScopedFixture) namespaceBinding(id, prefix, namespace string) string {
+	f.t.Helper()
+	projectID := f.projectID
+	if _, err := f.queries.WeaveCreateUserNamespaceBinding(f.ctx, sqlcgen.WeaveCreateUserNamespaceBindingParams{
+		ID:        id,
+		ProjectID: &projectID,
+		Prefix:    prefix,
+		Namespace: namespace,
+		Weight:    0,
+	}); err != nil {
+		f.t.Fatalf("create namespace binding %s: %v", id, err)
+	}
+	return id
 }
 
 // placeFieldOnModel creates a model-owned override row placing fieldID on
@@ -363,13 +461,14 @@ func (f *matScopedFixture) changeSet(commitMessage string, entries ...changeLogS
 	}
 	for _, e := range entries {
 		if _, err := f.queries.WeaveCreateChangeLogEntry(f.ctx, sqlcgen.WeaveCreateChangeLogEntryParams{
-			ChangeSetID: cs.ID,
-			EntityType:  e.entityType,
-			EntityID:    e.entityID,
-			Operation:   e.operation,
-			ProjectID:   f.projectID,
-			FilePath:    "irrelevant.yaml",
-			Payload:     []byte(`{}`),
+			ChangeSetID:     cs.ID,
+			EntityType:      e.entityType,
+			EntityID:        e.entityID,
+			Operation:       e.operation,
+			ProjectID:       f.projectID,
+			FilePath:        "irrelevant.yaml",
+			Payload:         []byte(`{}`),
+			PreviousPayload: e.previousPayload,
 		}); err != nil {
 			f.t.Fatalf("create change log entry (%s %s %s): %v", e.operation, e.entityType, e.entityID, err)
 		}
@@ -808,5 +907,203 @@ func TestNoCrossEntityStealing(t *testing.T) {
 		if commitTouchesPath(t, repoDir, *cs1After.GitCommitSha, "models/GRPM.2") {
 			t.Fatalf("cs1's commit must not touch models/GRPM.2 (cross-entity stealing)")
 		}
+	}
+}
+
+// TestScopedEqualsFullRebuild_CategoryDelete is the final-review Fix 2
+// regression: categories are the one entity where ID (a ULID) != SemanticID,
+// but files are written at categories/<SemanticID>.yaml while a delete
+// change_log entry's EntityID is the ULID. Before the fix, closure() used the
+// raw entity id for deletePathsFor, computing categories/<ULID>.yaml — a path
+// that was never written, so os.RemoveAll no-opped and the real file lingered
+// as noop drift. This test fails before the fix (the stale category file
+// survives in `scoped`) and passes after (scoped == full2, both missing the
+// deleted category's file).
+func TestScopedEqualsFullRebuild_CategoryDelete(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	const categoryULID = "MATSCOPED_CATEGORY_DEL_ULID"
+	const categorySemanticID = "MATSCOPED_PROJECT.CAT.99"
+	f.categoryWithSemanticID(categoryULID, categorySemanticID)
+
+	full1 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full1, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S1: %v", err)
+	}
+	if !fileExists(filepath.Join(full1, "categories", categorySemanticID+".yaml")) {
+		t.Fatalf("setup: expected categories/%s.yaml to exist before delete", categorySemanticID)
+	}
+
+	// The change_log "delete" entry's EntityID is the category's ULID (not
+	// its SemanticID) — matching production, where category.Service.Delete
+	// logs the row's raw id. previous_payload carries the SemanticID closure()
+	// must resolve to find the real on-disk path.
+	prevPayload, err := json.Marshal(map[string]string{"semantic_id": categorySemanticID})
+	if err != nil {
+		t.Fatalf("marshal previous payload: %v", err)
+	}
+	f.deleteCategory(categoryULID)
+	cs := f.changeSet("delete category", entryWithPreviousPayload("category", categoryULID, "delete", prevPayload))
+
+	full2 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full2, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S2: %v", err)
+	}
+	if fileExists(filepath.Join(full2, "categories", categorySemanticID+".yaml")) {
+		t.Fatalf("setup: expected categories/%s.yaml to be gone after delete", categorySemanticID)
+	}
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+
+	scoped := t.TempDir()
+	copyMatTree(t, full1, scoped)
+	if err := f.mat.scopedRewrite(f.ctx, scoped, f.projectID, refs); err != nil {
+		t.Fatalf("scopedRewrite: %v", err)
+	}
+
+	if diff := diffTrees(t, full2, scoped); diff != "" {
+		t.Fatalf("scoped tree drifted from full rebuild after a category delete (stale file not removed):\n%s", diff)
+	}
+}
+
+// TestProcessChangeSet_ConcurrentlyDeletedRefDoesNotWedgeChangeSet is the
+// final-review Fix 3 regression: a change_set's closure resolved to a
+// non-delete ref (model "update") for an entity that was deleted from the DB
+// before scopedRewrite() ran — an update-then-delete race between two
+// change_sets. Before the fix, writeOneModel's pgx.ErrNoRows propagated as a
+// hard error, so processChangeSet returned an error, the change_set was never
+// marked processed (materialized_error recorded instead), and the poller
+// would retry it forever. After the fix, the ref is skipped and the
+// change_set completes (noop: the model file was never materialized in this
+// tree, so there's nothing to write or remove).
+func TestProcessChangeSet_ConcurrentlyDeletedRefDoesNotWedgeChangeSet(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	f.model("MATSCOPED_MODEL_RACE")
+
+	if err := f.mat.InitProject(f.ctx, f.projectID); err != nil {
+		t.Fatalf("InitProject: %v", err)
+	}
+
+	// The change_set records an "update" for the model — but by the time
+	// processChangeSet drains it, the model row is gone (deleted by another,
+	// already-processed change_set; see closure()'s dedup-asymmetry comment
+	// for how this can happen even from a single poll batch).
+	cs := f.changeSet("edit model", entry("model", "MATSCOPED_MODEL_RACE", "update"))
+	f.deleteModel("MATSCOPED_MODEL_RACE")
+
+	if err := f.mat.processChangeSet(f.ctx, cs); err != nil {
+		t.Fatalf("processChangeSet must not fail on a concurrently-deleted non-delete ref, got: %v", err)
+	}
+
+	csAfter, err := f.queries.WeaveGetChangeSet(f.ctx, cs.ID)
+	if err != nil {
+		t.Fatalf("get change set: %v", err)
+	}
+	if !csAfter.ProcessedAt.Valid {
+		t.Fatalf("change set must be marked processed, not left for the poller to retry forever")
+	}
+	if csAfter.MaterializedError != nil {
+		t.Fatalf("change set must not record a materialization error, got %q", *csAfter.MaterializedError)
+	}
+	if csAfter.MaterializedOutcome == nil || *csAfter.MaterializedOutcome != "noop" {
+		got := "<nil>"
+		if csAfter.MaterializedOutcome != nil {
+			got = *csAfter.MaterializedOutcome
+		}
+		t.Fatalf("expected outcome %q (nothing to write once the ref is skipped), got %q", "noop", got)
+	}
+}
+
+// TestProcessChangeSet_ProjectOntologyVersionMaterializesPletkaMod is the
+// final-review Fix 1 regression (project-ontology-version half): before the
+// fix, closure() had no case for a "project-ontology-version" change_log
+// entity type, so the change_set drained as a noop with no commit — the DB
+// change (a linked ontology version) went unmaterialized until the nightly
+// reconcile sweep, under system attribution instead of the actor's. After the
+// fix, such a change_set commits and pletka.mod reflects the new requirement.
+func TestProcessChangeSet_ProjectOntologyVersionMaterializesPletkaMod(t *testing.T) {
+	f := setupMatScopedFixture(t)
+
+	if err := f.mat.InitProject(f.ctx, f.projectID); err != nil {
+		t.Fatalf("InitProject: %v", err)
+	}
+	pletkaModPath := filepath.Join(f.workDir(), "pletka.mod")
+	before, err := os.ReadFile(pletkaModPath)
+	if err != nil {
+		t.Fatalf("read pletka.mod before: %v", err)
+	}
+	if strings.Contains(string(before), "MATSCOPED_ONTOLOGY") {
+		t.Fatalf("setup: pletka.mod should not reference the ontology before it is linked")
+	}
+
+	versionID := f.ontologyVersion("MATSCOPED_ONTOLOGY", "MATSCOPED_ONTOLOGY_V1")
+	f.linkProjectOntologyVersion(versionID)
+	cs := f.changeSet("link ontology version", entry("project-ontology-version", versionID, "create"))
+
+	if err := f.mat.processChangeSet(f.ctx, cs); err != nil {
+		t.Fatalf("processChangeSet: %v", err)
+	}
+
+	csAfter, err := f.queries.WeaveGetChangeSet(f.ctx, cs.ID)
+	if err != nil {
+		t.Fatalf("get change set: %v", err)
+	}
+	if csAfter.GitCommitSha == nil || *csAfter.GitCommitSha == "" {
+		t.Fatalf("change set must commit (not drain as a noop) once closure() covers project-ontology-version entries")
+	}
+
+	after, err := os.ReadFile(pletkaModPath)
+	if err != nil {
+		t.Fatalf("read pletka.mod after: %v", err)
+	}
+	if !strings.Contains(string(after), "MATSCOPED_ONTOLOGY") {
+		t.Fatalf("pletka.mod must reflect the newly linked ontology version, got:\n%s", after)
+	}
+}
+
+// TestProcessChangeSet_NamespaceBindingMaterializesProjectManifest is the
+// final-review Fix 1 regression (namespace_binding half): sibling of
+// TestProcessChangeSet_ProjectOntologyVersionMaterializesPletkaMod, covering
+// the other project-level "draft" change_log entity type closure() was
+// missing a case for. namespace_binding changes materialize into
+// project.yaml's namespaces.effective_bindings.
+func TestProcessChangeSet_NamespaceBindingMaterializesProjectManifest(t *testing.T) {
+	f := setupMatScopedFixture(t)
+
+	if err := f.mat.InitProject(f.ctx, f.projectID); err != nil {
+		t.Fatalf("InitProject: %v", err)
+	}
+	projectManifestPath := filepath.Join(f.workDir(), "project.yaml")
+	before, err := os.ReadFile(projectManifestPath)
+	if err != nil {
+		t.Fatalf("read project.yaml before: %v", err)
+	}
+	if strings.Contains(string(before), "matscoped-ext") {
+		t.Fatalf("setup: project.yaml should not reference the binding's namespace before it is created")
+	}
+
+	bindingID := f.namespaceBinding("MATSCOPED_NS_BINDING", "matscoped-ext", "https://example.org/matscoped-ext/")
+	cs := f.changeSet("add namespace binding", entry("namespace_binding", bindingID, "create"))
+
+	if err := f.mat.processChangeSet(f.ctx, cs); err != nil {
+		t.Fatalf("processChangeSet: %v", err)
+	}
+
+	csAfter, err := f.queries.WeaveGetChangeSet(f.ctx, cs.ID)
+	if err != nil {
+		t.Fatalf("get change set: %v", err)
+	}
+	if csAfter.GitCommitSha == nil || *csAfter.GitCommitSha == "" {
+		t.Fatalf("change set must commit (not drain as a noop) once closure() covers namespace_binding entries")
+	}
+
+	after, err := os.ReadFile(projectManifestPath)
+	if err != nil {
+		t.Fatalf("read project.yaml after: %v", err)
+	}
+	if !strings.Contains(string(after), "matscoped-ext") {
+		t.Fatalf("project.yaml must reflect the newly created namespace binding, got:\n%s", after)
 	}
 }

@@ -11,6 +11,12 @@ import (
 // written) is deleted. Model/field/collection own a directory (entity file
 // plus nested overrides); category owns a single file.
 func deletePathsFor(entityType, identifier string) []string {
+	if identifier == "" {
+		// An empty identifier would compute e.g. "models/" -> path.Dir ->
+		// wipe the whole models/ directory. No entity type ever has a valid
+		// empty identifier, so treat it as nothing-to-delete.
+		return nil
+	}
 	switch entityType {
 	case "model", "field", "collection":
 		// Remove the whole entity directory (e.g. models/GRPM.2), which holds

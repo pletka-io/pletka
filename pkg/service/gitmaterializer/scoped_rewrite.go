@@ -2,10 +2,13 @@ package gitmaterializer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -16,6 +19,13 @@ import (
 // single-entity writers the whole-tree path uses. For model/collection refs
 // it also regenerates their override subtree so embedded resolved refs stay
 // current.
+//
+// A non-delete ref for an entity that no longer exists in the DB (e.g. a
+// cross-change_set update-then-delete race, or the documented dedup
+// asymmetry in closure()) is skipped rather than failing the whole rewrite:
+// the entity's own delete ref (from its own change_set) or the reconcile
+// backstop removes its files. Treating this as fatal would wedge the
+// change_set in a permanent retry loop (see TestScopedRewriteSkipsConcurrentlyDeletedRef).
 func (m *Materializer) scopedRewrite(ctx context.Context, workDir, projectID string, refs []ScopedRef) error {
 	for _, r := range refs {
 		if r.Delete {
@@ -29,10 +39,16 @@ func (m *Materializer) scopedRewrite(ctx context.Context, workDir, projectID str
 		switch r.EntityType {
 		case "field":
 			if err := m.writeOneField(ctx, workDir, projectID, r.EntityID); err != nil {
+				if m.skipConcurrentlyDeleted(err, "field", r.EntityID) {
+					continue
+				}
 				return err
 			}
 		case "model":
 			if err := m.writeOneModel(ctx, workDir, projectID, r.EntityID); err != nil {
+				if m.skipConcurrentlyDeleted(err, "model", r.EntityID) {
+					continue
+				}
 				return err
 			}
 			if err := m.writeOverridesForOwner(ctx, workDir, projectID, "model", r.EntityID); err != nil {
@@ -40,6 +56,9 @@ func (m *Materializer) scopedRewrite(ctx context.Context, workDir, projectID str
 			}
 		case "collection":
 			if err := m.writeOneCollection(ctx, workDir, projectID, r.EntityID); err != nil {
+				if m.skipConcurrentlyDeleted(err, "collection", r.EntityID) {
+					continue
+				}
 				return err
 			}
 			if err := m.writeOverridesForOwner(ctx, workDir, projectID, "collection", r.EntityID); err != nil {
@@ -47,11 +66,41 @@ func (m *Materializer) scopedRewrite(ctx context.Context, workDir, projectID str
 			}
 		case "category":
 			if err := m.writeOneCategory(ctx, workDir, projectID, r.EntityID); err != nil {
+				if m.skipConcurrentlyDeleted(err, "category", r.EntityID) {
+					continue
+				}
+				return err
+			}
+		case "project_manifest":
+			// namespace_binding entries materialize into project.yaml;
+			// project-ontology-version entries materialize into both
+			// project.yaml and pletka.mod. Both files are always
+			// regenerated for this ref rather than branching on which
+			// change_log entity type triggered it (closure() never emits
+			// a delete for this ref — see closure()'s doc comment).
+			if err := m.writeProjectManifest(ctx, workDir, projectID); err != nil {
+				return err
+			}
+			if err := m.writePletkaMod(ctx, workDir, projectID); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// skipConcurrentlyDeleted reports whether err is a pgx.ErrNoRows from a
+// non-delete single-entity writer, meaning the entity was deleted from the
+// DB after closure() ran (concurrently with, or by, another change_set).
+// Logs at Info and returns true so the caller skips the ref instead of
+// failing the whole rewrite.
+func (m *Materializer) skipConcurrentlyDeleted(err error, entityType, entityID string) bool {
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return false
+	}
+	m.logger.Info("scopedRewrite: entity concurrently deleted, skipping non-delete ref",
+		"entity_type", entityType, "entity_id", entityID)
+	return true
 }
 
 // writeOverridesForOwner regenerates one model/collection owner's

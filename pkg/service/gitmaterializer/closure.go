@@ -2,6 +2,7 @@ package gitmaterializer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -26,13 +27,28 @@ type ScopedRef struct {
 // for the same entity, since add() no-ops on repeat keys).
 //
 // Rules:
-//   - model/collection/category entries map to themselves (Delete = op == "delete").
+//   - model/collection entries map to themselves (Delete = op == "delete").
+//   - category entries map to themselves too, EXCEPT a category delete:
+//     categories are the one entity where ID != SemanticID, but files are
+//     written at categories/<SemanticID>.yaml while a delete change_log
+//     entry's EntityID is the ULID. The ref's EntityID is resolved to the
+//     SemanticID from the entry's previous_payload so deletePathsFor removes
+//     the file that actually exists on disk (see categorySemanticIDFromPayload).
 //   - field entries map to the field itself, plus every model/collection that
 //     places it (via a weave_field_overrides row) as a non-delete rewrite —
 //     their overrides/ subtree embeds the field and must be regenerated even
 //     when the field itself was deleted (the placement row is gone too).
 //   - override entries resolve to their owning model/collection (non-delete
 //     rewrite), or to the field itself for a base override.
+//   - namespace_binding/project-ontology-version entries (project-level
+//     "draft" change_log kinds — no owning model/collection/field) map to a
+//     single synthetic "project_manifest" ref, always a non-delete rewrite:
+//     namespace bindings materialize into project.yaml and ontology versions
+//     into both project.yaml and pletka.mod, so scopedRewrite rewrites both
+//     files for this ref. Without this case these entries produced no refs at
+//     all, so the change_set drained as a noop with no commit (see
+//     TestClosureNamespaceBindingMapsToProjectManifest /
+//     TestClosureProjectOntologyVersionMapsToProjectManifest).
 func (m *Materializer) closure(ctx context.Context, cs sqlcgen.WeaveChangeSet) ([]ScopedRef, error) {
 	entries, err := m.queries.WeaveListChangeLogForChangeSet(ctx, cs.ID)
 	if err != nil {
@@ -52,8 +68,22 @@ func (m *Materializer) closure(ctx context.Context, cs sqlcgen.WeaveChangeSet) (
 
 	for _, e := range entries {
 		switch e.EntityType {
-		case "model", "collection", "category":
+		case "model", "collection":
 			add(e.EntityType, e.EntityID, e.Operation == "delete")
+		case "category":
+			del := e.Operation == "delete"
+			id := e.EntityID
+			if del {
+				if semanticID, ok := categorySemanticIDFromPayload(e.PreviousPayload); ok {
+					id = semanticID
+				} else {
+					m.logger.Warn("category delete: previous_payload missing/unparseable semantic_id, falling back to raw entity id; reconcile will heal any drift",
+						"change_set_id", cs.ID, "entity_id", e.EntityID)
+				}
+			}
+			add("category", id, del)
+		case "namespace_binding", "project-ontology-version":
+			add("project_manifest", cs.ProjectID, false)
 		case "field":
 			add("field", e.EntityID, e.Operation == "delete")
 			owners, err := m.placingOwners(ctx, cs.ProjectID, e.EntityID)
@@ -127,4 +157,25 @@ func (m *Materializer) overrideOwner(ctx context.Context, projectID, overrideID 
 	// Base override (entity_type ""): no owning model/collection — the
 	// field's own materialized files (including its base override) changed.
 	return ScopedRef{EntityType: "field", EntityID: row.FieldID}, true, nil
+}
+
+// categorySemanticIDFromPayload extracts semantic_id from a category
+// change_log entry's previous_payload (the JSON-marshalled domain.Category
+// captured at delete time — see pkg/weave/category/service.go's
+// marshalCategory). ok is false when payload is empty, unparseable, or the
+// field is blank, so the caller can fall back to the raw (ULID) entity id.
+func categorySemanticIDFromPayload(payload []byte) (string, bool) {
+	if len(payload) == 0 {
+		return "", false
+	}
+	var v struct {
+		SemanticID string `json:"semantic_id"`
+	}
+	if err := json.Unmarshal(payload, &v); err != nil {
+		return "", false
+	}
+	if v.SemanticID == "" {
+		return "", false
+	}
+	return v.SemanticID, true
 }
