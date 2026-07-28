@@ -17,27 +17,23 @@ import (
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
 )
 
-// TestMount_SurvivesParentWithPreexistingRoutes reproduces the exact chi
-// assembly order that panicked in production: pkg/app/app.go registers the
-// auth Group and admin.Mount directly on the root mux BEFORE calling
-// weaverouter.Mount(handler, ...) — so the mux passed to Mount already has
-// routes on it. chi v5.3.1 panics "all middlewares must be defined before
-// routes on a mux" if .Use() is called on a mux in that state.
-//
-// Mount no longer calls parent.Use(...) at all — it builds a fresh sub-mux
-// (root), installs stashResponder there before root has any routes, mounts
-// every weave route on root, and attaches root to parent with a single
-// parent.Mount("/", root) at the end. This test drives that exact sequence
-// with the same real, unexported helpers Mount uses (stashResponder,
-// mountSlice) against a parent that already carries a route, and confirms:
+// TestMount_SurvivesParentWithPreexistingRoutes exercises the same slice +
+// pre-existing-route coexistence guarantee the A1 regression test covered,
+// against the reverted direct-mount structure: Mount installs no middleware
+// of its own, so every weave route (via mountSlice, exactly as Mount calls
+// it) mounts directly on parent, alongside whatever routes pkg/app/app.go
+// already registered (the auth Group, admin.Mount) before calling
+// weaverouter.Mount(handler, ...). This confirms:
 //  1. registration does not panic;
 //  2. the pre-existing parent route still works untouched;
-//  3. a request into the newly-mounted slice route carries the stashed
-//     responder (errresp.FromContext returns ok) — the project-gate
-//     middleware in pkg/auth (RequireProjectRead/requireProject) and
-//     weaverouter.Error callers both depend on this being true.
+//  3. a request into the newly-mounted slice route carries a responder
+//     stashed via errresp.WithResponder (built from BuildResponder) — the
+//     project-gate middleware in pkg/auth (RequireProjectRead/
+//     requireProject) and weaverouter.Error callers both depend on this
+//     being true once the app layer stashes the global responder.
 func TestMount_SurvivesParentWithPreexistingRoutes(t *testing.T) {
 	errors := newAssemblyOrderErrorHost(t)
+	respond := BuildResponder(errors)
 
 	// parent mimics pkg/app/app.go: handler.Group(...) for the auth routes
 	// and admin.Mount(handler, ...) both register directly on the mux
@@ -55,23 +51,22 @@ func TestMount_SurvivesParentWithPreexistingRoutes(t *testing.T) {
 	func() {
 		defer func() { panicked = recover() }()
 
-		// This is the exact sequence Mount performs: a fresh sub-mux,
-		// stashResponder installed before root has any routes, one
-		// project-scoped slice mounted via the real mountSlice helper,
-		// then a single parent.Mount("/", root) attaching the whole tree
-		// to the (already dirty) parent.
-		root := chi.NewMux()
-		root.Use(stashResponder(errors))
-
-		mountSlice(root, "/projects/{projectID}/widgets", ProjectMiddlewareHost{}, func(r chi.Router) {
+		// mountSlice is the same unexported helper Mount calls directly on
+		// parent (no sub-router). The responder is stashed per-request via
+		// a small middleware wrapping the slice handler, standing in for
+		// the app-level stash Mount no longer installs itself.
+		mountSlice(parent, "/projects/{projectID}/widgets", ProjectMiddlewareHost{}, func(r chi.Router) {
+			r.Use(func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					next.ServeHTTP(w, r.WithContext(errresp.WithResponder(r.Context(), respond)))
+				})
+			})
 			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 				_, responderPresent = errresp.FromContext(r.Context())
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write([]byte("widget-list"))
 			})
 		})
-
-		parent.Mount("/", root)
 	}()
 
 	if panicked != nil {
@@ -100,38 +95,6 @@ func TestMount_SurvivesParentWithPreexistingRoutes(t *testing.T) {
 	}
 }
 
-// TestStashResponder_InstalledBeforeRoutes is the narrower, structural half
-// of the same guarantee: stashResponder must be the first thing installed
-// on a fresh mux (a .Use() call with zero routes registered) — never
-// appended after routes exist, which is what chi panics on. Mount's fix
-// keeps this invariant by always calling root.Use(stashResponder(errors))
-// immediately after chi.NewMux(), before any slice mounts.
-func TestStashResponder_InstalledBeforeRoutes(t *testing.T) {
-	errors := newAssemblyOrderErrorHost(t)
-
-	defer func() {
-		if r := recover(); r != nil {
-			t.Fatalf("stashResponder.Use on a fresh mux panicked: %v", r)
-		}
-	}()
-
-	root := chi.NewMux()
-	root.Use(stashResponder(errors)) // must not panic: root has zero routes here
-	root.Get("/probe", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := errresp.FromContext(r.Context()); !ok {
-			t.Error("responder missing on a route registered after stashResponder")
-		}
-		w.WriteHeader(http.StatusOK)
-	})
-
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/probe", nil)
-	w := httptest.NewRecorder()
-	root.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-}
-
 // TestMount_RealEntrypointDoesNotHitChiAssemblyPanic calls the actual
 // exported Mount function — the one pkg/app/app.go invokes as
 // weaverouter.Mount(handler, ...) at the tail of app assembly, after
@@ -139,24 +102,19 @@ func TestStashResponder_InstalledBeforeRoutes(t *testing.T) {
 // already registered routes on handler — with a parent that is dirty in
 // exactly that way.
 //
+// Mount no longer calls parent.Use(...) (or any .Use at all) — every weave
+// route mounts directly on parent (see router.go's Mount), so there is no
+// "middlewares must be defined before routes" panic class left to trigger
+// against a dirty parent. This test pins that: direct mount is safe.
+//
 // A fully-populated, working Options (real OntologyService, real slice
 // Services, a live Postgres pool, ...) would require reproducing most of
 // pkg/app's private host-building wiring by hand; that's not attempted
 // here. Instead this test uses a zero-value Options, which is guaranteed to
 // fail Validate() on the very first slice Mount call inside Mount
-// (actoradmin, whose Store is required) — but that failure only matters
-// once Mount has already gotten past the step that used to panic.
-//
-// Before the fix, Mount's first statement was parent.Use(stashResponder(...))
-// — called unconditionally on the (possibly dirty) parent — so a dirty
-// parent panicked immediately with chi's "all middlewares must be defined
-// before routes" message, regardless of Options. After the fix, that Use
-// call moved onto a fresh sub-mux, so a dirty parent no longer panics at
-// that point; Mount instead proceeds until the first slice Host fails its
-// own Validate() check and panics with that slice's own error message. This
-// test asserts Mount panics for the *expected* (Options-incompleteness)
-// reason, not the chi assembly-order reason — pinning that the regression
-// class described in the bug report is gone from the real entrypoint.
+// (actoradmin, whose Store is required) — an unrelated, expected panic that
+// only proves Mount got past route assembly. The assertion below fails the
+// test if that panic ever turns back into the chi assembly-order message.
 func TestMount_RealEntrypointDoesNotHitChiAssemblyPanic(t *testing.T) {
 	errors := newAssemblyOrderErrorHost(t)
 

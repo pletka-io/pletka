@@ -12,14 +12,16 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/i18n/backend"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
 )
 
-// newErrorTestRouter mounts one tiny route behind the stash middleware —
-// exactly what Mount installs at the top — and has the route call the
-// public Error one-liner. Exercises the HTML-branded and JSON-envelope
-// paths without needing the full Mount wiring (which requires an
-// OntologyService and panics without one).
+// newErrorTestRouter mounts one tiny route behind a responder stashed via
+// BuildResponder + errresp.WithResponder — the same responder Mount's
+// caller stashes globally — and has the route call the public Error
+// one-liner. Exercises the HTML-branded and JSON-envelope paths without
+// needing the full Mount wiring (which requires an OntologyService and
+// panics without one).
 func newErrorTestRouter(t *testing.T) *chi.Mux {
 	t.Helper()
 
@@ -43,9 +45,14 @@ func newErrorTestRouter(t *testing.T) *chi.Mux {
 	}
 
 	h := ErrorPageHost{Templates: renderer, I18n: i18nMgr}
+	respond := BuildResponder(h)
 
 	r := chi.NewRouter()
-	r.Use(stashResponder(h))
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(errresp.WithResponder(r.Context(), respond)))
+		})
+	})
 	r.Get("/boom", func(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusNotFound, "not_found", "nope")
 	})
