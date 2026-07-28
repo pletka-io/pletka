@@ -216,6 +216,64 @@ func (m *Materializer) processChangeSet(ctx context.Context, cs sqlcgen.WeaveCha
 	return nil
 }
 
+// Reconcile rebuilds a project's whole tree from current DB and commits any
+// drift. It is the backstop for the scoped hot path: a non-empty result means a
+// closure gap (logged as a warning) that this call has just healed. Runs off
+// the hot path (CLI + nightly sweep).
+func (m *Materializer) Reconcile(ctx context.Context, projectID string) (int, error) {
+	unlock, err := acquireProjectLock(m.baseDir, projectID)
+	if err != nil {
+		return 0, fmt.Errorf("acquire project lock %s: %w", projectID, err)
+	}
+	defer unlock()
+
+	workDir := filepath.Join(m.baseDir, projectID)
+	git := newGitRunner(workDir, m.logger)
+	if _, err := os.Stat(filepath.Join(workDir, ".git")); os.IsNotExist(err) {
+		if err := git.Init(ctx); err != nil {
+			return 0, fmt.Errorf("git init: %w", err)
+		}
+	}
+	if err := resetWorkTree(workDir); err != nil {
+		return 0, fmt.Errorf("reset work tree for %s: %w", projectID, err)
+	}
+	if err := m.writeProjectTree(ctx, workDir, projectID); err != nil {
+		return 0, fmt.Errorf("materialize project tree %s: %w", projectID, err)
+	}
+	if err := git.AddAll(ctx); err != nil {
+		return 0, fmt.Errorf("git add: %w", err)
+	}
+	if !git.HasStagedChanges(ctx) {
+		return 0, nil
+	}
+	changed := git.StagedFileCount(ctx)
+	if _, err := git.Commit(ctx, "reconcile\n\nProject: "+projectID, "pletka-system", "system@pletka.local"); err != nil {
+		return 0, fmt.Errorf("git commit: %w", err)
+	}
+	m.logger.Warn("reconcile healed materialization drift", "project_id", projectID, "changed", changed)
+	return changed, nil
+}
+
+// resetWorkTree removes every tracked file and directory under workDir
+// (except .git) before a full rebuild, so deletions in the DB drop out of
+// the tree instead of lingering as stale files that writeProjectTree never
+// touches.
+func resetWorkTree(workDir string) error {
+	entries, err := os.ReadDir(workDir)
+	if err != nil {
+		return fmt.Errorf("read work dir: %w", err)
+	}
+	for _, e := range entries {
+		if e.Name() == ".git" {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(workDir, e.Name())); err != nil {
+			return fmt.Errorf("remove %s: %w", e.Name(), err)
+		}
+	}
+	return nil
+}
+
 // runMetrics is the per-run cost persisted on the change set.
 type runMetrics struct {
 	outcome  string

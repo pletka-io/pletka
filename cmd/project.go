@@ -46,8 +46,20 @@ round-trip verification work.`,
 		RunE: runLoadGit,
 	}
 
+	reconcileCmd := &cobra.Command{
+		Use:   "reconcile <projectID>",
+		Short: "Full-rebuild a project's git tree from the DB, committing any drift (materializer backstop)",
+		Long: `Rebuilds a project's entire working tree from current database state and
+commits any drift against what is already on disk. This is the off-hot-path
+backstop for the scoped materializer: a non-empty result means it just healed
+a closure gap. Safe to run repeatedly — a clean tree is a no-op.`,
+		Args: cobra.ExactArgs(1),
+		RunE: runReconcile,
+	}
+
 	projectCmd.AddCommand(initGitCmd)
 	projectCmd.AddCommand(loadGitCmd)
+	projectCmd.AddCommand(reconcileCmd)
 	projectCmd.AddCommand(newReleaseBaselineCommand())
 	projectCmd.AddCommand(newProjectDeleteCommand())
 	initGitCmd.Flags().StringVar(&initGitOutputDir, "output-dir", "",
@@ -88,6 +100,33 @@ func runInitGit(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Project %s initialized at %s/%s\n", projectID, baseDir, projectID)
+	return nil
+}
+
+func runReconcile(cmd *cobra.Command, args []string) error {
+	projectID := args[0]
+
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	ctx := context.Background()
+	pool, err := cliruntime.OpenPGXPool(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	baseDir := cliruntime.GitDataDirFromViper()
+	if baseDir == "" {
+		baseDir = "./data/git-projects"
+	}
+
+	mat := gitmaterializer.NewMaterializer(pool, baseDir, log)
+	changed, err := mat.Reconcile(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("reconcile: %w", err)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "reconcile %s: %d file(s) changed\n", projectID, changed)
 	return nil
 }
 
