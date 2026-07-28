@@ -212,6 +212,38 @@ func rowToCollectionList(row sqlcgen.WeaveListCollectionsRow) *domain.Collection
 	return c
 }
 
+// rowToCollectionByID converts a single-row WeaveGetCollectionByID result
+// the same way rowToCollectionList converts a WeaveListCollections row,
+// including DefaultCategoryID. rowToCollection (above) predates
+// default_category_id being added to the list query and does not populate
+// it; reusing it here would silently drop the field from writeOneCollection's
+// output and drift from writeCollections. Kept as a separate adapter rather
+// than fixing rowToCollection so this pure-refactor change doesn't alter the
+// behavior of rowToCollection's other caller (collection store GetByID).
+func rowToCollectionByID(row sqlcgen.WeaveCollection) *domain.Collection {
+	c := &domain.Collection{
+		Entity: domain.Entity{
+			ID:          row.ID,
+			CreatedAt:   row.CreatedAt,
+			UpdatedAt:   row.UpdatedAt,
+			SemanticID:  row.ID,
+			SystemName:  derefStr(row.SystemName),
+			UIName:      unmarshalTranslations(row.UiName),
+			Description: unmarshalTranslations(row.Description),
+			Status:      domain.Status(row.Status),
+			ProjectID:   row.ProjectID,
+		},
+		CollectionNumber:         derefInt32(row.CollectionNumber),
+		CanonicalCollectionOrder: derefInt32(row.CanonicalCollectionOrder),
+		StagingID:                row.StagingID,
+		DefaultCategoryID:        row.DefaultCategoryID,
+	}
+	if len(row.OntologyScope) > 0 {
+		_ = json.Unmarshal(row.OntologyScope, &c.OntologyScope)
+	}
+	return c
+}
+
 func rowToOverride(row sqlcgen.WeaveFieldOverride) *domain.FieldOverride {
 	o := &domain.FieldOverride{
 		ID:                 row.ID,

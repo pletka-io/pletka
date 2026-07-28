@@ -86,20 +86,31 @@ func (m *Materializer) writeCategories(ctx context.Context, workDir, projectID s
 		return fmt.Errorf("list categories: %w", err)
 	}
 	for _, row := range rows {
-		cat := rowToCategory(row)
-		payload, err := canonical.Category(cat)
-		if err != nil {
-			return fmt.Errorf("encode category %s: %w", cat.ID, err)
-		}
-		path := domain.FilePath(domain.PathSpec{
-			EntityType: "category",
-			EntityID:   identifierFor(cat.SemanticID, cat.ID),
-		})
-		if err := writeEntityFile(workDir, path, payload); err != nil {
+		if err := m.writeOneCategory(ctx, workDir, projectID, row.ID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// writeOneCategory materializes a single category's file. Shared by
+// writeCategories (loop) and the scoped rewrite so both paths are
+// byte-identical.
+func (m *Materializer) writeOneCategory(ctx context.Context, workDir, projectID, categoryID string) error {
+	row, err := m.queries.WeaveGetCategoryByID(ctx, categoryID)
+	if err != nil {
+		return fmt.Errorf("get category %s: %w", categoryID, err)
+	}
+	cat := rowToCategory(row)
+	payload, err := canonical.Category(cat)
+	if err != nil {
+		return fmt.Errorf("encode category %s: %w", cat.ID, err)
+	}
+	path := domain.FilePath(domain.PathSpec{
+		EntityType: "category",
+		EntityID:   identifierFor(cat.SemanticID, cat.ID),
+	})
+	return writeEntityFile(workDir, path, payload)
 }
 
 func (m *Materializer) writeFields(ctx context.Context, workDir, projectID string) error {
@@ -118,36 +129,46 @@ func (m *Materializer) writeFields(ctx context.Context, workDir, projectID strin
 		return fmt.Errorf("project %s has %d+ fields, exceeding page size %d: results would be truncated", projectID, len(rows), listPageSize)
 	}
 	for _, row := range rows {
-		f := rowToFieldList(row)
-		payload, err := canonical.Field(f)
-		if err != nil {
-			return fmt.Errorf("encode field %s: %w", f.ID, err)
-		}
-		fieldKey := identifierFor(f.SemanticID, f.ID)
-		path := domain.FilePath(domain.PathSpec{
-			EntityType: "field",
-			EntityID:   fieldKey,
-		})
-		if err := writeEntityFile(workDir, path, payload); err != nil {
-			return err
-		}
-
-		// Base override (one row max per (field, project)).
-		base, err := m.queries.WeaveGetBaseOverride(ctx, sqlcgen.WeaveGetBaseOverrideParams{
-			FieldID:   f.ID,
-			ProjectID: projectID,
-		})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				continue
-			}
-			return fmt.Errorf("get base override for field %s: %w", f.ID, err)
-		}
-		if err := m.writeOverride(ctx, workDir, base, "base_override", fieldKey, ""); err != nil {
+		if err := m.writeOneField(ctx, workDir, projectID, row.ID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// writeOneField materializes a single field's file and its base override
+// (one row max per (field, project)). Shared by writeFields (loop) and the
+// scoped rewrite so both paths are byte-identical.
+func (m *Materializer) writeOneField(ctx context.Context, workDir, projectID, fieldID string) error {
+	row, err := m.queries.WeaveGetFieldByID(ctx, fieldID)
+	if err != nil {
+		return fmt.Errorf("get field %s: %w", fieldID, err)
+	}
+	f := rowToField(row)
+	payload, err := canonical.Field(f)
+	if err != nil {
+		return fmt.Errorf("encode field %s: %w", f.ID, err)
+	}
+	fieldKey := identifierFor(f.SemanticID, f.ID)
+	path := domain.FilePath(domain.PathSpec{
+		EntityType: "field",
+		EntityID:   fieldKey,
+	})
+	if err := writeEntityFile(workDir, path, payload); err != nil {
+		return err
+	}
+
+	base, err := m.queries.WeaveGetBaseOverride(ctx, sqlcgen.WeaveGetBaseOverrideParams{
+		FieldID:   f.ID,
+		ProjectID: projectID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("get base override for field %s: %w", f.ID, err)
+	}
+	return m.writeOverride(ctx, workDir, base, "base_override", fieldKey, "")
 }
 
 func (m *Materializer) writeModels(ctx context.Context, workDir, projectID string) error {
@@ -166,21 +187,31 @@ func (m *Materializer) writeModels(ctx context.Context, workDir, projectID strin
 		return fmt.Errorf("project %s has %d+ models, exceeding page size %d: results would be truncated", projectID, len(rows), listPageSize)
 	}
 	for _, row := range rows {
-		mod := rowToModelList(row)
-		payload, err := canonical.Model(mod)
-		if err != nil {
-			return fmt.Errorf("encode model %s: %w", mod.ID, err)
-		}
-		modelKey := identifierFor(mod.SemanticID, mod.ID)
-		path := domain.FilePath(domain.PathSpec{
-			EntityType: "model",
-			EntityID:   modelKey,
-		})
-		if err := writeEntityFile(workDir, path, payload); err != nil {
+		if err := m.writeOneModel(ctx, workDir, projectID, row.ID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// writeOneModel materializes a single model's file. Shared by writeModels
+// (loop) and the scoped rewrite so both paths are byte-identical.
+func (m *Materializer) writeOneModel(ctx context.Context, workDir, projectID, modelID string) error {
+	row, err := m.queries.WeaveGetModelByID(ctx, modelID)
+	if err != nil {
+		return fmt.Errorf("get model %s: %w", modelID, err)
+	}
+	mod := rowToModel(row)
+	payload, err := canonical.Model(mod)
+	if err != nil {
+		return fmt.Errorf("encode model %s: %w", mod.ID, err)
+	}
+	modelKey := identifierFor(mod.SemanticID, mod.ID)
+	path := domain.FilePath(domain.PathSpec{
+		EntityType: "model",
+		EntityID:   modelKey,
+	})
+	return writeEntityFile(workDir, path, payload)
 }
 
 func (m *Materializer) writeCollections(ctx context.Context, workDir, projectID string) error {
@@ -199,21 +230,35 @@ func (m *Materializer) writeCollections(ctx context.Context, workDir, projectID 
 		return fmt.Errorf("project %s has %d+ collections, exceeding page size %d: results would be truncated", projectID, len(rows), listPageSize)
 	}
 	for _, row := range rows {
-		col := rowToCollectionList(row)
-		payload, err := canonical.Collection(col)
-		if err != nil {
-			return fmt.Errorf("encode collection %s: %w", col.ID, err)
-		}
-		colKey := identifierFor(col.SemanticID, col.ID)
-		path := domain.FilePath(domain.PathSpec{
-			EntityType: "collection",
-			EntityID:   colKey,
-		})
-		if err := writeEntityFile(workDir, path, payload); err != nil {
+		if err := m.writeOneCollection(ctx, workDir, projectID, row.ID); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// writeOneCollection materializes a single collection's file. Shared by
+// writeCollections (loop) and the scoped rewrite so both paths are
+// byte-identical. Uses rowToCollectionByID rather than the older
+// rowToCollection (which predates default_category_id being added to the
+// list output and doesn't populate it) so the encoded bytes match
+// writeCollections exactly.
+func (m *Materializer) writeOneCollection(ctx context.Context, workDir, projectID, collectionID string) error {
+	row, err := m.queries.WeaveGetCollectionByID(ctx, collectionID)
+	if err != nil {
+		return fmt.Errorf("get collection %s: %w", collectionID, err)
+	}
+	col := rowToCollectionByID(row)
+	payload, err := canonical.Collection(col)
+	if err != nil {
+		return fmt.Errorf("encode collection %s: %w", col.ID, err)
+	}
+	colKey := identifierFor(col.SemanticID, col.ID)
+	path := domain.FilePath(domain.PathSpec{
+		EntityType: "collection",
+		EntityID:   colKey,
+	})
+	return writeEntityFile(workDir, path, payload)
 }
 
 // writeScopedOverridesByProject materializes every override in the project
