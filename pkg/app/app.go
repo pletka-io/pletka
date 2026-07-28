@@ -25,6 +25,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/admin"
 	"github.com/pletka-io/pletka/pkg/weave/apikey"
 	weavecontent "github.com/pletka-io/pletka/pkg/weave/content"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/genwiring"
 	"github.com/pletka-io/pletka/pkg/weave/materializationadmin"
@@ -183,6 +184,13 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	routerStart := time.Now()
 	logger.Info("Setting up Chi router with middleware stack")
 
+	// errResponderHolder is stashed on every request's context before any
+	// route is mounted (buildRootMux runs setupGlobalMiddleware first). The
+	// concrete responder is only available after weaverouter.Mount builds the
+	// error-page host below, so it is wired in via Holder.Set once assembly
+	// finishes — see errresp.Holder for why this two-step dance is needed.
+	errResponderHolder := &errresp.Holder{}
+
 	handler := buildRootMux(rootDependencies{
 		Weave:          weaveStore,
 		Pool:           opts.Pool,
@@ -193,6 +201,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		Session:        sessionManager,
 		StaticAssets:   opts.Contributions.StaticAssets,
 		ObsMiddleware:  obs.Middleware,
+		ErrResponder:   errResponderHolder,
 		Error500: func(w http.ResponseWriter, r *http.Request) {
 			templateRenderer.RespondInternalError(w, r, weavetemplates.ErrorPageDeps{
 				Lang:      "en",
@@ -310,7 +319,8 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	visualizationHost := buildVisualizationHost(opts.Pool, weaveStore, logger, generatorService)
 	detailViewHost := buildDetailViewHost(opts.Pool, logger, templateRenderer, weaveStore, i18nManager, sessionManager, opts.IntegrationRegistry, ontologySvc, hasFormat)
 	categoryHost, categoryService := buildCategoryHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver)
-	weaverouter.Mount(handler, buildProjectMiddlewareHost(weaveStore), buildErrorPageHost(templateRenderer, i18nManager, langResolver), weaverouter.Options{
+	errPageHost := buildErrorPageHost(templateRenderer, i18nManager, langResolver)
+	weaverouter.Mount(handler, buildProjectMiddlewareHost(weaveStore), errPageHost, weaverouter.Options{
 		Integrations: opts.IntegrationRegistry,
 		ActorAdmin:   buildActorAdminHost(opts.Pool, weaveStore, logger, languages, langResolver),
 		APIKey: apikey.Host{
@@ -355,6 +365,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		Visualization:          visualizationHost,
 		Workspace:              workspaceHost,
 	})
+	errResponderHolder.Set(weaverouter.BuildResponder(errPageHost))
 	mountIntegrationsHub(handler, weaveStore, logger, opts, generatorService)
 	mountRouteContributions(handler, opts.Contributions.Routes, Host{
 		Pool:                opts.Pool,

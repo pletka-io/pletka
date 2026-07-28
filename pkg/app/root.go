@@ -24,6 +24,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/mergedfs"
 	"github.com/pletka-io/pletka/pkg/session"
 	"github.com/pletka-io/pletka/pkg/weave/errortracking"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 type rootContextKey string
@@ -47,6 +48,13 @@ type rootDependencies struct {
 	// Error500 renders the branded 500 page/JSON when a panic is recovered
 	// (nil = plain-text "Internal Server Error" fallback).
 	Error500 func(http.ResponseWriter, *http.Request)
+
+	// ErrResponder holds the global negotiated-error responder, set once the
+	// error-page host is assembled (see app.go). StashMiddleware installs it
+	// on every request's context before routes are mounted; the concrete
+	// responder can be wired in after Mount without violating chi's
+	// no-middleware-after-routes rule.
+	ErrResponder *errresp.Holder
 }
 
 func buildRootMux(d rootDependencies) *chi.Mux {
@@ -125,6 +133,7 @@ func setupGlobalMiddleware(r *chi.Mux, d rootDependencies) {
 	if d.Session != nil {
 		r.Use(d.Session.LoadAndSave)
 		r.Use(weaveauth.NewMiddleware(d.Session, d.Weave))
+		r.Use(errresp.StashMiddleware(d.ErrResponder))
 		r.Use(d.Session.LanguageFromCookie)
 		r.Use(d.Session.ParamSync("theme", "page_size", "sort_by", "sort_order"))
 		r.Use(d.Session.CSRFProtect())
