@@ -25,7 +25,8 @@ import (
 // asymmetry in closure()) is skipped rather than failing the whole rewrite:
 // the entity's own delete ref (from its own change_set) or the reconcile
 // backstop removes its files. Treating this as fatal would wedge the
-// change_set in a permanent retry loop (see TestScopedRewriteSkipsConcurrentlyDeletedRef).
+// change_set in a permanent retry loop (see
+// TestProcessChangeSet_ConcurrentlyDeletedRefDoesNotWedgeChangeSet).
 func (m *Materializer) scopedRewrite(ctx context.Context, workDir, projectID string, refs []ScopedRef) error {
 	for _, r := range refs {
 		if r.Delete {
