@@ -120,7 +120,7 @@ func TestWriteOneModelMatchesWriteModels(t *testing.T) {
 	if err := m.writeModels(ctx, workA, projectID); err != nil {
 		t.Fatalf("writeModels: %v", err)
 	}
-	if err := m.writeOneModel(ctx, workB, projectID, modelID); err != nil {
+	if err := m.writeOneModel(ctx, workB, modelID); err != nil {
 		t.Fatalf("writeOneModel: %v", err)
 	}
 

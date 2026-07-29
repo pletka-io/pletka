@@ -18,11 +18,11 @@ func deletePathsFor(entityType, identifier string) []string {
 		return nil
 	}
 	switch entityType {
-	case "model", "field", "collection":
+	case entityTypeModel, entityTypeField, entityTypeCollection:
 		// Remove the whole entity directory (e.g. models/GRPM.2), which holds
 		// the entity file plus any overrides/ written beneath it.
 		return []string{path.Dir(domain.FilePath(domain.PathSpec{EntityType: entityType, EntityID: identifier}))}
-	case "category":
+	case entityTypeCategory:
 		return []string{domain.FilePath(domain.PathSpec{EntityType: entityType, EntityID: identifier})}
 	default:
 		return nil

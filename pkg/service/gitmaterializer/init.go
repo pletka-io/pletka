@@ -86,7 +86,7 @@ func (m *Materializer) writeCategories(ctx context.Context, workDir, projectID s
 		return fmt.Errorf("list categories: %w", err)
 	}
 	for _, row := range rows {
-		if err := m.writeOneCategory(ctx, workDir, projectID, row.ID); err != nil {
+		if err := m.writeOneCategory(ctx, workDir, row.ID); err != nil {
 			return err
 		}
 	}
@@ -96,7 +96,7 @@ func (m *Materializer) writeCategories(ctx context.Context, workDir, projectID s
 // writeOneCategory materializes a single category's file. Shared by
 // writeCategories (loop) and the scoped rewrite so both paths are
 // byte-identical.
-func (m *Materializer) writeOneCategory(ctx context.Context, workDir, projectID, categoryID string) error {
+func (m *Materializer) writeOneCategory(ctx context.Context, workDir, categoryID string) error {
 	row, err := m.queries.WeaveGetCategoryByID(ctx, categoryID)
 	if err != nil {
 		return fmt.Errorf("get category %s: %w", categoryID, err)
@@ -107,7 +107,7 @@ func (m *Materializer) writeOneCategory(ctx context.Context, workDir, projectID,
 		return fmt.Errorf("encode category %s: %w", cat.ID, err)
 	}
 	path := domain.FilePath(domain.PathSpec{
-		EntityType: "category",
+		EntityType: entityTypeCategory,
 		EntityID:   identifierFor(cat.SemanticID, cat.ID),
 	})
 	return writeEntityFile(workDir, path, payload)
@@ -151,7 +151,7 @@ func (m *Materializer) writeOneField(ctx context.Context, workDir, projectID, fi
 	}
 	fieldKey := identifierFor(f.SemanticID, f.ID)
 	path := domain.FilePath(domain.PathSpec{
-		EntityType: "field",
+		EntityType: entityTypeField,
 		EntityID:   fieldKey,
 	})
 	if err := writeEntityFile(workDir, path, payload); err != nil {
@@ -187,7 +187,7 @@ func (m *Materializer) writeModels(ctx context.Context, workDir, projectID strin
 		return fmt.Errorf("project %s has %d+ models, exceeding page size %d: results would be truncated", projectID, len(rows), listPageSize)
 	}
 	for _, row := range rows {
-		if err := m.writeOneModel(ctx, workDir, projectID, row.ID); err != nil {
+		if err := m.writeOneModel(ctx, workDir, row.ID); err != nil {
 			return err
 		}
 	}
@@ -196,7 +196,7 @@ func (m *Materializer) writeModels(ctx context.Context, workDir, projectID strin
 
 // writeOneModel materializes a single model's file. Shared by writeModels
 // (loop) and the scoped rewrite so both paths are byte-identical.
-func (m *Materializer) writeOneModel(ctx context.Context, workDir, projectID, modelID string) error {
+func (m *Materializer) writeOneModel(ctx context.Context, workDir, modelID string) error {
 	row, err := m.queries.WeaveGetModelByID(ctx, modelID)
 	if err != nil {
 		return fmt.Errorf("get model %s: %w", modelID, err)
@@ -208,7 +208,7 @@ func (m *Materializer) writeOneModel(ctx context.Context, workDir, projectID, mo
 	}
 	modelKey := identifierFor(mod.SemanticID, mod.ID)
 	path := domain.FilePath(domain.PathSpec{
-		EntityType: "model",
+		EntityType: entityTypeModel,
 		EntityID:   modelKey,
 	})
 	return writeEntityFile(workDir, path, payload)
@@ -230,7 +230,7 @@ func (m *Materializer) writeCollections(ctx context.Context, workDir, projectID 
 		return fmt.Errorf("project %s has %d+ collections, exceeding page size %d: results would be truncated", projectID, len(rows), listPageSize)
 	}
 	for _, row := range rows {
-		if err := m.writeOneCollection(ctx, workDir, projectID, row.ID); err != nil {
+		if err := m.writeOneCollection(ctx, workDir, row.ID); err != nil {
 			return err
 		}
 	}
@@ -243,7 +243,7 @@ func (m *Materializer) writeCollections(ctx context.Context, workDir, projectID 
 // rowToCollection (which predates default_category_id being added to the
 // list output and doesn't populate it) so the encoded bytes match
 // writeCollections exactly.
-func (m *Materializer) writeOneCollection(ctx context.Context, workDir, projectID, collectionID string) error {
+func (m *Materializer) writeOneCollection(ctx context.Context, workDir, collectionID string) error {
 	row, err := m.queries.WeaveGetCollectionByID(ctx, collectionID)
 	if err != nil {
 		return fmt.Errorf("get collection %s: %w", collectionID, err)
@@ -255,7 +255,7 @@ func (m *Materializer) writeOneCollection(ctx context.Context, workDir, projectI
 	}
 	colKey := identifierFor(col.SemanticID, col.ID)
 	path := domain.FilePath(domain.PathSpec{
-		EntityType: "collection",
+		EntityType: entityTypeCollection,
 		EntityID:   colKey,
 	})
 	return writeEntityFile(workDir, path, payload)
@@ -328,9 +328,9 @@ func (m *Materializer) writeOverride(
 	}
 	switch pathType {
 	case "model_override":
-		spec.OwnerType = "model"
+		spec.OwnerType = entityTypeModel
 	case "collection_override":
-		spec.OwnerType = "collection"
+		spec.OwnerType = entityTypeCollection
 	}
 
 	path := domain.FilePath(spec)

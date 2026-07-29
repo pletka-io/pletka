@@ -266,7 +266,7 @@ func (m *Materializer) Reconcile(ctx context.Context, projectID string) (int, er
 // being force-initialized here. Filesystem enumeration is also what keeps
 // the sweep's cost proportional to what's actually materialized, rather
 // than the whole system's project count.
-func (m *Materializer) projectIDsWithRepos(ctx context.Context) ([]string, error) {
+func (m *Materializer) projectIDsWithRepos() ([]string, error) {
 	entries, err := os.ReadDir(m.baseDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

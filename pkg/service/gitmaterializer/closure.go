@@ -12,6 +12,19 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
+// Entity-type and operation string values shared across closure/scoped-write
+// paths. These are the same values stored in change_log.entity_type /
+// change_log.operation and used to build materialized file paths — the
+// constant names are local to this package (the sqlcgen RestoreX constants
+// cover a different domain), and their VALUES must never change.
+const (
+	entityTypeModel      = "model"
+	entityTypeCollection = "collection"
+	entityTypeField      = "field"
+	entityTypeCategory   = "category"
+	opDelete             = "delete"
+)
+
 // ScopedRef is one entity whose file(s) a change_set touches. Delete removes
 // them; otherwise they are (re)written from current DB state.
 type ScopedRef struct {
@@ -68,10 +81,10 @@ func (m *Materializer) closure(ctx context.Context, cs sqlcgen.WeaveChangeSet) (
 
 	for _, e := range entries {
 		switch e.EntityType {
-		case "model", "collection":
-			add(e.EntityType, e.EntityID, e.Operation == "delete")
-		case "category":
-			del := e.Operation == "delete"
+		case entityTypeModel, entityTypeCollection:
+			add(e.EntityType, e.EntityID, e.Operation == opDelete)
+		case entityTypeCategory:
+			del := e.Operation == opDelete
 			id := e.EntityID
 			if del {
 				if semanticID, ok := categorySemanticIDFromPayload(e.PreviousPayload); ok {
@@ -81,11 +94,11 @@ func (m *Materializer) closure(ctx context.Context, cs sqlcgen.WeaveChangeSet) (
 						"change_set_id", cs.ID, "entity_id", e.EntityID)
 				}
 			}
-			add("category", id, del)
+			add(entityTypeCategory, id, del)
 		case "namespace_binding", "project-ontology-version":
 			add("project_manifest", cs.ProjectID, false)
-		case "field":
-			add("field", e.EntityID, e.Operation == "delete")
+		case entityTypeField:
+			add(entityTypeField, e.EntityID, e.Operation == opDelete)
 			owners, err := m.placingOwners(ctx, cs.ProjectID, e.EntityID)
 			if err != nil {
 				return nil, err
@@ -151,16 +164,16 @@ func (m *Materializer) overrideOwner(ctx context.Context, projectID, overrideID 
 		}
 		return ScopedRef{}, false, fmt.Errorf("resolve override owner %d: %w", id, err)
 	}
-	if row.EntityType == "model" || row.EntityType == "collection" {
+	if row.EntityType == entityTypeModel || row.EntityType == entityTypeCollection {
 		return ScopedRef{EntityType: row.EntityType, EntityID: row.EntityID}, true, nil
 	}
 	// Base override (entity_type ""): no owning model/collection — the
 	// field's own materialized files (including its base override) changed.
-	return ScopedRef{EntityType: "field", EntityID: row.FieldID}, true, nil
+	return ScopedRef{EntityType: entityTypeField, EntityID: row.FieldID}, true, nil
 }
 
 // categorySemanticIDFromPayload extracts semantic_id from a category
-// change_log entry's previous_payload (the JSON-marshalled domain.Category
+// change_log entry's previous_payload (the JSON-marshaled domain.Category
 // captured at delete time — see pkg/weave/category/service.go's
 // marshalCategory). ok is false when payload is empty, unparseable, or the
 // field is blank, so the caller can fall back to the raw (ULID) entity id.

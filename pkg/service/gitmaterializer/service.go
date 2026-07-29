@@ -123,7 +123,7 @@ func (s *Service) runSweep(ctx context.Context) {
 // sweepOnce runs one reconcile pass over every project, logging per-project
 // failures and drift without letting either abort the rest of the sweep.
 func (s *Service) sweepOnce(ctx context.Context) {
-	ids, err := s.mat.projectIDsWithRepos(ctx)
+	ids, err := s.mat.projectIDsWithRepos()
 	if err != nil {
 		s.logger.Error("reconcile sweep: list projects", "err", err)
 		return

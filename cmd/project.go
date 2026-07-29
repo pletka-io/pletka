@@ -126,7 +126,9 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("reconcile: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "reconcile %s: %d file(s) changed\n", projectID, changed)
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "reconcile %s: %d file(s) changed\n", projectID, changed); err != nil {
+		return fmt.Errorf("write reconcile output: %w", err)
+	}
 	return nil
 }
 
