@@ -947,12 +947,26 @@ func (s *weaveProjectStore) listParentTargetsArchived(ctx context.Context, proje
 	return []inheritanceTarget{{ProjectID: *parent, Version: version}}, nil
 }
 
+// syncProjectPrimaryInheritance bootstraps the legacy scalar parent_project_id
+// into weave_project_inheritance on project create/update.
+//
+// weave_project_inheritance is the source of truth for a project's parents
+// (multi-parent, draft/release, pinned source_version), owned by the inheritance
+// store. This helper must NOT rewrite it from the single scalar column: doing so
+// destroyed multi-parent and release-pinned links on every create/update and
+// dropped prod's parent data (Redmine #3479). It therefore only seeds a draft
+// primary when the project has no inheritance rows yet; once rich inheritance
+// exists, the inheritance store's add/remove/set-primary/reorder methods own it.
 func syncProjectPrimaryInheritance(ctx context.Context, tx pgx.Tx, projectID string, parentID *string) error {
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM weave_project_inheritance
-		WHERE project_id = $1
-	`, projectID); err != nil {
-		return fmt.Errorf("clear project inheritances: %w", err)
+	var existing int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM weave_project_inheritance WHERE project_id = $1
+	`, projectID).Scan(&existing); err != nil {
+		return fmt.Errorf("count project inheritance: %w", err)
+	}
+	if existing > 0 {
+		// Rich inheritance already present — leave it untouched.
+		return nil
 	}
 	if parentID == nil || *parentID == "" {
 		return nil
@@ -961,6 +975,7 @@ func syncProjectPrimaryInheritance(ctx context.Context, tx pgx.Tx, projectID str
 		INSERT INTO weave_project_inheritance (
 			project_id, parent_project_id, is_primary, canonical_order
 		) VALUES ($1, $2, true, 0)
+		ON CONFLICT (project_id, parent_project_id) DO NOTHING
 	`, projectID, *parentID); err != nil {
 		return fmt.Errorf("insert primary project inheritance: %w", err)
 	}
