@@ -576,3 +576,79 @@ func TestWeaveProjectStore_ResolvedOntologyVersions_ArchivedInheritanceGraph(t *
 		t.Fatalf("resolved[2] = (%q,%q), want (%q,%q)", resolved[2].Link.OntologyVersionID, resolved[2].SourceProjectID, v2, p2ID)
 	}
 }
+
+// TestWeaveProjectStore_Update_PreservesMultiParentInheritance is a regression
+// guard for the prod data-loss bug (Redmine #3479): syncProjectPrimaryInheritance
+// used to DELETE all of a project's weave_project_inheritance rows on every
+// create/update and rebuild a single draft primary from the legacy scalar
+// parent_project_id — destroying multi-parent and release-pinned inheritance.
+// A metadata Update must leave a project's existing inheritance untouched.
+func TestWeaveProjectStore_Update_PreservesMultiParentInheritance(t *testing.T) {
+	pool := testPool(t)
+	store := weave.NewPostgresStore(pool)
+	projects := store.Projects()
+	ctx := context.Background()
+
+	ownerID := seedTestActor(t, pool, "TEST_ACTOR_INHKEEP")
+	pa := "TEST_PROJ_INHKEEP_PA"
+	pb := "TEST_PROJ_INHKEEP_PB"
+	child := "TEST_PROJ_INHKEEP_C"
+
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM weave_project_inheritance WHERE project_id LIKE 'TEST_%' OR parent_project_id LIKE 'TEST_%'`)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_projects WHERE id LIKE 'TEST_%'`)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_actors WHERE id = $1`, ownerID)
+	})
+
+	seedProject(t, pool, ctx, pa, ownerID, nil)
+	seedProject(t, pool, ctx, pb, ownerID, nil)
+	seedProject(t, pool, ctx, child, ownerID, &pa)
+
+	// Two release-pinned parents on the child (multi-parent inheritance).
+	seedInheritanceLinkWithSource(t, pool, ctx, child, pa, true, 0, domain.DependencySourceRelease, "0.1.0")
+	seedInheritanceLinkWithSource(t, pool, ctx, child, pb, false, 1, domain.DependencySourceRelease, "0.1.0")
+
+	// A plain metadata update must NOT touch the inheritance set.
+	upd := &domain.Project{
+		Entity:          domain.Entity{ID: child, Status: "draft"},
+		OwnerID:         ownerID,
+		ParentProjectID: &pa,
+		Visibility:      "public",
+	}
+	if err := projects.Update(ctx, upd); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	rows, err := pool.Query(ctx, `
+		SELECT parent_project_id, source_mode, COALESCE(source_version, '')
+		FROM weave_project_inheritance
+		WHERE project_id = $1
+		ORDER BY parent_project_id`, child)
+	if err != nil {
+		t.Fatalf("query inheritance: %v", err)
+	}
+	defer rows.Close()
+	type link struct{ parent, mode, ver string }
+	var got []link
+	for rows.Next() {
+		var l link
+		if err := rows.Scan(&l.parent, &l.mode, &l.ver); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, l)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows: %v", err)
+	}
+
+	want := []link{{pa, "release", "0.1.0"}, {pb, "release", "0.1.0"}}
+	if len(got) != len(want) {
+		t.Fatalf("after Update: got %d inheritance rows, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("inheritance[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
