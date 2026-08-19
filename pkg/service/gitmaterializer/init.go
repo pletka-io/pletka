@@ -8,10 +8,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
-	"github.com/jackc/pgx/v5"
 )
 
 // listPageSize caps per-call rows when listing project entities.
@@ -156,6 +157,14 @@ func (m *Materializer) writeOneField(ctx context.Context, workDir, projectID, fi
 	})
 	if err := writeEntityFile(workDir, path, payload); err != nil {
 		return err
+	}
+
+	basePath := domain.FilePath(domain.PathSpec{
+		EntityType: entityTypeBaseOverride,
+		FieldID:    fieldKey,
+	})
+	if err := os.Remove(filepath.Join(workDir, basePath)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove stale base override for field %s: %w", f.ID, err)
 	}
 
 	base, err := m.queries.WeaveGetBaseOverride(ctx, sqlcgen.WeaveGetBaseOverrideParams{

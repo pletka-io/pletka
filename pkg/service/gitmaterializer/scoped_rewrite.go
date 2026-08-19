@@ -83,9 +83,9 @@ func (m *Materializer) writeScopedEntity(ctx context.Context, workDir, projectID
 	case entityTypeField:
 		writeErr = m.writeOneField(ctx, workDir, projectID, r.EntityID)
 	case entityTypeModel:
-		writeErr = m.writeOneModel(ctx, workDir, r.EntityID)
+		return m.writeScopedOwnerEntity(ctx, workDir, projectID, r)
 	case entityTypeCollection:
-		writeErr = m.writeOneCollection(ctx, workDir, r.EntityID)
+		return m.writeScopedOwnerEntity(ctx, workDir, projectID, r)
 	case entityTypeCategory:
 		writeErr = m.writeOneCategory(ctx, workDir, r.EntityID)
 	default:
@@ -98,6 +98,87 @@ func (m *Materializer) writeScopedEntity(ctx context.Context, workDir, projectID
 		return true, nil
 	}
 	return false, writeErr
+}
+
+func (m *Materializer) writeScopedOwnerEntity(ctx context.Context, workDir, projectID string, r ScopedRef) (bool, error) {
+	local, skipped, err := m.ownerIsLocal(ctx, projectID, r)
+	if err != nil || skipped {
+		return skipped, err
+	}
+	if local {
+		if r.EntityType == entityTypeModel {
+			return false, m.writeOneModel(ctx, workDir, r.EntityID)
+		}
+		return false, m.writeOneCollection(ctx, workDir, r.EntityID)
+	}
+
+	ownerProjectID, adopted, err := m.adoptedOwnerProjectID(ctx, projectID, r)
+	if err != nil {
+		return false, err
+	}
+	if adopted {
+		if r.EntityType == entityTypeModel {
+			return m.writeAdoptedModel(ctx, workDir, projectID, r.EntityID, ownerProjectID)
+		}
+		return m.writeAdoptedCollection(ctx, workDir, projectID, r.EntityID, ownerProjectID)
+	}
+
+	if err := removeOwnerEntityFile(workDir, r.EntityType, r.EntityID); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func (m *Materializer) ownerIsLocal(ctx context.Context, projectID string, r ScopedRef) (bool, bool, error) {
+	var ownerProjectID string
+	switch r.EntityType {
+	case entityTypeModel:
+		row, err := m.queries.WeaveGetModelByID(ctx, r.EntityID)
+		if err != nil {
+			if m.skipConcurrentlyDeleted(err, r.EntityType, r.EntityID) {
+				return false, true, nil
+			}
+			return false, false, err
+		}
+		ownerProjectID = row.ProjectID
+	case entityTypeCollection:
+		row, err := m.queries.WeaveGetCollectionByID(ctx, r.EntityID)
+		if err != nil {
+			if m.skipConcurrentlyDeleted(err, r.EntityType, r.EntityID) {
+				return false, true, nil
+			}
+			return false, false, err
+		}
+		ownerProjectID = row.ProjectID
+	default:
+		return false, false, nil
+	}
+	return ownerProjectID == projectID, false, nil
+}
+
+func (m *Materializer) adoptedOwnerProjectID(ctx context.Context, projectID string, r ScopedRef) (string, bool, error) {
+	ids, err := m.collectAdoptedIDs(ctx, projectID)
+	if err != nil {
+		return "", false, err
+	}
+	switch r.EntityType {
+	case entityTypeModel:
+		ownerProjectID, ok := ids.modelIDs[r.EntityID]
+		return ownerProjectID, ok, nil
+	case entityTypeCollection:
+		ownerProjectID, ok := ids.collectionIDs[r.EntityID]
+		return ownerProjectID, ok, nil
+	default:
+		return "", false, nil
+	}
+}
+
+func removeOwnerEntityFile(workDir, entityType, entityID string) error {
+	rel := domain.FilePath(domain.PathSpec{EntityType: entityType, EntityID: entityID})
+	if err := os.Remove(filepath.Join(workDir, rel)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove foreign %s file %s: %w", entityType, rel, err)
+	}
+	return nil
 }
 
 // skipConcurrentlyDeleted reports whether err is a pgx.ErrNoRows from a

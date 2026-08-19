@@ -18,11 +18,12 @@ import (
 // constant names are local to this package (the sqlcgen RestoreX constants
 // cover a different domain), and their VALUES must never change.
 const (
-	entityTypeModel      = "model"
-	entityTypeCollection = "collection"
-	entityTypeField      = "field"
-	entityTypeCategory   = "category"
-	opDelete             = "delete"
+	entityTypeModel        = "model"
+	entityTypeCollection   = "collection"
+	entityTypeField        = "field"
+	entityTypeCategory     = "category"
+	entityTypeBaseOverride = "base_override"
+	opDelete               = "delete"
 )
 
 // ScopedRef is one entity whose file(s) a change_set touches. Delete removes
@@ -107,14 +108,23 @@ func (m *Materializer) closure(ctx context.Context, cs sqlcgen.WeaveChangeSet) (
 				add(o.EntityType, o.EntityID, false)
 			}
 		case "override":
-			owner, ok, err := m.overrideOwner(ctx, cs.ProjectID, e.EntityID)
+			var (
+				owner ScopedRef
+				ok    bool
+				err   error
+			)
+			if e.Operation == opDelete {
+				owner, ok, err = overrideOwnerFromPayload(e.PreviousPayload)
+			} else {
+				owner, ok, err = m.overrideOwner(ctx, cs.ProjectID, e.EntityID)
+			}
 			if err != nil {
 				return nil, err
 			}
 			if !ok {
-				// Override row already deleted (change_log entry outlived
-				// it). No owner to rewrite from this entry alone; the
-				// reconcile backstop (full-tree diff) covers this edge.
+				// Non-delete override row already disappeared (change_log
+				// entry outlived it). No owner to rewrite from this entry
+				// alone; the reconcile backstop covers this race.
 				continue
 			}
 			add(owner.EntityType, owner.EntityID, false)
@@ -191,4 +201,35 @@ func categorySemanticIDFromPayload(payload []byte) (string, bool) {
 		return "", false
 	}
 	return v.SemanticID, true
+}
+
+// overrideOwnerFromPayload resolves a deleted override from its audit payload.
+// The DB row is gone by the time closure() runs for a delete, so current-row
+// lookup would skip the only signal that can remove the old override file.
+func overrideOwnerFromPayload(payload []byte) (ScopedRef, bool, error) {
+	if len(payload) == 0 {
+		return ScopedRef{}, false, fmt.Errorf("override delete previous_payload missing")
+	}
+	var v struct {
+		EntityType string `json:"entity_type"`
+		EntityID   string `json:"entity_id"`
+		FieldID    string `json:"field_id"`
+	}
+	if err := json.Unmarshal(payload, &v); err != nil {
+		return ScopedRef{}, false, fmt.Errorf("parse override delete previous_payload: %w", err)
+	}
+	switch v.EntityType {
+	case entityTypeModel, entityTypeCollection:
+		if v.EntityID == "" {
+			return ScopedRef{}, false, fmt.Errorf("override delete previous_payload missing entity_id")
+		}
+		return ScopedRef{EntityType: v.EntityType, EntityID: v.EntityID}, true, nil
+	case "":
+		if v.FieldID == "" {
+			return ScopedRef{}, false, fmt.Errorf("base override delete previous_payload missing field_id")
+		}
+		return ScopedRef{EntityType: entityTypeField, EntityID: v.FieldID}, true, nil
+	default:
+		return ScopedRef{}, false, fmt.Errorf("override delete previous_payload has unsupported entity_type %q", v.EntityType)
+	}
 }

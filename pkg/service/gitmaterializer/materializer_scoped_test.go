@@ -49,6 +49,7 @@ func setupMatScopedFixture(t *testing.T) *matScopedFixture {
 	queries := sqlcgen.New(pool)
 
 	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_adoptions WHERE project_id = $1 OR source_project_id LIKE 'MATSCOPED_SOURCE_%'`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_change_log WHERE project_id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_change_set WHERE project_id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_field_overrides WHERE project_id = $1`, matScopedProjectID)
@@ -59,6 +60,11 @@ func setupMatScopedFixture(t *testing.T) *matScopedFixture {
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_models WHERE project_id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_collections WHERE project_id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_fields WHERE project_id = $1`, matScopedProjectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_models WHERE project_id LIKE 'MATSCOPED_SOURCE_%'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_collections WHERE project_id LIKE 'MATSCOPED_SOURCE_%'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_fields WHERE project_id LIKE 'MATSCOPED_SOURCE_%'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_categories WHERE project_id LIKE 'MATSCOPED_SOURCE_%'`)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_projects WHERE id LIKE 'MATSCOPED_SOURCE_%'`)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_categories WHERE project_id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_projects WHERE id = $1`, matScopedProjectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id = $1`, matScopedOwnerActorID)
@@ -158,6 +164,59 @@ func (f *matScopedFixture) collection(id string) {
 		OntologyScope: scope,
 	}); err != nil {
 		f.t.Fatalf("create collection %s: %v", id, err)
+	}
+}
+
+func (f *matScopedFixture) sourceProject(id string) {
+	f.t.Helper()
+	uiName, _ := json.Marshal(map[string]string{"en": "Source Project " + id})
+	desc, _ := json.Marshal(map[string]string{"en": "source project for scoped materializer tests"})
+	if _, err := f.queries.WeaveCreateProject(f.ctx, sqlcgen.WeaveCreateProjectParams{
+		ID:          id,
+		UiName:      uiName,
+		Description: desc,
+		Status:      "draft",
+		OwnerID:     matScopedOwnerActorID,
+		Visibility:  "private",
+	}); err != nil {
+		f.t.Fatalf("create source project %s: %v", id, err)
+	}
+}
+
+func (f *matScopedFixture) sourceModel(projectID, id string) {
+	f.t.Helper()
+	uiName, _ := json.Marshal(map[string]string{"en": "Source Model " + id})
+	desc, _ := json.Marshal(map[string]string{"en": "source model for scoped materializer tests"})
+	scope, _ := json.Marshal(map[string]string{"prefix": "crm", "local_name": "E21_Person"})
+	if _, err := f.queries.WeaveCreateModel(f.ctx, sqlcgen.WeaveCreateModelParams{
+		ID:            id,
+		SystemName:    stringPtr("source_model_" + strings.ReplaceAll(id, ".", "_")),
+		UiName:        uiName,
+		Description:   desc,
+		Status:        "draft",
+		ProjectID:     projectID,
+		OntologyScope: scope,
+		ModelType:     "core",
+	}); err != nil {
+		f.t.Fatalf("create source model %s: %v", id, err)
+	}
+}
+
+func (f *matScopedFixture) sourceCollection(projectID, id string) {
+	f.t.Helper()
+	uiName, _ := json.Marshal(map[string]string{"en": "Source Collection " + id})
+	desc, _ := json.Marshal(map[string]string{"en": "source collection for scoped materializer tests"})
+	scope, _ := json.Marshal(map[string]string{"prefix": "crm", "local_name": "E67_Birth"})
+	if _, err := f.queries.WeaveCreateCollection(f.ctx, sqlcgen.WeaveCreateCollectionParams{
+		ID:            id,
+		SystemName:    stringPtr("source_collection_" + strings.ReplaceAll(id, ".", "_")),
+		UiName:        uiName,
+		Description:   desc,
+		Status:        "draft",
+		ProjectID:     projectID,
+		OntologyScope: scope,
+	}); err != nil {
+		f.t.Fatalf("create source collection %s: %v", id, err)
 	}
 }
 
@@ -303,6 +362,38 @@ func (f *matScopedFixture) placeFieldOnCollection(fieldID, collectionID string) 
 		f.t.Fatalf("create override placing field %s on collection %s: %v", fieldID, collectionID, err)
 	}
 	return o.ID
+}
+
+func (f *matScopedFixture) deleteOverride(id int64) {
+	f.t.Helper()
+	if err := f.queries.WeaveDeleteOverride(f.ctx, id); err != nil {
+		f.t.Fatalf("delete override %d: %v", id, err)
+	}
+}
+
+func (f *matScopedFixture) overridePreviousPayload(id int64) []byte {
+	f.t.Helper()
+	row, err := f.queries.WeaveGetOverrideByID(f.ctx, id)
+	if err != nil {
+		f.t.Fatalf("get override %d: %v", id, err)
+	}
+	payload, err := json.Marshal(rowToOverride(row))
+	if err != nil {
+		f.t.Fatalf("marshal override %d: %v", id, err)
+	}
+	return payload
+}
+
+func (f *matScopedFixture) adoptSource(entityType, sourceProjectID, sourceEntityID string) {
+	f.t.Helper()
+	if _, err := f.pool.Exec(f.ctx, `
+		INSERT INTO weave_adoptions (
+			project_id, context_entity_type, context_entity_id,
+			entity_type, source_project_id, source_entity_id
+		) VALUES ($1, 'project', $1, $2, $3, $4)
+	`, f.projectID, entityType, sourceProjectID, sourceEntityID); err != nil {
+		f.t.Fatalf("adopt %s %s/%s: %v", entityType, sourceProjectID, sourceEntityID, err)
+	}
 }
 
 // updateFieldUIName performs a real DB edit of a field's UI name, mirroring
@@ -965,6 +1056,217 @@ func TestScopedEqualsFullRebuild_CategoryDelete(t *testing.T) {
 
 	if diff := diffTrees(t, full2, scoped); diff != "" {
 		t.Fatalf("scoped tree drifted from full rebuild after a category delete (stale file not removed):\n%s", diff)
+	}
+}
+
+func TestScopedEqualsFullRebuild_ModelOverrideDelete(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	f.field("MATSCOPED_FIELD_MODEL_OVERRIDE_DEL")
+	f.model("MATSCOPED_MODEL_OVERRIDE_DEL")
+	overrideID := f.placeFieldOnModel("MATSCOPED_FIELD_MODEL_OVERRIDE_DEL", "MATSCOPED_MODEL_OVERRIDE_DEL")
+
+	full1 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full1, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S1: %v", err)
+	}
+
+	prevPayload := f.overridePreviousPayload(overrideID)
+	f.deleteOverride(overrideID)
+	cs := f.changeSet("delete model override", entryWithPreviousPayload("override", fmt.Sprintf("%d", overrideID), "delete", prevPayload))
+
+	full2 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full2, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S2: %v", err)
+	}
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	scoped := t.TempDir()
+	copyMatTree(t, full1, scoped)
+	if err := f.mat.scopedRewrite(f.ctx, scoped, f.projectID, refs); err != nil {
+		t.Fatalf("scopedRewrite: %v", err)
+	}
+
+	if diff := diffTrees(t, full2, scoped); diff != "" {
+		t.Fatalf("scoped tree drifted from full rebuild after a model override delete:\n%s", diff)
+	}
+}
+
+func TestScopedEqualsFullRebuild_CollectionOverrideDelete(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	f.field("MATSCOPED_FIELD_COLLECTION_OVERRIDE_DEL")
+	f.collection("MATSCOPED_COLLECTION_OVERRIDE_DEL")
+	overrideID := f.placeFieldOnCollection("MATSCOPED_FIELD_COLLECTION_OVERRIDE_DEL", "MATSCOPED_COLLECTION_OVERRIDE_DEL")
+
+	full1 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full1, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S1: %v", err)
+	}
+
+	prevPayload := f.overridePreviousPayload(overrideID)
+	f.deleteOverride(overrideID)
+	cs := f.changeSet("delete collection override", entryWithPreviousPayload("override", fmt.Sprintf("%d", overrideID), "delete", prevPayload))
+
+	full2 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full2, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S2: %v", err)
+	}
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	scoped := t.TempDir()
+	copyMatTree(t, full1, scoped)
+	if err := f.mat.scopedRewrite(f.ctx, scoped, f.projectID, refs); err != nil {
+		t.Fatalf("scopedRewrite: %v", err)
+	}
+
+	if diff := diffTrees(t, full2, scoped); diff != "" {
+		t.Fatalf("scoped tree drifted from full rebuild after a collection override delete:\n%s", diff)
+	}
+}
+
+func TestScopedEqualsFullRebuild_BaseOverrideDelete(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	f.field("MATSCOPED_FIELD_BASE_OVERRIDE_DEL")
+	overrideID := f.baseOverride("MATSCOPED_FIELD_BASE_OVERRIDE_DEL")
+
+	full1 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full1, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S1: %v", err)
+	}
+	if !fileExists(filepath.Join(full1, "fields", "MATSCOPED_FIELD_BASE_OVERRIDE_DEL", "base-override.yaml")) {
+		t.Fatalf("setup: expected base override file before delete")
+	}
+
+	prevPayload := f.overridePreviousPayload(overrideID)
+	f.deleteOverride(overrideID)
+	cs := f.changeSet("delete base override", entryWithPreviousPayload("override", fmt.Sprintf("%d", overrideID), "delete", prevPayload))
+
+	full2 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full2, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S2: %v", err)
+	}
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	scoped := t.TempDir()
+	copyMatTree(t, full1, scoped)
+	if err := f.mat.scopedRewrite(f.ctx, scoped, f.projectID, refs); err != nil {
+		t.Fatalf("scopedRewrite: %v", err)
+	}
+
+	if diff := diffTrees(t, full2, scoped); diff != "" {
+		t.Fatalf("scoped tree drifted from full rebuild after a base override delete:\n%s", diff)
+	}
+}
+
+func TestScopedEqualsFullRebuild_AdoptedModelOwnerRewrite(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	const sourceProjectID = "MATSCOPED_SOURCE_MODEL_PROJECT"
+	const sourceModelID = "MATSCOPED_SOURCE_MODEL_OWNER"
+	f.sourceProject(sourceProjectID)
+	f.sourceModel(sourceProjectID, sourceModelID)
+	f.field("MATSCOPED_FIELD_FOR_ADOPTED_MODEL")
+	f.adoptSource("model", sourceProjectID, sourceModelID)
+	overrideID := f.placeFieldOnModel("MATSCOPED_FIELD_FOR_ADOPTED_MODEL", sourceModelID)
+
+	full1 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full1, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S1: %v", err)
+	}
+	full2 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full2, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S2: %v", err)
+	}
+
+	cs := f.changeSet("touch adopted model override", entry("override", fmt.Sprintf("%d", overrideID), "update"))
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	scoped := t.TempDir()
+	copyMatTree(t, full1, scoped)
+	if err := f.mat.scopedRewrite(f.ctx, scoped, f.projectID, refs); err != nil {
+		t.Fatalf("scopedRewrite: %v", err)
+	}
+
+	if diff := diffTrees(t, full2, scoped); diff != "" {
+		t.Fatalf("scoped tree drifted from full rebuild for adopted model owner:\n%s", diff)
+	}
+}
+
+func TestScopedEqualsFullRebuild_AdoptedCollectionOwnerRewrite(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	const sourceProjectID = "MATSCOPED_SOURCE_COLLECTION_PROJECT"
+	const sourceCollectionID = "MATSCOPED_SOURCE_COLLECTION_OWNER"
+	f.sourceProject(sourceProjectID)
+	f.sourceCollection(sourceProjectID, sourceCollectionID)
+	f.field("MATSCOPED_FIELD_FOR_ADOPTED_COLLECTION")
+	f.adoptSource("collection", sourceProjectID, sourceCollectionID)
+	overrideID := f.placeFieldOnCollection("MATSCOPED_FIELD_FOR_ADOPTED_COLLECTION", sourceCollectionID)
+
+	full1 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full1, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S1: %v", err)
+	}
+	full2 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full2, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S2: %v", err)
+	}
+
+	cs := f.changeSet("touch adopted collection override", entry("override", fmt.Sprintf("%d", overrideID), "update"))
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	scoped := t.TempDir()
+	copyMatTree(t, full1, scoped)
+	if err := f.mat.scopedRewrite(f.ctx, scoped, f.projectID, refs); err != nil {
+		t.Fatalf("scopedRewrite: %v", err)
+	}
+
+	if diff := diffTrees(t, full2, scoped); diff != "" {
+		t.Fatalf("scoped tree drifted from full rebuild for adopted collection owner:\n%s", diff)
+	}
+}
+
+func TestScopedEqualsFullRebuild_ForeignOwnerOverrideOnlyRewrite(t *testing.T) {
+	f := setupMatScopedFixture(t)
+	const sourceProjectID = "MATSCOPED_SOURCE_FOREIGN_PROJECT"
+	const sourceModelID = "MATSCOPED_SOURCE_FOREIGN_MODEL"
+	f.sourceProject(sourceProjectID)
+	f.sourceModel(sourceProjectID, sourceModelID)
+	f.field("MATSCOPED_FIELD_FOR_FOREIGN_MODEL")
+	overrideID := f.placeFieldOnModel("MATSCOPED_FIELD_FOR_FOREIGN_MODEL", sourceModelID)
+
+	full1 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full1, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S1: %v", err)
+	}
+	full2 := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, full2, f.projectID); err != nil {
+		t.Fatalf("full rebuild at S2: %v", err)
+	}
+
+	cs := f.changeSet("touch foreign model override", entry("override", fmt.Sprintf("%d", overrideID), "update"))
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	scoped := t.TempDir()
+	copyMatTree(t, full1, scoped)
+	if err := f.mat.scopedRewrite(f.ctx, scoped, f.projectID, refs); err != nil {
+		t.Fatalf("scopedRewrite: %v", err)
+	}
+
+	if diff := diffTrees(t, full2, scoped); diff != "" {
+		t.Fatalf("scoped tree drifted from full rebuild for foreign override-only owner:\n%s", diff)
 	}
 }
 
