@@ -20,7 +20,7 @@ jobs:
       - run: npm run build
         working-directory: frontend
       - uses: actions/setup-go@v7
-        with: { go-version: '1.26.x' }
+        with: { go-version: '1.26.6' }
       - run: go build ./...
       # Lint gate — golangci-lint v2 (staticcheck + suite, .golangci.yml) via
       # `go tool` so the version pinned in go.mod is used, matching local dev.
@@ -60,5 +60,5 @@ jobs:
       - run: npm run build
         working-directory: frontend
       - uses: actions/setup-go@v7
-        with: { go-version: '1.26.x' }
+        with: { go-version: '1.26.6' }
       - run: make test-integration
