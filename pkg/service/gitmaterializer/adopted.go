@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+	"gopkg.in/yaml.v3"
+
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
-	"github.com/jackc/pgx/v5"
-	"gopkg.in/yaml.v3"
 )
 
 // adoptedIDs groups the IDs of explicitly adopted upstream entities that
@@ -107,61 +108,69 @@ func (m *Materializer) writeAdoptedEntities(ctx context.Context, workDir, projec
 
 	// Models.
 	for modelID, ownerProjectID := range ids.modelIDs {
-		row, err := m.queries.WeaveGetModelByID(ctx, modelID)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				continue
-			}
-			return fmt.Errorf("get adopted model %s: %w", modelID, err)
-		}
-		if row.ProjectID == projectID {
-			continue
-		}
-
-		mod := rowToModel(row)
-		payload, err := canonical.Model(mod)
-		if err != nil {
-			return fmt.Errorf("encode adopted model %s: %w", modelID, err)
-		}
-		annotated, err := addAdoptionMarker(payload, ownerProjectID)
-		if err != nil {
-			return err
-		}
-		path := domain.FilePath(domain.PathSpec{EntityType: "model", EntityID: modelID})
-		if err := writeEntityFile(workDir, path, annotated); err != nil {
+		if _, err := m.writeAdoptedModel(ctx, workDir, projectID, modelID, ownerProjectID); err != nil {
 			return err
 		}
 	}
 
 	// Collections.
 	for colID, ownerProjectID := range ids.collectionIDs {
-		row, err := m.queries.WeaveGetCollectionByID(ctx, colID)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				continue
-			}
-			return fmt.Errorf("get adopted collection %s: %w", colID, err)
-		}
-		if row.ProjectID == projectID {
-			continue
-		}
-
-		col := rowToCollection(row)
-		payload, err := canonical.Collection(col)
-		if err != nil {
-			return fmt.Errorf("encode adopted collection %s: %w", colID, err)
-		}
-		annotated, err := addAdoptionMarker(payload, ownerProjectID)
-		if err != nil {
-			return err
-		}
-		path := domain.FilePath(domain.PathSpec{EntityType: "collection", EntityID: colID})
-		if err := writeEntityFile(workDir, path, annotated); err != nil {
+		if _, err := m.writeAdoptedCollection(ctx, workDir, projectID, colID, ownerProjectID); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func (m *Materializer) writeAdoptedModel(ctx context.Context, workDir, projectID, modelID, ownerProjectID string) (bool, error) {
+	row, err := m.queries.WeaveGetModelByID(ctx, modelID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return true, nil
+		}
+		return false, fmt.Errorf("get adopted model %s: %w", modelID, err)
+	}
+	if row.ProjectID == projectID {
+		return false, nil
+	}
+
+	mod := rowToModel(row)
+	payload, err := canonical.Model(mod)
+	if err != nil {
+		return false, fmt.Errorf("encode adopted model %s: %w", modelID, err)
+	}
+	annotated, err := addAdoptionMarker(payload, ownerProjectID)
+	if err != nil {
+		return false, err
+	}
+	path := domain.FilePath(domain.PathSpec{EntityType: entityTypeModel, EntityID: modelID})
+	return false, writeEntityFile(workDir, path, annotated)
+}
+
+func (m *Materializer) writeAdoptedCollection(ctx context.Context, workDir, projectID, collectionID, ownerProjectID string) (bool, error) {
+	row, err := m.queries.WeaveGetCollectionByID(ctx, collectionID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return true, nil
+		}
+		return false, fmt.Errorf("get adopted collection %s: %w", collectionID, err)
+	}
+	if row.ProjectID == projectID {
+		return false, nil
+	}
+
+	col := rowToCollection(row)
+	payload, err := canonical.Collection(col)
+	if err != nil {
+		return false, fmt.Errorf("encode adopted collection %s: %w", collectionID, err)
+	}
+	annotated, err := addAdoptionMarker(payload, ownerProjectID)
+	if err != nil {
+		return false, err
+	}
+	path := domain.FilePath(domain.PathSpec{EntityType: entityTypeCollection, EntityID: collectionID})
+	return false, writeEntityFile(workDir, path, annotated)
 }
 
 // writeAdoptedBaseOverride writes the base override for an adopted field,

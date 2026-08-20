@@ -79,6 +79,15 @@ SELECT * FROM weave_field_overrides
 WHERE entity_type = $1 AND entity_id = $2
 ORDER BY position;
 
+-- name: WeaveListOverridesForOwner :many
+-- gitmaterializer scopedRewrite(): overrides placed on a single model/
+-- collection owner, scoped to the project. Drives writeOverridesForOwner,
+-- which regenerates one owner's overrides/ subtree after a scoped rewrite
+-- (mirrors WeaveListOverridesByProjectAndType, narrowed to one entity_id).
+SELECT * FROM weave_field_overrides
+WHERE project_id = $1 AND entity_type = $2 AND entity_id = $3
+ORDER BY position;
+
 -- name: WeaveListOverridesForField :many
 SELECT * FROM weave_field_overrides WHERE field_id = $1
 ORDER BY CASE entity_type WHEN 'model' THEN 0 WHEN 'collection' THEN 1 ELSE 2 END, position;
@@ -197,3 +206,20 @@ SELECT
         AS override_count
 FROM weave_field_overrides
 WHERE field_id = $1 AND project_id = $2;
+
+-- name: WeaveClosurePlacementsForField :many
+-- gitmaterializer closure(): models/collections in this project that place
+-- fieldID via an override row. Editing/deleting the field must also rewrite
+-- each placing owner's overrides/ subtree.
+SELECT DISTINCT entity_type, entity_id
+FROM weave_field_overrides
+WHERE field_id = $1 AND project_id = $2 AND entity_type IN ('model', 'collection');
+
+-- name: WeaveClosureOverrideOwner :one
+-- gitmaterializer closure(): resolves a change_log "override" entry's
+-- entity_id (a weave_field_overrides.id) to its owning model/collection, or
+-- (entity_type '', field_id) for a base override. Scoped by project_id so
+-- the within-project invariant is self-enforcing.
+SELECT entity_type, entity_id, field_id
+FROM weave_field_overrides
+WHERE id = $1 AND project_id = $2;
