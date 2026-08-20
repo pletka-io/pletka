@@ -76,14 +76,26 @@
   // Prefer the resolved {id, semantic_id, name} refs from the response;
   // fall back to bare ID arrays when the backend hasn't surfaced names
   // (older responses or refs not in the project's catalogue).
-  const refs = $derived([
-    ...(field.expected_resource_model_refs?.length
-      ? field.expected_resource_model_refs.map((r) => ({ kind: 'model' as const, id: r.id, semantic_id: r.semantic_id, name: r.name }))
-      : (field.expected_resource_models ?? []).map((id) => ({ kind: 'model' as const, id, semantic_id: undefined, name: undefined }))),
-    ...(field.expected_collection_model_refs?.length
-      ? field.expected_collection_model_refs.map((r) => ({ kind: 'collection' as const, id: r.id, semantic_id: r.semantic_id, name: r.name }))
-      : (field.expected_collection_models ?? []).map((id) => ({ kind: 'collection' as const, id, semantic_id: undefined, name: undefined }))),
-  ]);
+  const refs = $derived.by(() => {
+    const raw = [
+      ...(field.expected_resource_model_refs?.length
+        ? field.expected_resource_model_refs.map((r) => ({ kind: 'model' as const, id: r.id, semantic_id: r.semantic_id, name: r.name }))
+        : (field.expected_resource_models ?? []).map((id) => ({ kind: 'model' as const, id, semantic_id: undefined, name: undefined }))),
+      ...(field.expected_collection_model_refs?.length
+        ? field.expected_collection_model_refs.map((r) => ({ kind: 'collection' as const, id: r.id, semantic_id: r.semantic_id, name: r.name }))
+        : (field.expected_collection_models ?? []).map((id) => ({ kind: 'collection' as const, id, semantic_id: undefined, name: undefined }))),
+    ];
+    // Dedupe by kind:id — the same target may legitimately appear twice in the
+    // resolved refs (redundant per-position override_refs), which would collide
+    // the keyed {#each} below (Svelte each_key_duplicate). Keep first occurrence.
+    const seen = new Set<string>();
+    return raw.filter((r) => {
+      const key = r.kind + ':' + r.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  });
 
   function handleEditClick(e: Event) {
     e.stopPropagation();
