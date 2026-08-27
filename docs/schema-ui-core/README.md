@@ -30,21 +30,28 @@ make the reusable machinery stable while keeping domain code explicit.
 - [contracts.md](contracts.md) — backend/frontend contract types and boundaries.
 - [slice-architecture.md](slice-architecture.md) — the reusable vertical-slice
   shape.
+- [portability.md](portability.md) — the three tiers (contract / renderers /
+  slice-store) and which ports to which target app.
 - [verification.md](verification.md) — audit and implementation checklists.
 - [adoption-roadmap.md](adoption-roadmap.md) — how to integrate the pattern into
   existing or new projects.
 
 ## Relationship To Pletka Docs
 
-This directory describes the reusable core.
+This directory describes the reusable core — the design as it ports to **other**
+applications. The current, code-grounded description of how the pattern is built
+**in Pletka itself** is the curated core set under [`../../docs-oss/`](../../docs-oss/):
 
-Pletka-specific references remain in:
+- [`../../docs-oss/architecture/schema-driven-ui.md`](../../docs-oss/architecture/schema-driven-ui.md) — how the backend drives the frontend.
+- [`../../docs-oss/architecture/schema-driven-api.md`](../../docs-oss/architecture/schema-driven-api.md) — the JSON contract and error envelope.
+- [`../../docs-oss/architecture/slices.md`](../../docs-oss/architecture/slices.md) — the vertical-slice / service-layer shape in the codebase.
+- [`../../docs-oss/architecture/svelte-islands.md`](../../docs-oss/architecture/svelte-islands.md) — how interactive UI mounts into server-rendered pages.
+- [`../../docs-oss/architecture/ui-platform-boundaries.md`](../../docs-oss/architecture/ui-platform-boundaries.md) — the `formschema` vs `detailview` boundary.
 
-- `docs/reference/schema-ui-conventions.md`
-- `docs/reference/service-layer.md`
-- `docs/reference/schema-driven-islands.md`
-- `docs/reference/ui-platform-boundaries.md`
-- `docs/superpowers/specs/2026-05-16-schemaui-library-extraction-design.md`
+The 2026-05-16 SchemaUI library-extraction spec has been **superseded** and moved
+to the host archive (`pletka-platform/docs/core-src-archive/superseded/`); it is
+no longer part of this repo.
 
 When these docs disagree, prefer this directory for reusable design principles
-and the Pletka reference docs for current codebase mechanics.
+that must hold in any host, and prefer `docs-oss/` for current Pletka codebase
+mechanics.

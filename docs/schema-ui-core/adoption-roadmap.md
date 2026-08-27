@@ -15,8 +15,31 @@ Create project-local docs that identify:
 - widget registry
 - current exceptions
 
-For Pletka, this directory plus `docs/reference/schema-ui-conventions.md` serve
-that role.
+For Pletka, this directory plus the curated architecture set under
+[`../../docs-oss/architecture/`](../../docs-oss/architecture/) (notably
+`schema-driven-ui.md`, `schema-driven-api.md`, `slices.md`) serve that role.
+
+### Record Two Stack Decisions
+
+Two properties are baked into the home stack as silent defaults. When porting to
+another app, decide each **explicitly** and write the decision down — they set
+how much of Schema UI ports. See [portability.md](portability.md) for the tier
+each affects.
+
+- **Multilingual (i18n).** The contract carries multilingual field values
+  (`Translations` maps) as a core default, not an add-on (Tier A). Decide: does
+  the target app keep it — every text field becomes a language map — or strip it
+  and accept divergence from the contract? A single-language app that keeps it
+  pays weight it never uses; one that strips it forks the contract types. Pick
+  one deliberately.
+- **Database stack.** The store and DB-error classifier assume pgx + sqlc +
+  goose + Postgres (Tier C2). Decide the target's database before extraction: a
+  Postgres target ports Tier C whole; another SQL database keeps the slice/service
+  shape (Tier C1) but rewrites `store_postgres.go` and the `FromDBError`
+  classifier; a non-Go backend keeps none of Tier C and reuses only the contract.
+
+Recording these two up front stops them from surfacing mid-migration as
+"why is every field a map" or "why does the error classifier know pg codes."
 
 ## Phase 2: Pick One Reference Slice
 
