@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -198,8 +199,23 @@ func (p *Pages) versionPropertiesPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// mergeSchemaQuery forwards the browser's query string onto a page-schema
+// data URL so viewer tab navigation (?tab=extensions, ?tab=classes, ...)
+// actually reaches the schema endpoint. Without this the shell fetched the
+// schema with no tab, so every tab rendered the default "overview" and long
+// lists stayed capped at their preview length. If the caller already pinned a
+// query on schemaURL (e.g. the properties shell), the request query is left
+// untouched.
+func mergeSchemaQuery(schemaURL, rawQuery string) string {
+	if rawQuery == "" || strings.Contains(schemaURL, "?") {
+		return schemaURL
+	}
+	return schemaURL + "?" + rawQuery
+}
+
 func (p *Pages) renderOntologySchemaShell(w http.ResponseWriter, r *http.Request, title, subheading, schemaURL string, breadcrumbs []weavetemplates.Breadcrumb) {
 	lang := p.currentLang(r)
+	schemaURL = mergeSchemaQuery(schemaURL, r.URL.RawQuery)
 	p.renderList(w, r, weavetemplates.IslandPage{
 		Title:       title,
 		Lang:        lang,
