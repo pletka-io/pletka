@@ -1090,11 +1090,35 @@ func (s *Service) ListAvailableVersions(ctx context.Context, projectID, baseOnto
 	return out, nil
 }
 
-// ListAvailableExtensions returns extension ontology versions compatible
-// with baseVersionID, excluding any already linked to projectID.
-// Compatibility is derived from the extension version's
-// CompatibleBaseVersions array (which holds version_strings).
-func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVersionID string) ([]VersionOption, error) {
+// ExtensionTreeNode is one node in the extends-hierarchy of compatible
+// extensions offered for a chosen base version. Children are the node's
+// direct extends-children; HasChildren lets the widget show an expander.
+type ExtensionTreeNode struct {
+	Value       string              `json:"value"`
+	Label       string              `json:"label"`
+	Prefix      string              `json:"prefix"`
+	HasChildren bool                `json:"has_children"`
+	Children    []ExtensionTreeNode `json:"children,omitempty"`
+}
+
+// gatheredExtension pairs a compatible extension ontology with the
+// (single) version of it that satisfies the base version's compatibility
+// check, so the forest builder can walk ontologies without re-resolving
+// versions per node.
+type gatheredExtension struct {
+	ont *domain.Ontology
+	ver *domain.OntologyVersion
+}
+
+// ListAvailableExtensions returns the extends-hierarchy forest of extension
+// ontology versions compatible with baseVersionID, excluding any already
+// linked to projectID. Compatibility is derived from the extension
+// version's CompatibleBaseVersions array (which holds version_strings).
+// Roots are the base ontology's direct extends-children; each root's
+// Children are that extension's own direct extends-children, and so on —
+// a grandchild extension (e.g. one extending an extension of the base)
+// never appears as a root.
+func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVersionID string) ([]ExtensionTreeNode, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
@@ -1126,7 +1150,7 @@ func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVe
 		}
 	}
 
-	out := make([]VersionOption, 0)
+	compatible := make([]gatheredExtension, 0)
 	for _, o := range all {
 		if o == nil || !o.IsExtension() {
 			continue
@@ -1145,21 +1169,54 @@ func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVe
 			if _, already := linkedSet[v.ID]; already {
 				continue
 			}
-			ontName := o.Name
-			if ontName == "" {
-				ontName = o.ID
-			}
-			verStr := v.VersionString
-			if verStr == "" {
-				verStr = v.ID
-			}
-			out = append(out, VersionOption{
-				Value: v.ID,
-				Label: fmt.Sprintf("%s %s", ontName, verStr),
-			})
+			compatible = append(compatible, gatheredExtension{ont: o, ver: v})
 		}
 	}
-	return out, nil
+
+	byParent := make(map[string][]gatheredExtension, len(compatible))
+	for _, g := range compatible {
+		parent := ""
+		if g.ont.ExtendsOntologyID != nil {
+			parent = *g.ont.ExtendsOntologyID
+		}
+		byParent[parent] = append(byParent[parent], g)
+	}
+
+	var build func(parentOntologyID string, seen map[string]bool) []ExtensionTreeNode
+	build = func(parentOntologyID string, seen map[string]bool) []ExtensionTreeNode {
+		siblings := byParent[parentOntologyID]
+		nodes := make([]ExtensionTreeNode, 0, len(siblings))
+		for _, g := range siblings {
+			if seen[g.ont.ID] {
+				continue // cycle guard: an ontology cannot extend its own ancestor
+			}
+			next := make(map[string]bool, len(seen)+1)
+			for k, v := range seen {
+				next[k] = v
+			}
+			next[g.ont.ID] = true
+			children := build(g.ont.ID, next)
+
+			verStr := g.ver.VersionString
+			if verStr == "" {
+				verStr = g.ver.ID
+			}
+			name := g.ont.Name
+			if name == "" {
+				name = g.ont.ID
+			}
+			nodes = append(nodes, ExtensionTreeNode{
+				Value:       g.ver.ID,
+				Label:       fmt.Sprintf("%s %s", name, verStr),
+				Prefix:      g.ont.Prefix,
+				HasChildren: len(children) > 0,
+				Children:    children,
+			})
+		}
+		return nodes
+	}
+
+	return build(baseRow.OntologyID, map[string]bool{}), nil
 }
 
 // ---------------------------------------------------------------------------
