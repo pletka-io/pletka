@@ -333,3 +333,97 @@ func TestCreate_AutoLinksAncestorChain(t *testing.T) {
 		}
 	}
 }
+
+// findGroupByPrefix locates the own PaneGroup whose base has the given
+// ontology prefix.
+func findGroupByPrefix(groups []pov.PaneGroup, prefix string) *pov.PaneGroup {
+	for i := range groups {
+		if groups[i].Base != nil && groups[i].Base.Prefix == prefix {
+			return &groups[i]
+		}
+	}
+	return nil
+}
+
+// hasBaseGroup reports whether view has an own PaneGroup base-level
+// heading for the given ontology prefix.
+func hasBaseGroup(view *pov.PaneView, prefix string) bool {
+	return findGroupByPrefix(view.Groups, prefix) != nil
+}
+
+// groupContains reports whether the base-level heading for basePrefix
+// lists childPrefix among its nested extensions.
+func groupContains(view *pov.PaneView, basePrefix, childPrefix string) bool {
+	g := findGroupByPrefix(view.Groups, basePrefix)
+	if g == nil {
+		return false
+	}
+	for _, ext := range g.Extensions {
+		if ext.Prefix == childPrefix {
+			return true
+		}
+	}
+	return false
+}
+
+// baseGroupPrefixes lists the ontology prefixes of every base-level
+// heading in view, for failure messages.
+func baseGroupPrefixes(view *pov.PaneView) []string {
+	out := make([]string, 0, len(view.Groups))
+	for _, g := range view.Groups {
+		if g.Base != nil {
+			out = append(out, g.Base.Prefix)
+		}
+	}
+	return out
+}
+
+// TestPaneView_GroupsSecondaryBase proves that linking a deep extension
+// (cpro, which extends aaao, which extends crm) promotes aaao to its own
+// base-level PaneGroup heading in the settings ontology pane — instead of
+// aaao's linked child (cpro) being dropped into the "unattached
+// extensions" orphan bucket, which is what buildOwnGroups did before this
+// fix (cpro's extends_ontology_id points at aaao, not at a true
+// ontology_type=="base" row, so it never matched a group).
+func TestPaneView_GroupsSecondaryBase(t *testing.T) {
+	ctx := weaveauth.WithSnapshot(context.Background(), &weaveauth.AuthSnapshot{IsSuperAdmin: true})
+	pool := testdb.Pool(t)
+
+	seedExtendsHierarchy(t, pool)
+
+	ontStore := weaveontology.NewPostgresStore(pool)
+	svc := newServiceForTest(pool, ontStore)
+
+	projectID := seedEmptyProject(t, pool)
+	crmVer := crmActiveVersionID(t, pool)
+	cproVer := activeVersionIDForPrefix(t, pool, "cpro")
+	if _, err := svc.Create(ctx, projectID, pov.CreateInput{
+		VersionID:  crmVer,
+		Extensions: []string{cproVer}, // aaao auto-linked as an ancestor (Task 2)
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	view, err := svc.PaneView(ctx, projectID)
+	if err != nil {
+		t.Fatalf("pane view: %v", err)
+	}
+
+	// Expect two base-level headings: crm (true base) and aaao (promoted
+	// because cpro is linked under it).
+	if !hasBaseGroup(view, "crm") || !hasBaseGroup(view, "aaao") {
+		t.Fatalf("want base groups crm + aaao; got %v", baseGroupPrefixes(view))
+	}
+	if !groupContains(view, "aaao", "cpro") {
+		t.Fatal("cpro should nest under the aaao base-level heading")
+	}
+	// cpro must not also appear flattened into crm's own heading, and
+	// aaao must not appear twice (once promoted, once still flat under
+	// crm).
+	if groupContains(view, "crm", "cpro") {
+		t.Fatal("cpro should not be listed under crm; it nests under aaao")
+	}
+	if groupContains(view, "crm", "aaao") {
+		t.Fatal("aaao should not be listed as a flat extension under crm; it's promoted to its own heading")
+	}
+}

@@ -626,11 +626,18 @@ func paneFormSchemaURL(projectID string) string {
 }
 
 // buildOwnGroups classifies own links by ontology_type and produces
-// one PaneGroup per base. Extensions attach to the base they extend
-// (via extends_ontology_id) when that base is also linked to this
-// project. Extensions whose base isn't linked are logged and skipped
-// (out-of-scope for the v1 pane; the user can't currently see what
-// they're missing without configuring the base first).
+// one PaneGroup per base-level heading. Extensions attach to the
+// heading they extend (via extends_ontology_id) when that heading is
+// linked to this project. Extensions whose target isn't linked at all
+// are logged and skipped (out-of-scope for the v1 pane; the user can't
+// currently see what they're missing without configuring the target
+// first).
+//
+// Base-level headings are not limited to ontology_type=="base": any
+// linked extension that itself has >=1 linked child (e.g. aaao, which
+// cpro extends) is promoted to its own heading too, so the pane shows
+// "two bases (crm + aaao)" instead of silently orphaning cpro under a
+// base it doesn't directly extend.
 func (s *Service) buildOwnGroups(ctx context.Context, links []*domain.ProjectOntologyVersion) ([]PaneGroup, error) {
 	type richItem struct {
 		Po PaneOntology
@@ -641,6 +648,7 @@ func (s *Service) buildOwnGroups(ctx context.Context, links []*domain.ProjectOnt
 
 	bases := make(map[string]richItem, len(links))              // ontology_id → base item
 	extensionsByBase := make(map[string][]richItem, len(links)) // extends_ontology_id → extensions
+	extensionByID := make(map[string]richItem, len(links))      // ontology_id → its own extension item (promotion lookup)
 
 	for _, link := range links {
 		po, ext, err := s.resolveLinkRich(ctx, link)
@@ -664,28 +672,74 @@ func (s *Service) buildOwnGroups(ctx context.Context, links []*domain.ProjectOnt
 			continue
 		}
 		extensionsByBase[ext] = append(extensionsByBase[ext], ri)
+		extensionByID[po.OntologyID] = ri
 	}
 
-	// Stable iteration: order bases by primary first, then by name.
-	type baseEntry struct {
+	// Promote any linked extension that itself has >=1 linked child to a
+	// base-level heading of its own (e.g. aaao, which cpro extends), so
+	// the pane shows "two bases (crm + aaao)" instead of orphaning cpro
+	// under a base it doesn't directly extend. Visited-set guarded: this
+	// pass is a single non-recursive sweep, but pathological extends
+	// data (A extends B extends A) must not cause repeat work.
+	promoted := make(map[string]richItem, len(extensionByID))
+	visited := make(map[string]bool, len(extensionByID))
+	for ontologyID, item := range extensionByID {
+		if visited[ontologyID] {
+			continue
+		}
+		visited[ontologyID] = true
+		if _, isBase := bases[ontologyID]; isBase {
+			continue // already a true base heading
+		}
+		if len(extensionsByBase[ontologyID]) == 0 {
+			continue // no linked children -- stays a flat extension row
+		}
+		promoted[ontologyID] = item
+	}
+
+	// Roots: true bases + promoted extensions, each becomes one
+	// PaneGroup heading. Ordering: bases first (primary, then name --
+	// the pre-existing sort), then promoted headings by name.
+	type rootEntry struct {
 		ontologyID string
 		item       richItem
 	}
-	ordered := make([]baseEntry, 0, len(bases))
+	baseRoots := make([]rootEntry, 0, len(bases))
 	for id, item := range bases {
-		ordered = append(ordered, baseEntry{ontologyID: id, item: item})
+		baseRoots = append(baseRoots, rootEntry{ontologyID: id, item: item})
 	}
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].item.Po.IsPrimary != ordered[j].item.Po.IsPrimary {
-			return ordered[i].item.Po.IsPrimary
+	sort.SliceStable(baseRoots, func(i, j int) bool {
+		if baseRoots[i].item.Po.IsPrimary != baseRoots[j].item.Po.IsPrimary {
+			return baseRoots[i].item.Po.IsPrimary
 		}
-		return ordered[i].item.Po.Name < ordered[j].item.Po.Name
+		return baseRoots[i].item.Po.Name < baseRoots[j].item.Po.Name
 	})
 
-	groups := make([]PaneGroup, 0, len(ordered))
-	for _, b := range ordered {
-		base := b.item.Po
-		exts := extensionsByBase[b.ontologyID]
+	promotedRoots := make([]rootEntry, 0, len(promoted))
+	for id, item := range promoted {
+		promotedRoots = append(promotedRoots, rootEntry{ontologyID: id, item: item})
+	}
+	sort.SliceStable(promotedRoots, func(i, j int) bool {
+		return promotedRoots[i].item.Po.Name < promotedRoots[j].item.Po.Name
+	})
+
+	roots := append(baseRoots, promotedRoots...)
+
+	groups := make([]PaneGroup, 0, len(roots))
+	for _, root := range roots {
+		base := root.item.Po
+
+		// Children of this heading, minus any that are themselves
+		// promoted (those get their own heading below, not a duplicate
+		// listing here).
+		rawChildren := extensionsByBase[root.ontologyID]
+		exts := make([]richItem, 0, len(rawChildren))
+		for _, ri := range rawChildren {
+			if _, isPromoted := promoted[ri.Po.OntologyID]; isPromoted {
+				continue
+			}
+			exts = append(exts, ri)
+		}
 
 		// Sort extensions stably by name.
 		sort.SliceStable(exts, func(i, j int) bool {
@@ -715,14 +769,17 @@ func (s *Service) buildOwnGroups(ctx context.Context, links []*domain.ProjectOnt
 		})
 	}
 
-	// Orphan extensions (no matching base in this project): collect under
-	// a synthetic group at the end so the user at least sees them in the
-	// pane and isn't surprised when the data round-trips. The synthetic
-	// group has Base=nil; the frontend renders an "Unattached extensions"
-	// header.
+	// Orphan extensions (target not linked at all, and not itself a
+	// promoted heading): collect under a synthetic group at the end so
+	// the user at least sees them in the pane and isn't surprised when
+	// the data round-trips. The synthetic group has Base=nil; the
+	// frontend renders an "Unattached extensions" header.
 	orphans := []PaneOntology{}
 	for extendsID, items := range extensionsByBase {
 		if _, ok := bases[extendsID]; ok {
+			continue
+		}
+		if _, ok := promoted[extendsID]; ok {
 			continue
 		}
 		for _, it := range items {
