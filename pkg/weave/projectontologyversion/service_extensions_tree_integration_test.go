@@ -4,6 +4,7 @@ package projectontologyversion_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -166,6 +167,79 @@ func findNode(nodes []pov.ExtensionTreeNode, prefix string) *pov.ExtensionTreeNo
 	return nil
 }
 
+// seedEmptyProject inserts a minimal, throwaway project row (reusing the LA
+// fixture's owner actor to satisfy the owner_id FK) and registers its
+// cleanup. Returns the new project's id.
+func seedEmptyProject(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	ctx := context.Background()
+
+	var ownerID string
+	if err := pool.QueryRow(ctx, `SELECT owner_id FROM weave_projects WHERE id = $1`, testdb.FixtureParent).Scan(&ownerID); err != nil {
+		t.Fatalf("resolve fixture owner: %v", err)
+	}
+
+	const projectID = "ZCHAIN"
+	cleanup := func() {
+		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM weave_project_ontology_versions WHERE project_id = $1`, projectID)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_projects WHERE id = $1`, projectID)
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+
+	uiName, _ := json.Marshal(map[string]string{"en": "Ancestor Chain Probe"})
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO weave_projects (id, ui_name, description, status, owner_id, visibility, created_at, updated_at)
+		VALUES ($1, $2, $2, 'draft', $3, 'private', NOW(), NOW())
+	`, projectID, uiName, ownerID); err != nil {
+		t.Fatalf("seed empty project: %v", err)
+	}
+	return projectID
+}
+
+// activeVersionIDForPrefix resolves just the active version id for an
+// ontology prefix.
+func activeVersionIDForPrefix(t *testing.T, pool *pgxpool.Pool, prefix string) string {
+	t.Helper()
+	_, versionID, _ := activeOntologyVersion(t, pool, prefix)
+	return versionID
+}
+
+// linkedVersionIDs lists the ontology_version_id column of every
+// weave_project_ontology_versions row for projectID.
+func linkedVersionIDs(t *testing.T, pool *pgxpool.Pool, projectID string) []string {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `SELECT ontology_version_id FROM weave_project_ontology_versions WHERE project_id = $1`, projectID)
+	if err != nil {
+		t.Fatalf("query linked versions: %v", err)
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatalf("scan linked version: %v", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate linked versions: %v", err)
+	}
+	return out
+}
+
+// contains reports whether want is present in list.
+func contains(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestListAvailableExtensions_ReturnsForestByExtends(t *testing.T) {
 	ctx := weaveauth.WithSnapshot(context.Background(), &weaveauth.AuthSnapshot{IsSuperAdmin: true})
 	pool := testdb.Pool(t)
@@ -223,5 +297,39 @@ func TestListAvailableExtensions_ReturnsForestByExtends(t *testing.T) {
 	}
 	if findNode(forest, "crmdig") != nil {
 		t.Fatal("crmdig must not be reattached as a crm root either")
+	}
+}
+
+// TestCreate_AutoLinksAncestorChain proves that linking a deep extension
+// (cpro, which extends aaao, which extends crm) auto-links the intermediate
+// ancestor (aaao) even when only cpro was explicitly selected — the base
+// (crm) is already linked via CreateInput.VersionID.
+func TestCreate_AutoLinksAncestorChain(t *testing.T) {
+	ctx := weaveauth.WithSnapshot(context.Background(), &weaveauth.AuthSnapshot{IsSuperAdmin: true})
+	pool := testdb.Pool(t)
+
+	seedExtendsHierarchy(t, pool)
+
+	ontStore := weaveontology.NewPostgresStore(pool)
+	svc := newServiceForTest(pool, ontStore)
+
+	// Fresh throwaway project linking crm as base + cpro as an extension.
+	projectID := seedEmptyProject(t, pool)
+	crmVer := crmActiveVersionID(t, pool)
+	cproVer := activeVersionIDForPrefix(t, pool, "cpro")
+	aaaoVer := activeVersionIDForPrefix(t, pool, "aaao")
+
+	if _, err := svc.Create(ctx, projectID, pov.CreateInput{
+		VersionID:  crmVer,
+		Extensions: []string{cproVer}, // aaao NOT selected explicitly
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	linked := linkedVersionIDs(t, pool, projectID)
+	for _, want := range []string{crmVer, cproVer, aaaoVer} {
+		if !contains(linked, want) {
+			t.Fatalf("expected %s linked; got %v", want, linked)
+		}
 	}
 }

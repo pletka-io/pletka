@@ -1229,6 +1229,76 @@ func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVe
 // Writes
 // ---------------------------------------------------------------------------
 
+// resolveExtensionChain expands the selected extension version IDs to also
+// include every ancestor extension version (walking extends_ontology_id up
+// to, but not including, a base ontology), so linking a deep extension pulls
+// its intermediate bases along. Deduped; cycle-guarded. The base itself is
+// not included here — Create links it separately via in.VersionID.
+func (s *Service) resolveExtensionChain(ctx context.Context, selected []string) ([]string, error) {
+	out := make([]string, 0, len(selected))
+	seenVer := map[string]bool{}
+	add := func(id string) {
+		if id != "" && !seenVer[id] {
+			seenVer[id] = true
+			out = append(out, id)
+		}
+	}
+	for _, verID := range selected {
+		add(verID)
+		ver, err := s.versions.GetByID(ctx, verID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve chain: get version: %w", err)
+		}
+		if ver == nil {
+			continue
+		}
+		ont, err := s.ontology.GetByID(ctx, ver.OntologyID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve chain: get ontology: %w", err)
+		}
+		seenOnt := map[string]bool{ver.OntologyID: true}
+		for ont != nil && ont.ExtendsOntologyID != nil && *ont.ExtendsOntologyID != "" {
+			parentID := *ont.ExtendsOntologyID
+			if seenOnt[parentID] {
+				break // cycle guard
+			}
+			seenOnt[parentID] = true
+			parent, err := s.ontology.GetByID(ctx, parentID)
+			if err != nil {
+				return nil, fmt.Errorf("resolve chain: get parent: %w", err)
+			}
+			if parent == nil || parent.IsBase() {
+				break // reached (or past) the base; base is linked via in.VersionID
+			}
+			pv, err := s.activeVersionForOntology(ctx, parent.ID)
+			if err != nil {
+				return nil, fmt.Errorf("resolve chain: active parent version: %w", err)
+			}
+			if pv != nil {
+				add(pv.ID)
+			}
+			ont = parent
+		}
+	}
+	return out, nil
+}
+
+// activeVersionForOntology returns the ACTIVE version row for ontologyID, or
+// nil if none is active. OntologyVersionReader has no direct "active"
+// lookup, so this scans ListByOntology for the IsActive row.
+func (s *Service) activeVersionForOntology(ctx context.Context, ontologyID string) (*domain.OntologyVersion, error) {
+	versions, err := s.versions.ListByOntology(ctx, ontologyID)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range versions {
+		if v != nil && v.IsActive {
+			return v, nil
+		}
+	}
+	return nil, nil
+}
+
 // Create links a base version (and optional extensions) to projectID.
 // IsPrimary triggers an atomic primary flip on success.
 func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) (*domain.ProjectOntologyVersion, error) {
@@ -1248,6 +1318,11 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 	}
 	if existing != nil {
 		return nil, errDuplicate
+	}
+
+	chain, err := s.resolveExtensionChain(ctx, in.Extensions)
+	if err != nil {
+		return nil, err
 	}
 
 	addedByID := s.actorIDFromContext(ctx)
@@ -1276,8 +1351,11 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 			return err
 		}
 
-		// Best-effort extensions — duplicates are skipped silently.
-		for _, extID := range in.Extensions {
+		// Best-effort extensions — duplicates are skipped silently. chain is
+		// in.Extensions expanded to include every intermediate ancestor
+		// extension (resolveExtensionChain); the base is already linked
+		// above via in.VersionID.
+		for _, extID := range chain {
 			if extID == "" || extID == in.VersionID {
 				continue
 			}
