@@ -3,6 +3,7 @@ package ontology
 import (
 	"testing"
 
+	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 )
 
@@ -157,6 +158,27 @@ func TestBuildFamilyLandingPageSchemaIncludesNarrowWidgets(t *testing.T) {
 	}
 	if schema.Sections[0].Widget != "stats-strip" || schema.Sections[1].Widget != "card-list" {
 		t.Fatalf("widgets=%q,%q want stats-strip,card-list", schema.Sections[0].Widget, schema.Sections[1].Widget)
+	}
+}
+
+func TestBuildFamilyDetailPageSchema_AdminEditActionGated(t *testing.T) {
+	model := &FamilyDetailPageModel{
+		Family: &domain.OntologyFamily{ID: "fam-123", Slug: "cidoc-crm-family", Name: "CIDOC CRM Family"},
+		Name:   "CIDOC CRM Family",
+	}
+
+	public := BuildFamilyDetailPageSchema(model, "en", nil)
+	if hasOntologyPageAction(public.Actions, actionIDEdit) {
+		t.Fatal("public family schema must not expose the edit action")
+	}
+
+	admin := BuildAdminFamilyDetailPageSchema(model, "en", nil)
+	edit := findOntologyPageAction(admin.Actions, actionIDEdit)
+	if edit == nil {
+		t.Fatal("admin family schema missing edit action (F3c: super-admin lands on a read-only family page)")
+	}
+	if want := "/admin/ontologies/families/form-schema?mode=edit&entity_id=fam-123"; edit.FormSchemaURL != want {
+		t.Fatalf("edit form url=%q want %q", edit.FormSchemaURL, want)
 	}
 }
 

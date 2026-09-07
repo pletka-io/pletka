@@ -15,6 +15,10 @@ func BuildAdminFamilyLandingPageSchema(model *FamilyLandingPageModel, lang strin
 	return buildFamilyLandingPageSchema(model, lang, languages, true)
 }
 
+// actionIDEdit is the shared page-action ID for the admin "edit" action on
+// ontology, version, and family detail pages.
+const actionIDEdit = "edit"
+
 func buildFamilyLandingPageSchema(model *FamilyLandingPageModel, lang string, languages []formschema.LanguageInfo, admin bool) *formschema.OntologyPageSchema {
 	cards := make([]formschema.OntologyPageCard, 0, len(model.Families))
 	for _, family := range model.Families {
@@ -149,12 +153,22 @@ func buildFamilyDetailPageSchema(model *FamilyDetailPageModel, lang string, lang
 			formschema.OntologyPageSection{ID: "extension-ontologies", Widget: "card-list", Title: lt(lang, "Extensions"), Cards: previewPageCards(extensionCards, 3), EmptyText: lt(lang, "No extensions in this family.")},
 		)
 	}
+	actions := []formschema.OntologyPageAction{}
+	if admin && model.Family != nil && model.Family.ID != "" {
+		actions = append(actions, formschema.OntologyPageAction{
+			ID:            actionIDEdit,
+			Label:         lt(lang, "Edit family"),
+			Style:         "secondary",
+			FormSchemaURL: "/admin/ontologies/families/form-schema?mode=edit&entity_id=" + model.Family.ID,
+		})
+	}
 	return &formschema.OntologyPageSchema{
 		Kind:        "ontology-family",
 		Title:       lt(lang, model.Name),
 		Subtitle:    lt(lang, "Family overview for related base ontologies and extensions."),
 		Breadcrumbs: prependOntologyBreadcrumb(lang, model.Breadcrumbs, model.Name),
 		Sections:    sections,
+		Actions:     actions,
 		UI:          schemaUI(lang, languages),
 	}
 }
@@ -224,7 +238,7 @@ func BuildOntologyDetailPageSchema(model *OntologyDetailPageModel, lang string, 
 	if admin {
 		ontologyID := ontologyModelID(model)
 		editAction := formschema.OntologyPageAction{
-			ID:    "edit",
+			ID:    actionIDEdit,
 			Label: lt(lang, "Edit ontology"),
 			Style: "secondary",
 		}
@@ -400,7 +414,7 @@ func BuildVersionDetailPageSchema(model *VersionDetailPageModel, lang string, la
 		}
 		actions = append(actions,
 			formschema.OntologyPageAction{
-				ID:            "edit",
+				ID:            actionIDEdit,
 				Label:         lt(lang, "Edit metadata"),
 				FormSchemaURL: "/admin/ontologies/versions/form-schema?mode=edit&entity_id=" + version.ID,
 				Style:         "secondary",

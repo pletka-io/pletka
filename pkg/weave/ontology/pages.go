@@ -260,7 +260,11 @@ func (p *Pages) familyDetailPageSchema(w http.ResponseWriter, r *http.Request) {
 		p.renderer.RespondNotFound(w, r, p.renderer.ErrorContext(r, lang))
 		return
 	}
-	writeJSON(w, http.StatusOK, BuildFamilyDetailPageSchema(model, lang, p.schemaLanguages()))
+	schema := BuildFamilyDetailPageSchema(model, lang, p.schemaLanguages())
+	if p.viewerIsAdmin(r) {
+		schema = BuildAdminFamilyDetailPageSchema(model, lang, p.schemaLanguages())
+	}
+	writeJSON(w, http.StatusOK, schema)
 }
 
 // viewerIsAdmin reports whether the request comes from a super-admin, so the
