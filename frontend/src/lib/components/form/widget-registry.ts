@@ -18,6 +18,7 @@ import ReadonlyStat from './widgets/ReadonlyStat.svelte';
 import ReadonlyTable from './widgets/ReadonlyTable.svelte';
 import Checkbox from './widgets/Checkbox.svelte';
 import MultiSelect from './widgets/MultiSelect.svelte';
+import OntologyTreeSelect from './widgets/OntologyTreeSelect.svelte';
 
 export type FormWidgetProps = {
   field: FieldDef;
@@ -83,6 +84,7 @@ registerWidgets(
     password: TextInput,
     checkbox: Checkbox,
     'multi-select': MultiSelect,
+    'ontology-tree': OntologyTreeSelect,
     'radio-group': RadioGroup,
     'readonly-stat': ReadonlyStat,
     'readonly-table': ReadonlyTable,

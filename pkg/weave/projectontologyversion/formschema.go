@@ -8,11 +8,6 @@ import (
 	"github.com/pletka-io/pletka/pkg/i18n"
 )
 
-// widgetMultiSelect is the cascading multi-select widget used for the
-// "extensions" field in the create form. Not present as a constant in
-// pkg/formschema/types.go yet — kept local until promoted.
-const widgetMultiSelect = "multi-select"
-
 // BuildListSchema constructs the list schema served at GET
 // /projects/{projectID}/project-ontology-versions/list-schema.
 func BuildListSchema(projectID, lang string, languages []formschema.LanguageInfo) *formschema.ListSchema {
@@ -122,7 +117,7 @@ func BuildCreateForm(projectID string, baseOntologies []*domain.Ontology, lang s
 					},
 					{
 						Name:              "extensions",
-						Widget:            widgetMultiSelect,
+						Widget:            formschema.WidgetOntologyTree,
 						Label:             i18n.L("ontology.form.extensions", "Extensions"),
 						Help:              i18n.L("ontology.form.extensions_help", "Optional extensions compatible with the chosen base version"),
 						DependsOn:         []string{"version_id"},
