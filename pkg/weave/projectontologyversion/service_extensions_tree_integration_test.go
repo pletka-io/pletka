@@ -104,23 +104,31 @@ func activeOntologyVersion(t *testing.T, pool *pgxpool.Pool, prefix string) (ont
 // real Ontology/OntologyVersion rows fetched through the real store, rather
 // than against hand-built domain.Ontology fakes.
 //
-// Every extension version declares compatibility with the crm base version
-// string, mirroring ListAvailableExtensions's own gather step: it filters
-// the flat "compatible" set once, by CompatibleBaseVersions against the
-// chosen *base* version string, and only afterwards arranges that flat set
-// into a tree via extends_ontology_id — it does not re-check compatibility
-// per tree level. A grandchild extension (globo, here) must therefore also
-// declare crm-compatibility to be reachable in the forest at all, even
-// though it does not extend crm directly.
+// Compatibility is seeded PARENT-relative, matching how
+// ListAvailableExtensions actually gates each tree level: aaao's version
+// declares compatibility with crm's version string; cpro's and pwro's
+// versions declare compatibility with aaao's version string (not crm's);
+// globo's version declares compatibility with pwro's version string (not
+// crm's or aaao's). This is what a real ontology author would declare —
+// "I extend aaao 2.2" — and it is the only way to exercise the per-parent
+// gating this test covers; seeding every level against crm's version
+// string would mask a bug where the forest builder gates grandchildren
+// against the wrong ancestor.
 func seedExtendsHierarchy(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
 
 	crmOntID, _, crmVerStr := activeOntologyVersion(t, pool, "crm")
-	aaaoOntID, aaaoVerID, _ := activeOntologyVersion(t, pool, "aaao")
+	aaaoOntID, aaaoVerID, aaaoVerStr := activeOntologyVersion(t, pool, "aaao")
 	cproOntID, cproVerID, _ := activeOntologyVersion(t, pool, "cpro")
-	pwroOntID, pwroVerID, _ := activeOntologyVersion(t, pool, "pwro")
+	pwroOntID, pwroVerID, pwroVerStr := activeOntologyVersion(t, pool, "pwro")
 	globoOntID, globoVerID, _ := activeOntologyVersion(t, pool, "globo")
+	// crmdig is wired as a structural child of aaao but never given a
+	// compatible_base_versions entry that matches aaao's version — the
+	// negative case: an extension incompatible with its parent must be
+	// pruned from the forest, not offered under aaao (and, per the
+	// pruning rule, not reattached anywhere else either).
+	crmdigOntID, crmdigVerID, _ := activeOntologyVersion(t, pool, "crmdig")
 
 	exec := func(sql string, args ...any) {
 		t.Helper()
@@ -129,17 +137,23 @@ func seedExtendsHierarchy(t *testing.T, pool *pgxpool.Pool) {
 		}
 	}
 
-	// aaao extends crm; cpro and pwro extend aaao; globo extends pwro.
+	// aaao extends crm; cpro, pwro, and crmdig extend aaao; globo extends pwro.
 	exec(`UPDATE weave_ontologies SET ontology_type = 'extension', extends_ontology_id = $1 WHERE id = $2`, crmOntID, aaaoOntID)
 	exec(`UPDATE weave_ontologies SET ontology_type = 'extension', extends_ontology_id = $1 WHERE id = $2`, aaaoOntID, cproOntID)
 	exec(`UPDATE weave_ontologies SET ontology_type = 'extension', extends_ontology_id = $1 WHERE id = $2`, aaaoOntID, pwroOntID)
 	exec(`UPDATE weave_ontologies SET ontology_type = 'extension', extends_ontology_id = $1 WHERE id = $2`, pwroOntID, globoOntID)
+	exec(`UPDATE weave_ontologies SET ontology_type = 'extension', extends_ontology_id = $1 WHERE id = $2`, aaaoOntID, crmdigOntID)
 
-	// Declare every extension version compatible with the crm base version.
+	// Declare each extension version compatible with the specific version
+	// of the thing it actually extends (its parent in the tree), not the
+	// root crm base version.
 	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{crmVerStr}, aaaoVerID)
-	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{crmVerStr}, cproVerID)
-	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{crmVerStr}, pwroVerID)
-	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{crmVerStr}, globoVerID)
+	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{aaaoVerStr}, cproVerID)
+	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{aaaoVerStr}, pwroVerID)
+	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{pwroVerStr}, globoVerID)
+	// crmdig declares compatibility with something other than aaao's
+	// version — it must not surface as aaao's child.
+	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{"not-a-real-version"}, crmdigVerID)
 }
 
 // findNode locates a node by prefix at the given level of a forest.
@@ -167,7 +181,7 @@ func TestListAvailableExtensions_ReturnsForestByExtends(t *testing.T) {
 		t.Fatalf("list: %v", err)
 	}
 
-	// aaao is a root (extends crm) and carries children (cpro/pwro/...).
+	// aaao is a root (extends crm) and carries children (cpro/pwro).
 	aaao := findNode(forest, "aaao")
 	if aaao == nil {
 		t.Fatal("aaao missing from crm's direct children")
@@ -178,9 +192,36 @@ func TestListAvailableExtensions_ReturnsForestByExtends(t *testing.T) {
 	if findNode(aaao.Children, "cpro") == nil {
 		t.Fatal("cpro should be a child of aaao, not a root under crm")
 	}
+	pwro := findNode(aaao.Children, "pwro")
+	if pwro == nil {
+		t.Fatal("pwro should be a child of aaao, not a root under crm")
+	}
 
-	// globo (extends pwro) must NOT appear as a direct child of crm.
+	// globo (extends pwro, gated against pwro's version) must NOT appear as
+	// a direct child of crm ...
 	if findNode(forest, "globo") != nil {
 		t.Fatal("globo (grandchild) must not be a crm root")
+	}
+	// ... but must be present, nested, under pwro: the full drill
+	// crm -> aaao -> pwro -> globo is what proves per-parent gating (each
+	// level is checked against its own parent's chosen version, not
+	// against the root crm version globo never declared compatibility
+	// with).
+	if !pwro.HasChildren || len(pwro.Children) == 0 {
+		t.Fatal("pwro should expand to its own extensions")
+	}
+	if findNode(pwro.Children, "globo") == nil {
+		t.Fatal("globo should be nested under pwro (crm -> aaao -> pwro -> globo)")
+	}
+
+	// crmdig is structurally wired as a child of aaao but declares
+	// compatibility with neither aaao's version nor crm's — an extension
+	// incompatible with its parent must be pruned, not offered under aaao
+	// and not reattached anywhere else in the forest.
+	if findNode(aaao.Children, "crmdig") != nil {
+		t.Fatal("crmdig is incompatible with aaao's version and must be pruned from aaao's children")
+	}
+	if findNode(forest, "crmdig") != nil {
+		t.Fatal("crmdig must not be reattached as a crm root either")
 	}
 }
