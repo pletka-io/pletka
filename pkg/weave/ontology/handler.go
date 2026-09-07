@@ -1016,6 +1016,10 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		errresp.Error(w, r, http.StatusNotFound, "not_found", label+" not found")
 		return
 	}
+	if errors.Is(err, ErrCycle) {
+		writeValidationError(w, fieldError("parent_family_id", "cannot set a parent that would create a cycle"))
+		return
+	}
 	if errors.Is(err, ErrInUse) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)

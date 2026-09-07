@@ -587,17 +587,62 @@ func (s *Service) SearchProperties(ctx context.Context, versionID, query string,
 // versions, a version linked to projects).
 var ErrInUse = errors.New("ontology: in use")
 
+// ErrCycle is returned when setting a family's parent would introduce a cycle
+// in the family tree (the parent is the family itself or a descendant of it).
+var ErrCycle = errors.New("ontology: parent would create a cycle")
+
 // CreateFamily creates a new family. Caller supplies slug + name; ID is
 // derived deterministically from the slug via id_helpers.
 func (s *Service) CreateFamily(ctx context.Context, in CreateFamilyInput) (*domain.OntologyFamily, error) {
 	if in.ID == "" {
 		in.ID = GenerateFamilyID(in.Slug)
 	}
+	if cyclic, err := s.familyParentCreatesCycle(ctx, in.ID, in.ParentFamilyID); err != nil {
+		return nil, err
+	} else if cyclic {
+		return nil, ErrCycle
+	}
 	return s.store.CreateFamily(ctx, in)
 }
 
 func (s *Service) UpdateFamily(ctx context.Context, id string, in UpdateFamilyInput) (*domain.OntologyFamily, error) {
+	if cyclic, err := s.familyParentCreatesCycle(ctx, id, in.ParentFamilyID); err != nil {
+		return nil, err
+	} else if cyclic {
+		return nil, ErrCycle
+	}
 	return s.store.UpdateFamily(ctx, id, in)
+}
+
+// familyParentCreatesCycle reports whether making parent the parent_family_id
+// of familyID would introduce a cycle (parent is the family itself, or a
+// descendant of it). A nil/empty parent (root) never cycles. A pre-existing
+// cycle upstream is treated as "no new cycle" — a visited set stops the walk
+// so this never loops forever.
+func (s *Service) familyParentCreatesCycle(ctx context.Context, familyID string, parent *string) (bool, error) {
+	if parent == nil {
+		return false, nil
+	}
+	cur := strings.TrimSpace(*parent)
+	seen := map[string]bool{}
+	for cur != "" {
+		if cur == familyID {
+			return true, nil
+		}
+		if seen[cur] {
+			return false, nil
+		}
+		seen[cur] = true
+		fam, err := s.store.GetFamily(ctx, cur)
+		if err != nil {
+			return false, err
+		}
+		if fam == nil || fam.ParentFamilyID == nil {
+			return false, nil
+		}
+		cur = strings.TrimSpace(*fam.ParentFamilyID)
+	}
+	return false, nil
 }
 
 func (s *Service) DeleteFamily(ctx context.Context, id string) error {
