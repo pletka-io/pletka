@@ -186,7 +186,7 @@ func (s *Service) requireProject(ctx context.Context, projectID string, capabili
 	if snap == nil {
 		return nil, ErrForbidden
 	}
-	resource := auth.Resource{ScopeType: "project", ID: project.ID, Visibility: project.Visibility}
+	resource := auth.ProjectResource(project)
 	if !snap.Can(capability, resource, nil) {
 		return nil, ErrForbidden
 	}

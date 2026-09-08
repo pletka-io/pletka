@@ -115,7 +115,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resource := auth.Resource{ScopeType: "project", ID: project.ID, Visibility: project.Visibility}
+	resource := auth.ProjectResource(project)
 	if !snap.Can(capabilityFor(req.Type), resource, nil) {
 		apierror.Write(w, apierror.Forbidden("insufficient permissions"))
 		return
