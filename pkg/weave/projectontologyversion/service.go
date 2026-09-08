@@ -1159,24 +1159,18 @@ type ExtensionTreeNode struct {
 }
 
 // ListAvailableExtensions returns the extends-hierarchy forest of extension
-// ontology versions compatible with baseVersionID, excluding any already
+// ontology versions under baseVersionID's ontology, excluding any already
 // linked to projectID. Roots are the base ontology's direct
 // extends-children; each root's Children are that extension's own direct
-// extends-children, and so on.
+// extends-children, and so on. Each node offers the extension's active
+// version (fallback: first available).
 //
-// Compatibility is gated PER PARENT, not once against the root base
-// version: a direct child of the base must declare baseVersionID's version
-// string in its CompatibleBaseVersions, but a grandchild (an extension of
-// an extension) must instead declare the *specific version chosen for its
-// parent node* — the version string of the extension it actually extends,
-// not the root base's. This matters because an extension's
-// CompatibleBaseVersions records compatibility with the thing it directly
-// extends, whichever ontology that is.
-//
-// An extension with no version compatible with its parent's chosen version
-// is pruned along with its entire subtree — it is never reattached
-// elsewhere (e.g. under the base), since that would offer a link the
-// extension never declared support for.
+// Inclusion is purely STRUCTURAL — an ontology appears because it extends
+// the node above it (extends_ontology_id). compatible_base_versions is
+// deliberately NOT a gate: real data populates it inconsistently (every
+// AAAo extension declares the root crm version {7.1.3}, and some declare
+// nothing), so gating on it silently hid every extension under any non-crm
+// base. This matches the "enable extension" path (availableExtensionsFor).
 func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVersionID string) ([]ExtensionTreeNode, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
@@ -1208,9 +1202,13 @@ func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVe
 		}
 	}
 
-	// Structural grouping only: which ontologies extend which, independent
-	// of any version's compatibility. Compatibility is checked per node as
-	// build descends, against that node's own chosen version.
+	// Structural forest: which ontologies extend which, via extends_ontology_id.
+	// This is the sole basis for the tree — compatible_base_versions is NOT a
+	// gate here. That field is populated inconsistently (usually the root CRM
+	// version, e.g. AAAo's own extensions all declare {7.1.3} not AAAo's
+	// version, and some declare nothing), so gating on it silently hid every
+	// extension under any non-CRM base. The extends relationship is the truth,
+	// matching the "enable extension" path (availableExtensionsFor).
 	childOntologies := make(map[string][]*domain.Ontology)
 	for _, o := range all {
 		if o == nil || !o.IsExtension() {
@@ -1223,8 +1221,8 @@ func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVe
 		childOntologies[parent] = append(childOntologies[parent], o)
 	}
 
-	var build func(parentOntologyID, parentVersionString string, seen map[string]bool) ([]ExtensionTreeNode, error)
-	build = func(parentOntologyID, parentVersionString string, seen map[string]bool) ([]ExtensionTreeNode, error) {
+	var build func(parentOntologyID string, seen map[string]bool) ([]ExtensionTreeNode, error)
+	build = func(parentOntologyID string, seen map[string]bool) ([]ExtensionTreeNode, error) {
 		candidates := childOntologies[parentOntologyID]
 		nodes := make([]ExtensionTreeNode, 0, len(candidates))
 		for _, o := range candidates {
@@ -1235,51 +1233,62 @@ func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVe
 			if listErr != nil {
 				return nil, fmt.Errorf("list extension versions: %w", listErr)
 			}
+			// Offer the active version (fallback: first available); the ontology
+			// is included because it extends this node, not because of any
+			// compatibility declaration. Mirrors availableExtensionsFor.
+			var pick *domain.OntologyVersion
 			for _, v := range versions {
-				if v == nil {
-					continue
+				if v != nil && v.IsActive {
+					pick = v
+					break
 				}
-				// Gate against the PARENT node's chosen version, not the
-				// root base version.
-				if !containsString(v.CompatibleBaseVersions, parentVersionString) {
-					continue // prune: this version, and its subtree, is dropped — never reattached
-				}
-				if _, already := linkedSet[v.ID]; already {
-					continue
-				}
-
-				next := make(map[string]bool, len(seen)+1)
-				for k, val := range seen {
-					next[k] = val
-				}
-				next[o.ID] = true
-
-				children, buildErr := build(o.ID, v.VersionString, next)
-				if buildErr != nil {
-					return nil, buildErr
-				}
-
-				verStr := v.VersionString
-				if verStr == "" {
-					verStr = v.ID
-				}
-				name := o.Name
-				if name == "" {
-					name = o.ID
-				}
-				nodes = append(nodes, ExtensionTreeNode{
-					Value:       v.ID,
-					Label:       fmt.Sprintf("%s %s", name, verStr),
-					Prefix:      o.Prefix,
-					HasChildren: len(children) > 0,
-					Children:    children,
-				})
 			}
+			if pick == nil {
+				for _, v := range versions {
+					if v != nil {
+						pick = v
+						break
+					}
+				}
+			}
+			if pick == nil {
+				continue
+			}
+			if _, already := linkedSet[pick.ID]; already {
+				continue
+			}
+
+			next := make(map[string]bool, len(seen)+1)
+			for k, val := range seen {
+				next[k] = val
+			}
+			next[o.ID] = true
+
+			children, buildErr := build(o.ID, next)
+			if buildErr != nil {
+				return nil, buildErr
+			}
+
+			verStr := pick.VersionString
+			if verStr == "" {
+				verStr = pick.ID
+			}
+			name := o.Name
+			if name == "" {
+				name = o.ID
+			}
+			nodes = append(nodes, ExtensionTreeNode{
+				Value:       pick.ID,
+				Label:       fmt.Sprintf("%s %s", name, verStr),
+				Prefix:      o.Prefix,
+				HasChildren: len(children) > 0,
+				Children:    children,
+			})
 		}
 		return nodes, nil
 	}
 
-	return build(baseRow.OntologyID, baseRow.VersionString, map[string]bool{})
+	return build(baseRow.OntologyID, map[string]bool{})
 }
 
 // ---------------------------------------------------------------------------
@@ -1752,13 +1761,4 @@ func marshalLink(l *domain.ProjectOntologyVersion) []byte {
 	}
 	b, _ := json.Marshal(l)
 	return b
-}
-
-func containsString(xs []string, target string) bool {
-	for _, x := range xs {
-		if x == target {
-			return true
-		}
-	}
-	return false
 }

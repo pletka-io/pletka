@@ -105,16 +105,11 @@ func activeOntologyVersion(t *testing.T, pool *pgxpool.Pool, prefix string) (ont
 // real Ontology/OntologyVersion rows fetched through the real store, rather
 // than against hand-built domain.Ontology fakes.
 //
-// Compatibility is seeded PARENT-relative, matching how
-// ListAvailableExtensions actually gates each tree level: aaao's version
-// declares compatibility with crm's version string; cpro's and pwro's
-// versions declare compatibility with aaao's version string (not crm's);
-// globo's version declares compatibility with pwro's version string (not
-// crm's or aaao's). This is what a real ontology author would declare —
-// "I extend aaao 2.2" — and it is the only way to exercise the per-parent
-// gating this test covers; seeding every level against crm's version
-// string would mask a bug where the forest builder gates grandchildren
-// against the wrong ancestor.
+// The forest is built purely from the extends relationship, NOT from
+// compatible_base_versions (that field is populated inconsistently in real
+// data — every AAAo extension declares the root crm version, some declare
+// nothing — so it is not a reliable gate). The compat values seeded below
+// are deliberately varied/bogus to prove the builder ignores them.
 func seedExtendsHierarchy(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
@@ -124,12 +119,6 @@ func seedExtendsHierarchy(t *testing.T, pool *pgxpool.Pool) {
 	cproOntID, cproVerID, _ := activeOntologyVersion(t, pool, "cpro")
 	pwroOntID, pwroVerID, pwroVerStr := activeOntologyVersion(t, pool, "pwro")
 	globoOntID, globoVerID, _ := activeOntologyVersion(t, pool, "globo")
-	// crmdig is wired as a structural child of aaao but never given a
-	// compatible_base_versions entry that matches aaao's version — the
-	// negative case: an extension incompatible with its parent must be
-	// pruned from the forest, not offered under aaao (and, per the
-	// pruning rule, not reattached anywhere else either).
-	crmdigOntID, crmdigVerID, _ := activeOntologyVersion(t, pool, "crmdig")
 
 	exec := func(sql string, args ...any) {
 		t.Helper()
@@ -138,23 +127,19 @@ func seedExtendsHierarchy(t *testing.T, pool *pgxpool.Pool) {
 		}
 	}
 
-	// aaao extends crm; cpro, pwro, and crmdig extend aaao; globo extends pwro.
+	// aaao extends crm; cpro and pwro extend aaao; globo extends pwro.
 	exec(`UPDATE weave_ontologies SET ontology_type = 'extension', extends_ontology_id = $1 WHERE id = $2`, crmOntID, aaaoOntID)
 	exec(`UPDATE weave_ontologies SET ontology_type = 'extension', extends_ontology_id = $1 WHERE id = $2`, aaaoOntID, cproOntID)
 	exec(`UPDATE weave_ontologies SET ontology_type = 'extension', extends_ontology_id = $1 WHERE id = $2`, aaaoOntID, pwroOntID)
 	exec(`UPDATE weave_ontologies SET ontology_type = 'extension', extends_ontology_id = $1 WHERE id = $2`, pwroOntID, globoOntID)
-	exec(`UPDATE weave_ontologies SET ontology_type = 'extension', extends_ontology_id = $1 WHERE id = $2`, aaaoOntID, crmdigOntID)
 
-	// Declare each extension version compatible with the specific version
-	// of the thing it actually extends (its parent in the tree), not the
-	// root crm base version.
+	// Compatibility is seeded deliberately varied to prove the forest IGNORES
+	// it: pwro gets an outright BOGUS value, yet pwro (and its child globo)
+	// must still surface — because inclusion is structural, not compat-gated.
 	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{crmVerStr}, aaaoVerID)
 	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{aaaoVerStr}, cproVerID)
-	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{aaaoVerStr}, pwroVerID)
+	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{"not-a-real-version"}, pwroVerID)
 	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{pwroVerStr}, globoVerID)
-	// crmdig declares compatibility with something other than aaao's
-	// version — it must not surface as aaao's child.
-	exec(`UPDATE weave_ontology_versions SET compatible_base_versions = $1 WHERE id = $2`, []string{"not-a-real-version"}, crmdigVerID)
 }
 
 // findNode locates a node by prefix at the given level of a forest.
@@ -271,16 +256,13 @@ func TestListAvailableExtensions_ReturnsForestByExtends(t *testing.T) {
 		t.Fatal("pwro should be a child of aaao, not a root under crm")
 	}
 
-	// globo (extends pwro, gated against pwro's version) must NOT appear as
-	// a direct child of crm ...
+	// globo (extends pwro) must NOT appear as a direct child of crm ...
 	if findNode(forest, "globo") != nil {
 		t.Fatal("globo (grandchild) must not be a crm root")
 	}
-	// ... but must be present, nested, under pwro: the full drill
-	// crm -> aaao -> pwro -> globo is what proves per-parent gating (each
-	// level is checked against its own parent's chosen version, not
-	// against the root crm version globo never declared compatibility
-	// with).
+	// ... but must be present, nested, under pwro: the full structural drill
+	// crm -> aaao -> pwro -> globo (each node placed by extends_ontology_id,
+	// independent of any compatibility declaration).
 	if !pwro.HasChildren || len(pwro.Children) == 0 {
 		t.Fatal("pwro should expand to its own extensions")
 	}
@@ -288,16 +270,9 @@ func TestListAvailableExtensions_ReturnsForestByExtends(t *testing.T) {
 		t.Fatal("globo should be nested under pwro (crm -> aaao -> pwro -> globo)")
 	}
 
-	// crmdig is structurally wired as a child of aaao but declares
-	// compatibility with neither aaao's version nor crm's — an extension
-	// incompatible with its parent must be pruned, not offered under aaao
-	// and not reattached anywhere else in the forest.
-	if findNode(aaao.Children, "crmdig") != nil {
-		t.Fatal("crmdig is incompatible with aaao's version and must be pruned from aaao's children")
-	}
-	if findNode(forest, "crmdig") != nil {
-		t.Fatal("crmdig must not be reattached as a crm root either")
-	}
+	// pwro carries a deliberately bogus compatible_base_versions, yet it
+	// surfaced above (as aaao's child) with globo nested under it — proof
+	// that inclusion is structural (extends_ontology_id), not compat-gated.
 }
 
 // TestCreate_AutoLinksAncestorChain proves that linking a deep extension
