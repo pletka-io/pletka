@@ -58,7 +58,7 @@ func Build(p *auth.Principal, currentPath string) *UserMenu {
 		{Type: "link", Label: i18n.L("nav.create_org", "Create organization"), Href: "/orgs/new", Icon: "plus", Match: "/orgs/new"},
 	}
 
-	if p.Role == "super_admin" || p.Role == "admin" {
+	if p.Role == "super_admin" {
 		items = append(items,
 			UserMenuItem{Type: "divider"},
 			UserMenuItem{Type: "link", Label: i18n.L("nav.admin", "Admin"), Href: "/admin", Icon: "shield", Match: "/admin"},

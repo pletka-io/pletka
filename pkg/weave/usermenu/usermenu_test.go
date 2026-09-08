@@ -33,7 +33,7 @@ func TestBuild_ContributorOmitsAdmin(t *testing.T) {
 	}
 }
 
-func TestBuild_AdminIncludesAdmin(t *testing.T) {
+func TestBuild_SuperAdminIncludesAdmin(t *testing.T) {
 	p := &auth.Principal{ActorID: "x", DisplayName: "Bob", Role: "super_admin", IsActive: true}
 	m := usermenu.Build(p, "/admin/users")
 	if m == nil {
@@ -47,6 +47,19 @@ func TestBuild_AdminIncludesAdmin(t *testing.T) {
 	}
 	if !hasAdmin {
 		t.Error("super_admin menu must contain /admin item")
+	}
+}
+
+func TestBuild_AdminRoleOmitsAdmin(t *testing.T) {
+	p := &auth.Principal{ActorID: "x", DisplayName: "Carol", Role: "admin", IsActive: true}
+	m := usermenu.Build(p, "/profile")
+	if m == nil {
+		t.Fatal("Build returned nil")
+	}
+	for _, it := range m.Items {
+		if it.Href == "/admin" {
+			t.Errorf("admin role menu must not contain /admin item")
+		}
 	}
 }
 

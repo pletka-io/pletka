@@ -430,11 +430,3 @@ func (h *Handler) currentLang(r *http.Request) string {
 	}
 	return "en"
 }
-
-func projectResource(p *pkgdomain.Project) auth.Resource {
-	visibility := "public"
-	if p.Visibility != "" {
-		visibility = p.Visibility
-	}
-	return auth.Resource{ScopeType: "project", ID: p.ID, OrgID: "", Visibility: visibility}
-}
