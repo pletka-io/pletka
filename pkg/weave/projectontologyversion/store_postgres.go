@@ -512,6 +512,7 @@ func (s *postgresStore) ListGrouped(ctx context.Context, projectID string) ([]do
 		CompatibleBaseVersions []string
 		VersionString          string
 		OntologyID             string
+		OntologyName           string
 	}
 	byVersion := make(map[string]compatMeta, len(withCounts))
 
@@ -521,8 +522,11 @@ func (s *postgresStore) ListGrouped(ctx context.Context, projectID string) ([]do
 	}
 
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, COALESCE(compatible_base_versions, '{}'), version_string, ontology_id
-		 FROM weave_ontology_versions WHERE id = ANY($1)`,
+		`SELECT v.id, COALESCE(v.compatible_base_versions, '{}'), v.version_string, v.ontology_id,
+		        COALESCE(o.name, '')
+		 FROM weave_ontology_versions v
+		 LEFT JOIN weave_ontologies o ON o.id = v.ontology_id
+		 WHERE v.id = ANY($1)`,
 		versionIDs,
 	)
 	if err != nil {
@@ -533,7 +537,7 @@ func (s *postgresStore) ListGrouped(ctx context.Context, projectID string) ([]do
 	for rows.Next() {
 		var id string
 		var m compatMeta
-		if err := rows.Scan(&id, &m.CompatibleBaseVersions, &m.VersionString, &m.OntologyID); err != nil {
+		if err := rows.Scan(&id, &m.CompatibleBaseVersions, &m.VersionString, &m.OntologyID, &m.OntologyName); err != nil {
 			return nil, fmt.Errorf("scan compat meta: %w", err)
 		}
 		byVersion[id] = m
@@ -546,6 +550,7 @@ func (s *postgresStore) ListGrouped(ctx context.Context, projectID string) ([]do
 	extensionsByBase := make(map[string][]domain.ProjectOntologyVersionWithCounts)
 	for _, item := range withCounts {
 		m := byVersion[item.Link.OntologyVersionID]
+		item.OntologyName = m.OntologyName
 		if len(m.CompatibleBaseVersions) == 0 {
 			bases = append(bases, item)
 			continue

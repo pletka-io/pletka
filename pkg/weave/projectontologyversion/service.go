@@ -361,7 +361,8 @@ func (s *Service) buildOwnListGroupsVersion(ctx context.Context, projectID, rele
 				IsPrimary:         b.item.Po.IsPrimary,
 				UsageNotes:        b.item.Po.UsageNotes,
 			},
-			UsageCount: b.item.UsageCount,
+			UsageCount:   b.item.UsageCount,
+			OntologyName: b.item.Po.Name,
 		})
 		exts := extensionsByBase[b.ontologyID]
 		sort.SliceStable(exts, func(i, j int) bool {
@@ -375,7 +376,8 @@ func (s *Service) buildOwnListGroupsVersion(ctx context.Context, projectID, rele
 					IsPrimary:         ext.Po.IsPrimary,
 					UsageNotes:        ext.Po.UsageNotes,
 				},
-				UsageCount: ext.UsageCount,
+				UsageCount:   ext.UsageCount,
+				OntologyName: ext.Po.Name,
 			})
 		}
 		out = append(out, domain.LinkedOntologyGroup{
@@ -1350,6 +1352,13 @@ func (s *Service) resolveExtensionChain(ctx context.Context, selected []string) 
 			}
 			if pv != nil {
 				add(pv.ID)
+			} else {
+				// No active version for this intermediate ancestor: it
+				// can't be linked, so the chain gets a hole and the deep
+				// extension will surface as an orphan in the pane. Don't
+				// fail the create, but don't do it silently either.
+				s.log.Warn("extension chain: ancestor has no active version; skipping (linked extension may appear unattached)",
+					"ancestor_ontology_id", parent.ID, "ancestor_prefix", parent.Prefix)
 			}
 			ont = parent
 		}

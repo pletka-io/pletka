@@ -84,6 +84,7 @@
               type="button"
               class="w-4 shrink-0 text-gray-500 hover:text-gray-800"
               onclick={() => toggle(node.value)}
+              aria-expanded={expanded[node.value] ?? false}
               aria-label={expanded[node.value] ? 'Collapse' : 'Expand'}
             >{expanded[node.value] ? '▾' : '▸'}</button>
           {:else}

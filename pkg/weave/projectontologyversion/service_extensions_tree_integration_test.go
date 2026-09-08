@@ -402,3 +402,49 @@ func TestPaneView_GroupsSecondaryBase(t *testing.T) {
 		t.Fatal("aaao should not be listed as a flat extension under crm; it's promoted to its own heading")
 	}
 }
+
+// TestListView_LabelsItemsIndividually guards #3554 item 4: the GET / list
+// view must carry each linked ontology's own name per item (base AND its
+// extensions), not reuse the group's base label for every row. Before the
+// fix renderOwnGroup labelled every item with BaseLabel, so an extension
+// showed the base's name.
+func TestListView_LabelsItemsIndividually(t *testing.T) {
+	ctx := weaveauth.WithSnapshot(context.Background(), &weaveauth.AuthSnapshot{IsSuperAdmin: true})
+	pool := testdb.Pool(t)
+
+	seedExtendsHierarchy(t, pool)
+	ontStore := weaveontology.NewPostgresStore(pool)
+	svc := newServiceForTest(pool, ontStore)
+
+	projectID := seedEmptyProject(t, pool)
+	crmVer := crmActiveVersionID(t, pool)
+	aaaoVer := activeVersionIDForPrefix(t, pool, "aaao")
+	if _, err := svc.Create(ctx, projectID, pov.CreateInput{
+		VersionID:  crmVer,
+		Extensions: []string{aaaoVer}, // crm base + aaao extension directly under it
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	view, err := svc.ListView(ctx, projectID)
+	if err != nil {
+		t.Fatalf("list view: %v", err)
+	}
+	if len(view.OwnGroups) != 1 {
+		t.Fatalf("want 1 own group (crm base + aaao ext); got %d", len(view.OwnGroups))
+	}
+	g := view.OwnGroups[0]
+	if len(g.Items) != 2 {
+		t.Fatalf("want 2 items (base + extension); got %d", len(g.Items))
+	}
+	names := map[string]bool{}
+	for _, it := range g.Items {
+		if it.OntologyName == "" {
+			t.Fatalf("item %s has empty OntologyName", it.Link.OntologyVersionID)
+		}
+		names[it.OntologyName] = true
+	}
+	if len(names) != 2 {
+		t.Fatalf("items must carry distinct per-ontology names, not the shared base label; got names %v", names)
+	}
+}

@@ -529,6 +529,10 @@ type NamespaceBindingStore interface {
 type ProjectOntologyVersionWithCounts struct {
 	Link       *ProjectOntologyVersion `json:"link"`
 	UsageCount int64                   `json:"usage_count"`
+	// OntologyName is the item's own ontology display name, so the list
+	// view can label each row (base and extension) individually rather
+	// than reusing the group's base label.
+	OntologyName string `json:"ontology_name,omitempty"`
 }
 
 // LinkedOntologyGroup is one group of linked ontologies (one per base version

@@ -14,6 +14,10 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
 
+// itemKeyLabel is the list-item / list-column key carrying an ontology's
+// display label.
+const itemKeyLabel = "label"
+
 // LangResolver returns the caller's preferred UI language for a request.
 type LangResolver func(r *http.Request) string
 
@@ -241,9 +245,13 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 func renderOwnGroup(g domain.LinkedOntologyGroup) formschema.Group {
 	items := make([]map[string]any, 0, len(g.Items))
 	for _, it := range g.Items {
+		label := it.OntologyName
+		if label == "" {
+			label = g.BaseLabel
+		}
 		items = append(items, map[string]any{
 			"id":          it.Link.OntologyVersionID,
-			"label":       g.BaseLabel,
+			itemKeyLabel:  label,
 			"version":     "",
 			"primary":     it.Link.IsPrimary,
 			"usage_count": it.UsageCount,
@@ -273,7 +281,7 @@ func renderInheritedGroup(g InheritedGroup) formschema.Group {
 		}
 		items = append(items, map[string]any{
 			"id":          r.Link.OntologyVersionID,
-			"label":       itemLabel,
+			itemKeyLabel:  itemLabel,
 			"version":     r.VersionString,
 			"primary":     r.Link.IsPrimary,
 			"usage_count": int64(0),
