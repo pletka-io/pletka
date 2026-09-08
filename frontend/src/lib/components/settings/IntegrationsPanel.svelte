@@ -159,6 +159,7 @@
       const res = await fetch(cfg.remove_url, {
         method: 'DELETE',
         credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
       if (!res.ok && res.status !== 204) {
         const body = await res.json().catch(() => ({}));

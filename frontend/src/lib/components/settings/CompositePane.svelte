@@ -102,6 +102,7 @@
         {#key `${panel.id}-${refreshNonce}`}
           <ListManager
             schemaUrl={panel.schema_url}
+            embedded={!!panel.label}
             onmutate={() => { refreshNonce += 1; onmutate?.(); }}
           />
         {/key}
