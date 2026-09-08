@@ -51,7 +51,7 @@ func (h *Handler) loadProjectAndGate(ctx context.Context, w http.ResponseWriter,
 		return nil, nil, false
 	}
 
-	res := projectResource(project)
+	res := auth.ProjectResource(project)
 	snap := auth.FromContext(ctx)
 	if !snap.Can(cap, res, nil) {
 		if snap.IsAnonymous {
@@ -62,21 +62,6 @@ func (h *Handler) loadProjectAndGate(ctx context.Context, w http.ResponseWriter,
 		return nil, nil, false
 	}
 	return project, &res, true
-}
-
-// projectResource constructs an auth.Resource from a domain.Project for
-// permission checks.
-func projectResource(p *domain.Project) auth.Resource {
-	visibility := "private"
-	if p.Visibility != "" {
-		visibility = p.Visibility
-	}
-	return auth.Resource{
-		ScopeType:  "project",
-		ID:         p.ID,
-		OrgID:      "", // populated when domain.Project exposes owner type
-		Visibility: visibility,
-	}
 }
 
 // PageSchema returns the settings page schema with capability-filtered
