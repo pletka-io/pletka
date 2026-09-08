@@ -75,6 +75,7 @@
     await mutate(async () => {
       const res = await fetch(ext.delete_url!, {
         method: 'DELETE',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
       if (!res.ok && res.status !== 204) throw new Error(`Disable failed: ${res.status}`);
     });
@@ -136,6 +137,7 @@
     await mutate(async () => {
       const res = await fetch(base.delete_url!, {
         method: 'DELETE',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
       if (!res.ok && res.status !== 204) throw new Error(`Remove failed: ${res.status}`);
     });
