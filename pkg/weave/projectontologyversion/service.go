@@ -723,7 +723,9 @@ func (s *Service) buildOwnGroups(ctx context.Context, links []*domain.ProjectOnt
 		return promotedRoots[i].item.Po.Name < promotedRoots[j].item.Po.Name
 	})
 
-	roots := append(baseRoots, promotedRoots...)
+	roots := make([]rootEntry, 0, len(baseRoots)+len(promotedRoots))
+	roots = append(roots, baseRoots...)
+	roots = append(roots, promotedRoots...)
 
 	groups := make([]PaneGroup, 0, len(roots))
 	for _, root := range roots {
@@ -1221,74 +1223,80 @@ func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVe
 		childOntologies[parent] = append(childOntologies[parent], o)
 	}
 
-	var build func(parentOntologyID string, seen map[string]bool) ([]ExtensionTreeNode, error)
-	build = func(parentOntologyID string, seen map[string]bool) ([]ExtensionTreeNode, error) {
-		candidates := childOntologies[parentOntologyID]
-		nodes := make([]ExtensionTreeNode, 0, len(candidates))
-		for _, o := range candidates {
-			if seen[o.ID] {
-				continue // cycle guard: an ontology cannot extend its own ancestor
-			}
-			versions, listErr := s.versions.ListByOntology(ctx, o.ID)
-			if listErr != nil {
-				return nil, fmt.Errorf("list extension versions: %w", listErr)
-			}
-			// Offer the active version (fallback: first available); the ontology
-			// is included because it extends this node, not because of any
-			// compatibility declaration. Mirrors availableExtensionsFor.
-			var pick *domain.OntologyVersion
-			for _, v := range versions {
-				if v != nil && v.IsActive {
-					pick = v
-					break
-				}
-			}
-			if pick == nil {
-				for _, v := range versions {
-					if v != nil {
-						pick = v
-						break
-					}
-				}
-			}
-			if pick == nil {
-				continue
-			}
-			if _, already := linkedSet[pick.ID]; already {
-				continue
-			}
+	return s.buildExtensionForest(ctx, childOntologies, linkedSet, baseRow.OntologyID, map[string]bool{})
+}
 
-			next := make(map[string]bool, len(seen)+1)
-			for k, val := range seen {
-				next[k] = val
-			}
-			next[o.ID] = true
-
-			children, buildErr := build(o.ID, next)
-			if buildErr != nil {
-				return nil, buildErr
-			}
-
-			verStr := pick.VersionString
-			if verStr == "" {
-				verStr = pick.ID
-			}
-			name := o.Name
-			if name == "" {
-				name = o.ID
-			}
-			nodes = append(nodes, ExtensionTreeNode{
-				Value:       pick.ID,
-				Label:       fmt.Sprintf("%s %s", name, verStr),
-				Prefix:      o.Prefix,
-				HasChildren: len(children) > 0,
-				Children:    children,
-			})
+// buildExtensionForest recursively assembles the extends-forest under
+// parentOntologyID from the structural childOntologies map, offering each
+// ontology's active version (fallback: first) and skipping versions already
+// linked to the project. Cycle-guarded via seen (an ontology cannot extend
+// its own ancestor).
+func (s *Service) buildExtensionForest(ctx context.Context, childOntologies map[string][]*domain.Ontology, linkedSet map[string]struct{}, parentOntologyID string, seen map[string]bool) ([]ExtensionTreeNode, error) {
+	candidates := childOntologies[parentOntologyID]
+	nodes := make([]ExtensionTreeNode, 0, len(candidates))
+	for _, o := range candidates {
+		if seen[o.ID] {
+			continue // cycle guard
 		}
-		return nodes, nil
-	}
+		versions, listErr := s.versions.ListByOntology(ctx, o.ID)
+		if listErr != nil {
+			return nil, fmt.Errorf("list extension versions: %w", listErr)
+		}
+		// Offer the active version (fallback: first available); the ontology
+		// is included because it extends this node, not because of any
+		// compatibility declaration. Mirrors availableExtensionsFor.
+		pick := firstActiveOrAny(versions)
+		if pick == nil {
+			continue
+		}
+		if _, already := linkedSet[pick.ID]; already {
+			continue
+		}
 
-	return build(baseRow.OntologyID, map[string]bool{})
+		next := make(map[string]bool, len(seen)+1)
+		for k, val := range seen {
+			next[k] = val
+		}
+		next[o.ID] = true
+
+		children, buildErr := s.buildExtensionForest(ctx, childOntologies, linkedSet, o.ID, next)
+		if buildErr != nil {
+			return nil, buildErr
+		}
+
+		verStr := pick.VersionString
+		if verStr == "" {
+			verStr = pick.ID
+		}
+		name := o.Name
+		if name == "" {
+			name = o.ID
+		}
+		nodes = append(nodes, ExtensionTreeNode{
+			Value:       pick.ID,
+			Label:       fmt.Sprintf("%s %s", name, verStr),
+			Prefix:      o.Prefix,
+			HasChildren: len(children) > 0,
+			Children:    children,
+		})
+	}
+	return nodes, nil
+}
+
+// firstActiveOrAny returns the active version, else the first non-nil version,
+// else nil.
+func firstActiveOrAny(versions []*domain.OntologyVersion) *domain.OntologyVersion {
+	for _, v := range versions {
+		if v != nil && v.IsActive {
+			return v
+		}
+	}
+	for _, v := range versions {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
