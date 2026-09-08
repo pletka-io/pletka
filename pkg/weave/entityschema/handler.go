@@ -240,14 +240,18 @@ func projectCreateOrgIDs(snap *auth.AuthSnapshot) []string {
 		return nil
 	}
 	ids := make([]string, 0, len(snap.Roles))
-	for key, role := range snap.Roles {
+	for key := range snap.Roles {
 		if !strings.HasPrefix(key, "org:") {
 			continue
 		}
-		if role != "owner" && role != "admin" {
-			continue
+		orgID := strings.TrimPrefix(key, "org:")
+		// snap.Can short-circuits true for a super-admin regardless of the
+		// org's own role (see AuthSnapshot.Can), so a super-admin org
+		// membership row of any role — even "member" — is included here.
+		// Intentional: a super-admin can create projects in any org.
+		if snap.Can(auth.OrgProjectCreate, auth.OrgResourceByID(orgID), nil) {
+			ids = append(ids, orgID)
 		}
-		ids = append(ids, strings.TrimPrefix(key, "org:"))
 	}
 	return ids
 }

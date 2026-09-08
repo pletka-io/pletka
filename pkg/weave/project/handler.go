@@ -382,7 +382,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	ownerID := principal.ActorID
 	if requested := strings.TrimSpace(body.OwnerID); requested != "" && requested != principal.ActorID {
-		if !auth.FromContext(r.Context()).Can(auth.OrgProjectCreate, auth.Resource{ScopeType: "org", ID: requested}, nil) {
+		if !auth.FromContext(r.Context()).Can(auth.OrgProjectCreate, auth.OrgResourceByID(requested), nil) {
 			writeError(w, http.StatusForbidden, "forbidden: requires org.project_create on org:"+requested)
 			return
 		}

@@ -29,9 +29,11 @@ func OrgFromContext(ctx context.Context) *domain.Organization {
 	return nil
 }
 
-// OrgResourceFromContext returns an auth.Resource for the current org scope.
-func OrgResourceFromContext(ctx context.Context) Resource {
-	org := OrgFromContext(ctx)
+// OrgResource constructs an org-scoped auth resource from org. Nil org
+// yields a bare {ScopeType: "org"} resource. Always construct org auth
+// resources via OrgResource/OrgResourceByID — never a bare auth.Resource{}
+// literal outside pkg/auth (it silently drops ID / diverges on Visibility).
+func OrgResource(org *domain.Organization) Resource {
 	if org == nil {
 		return Resource{ScopeType: "org"}
 	}
@@ -39,11 +41,19 @@ func OrgResourceFromContext(ctx context.Context) Resource {
 	if visibility == "" {
 		visibility = "private"
 	}
-	return Resource{
-		ScopeType:  "org",
-		ID:         org.ID,
-		Visibility: visibility,
-	}
+	return Resource{ScopeType: "org", ID: org.ID, Visibility: visibility}
+}
+
+// OrgResourceByID returns an org-scope resource for an org id only
+// (visibility unknown; org capabilities like OrgProjectCreate don't depend
+// on it). Prefer OrgResource when an org.Organization is already loaded.
+func OrgResourceByID(id string) Resource {
+	return Resource{ScopeType: "org", ID: id}
+}
+
+// OrgResourceFromContext returns an auth.Resource for the current org scope.
+func OrgResourceFromContext(ctx context.Context) Resource {
+	return OrgResource(OrgFromContext(ctx))
 }
 
 // WithOrgResource loads the organization identified by the {slug} URL
