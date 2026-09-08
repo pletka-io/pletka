@@ -148,6 +148,8 @@ func (h *Handler) OptionsVersions(w http.ResponseWriter, r *http.Request) {
 }
 
 // OptionsExtensions handles GET /options/extensions?base_version={version_id}.
+// The response is an extends-hierarchy forest ([]ExtensionTreeNode), not a
+// flat option list — see Service.ListAvailableExtensions.
 func (h *Handler) OptionsExtensions(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	baseVersion := r.URL.Query().Get("base_version")

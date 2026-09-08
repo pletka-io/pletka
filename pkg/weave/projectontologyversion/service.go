@@ -626,11 +626,18 @@ func paneFormSchemaURL(projectID string) string {
 }
 
 // buildOwnGroups classifies own links by ontology_type and produces
-// one PaneGroup per base. Extensions attach to the base they extend
-// (via extends_ontology_id) when that base is also linked to this
-// project. Extensions whose base isn't linked are logged and skipped
-// (out-of-scope for the v1 pane; the user can't currently see what
-// they're missing without configuring the base first).
+// one PaneGroup per base-level heading. Extensions attach to the
+// heading they extend (via extends_ontology_id) when that heading is
+// linked to this project. Extensions whose target isn't linked at all
+// are logged and skipped (out-of-scope for the v1 pane; the user can't
+// currently see what they're missing without configuring the target
+// first).
+//
+// Base-level headings are not limited to ontology_type=="base": any
+// linked extension that itself has >=1 linked child (e.g. aaao, which
+// cpro extends) is promoted to its own heading too, so the pane shows
+// "two bases (crm + aaao)" instead of silently orphaning cpro under a
+// base it doesn't directly extend.
 func (s *Service) buildOwnGroups(ctx context.Context, links []*domain.ProjectOntologyVersion) ([]PaneGroup, error) {
 	type richItem struct {
 		Po PaneOntology
@@ -641,6 +648,7 @@ func (s *Service) buildOwnGroups(ctx context.Context, links []*domain.ProjectOnt
 
 	bases := make(map[string]richItem, len(links))              // ontology_id → base item
 	extensionsByBase := make(map[string][]richItem, len(links)) // extends_ontology_id → extensions
+	extensionByID := make(map[string]richItem, len(links))      // ontology_id → its own extension item (promotion lookup)
 
 	for _, link := range links {
 		po, ext, err := s.resolveLinkRich(ctx, link)
@@ -664,28 +672,76 @@ func (s *Service) buildOwnGroups(ctx context.Context, links []*domain.ProjectOnt
 			continue
 		}
 		extensionsByBase[ext] = append(extensionsByBase[ext], ri)
+		extensionByID[po.OntologyID] = ri
 	}
 
-	// Stable iteration: order bases by primary first, then by name.
-	type baseEntry struct {
+	// Promote any linked extension that itself has >=1 linked child to a
+	// base-level heading of its own (e.g. aaao, which cpro extends), so
+	// the pane shows "two bases (crm + aaao)" instead of orphaning cpro
+	// under a base it doesn't directly extend. Visited-set guarded: this
+	// pass is a single non-recursive sweep, but pathological extends
+	// data (A extends B extends A) must not cause repeat work.
+	promoted := make(map[string]richItem, len(extensionByID))
+	visited := make(map[string]bool, len(extensionByID))
+	for ontologyID, item := range extensionByID {
+		if visited[ontologyID] {
+			continue
+		}
+		visited[ontologyID] = true
+		if _, isBase := bases[ontologyID]; isBase {
+			continue // already a true base heading
+		}
+		if len(extensionsByBase[ontologyID]) == 0 {
+			continue // no linked children -- stays a flat extension row
+		}
+		promoted[ontologyID] = item
+	}
+
+	// Roots: true bases + promoted extensions, each becomes one
+	// PaneGroup heading. Ordering: bases first (primary, then name --
+	// the pre-existing sort), then promoted headings by name.
+	type rootEntry struct {
 		ontologyID string
 		item       richItem
 	}
-	ordered := make([]baseEntry, 0, len(bases))
+	baseRoots := make([]rootEntry, 0, len(bases))
 	for id, item := range bases {
-		ordered = append(ordered, baseEntry{ontologyID: id, item: item})
+		baseRoots = append(baseRoots, rootEntry{ontologyID: id, item: item})
 	}
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if ordered[i].item.Po.IsPrimary != ordered[j].item.Po.IsPrimary {
-			return ordered[i].item.Po.IsPrimary
+	sort.SliceStable(baseRoots, func(i, j int) bool {
+		if baseRoots[i].item.Po.IsPrimary != baseRoots[j].item.Po.IsPrimary {
+			return baseRoots[i].item.Po.IsPrimary
 		}
-		return ordered[i].item.Po.Name < ordered[j].item.Po.Name
+		return baseRoots[i].item.Po.Name < baseRoots[j].item.Po.Name
 	})
 
-	groups := make([]PaneGroup, 0, len(ordered))
-	for _, b := range ordered {
-		base := b.item.Po
-		exts := extensionsByBase[b.ontologyID]
+	promotedRoots := make([]rootEntry, 0, len(promoted))
+	for id, item := range promoted {
+		promotedRoots = append(promotedRoots, rootEntry{ontologyID: id, item: item})
+	}
+	sort.SliceStable(promotedRoots, func(i, j int) bool {
+		return promotedRoots[i].item.Po.Name < promotedRoots[j].item.Po.Name
+	})
+
+	roots := make([]rootEntry, 0, len(baseRoots)+len(promotedRoots))
+	roots = append(roots, baseRoots...)
+	roots = append(roots, promotedRoots...)
+
+	groups := make([]PaneGroup, 0, len(roots))
+	for _, root := range roots {
+		base := root.item.Po
+
+		// Children of this heading, minus any that are themselves
+		// promoted (those get their own heading below, not a duplicate
+		// listing here).
+		rawChildren := extensionsByBase[root.ontologyID]
+		exts := make([]richItem, 0, len(rawChildren))
+		for _, ri := range rawChildren {
+			if _, isPromoted := promoted[ri.Po.OntologyID]; isPromoted {
+				continue
+			}
+			exts = append(exts, ri)
+		}
 
 		// Sort extensions stably by name.
 		sort.SliceStable(exts, func(i, j int) bool {
@@ -715,14 +771,17 @@ func (s *Service) buildOwnGroups(ctx context.Context, links []*domain.ProjectOnt
 		})
 	}
 
-	// Orphan extensions (no matching base in this project): collect under
-	// a synthetic group at the end so the user at least sees them in the
-	// pane and isn't surprised when the data round-trips. The synthetic
-	// group has Base=nil; the frontend renders an "Unattached extensions"
-	// header.
+	// Orphan extensions (target not linked at all, and not itself a
+	// promoted heading): collect under a synthetic group at the end so
+	// the user at least sees them in the pane and isn't surprised when
+	// the data round-trips. The synthetic group has Base=nil; the
+	// frontend renders an "Unattached extensions" header.
 	orphans := []PaneOntology{}
 	for extendsID, items := range extensionsByBase {
 		if _, ok := bases[extendsID]; ok {
+			continue
+		}
+		if _, ok := promoted[extendsID]; ok {
 			continue
 		}
 		for _, it := range items {
@@ -1090,11 +1149,31 @@ func (s *Service) ListAvailableVersions(ctx context.Context, projectID, baseOnto
 	return out, nil
 }
 
-// ListAvailableExtensions returns extension ontology versions compatible
-// with baseVersionID, excluding any already linked to projectID.
-// Compatibility is derived from the extension version's
-// CompatibleBaseVersions array (which holds version_strings).
-func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVersionID string) ([]VersionOption, error) {
+// ExtensionTreeNode is one node in the extends-hierarchy of compatible
+// extensions offered for a chosen base version. Children are the node's
+// direct extends-children; HasChildren lets the widget show an expander.
+type ExtensionTreeNode struct {
+	Value       string              `json:"value"`
+	Label       string              `json:"label"`
+	Prefix      string              `json:"prefix"`
+	HasChildren bool                `json:"has_children"`
+	Children    []ExtensionTreeNode `json:"children,omitempty"`
+}
+
+// ListAvailableExtensions returns the extends-hierarchy forest of extension
+// ontology versions under baseVersionID's ontology, excluding any already
+// linked to projectID. Roots are the base ontology's direct
+// extends-children; each root's Children are that extension's own direct
+// extends-children, and so on. Each node offers the extension's active
+// version (fallback: first available).
+//
+// Inclusion is purely STRUCTURAL — an ontology appears because it extends
+// the node above it (extends_ontology_id). compatible_base_versions is
+// deliberately NOT a gate: real data populates it inconsistently (every
+// AAAo extension declares the root crm version {7.1.3}, and some declare
+// nothing), so gating on it silently hid every extension under any non-crm
+// base. This matches the "enable extension" path (availableExtensionsFor).
+func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVersionID string) ([]ExtensionTreeNode, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
@@ -1109,7 +1188,6 @@ func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVe
 	if baseRow == nil {
 		return nil, errNotFound
 	}
-	baseString := baseRow.VersionString
 
 	all, err := s.ontology.List(ctx)
 	if err != nil {
@@ -1126,45 +1204,174 @@ func (s *Service) ListAvailableExtensions(ctx context.Context, projectID, baseVe
 		}
 	}
 
-	out := make([]VersionOption, 0)
+	// Structural forest: which ontologies extend which, via extends_ontology_id.
+	// This is the sole basis for the tree — compatible_base_versions is NOT a
+	// gate here. That field is populated inconsistently (usually the root CRM
+	// version, e.g. AAAo's own extensions all declare {7.1.3} not AAAo's
+	// version, and some declare nothing), so gating on it silently hid every
+	// extension under any non-CRM base. The extends relationship is the truth,
+	// matching the "enable extension" path (availableExtensionsFor).
+	childOntologies := make(map[string][]*domain.Ontology)
 	for _, o := range all {
 		if o == nil || !o.IsExtension() {
 			continue
+		}
+		parent := ""
+		if o.ExtendsOntologyID != nil {
+			parent = *o.ExtendsOntologyID
+		}
+		childOntologies[parent] = append(childOntologies[parent], o)
+	}
+
+	return s.buildExtensionForest(ctx, childOntologies, linkedSet, baseRow.OntologyID, map[string]bool{})
+}
+
+// buildExtensionForest recursively assembles the extends-forest under
+// parentOntologyID from the structural childOntologies map, offering each
+// ontology's active version (fallback: first) and skipping versions already
+// linked to the project. Cycle-guarded via seen (an ontology cannot extend
+// its own ancestor).
+func (s *Service) buildExtensionForest(ctx context.Context, childOntologies map[string][]*domain.Ontology, linkedSet map[string]struct{}, parentOntologyID string, seen map[string]bool) ([]ExtensionTreeNode, error) {
+	candidates := childOntologies[parentOntologyID]
+	nodes := make([]ExtensionTreeNode, 0, len(candidates))
+	for _, o := range candidates {
+		if seen[o.ID] {
+			continue // cycle guard
 		}
 		versions, listErr := s.versions.ListByOntology(ctx, o.ID)
 		if listErr != nil {
 			return nil, fmt.Errorf("list extension versions: %w", listErr)
 		}
-		for _, v := range versions {
-			if v == nil {
-				continue
-			}
-			if !containsString(v.CompatibleBaseVersions, baseString) {
-				continue
-			}
-			if _, already := linkedSet[v.ID]; already {
-				continue
-			}
-			ontName := o.Name
-			if ontName == "" {
-				ontName = o.ID
-			}
-			verStr := v.VersionString
-			if verStr == "" {
-				verStr = v.ID
-			}
-			out = append(out, VersionOption{
-				Value: v.ID,
-				Label: fmt.Sprintf("%s %s", ontName, verStr),
-			})
+		// Offer the active version (fallback: first available); the ontology
+		// is included because it extends this node, not because of any
+		// compatibility declaration. Mirrors availableExtensionsFor.
+		pick := firstActiveOrAny(versions)
+		if pick == nil {
+			continue
+		}
+		if _, already := linkedSet[pick.ID]; already {
+			continue
+		}
+
+		next := make(map[string]bool, len(seen)+1)
+		for k, val := range seen {
+			next[k] = val
+		}
+		next[o.ID] = true
+
+		children, buildErr := s.buildExtensionForest(ctx, childOntologies, linkedSet, o.ID, next)
+		if buildErr != nil {
+			return nil, buildErr
+		}
+
+		verStr := pick.VersionString
+		if verStr == "" {
+			verStr = pick.ID
+		}
+		name := o.Name
+		if name == "" {
+			name = o.ID
+		}
+		nodes = append(nodes, ExtensionTreeNode{
+			Value:       pick.ID,
+			Label:       fmt.Sprintf("%s %s", name, verStr),
+			Prefix:      o.Prefix,
+			HasChildren: len(children) > 0,
+			Children:    children,
+		})
+	}
+	return nodes, nil
+}
+
+// firstActiveOrAny returns the active version, else the first non-nil version,
+// else nil.
+func firstActiveOrAny(versions []*domain.OntologyVersion) *domain.OntologyVersion {
+	for _, v := range versions {
+		if v != nil && v.IsActive {
+			return v
 		}
 	}
-	return out, nil
+	for _, v := range versions {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
 // Writes
 // ---------------------------------------------------------------------------
+
+// resolveExtensionChain expands the selected extension version IDs to also
+// include every ancestor extension version (walking extends_ontology_id up
+// to, but not including, a base ontology), so linking a deep extension pulls
+// its intermediate bases along. Deduped; cycle-guarded. The base itself is
+// not included here — Create links it separately via in.VersionID.
+func (s *Service) resolveExtensionChain(ctx context.Context, selected []string) ([]string, error) {
+	out := make([]string, 0, len(selected))
+	seenVer := map[string]bool{}
+	add := func(id string) {
+		if id != "" && !seenVer[id] {
+			seenVer[id] = true
+			out = append(out, id)
+		}
+	}
+	for _, verID := range selected {
+		add(verID)
+		ver, err := s.versions.GetByID(ctx, verID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve chain: get version: %w", err)
+		}
+		if ver == nil {
+			continue
+		}
+		ont, err := s.ontology.GetByID(ctx, ver.OntologyID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve chain: get ontology: %w", err)
+		}
+		seenOnt := map[string]bool{ver.OntologyID: true}
+		for ont != nil && ont.ExtendsOntologyID != nil && *ont.ExtendsOntologyID != "" {
+			parentID := *ont.ExtendsOntologyID
+			if seenOnt[parentID] {
+				break // cycle guard
+			}
+			seenOnt[parentID] = true
+			parent, err := s.ontology.GetByID(ctx, parentID)
+			if err != nil {
+				return nil, fmt.Errorf("resolve chain: get parent: %w", err)
+			}
+			if parent == nil || parent.IsBase() {
+				break // reached (or past) the base; base is linked via in.VersionID
+			}
+			pv, err := s.activeVersionForOntology(ctx, parent.ID)
+			if err != nil {
+				return nil, fmt.Errorf("resolve chain: active parent version: %w", err)
+			}
+			if pv != nil {
+				add(pv.ID)
+			}
+			ont = parent
+		}
+	}
+	return out, nil
+}
+
+// activeVersionForOntology returns the ACTIVE version row for ontologyID, or
+// nil if none is active. OntologyVersionReader has no direct "active"
+// lookup, so this scans ListByOntology for the IsActive row.
+func (s *Service) activeVersionForOntology(ctx context.Context, ontologyID string) (*domain.OntologyVersion, error) {
+	versions, err := s.versions.ListByOntology(ctx, ontologyID)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range versions {
+		if v != nil && v.IsActive {
+			return v, nil
+		}
+	}
+	return nil, nil
+}
 
 // Create links a base version (and optional extensions) to projectID.
 // IsPrimary triggers an atomic primary flip on success.
@@ -1185,6 +1392,11 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 	}
 	if existing != nil {
 		return nil, errDuplicate
+	}
+
+	chain, err := s.resolveExtensionChain(ctx, in.Extensions)
+	if err != nil {
+		return nil, err
 	}
 
 	addedByID := s.actorIDFromContext(ctx)
@@ -1213,8 +1425,11 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 			return err
 		}
 
-		// Best-effort extensions — duplicates are skipped silently.
-		for _, extID := range in.Extensions {
+		// Best-effort extensions — duplicates are skipped silently. chain is
+		// in.Extensions expanded to include every intermediate ancestor
+		// extension (resolveExtensionChain); the base is already linked
+		// above via in.VersionID.
+		for _, extID := range chain {
 			if extID == "" || extID == in.VersionID {
 				continue
 			}
@@ -1554,13 +1769,4 @@ func marshalLink(l *domain.ProjectOntologyVersion) []byte {
 	}
 	b, _ := json.Marshal(l)
 	return b
-}
-
-func containsString(xs []string, target string) bool {
-	for _, x := range xs {
-		if x == target {
-			return true
-		}
-	}
-	return false
 }

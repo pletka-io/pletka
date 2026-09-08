@@ -209,6 +209,9 @@ const (
 	WidgetPrefixInput           = "prefix-input"
 	WidgetSlugInput             = "slug-input"
 	WidgetPassword              = "password"
+	// WidgetOntologyTree renders an expandable extends-hierarchy multi-select
+	// (base's direct children, drill into sub-extensions).
+	WidgetOntologyTree = "ontology-tree"
 )
 
 // Marker calls make schema-emitted frontend widgets discoverable by manifest
@@ -233,6 +236,7 @@ var _ = []string{
 	frontendrefs.FormWidget("prefix-input"),
 	frontendrefs.FormWidget("slug-input"),
 	frontendrefs.FormWidget("password"),
+	frontendrefs.FormWidget("ontology-tree"),
 }
 
 // Mode constants

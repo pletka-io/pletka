@@ -46,7 +46,8 @@
     { "name": "multi-select", "source": "./src/lib/components/form/widgets/MultiSelect.svelte" },
     { "name": "radio-group", "source": "./src/lib/components/form/widgets/RadioGroup.svelte" },
     { "name": "readonly-stat", "source": "./src/lib/components/form/widgets/ReadonlyStat.svelte" },
-    { "name": "readonly-table", "source": "./src/lib/components/form/widgets/ReadonlyTable.svelte" }
+    { "name": "readonly-table", "source": "./src/lib/components/form/widgets/ReadonlyTable.svelte" },
+    { "name": "ontology-tree", "source": "./src/lib/components/form/widgets/OntologyTreeSelect.svelte" }
   ],
   "entityListRowWidgets": [
     { "name": "default", "source": "./src/lib/components/entity-list/EntityListRow.svelte" },

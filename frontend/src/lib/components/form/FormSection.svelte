@@ -55,7 +55,11 @@
     if (cached && cached.dyn === dyn) return cached.built;
     const built: FieldDef = {
       ...f,
+      // Spread the raw entry first so shape-specific fields an endpoint adds
+      // beyond {value,label} (e.g. the tree widget's prefix/has_children/
+      // children) survive the overlay untouched.
       options: dyn.map((o: any) => ({
+        ...o,
         value: o.value,
         // Endpoints may return either a scalar label or a Translations
         // object. Pass through objects untouched; wrap scalars so tr() can
