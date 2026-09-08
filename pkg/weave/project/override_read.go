@@ -164,7 +164,7 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 			FieldSidebarSchemaURL:           fmt.Sprintf("/projects/%s/composition/sidebar-schema/field", projectID),
 			CollectionGroupSidebarSchemaURL: fmt.Sprintf("/projects/%s/composition/sidebar-schema/collection-group", projectID),
 		},
-		Capabilities: h.overrideCapabilities(ctx, projectID, project.Visibility, true),
+		Capabilities: h.overrideCapabilities(ctx, project, true),
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -180,8 +180,11 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 // CanHideFields previously diverged between the two editors
 // (CollectionOverrides hard-coded false), so the collection hide checkbox
 // never rendered. Routing both through this one helper keeps them in sync.
-func (h *Handler) overrideCapabilities(ctx context.Context, projectID, visibility string, supportsAddCollection bool) overrideEditorCapabilities {
-	canEdit := h.svc.CanEdit(ctx, projectID, visibility)
+//
+// Takes the loaded project (not projectID/visibility) so CanEdit can build
+// an auth.ProjectResource that carries OrgID and org-inherited roles resolve.
+func (h *Handler) overrideCapabilities(ctx context.Context, p *domain.Project, supportsAddCollection bool) overrideEditorCapabilities {
+	canEdit := h.svc.CanEdit(ctx, p)
 	canAddCollection := false
 	if supportsAddCollection {
 		canAddCollection = canEdit
@@ -262,7 +265,7 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 			FieldSidebarSchemaURL:           fmt.Sprintf("/projects/%s/composition/sidebar-schema/field", projectID),
 			CollectionGroupSidebarSchemaURL: fmt.Sprintf("/projects/%s/composition/sidebar-schema/collection-group", projectID),
 		},
-		Capabilities: h.overrideCapabilities(ctx, projectID, project.Visibility, false),
+		Capabilities: h.overrideCapabilities(ctx, project, false),
 	}
 
 	writeJSON(w, http.StatusOK, resp)

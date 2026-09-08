@@ -162,7 +162,7 @@ func (h *Handler) Data(w http.ResponseWriter, r *http.Request) {
 				row.OwnerKind = owner.Type
 			}
 		}
-		if h.svc.CanEdit(ctx, p.ID, row.Visibility) {
+		if h.svc.CanEdit(ctx, p) {
 			row.CanEdit = true
 			resolved, lerr := h.svc.ResolvedOntologyVersions(ctx, p.ID, domain.ResolvedOntologyVersionOpts{})
 			if lerr != nil {

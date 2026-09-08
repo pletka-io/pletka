@@ -42,7 +42,7 @@ func (h *Handler) OverrideFieldSidebarSchema(w http.ResponseWriter, r *http.Requ
 	}
 
 	expectedValueType := r.URL.Query().Get("expected_value_type")
-	canEdit := h.svc.CanEdit(ctx, projectID, project.Visibility)
+	canEdit := h.svc.CanEdit(ctx, project)
 
 	schema := formschema.BuildCompositionFieldSidebarSchema(
 		&formschema.CompositionFieldSidebarInput{ExpectedValueType: expectedValueType},
@@ -83,7 +83,7 @@ func (h *Handler) OverrideCollectionGroupSidebarSchema(w http.ResponseWriter, r 
 	schema := formschema.BuildCompositionCollectionSidebarSchema(
 		nil,
 		formschema.CompositionCollectionSidebarOptions{
-			CanEdit:         h.svc.CanEdit(ctx, projectID, project.Visibility),
+			CanEdit:         h.svc.CanEdit(ctx, project),
 			CategoryOptions: h.sidebarCategoryOptions(ctx, projectID, true),
 		},
 		h.lang(r),
