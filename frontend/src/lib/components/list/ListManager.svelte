@@ -14,10 +14,12 @@
     schemaUrl,
     lang: initialLang = 'en',
     onmutate,
+    embedded = false,
   }: {
     schemaUrl: string;
     lang?: string;
     onmutate?: () => void;
+    embedded?: boolean;
   } = $props();
 
   let schema = $state<ListSchema | null>(null);
@@ -351,9 +353,11 @@
   {#if view === 'list'}
     <!-- Toolbar -->
     <div class="flex items-center justify-between mb-6">
-      <h3 class="text-lg leading-6 font-medium text-gray-900">
-        {tr(schema.title, lang)}
-      </h3>
+      {#if !embedded}
+        <h3 class="text-lg leading-6 font-medium text-gray-900">
+          {tr(schema.title, lang)}
+        </h3>
+      {/if}
       {#if schema.capabilities.create}
         <button type="button" onclick={showAdd}
           class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-pletka-primary hover:bg-pletka-secondary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pletka-primary">
