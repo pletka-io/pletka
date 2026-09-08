@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
@@ -18,6 +19,17 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// withSuperadmin injects a super-admin snapshot so a test request clears the
+// RequireProjectRead gate the search routes now carry — these tests exercise
+// inheritance/release behaviour, not the auth gate (which has its own test
+// below).
+func withSuperadmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := weaveauth.WithSnapshot(r.Context(), &weaveauth.AuthSnapshot{IsSuperAdmin: true})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	return testdb.Pool(t)
@@ -130,6 +142,7 @@ func TestInheritedSearch_UsesPinnedParentReleaseState(t *testing.T) {
 	store := weave.NewPostgresStore(pool)
 	h := NewHandler(store, slog.Default())
 	r := chi.NewRouter()
+	r.Use(withSuperadmin)
 	h.Mount(r)
 	ctx := context.Background()
 
@@ -225,6 +238,7 @@ func TestPathSuggestions_UsePinnedParentReleaseState(t *testing.T) {
 	store := weave.NewPostgresStore(pool)
 	h := NewHandler(store, slog.Default())
 	r := chi.NewRouter()
+	r.Use(withSuperadmin)
 	h.Mount(r)
 	ctx := context.Background()
 
@@ -298,5 +312,77 @@ func TestPathSuggestions_UsePinnedParentReleaseState(t *testing.T) {
 	}
 	if len(resp.Suggestions) != 1 || resp.Suggestions[0].Display != "crm:E55_Type" {
 		t.Fatalf("unexpected suggestions: %+v", resp.Suggestions)
+	}
+}
+
+// TestSearchEndpoints_RequireProjectRead guards the H5 fix (Redmine #3554
+// audit): the project-scoped search + path-suggestions routes must require
+// read access, so a private project's entity names and ontology paths are
+// not enumerable anonymously. Anonymous → 404 (RequireProjectRead's deny
+// shape); an owner snapshot passes the gate.
+func TestSearchEndpoints_RequireProjectRead(t *testing.T) {
+	pool := testPool(t)
+	store := weave.NewPostgresStore(pool)
+	h := NewHandler(store, slog.Default())
+
+	ownerID := seedActor(t, pool, "TEST_SEARCH_GATE_OWNER")
+	const projectID = "TEST_SEARCH_GATE_PROJECT"
+	const fieldID = "TEST_SEARCH_GATE_FIELD"
+
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM weave_fields WHERE id = $1`, fieldID)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_projects WHERE id = $1`, projectID)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_actors WHERE id = $1`, ownerID)
+	})
+
+	// Private project (column default) + one searchable field.
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO weave_projects (id, owner_id, visibility) VALUES ($1, $2, 'private')`,
+		projectID, ownerID); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO weave_fields (id, semantic_id, system_name, ui_name, description, status, project_id)
+		VALUES ($1, 'TEST.SEARCH.GATE.1', 'secret-name', '{"en":"Secret Name"}'::jsonb,
+		        '{"en":"private field"}'::jsonb, 'draft', $2)
+	`, fieldID, projectID); err != nil {
+		t.Fatalf("seed field: %v", err)
+	}
+
+	searchURL := "/api/v1/projects/" + projectID + "/search?type=field&q=Secret"
+
+	// Anonymous: no snapshot in context → denied (404), body must not leak.
+	rAnon := chi.NewRouter()
+	h.Mount(rAnon)
+	recAnon := httptest.NewRecorder()
+	rAnon.ServeHTTP(recAnon, httptest.NewRequest(http.MethodGet, searchURL, nil))
+	if recAnon.Code != http.StatusNotFound {
+		t.Fatalf("anonymous search status=%d, want 404; body=%s", recAnon.Code, recAnon.Body.String())
+	}
+
+	// Owner: an explicit project owner role passes the gate → 200 + the field.
+	rOwner := chi.NewRouter()
+	rOwner.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ctx := weaveauth.WithSnapshot(req.Context(), &weaveauth.AuthSnapshot{
+				ActorID: ownerID,
+				Roles:   map[string]string{"project:" + projectID: "owner"},
+			})
+			next.ServeHTTP(w, req.WithContext(ctx))
+		})
+	})
+	h.Mount(rOwner)
+	recOwner := httptest.NewRecorder()
+	rOwner.ServeHTTP(recOwner, httptest.NewRequest(http.MethodGet, searchURL, nil))
+	if recOwner.Code != http.StatusOK {
+		t.Fatalf("owner search status=%d, want 200; body=%s", recOwner.Code, recOwner.Body.String())
+	}
+	var resp domain.SearchResponse
+	if err := json.Unmarshal(recOwner.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode owner search: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].ID != fieldID {
+		t.Fatalf("owner search items=%+v, want the seeded field", resp.Items)
 	}
 }
