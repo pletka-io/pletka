@@ -62,8 +62,13 @@ func Mount(r chi.Router, host Host) {
 }
 
 func (h *Handler) Mount(r chi.Router) {
-	r.With(weaveauth.WithProjectVersionContext).Get("/api/v1/projects/{projectID}/search", h.EntitySearch)
-	r.With(weaveauth.WithProjectVersionContext).Get("/api/v1/projects/{projectID}/path-suggestions", h.PathSuggestionsHandler)
+	// Both routes expose a project's entity names, semantic IDs and ontology
+	// paths (walking the inheritance chain), so they must require read access
+	// to that project — otherwise a private project's schema is enumerable
+	// anonymously by ID.
+	requireRead := weaveauth.RequireProjectRead(h.weave.Projects())
+	r.With(weaveauth.WithProjectVersionContext, requireRead).Get("/api/v1/projects/{projectID}/search", h.EntitySearch)
+	r.With(weaveauth.WithProjectVersionContext, requireRead).Get("/api/v1/projects/{projectID}/path-suggestions", h.PathSuggestionsHandler)
 }
 
 // EntitySearch handles GET /api/v1/projects/{projectID}/search?type=field&q=...

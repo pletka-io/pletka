@@ -491,6 +491,7 @@ func buildOntologyHosts(
 			Logger:       logger,
 			Languages:    languages,
 			LangResolver: langResolver,
+			Projects:     weave.Projects(),
 		}, weaveontology.PagesHost{
 			Service:   svc,
 			Logger:    logger,

@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/session"
@@ -148,11 +149,20 @@ type APIHost struct {
 	Logger       *slog.Logger
 	Languages    []formschema.LanguageInfo
 	LangResolver func(*http.Request) string
+	// Projects gates the project-scoped ontology-labels route with
+	// RequireProjectRead. Required — the labels endpoint leaks which
+	// ontology classes/properties a private project uses. The global
+	// autocomplete/edge-provenance endpoints are deliberately unscoped and
+	// do not consult it.
+	Projects auth.ProjectReader
 }
 
 func (h APIHost) Validate() error {
 	if h.Service == nil {
 		return fmt.Errorf("ontology api host missing required dependencies: Service")
+	}
+	if h.Projects == nil {
+		return fmt.Errorf("ontology api host missing required dependencies: Projects")
 	}
 	return nil
 }
@@ -167,7 +177,8 @@ func MountAPI(parent chi.Router, host APIHost) {
 
 	parent.Post("/api/v1/ontology/autocomplete", h.Autocomplete)
 	parent.Get("/api/v1/ontology/edge-provenance", h.EdgeProvenance)
-	parent.Get("/api/projects/{projectID}/ontology-labels", h.OntologyLabels)
+	parent.With(auth.RequireProjectRead(host.Projects)).
+		Get("/api/projects/{projectID}/ontology-labels", h.OntologyLabels)
 }
 
 type PagesHost struct {
