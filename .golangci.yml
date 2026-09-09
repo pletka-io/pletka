@@ -74,6 +74,12 @@ linters:
     gocritic:
       disabled-checks:
         - ifElseChain
+      enabled-checks:
+        - ruleguard
+      settings:
+        ruleguard:
+          rules: "pkg/auth/ruleguard/rules.go"
+          failOn: "dsl"
 
   exclusions:
     rules:
@@ -83,6 +89,15 @@ linters:
           - gosec
           - goconst
           - errcheck
+      # Test fixtures legitimately hand-build auth.Resource{} literals to
+      # exercise Can()/EffectiveRole() directly; the ruleguard convention
+      # guard (pkg/auth/ruleguard/rules.go) targets production call sites,
+      # not test setup — scoped to the rule's own message so every other
+      # gocritic check still runs on test files.
+      - path: _test\.go
+        linters:
+          - gocritic
+        text: "^ruleguard: construct auth resources via auth\\.ProjectResource"
 
 issues:
   max-issues-per-linter: 0

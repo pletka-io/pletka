@@ -59,7 +59,7 @@ func (h *Handler) loadProjectAndGate(ctx context.Context, w http.ResponseWriter,
 		apierror.Write(w, apierror.NotFound("Project not found"))
 		return nil, false
 	}
-	res := projectResource(project)
+	res := auth.ProjectResource(project)
 	snap := auth.FromContext(ctx)
 	if !snap.Can(cap, res, nil) {
 		if snap.IsAnonymous {
@@ -70,18 +70,6 @@ func (h *Handler) loadProjectAndGate(ctx context.Context, w http.ResponseWriter,
 		return nil, false
 	}
 	return project, true
-}
-
-func projectResource(p *domain.Project) auth.Resource {
-	visibility := "private"
-	if p.Visibility != "" {
-		visibility = p.Visibility
-	}
-	return auth.Resource{
-		ScopeType:  "project",
-		ID:         p.ID,
-		Visibility: visibility,
-	}
 }
 
 // listSchemaItem is one integration card. Each carries zero or more

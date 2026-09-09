@@ -250,7 +250,7 @@ func (h *Handler) CreateProjectAdoption(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}
-	if !h.svc.CanEdit(ctx, projectID, project.Visibility) {
+	if !h.svc.CanEdit(ctx, project) {
 		writeEditDenied(w, r)
 		return
 	}

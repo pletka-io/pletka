@@ -1395,7 +1395,7 @@ func (h *Handler) projectResource(ctx context.Context, projectID string) auth.Re
 	}
 	project, err := h.weave.Projects().GetByID(ctx, projectID)
 	if err != nil || project == nil {
-		return auth.Resource{ScopeType: "project"}
+		return auth.ProjectResource(nil)
 	}
 	return auth.ProjectResource(project)
 }

@@ -52,7 +52,7 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}
-	if !h.svc.CanEdit(ctx, projectID, project.Visibility) {
+	if !h.svc.CanEdit(ctx, project) {
 		writeEditDenied(w, r)
 		return
 	}

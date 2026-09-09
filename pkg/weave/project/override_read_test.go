@@ -40,12 +40,13 @@ func TestOverrideCapabilitiesCanHideFieldsMirrorsEditPermission(t *testing.T) {
 	}
 
 	h := &Handler{}
+	p := &domain.Project{Entity: domain.Entity{ID: "P1"}, Visibility: "private"}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := weaveauth.WithSnapshot(context.Background(), tc.snap)
-			canEdit := h.svc.CanEdit(ctx, "P1", "private")
+			canEdit := h.svc.CanEdit(ctx, p)
 
-			caps := h.overrideCapabilities(ctx, "P1", "private", tc.supportsAddCollection)
+			caps := h.overrideCapabilities(ctx, p, tc.supportsAddCollection)
 
 			if caps.CanHideFields != canEdit {
 				t.Fatalf("CanHideFields = %v, want %v (mirrors CanEdit)", caps.CanHideFields, canEdit)

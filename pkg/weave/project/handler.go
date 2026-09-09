@@ -162,7 +162,7 @@ func (h *Handler) Data(w http.ResponseWriter, r *http.Request) {
 				row.OwnerKind = owner.Type
 			}
 		}
-		if h.svc.CanEdit(ctx, p.ID, row.Visibility) {
+		if h.svc.CanEdit(ctx, p) {
 			row.CanEdit = true
 			resolved, lerr := h.svc.ResolvedOntologyVersions(ctx, p.ID, domain.ResolvedOntologyVersionOpts{})
 			if lerr != nil {
@@ -382,7 +382,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	ownerID := principal.ActorID
 	if requested := strings.TrimSpace(body.OwnerID); requested != "" && requested != principal.ActorID {
-		if !auth.FromContext(r.Context()).Can(auth.OrgProjectCreate, auth.Resource{ScopeType: "org", ID: requested}, nil) {
+		if !auth.FromContext(r.Context()).Can(auth.OrgProjectCreate, auth.OrgResourceByID(requested), nil) {
 			writeError(w, http.StatusForbidden, "forbidden: requires org.project_create on org:"+requested)
 			return
 		}

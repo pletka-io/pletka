@@ -350,11 +350,14 @@ func GenerateIDPrefixSuggestions(prefix string, existing map[string]bool) []stri
 
 // CanEdit reports whether the caller's auth snapshot allows ProjectEdit
 // on the given project. Used by the data-API to decide whether to render
-// per-row "needs setup" badges.
-func (s *Service) CanEdit(ctx context.Context, projectID, visibility string) bool {
-	snap := auth.FromContext(ctx)
-	res := auth.Resource{ScopeType: "project", ID: projectID, Visibility: visibility}
-	return snap.Can(auth.ProjectEdit, res, nil)
+// per-row "needs setup" badges. Takes the loaded project (not just its
+// id/visibility) so auth.ProjectResource can carry OrgID and org-inherited
+// owner/admin roles resolve correctly.
+func (s *Service) CanEdit(ctx context.Context, p *domain.Project) bool {
+	if p == nil {
+		return false
+	}
+	return auth.FromContext(ctx).Can(auth.ProjectEdit, auth.ProjectResource(p), nil)
 }
 
 // CanRead reports whether the caller's auth snapshot allows ProjectRead for p.
@@ -362,13 +365,7 @@ func (s *Service) CanRead(ctx context.Context, p *domain.Project) bool {
 	if p == nil {
 		return false
 	}
-	visibility := p.Visibility
-	if visibility == "" {
-		visibility = "public"
-	}
-	snap := auth.FromContext(ctx)
-	res := auth.Resource{ScopeType: "project", ID: p.ID, OrgID: p.OwnerID, Visibility: visibility}
-	return snap.Can(auth.ProjectRead, res, nil)
+	return auth.FromContext(ctx).Can(auth.ProjectRead, auth.ProjectResource(p), nil)
 }
 
 // ---------------------------------------------------------------------------

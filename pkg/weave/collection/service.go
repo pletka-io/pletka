@@ -1011,24 +1011,17 @@ func marshalCollection(c *domain.Collection) []byte {
 // ---------------------------------------------------------------------------
 
 func (s *Service) requireProjectRead(ctx context.Context, projectID string) error {
-	visibility := "public"
-	orgID := ""
-	if s.projects != nil {
-		project, err := s.projects.GetByID(ctx, projectID)
-		if err != nil {
-			return fmt.Errorf("load project %s for auth: %w", projectID, err)
-		}
-		if project == nil {
-			return errNotFound
-		}
-		if project.Visibility != "" {
-			visibility = project.Visibility
-		}
-		orgID = project.OwnerID
+	if s.projects == nil {
+		return nil
 	}
-	snap := auth.FromContext(ctx)
-	res := auth.Resource{ScopeType: "project", ID: projectID, OrgID: orgID, Visibility: visibility}
-	if !snap.Can(auth.ProjectRead, res, nil) {
+	project, err := s.projects.GetByID(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("load project %s for auth: %w", projectID, err)
+	}
+	if project == nil {
+		return errNotFound
+	}
+	if !auth.FromContext(ctx).Can(auth.ProjectRead, auth.ProjectResource(project), nil) {
 		return &ErrForbidden{Capability: string(auth.ProjectRead), Resource: "project:" + projectID}
 	}
 	return nil
