@@ -7,54 +7,53 @@ import (
 	"github.com/pletka-io/pletka/pkg/auth"
 )
 
-// TestProjectCreateOrgIDs is the regression test for the L4 rewrite of
-// projectCreateOrgIDs: it must return org ids where the snapshot's role
-// grants auth.OrgProjectCreate (owner/admin) via the capability model, not
-// a hand-rolled string comparison, and must exclude org roles that don't
-// grant it (member/viewer) and non-org role keys.
+// TestProjectCreateOrgIDs covers projectCreateOrgIDs: it returns the org ids
+// whose role grants auth.OrgProjectCreate (owner/admin) via the capability
+// model — excluding roles that don't (member/viewer) and non-org keys — and
+// returns the all=true sentinel for a super-admin so the caller enumerates
+// every org (Redmine #3559).
 func TestProjectCreateOrgIDs(t *testing.T) {
-	t.Run("nil snapshot returns nil", func(t *testing.T) {
-		if got := projectCreateOrgIDs(nil); got != nil {
-			t.Fatalf("got %v, want nil", got)
+	t.Run("nil snapshot returns none", func(t *testing.T) {
+		all, ids := projectCreateOrgIDs(nil)
+		if all || ids != nil {
+			t.Fatalf("got (all=%v, ids=%v), want (false, nil)", all, ids)
 		}
 	})
 
-	snap := &auth.AuthSnapshot{
-		Roles: map[string]string{
-			"org:org-owner":      "owner",
-			"org:org-admin":      "admin",
-			"org:org-member":     "member",
-			"org:org-viewer":     "viewer",
-			"project:proj-owner": "owner",
-		},
-	}
-
-	got := projectCreateOrgIDs(snap)
-	sort.Strings(got)
-
-	want := []string{"org-admin", "org-owner"}
-	if len(got) != len(want) {
-		t.Fatalf("projectCreateOrgIDs() = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("projectCreateOrgIDs() = %v, want %v", got, want)
-		}
-	}
-
-	t.Run("super-admin org membership of any role is included", func(t *testing.T) {
-		// AuthSnapshot.Can short-circuits true for IsSuperAdmin regardless
-		// of the org's own role, so a super-admin holding only a "member"
-		// row on an org must still see that org as a create target.
-		superSnap := &auth.AuthSnapshot{
-			IsSuperAdmin: true,
+	t.Run("regular actor: only owner/admin org roles", func(t *testing.T) {
+		snap := &auth.AuthSnapshot{
 			Roles: map[string]string{
-				"org:X": "member",
+				"org:org-owner":      "owner",
+				"org:org-admin":      "admin",
+				"org:org-member":     "member",
+				"org:org-viewer":     "viewer",
+				"project:proj-owner": "owner",
 			},
 		}
-		got := projectCreateOrgIDs(superSnap)
-		if len(got) != 1 || got[0] != "X" {
-			t.Fatalf("projectCreateOrgIDs() = %v, want [X]", got)
+		all, got := projectCreateOrgIDs(snap)
+		if all {
+			t.Fatalf("all = true, want false for a non super-admin")
+		}
+		sort.Strings(got)
+		want := []string{"org-admin", "org-owner"}
+		if len(got) != len(want) {
+			t.Fatalf("projectCreateOrgIDs() = %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("projectCreateOrgIDs() = %v, want %v", got, want)
+			}
+		}
+	})
+
+	t.Run("super-admin returns the all sentinel", func(t *testing.T) {
+		// A super-admin can create under ANY org. Even with no explicit org
+		// membership rows (the #3559 case), they must get all=true so the
+		// caller enumerates every org instead of the empty role-derived set.
+		superSnap := &auth.AuthSnapshot{IsSuperAdmin: true}
+		all, ids := projectCreateOrgIDs(superSnap)
+		if !all || ids != nil {
+			t.Fatalf("got (all=%v, ids=%v), want (true, nil)", all, ids)
 		}
 	})
 }
