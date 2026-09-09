@@ -186,28 +186,40 @@ func (h *Handler) attachProjectOwnerField(r *http.Request, schema *formschema.Fo
 	}
 	seen := map[string]struct{}{principal.ActorID: {}}
 	if h.orgs != nil {
-		orgIDs := projectCreateOrgIDs(auth.FromContext(r.Context()))
-		if len(orgIDs) > 0 {
-			items, err := h.orgs.ListByIDs(r.Context(), orgIDs)
-			if err != nil {
-				h.logger.Debug("load org owner options failed", "err", err)
-			} else {
-				slices.SortFunc(items, func(a, b organization.BrowseItem) int {
-					if cmp := strings.Compare(strings.ToLower(a.DisplayName), strings.ToLower(b.DisplayName)); cmp != 0 {
-						return cmp
-					}
-					return strings.Compare(a.Slug, b.Slug)
-				})
-				for _, item := range items {
-					if _, ok := seen[item.ID]; ok {
-						continue
-					}
-					seen[item.ID] = struct{}{}
-					options = append(options, formschema.SelectOption{
-						Value: item.ID,
-						Label: pkglangOrFallback(fmt.Sprintf("Organization · %s", strings.TrimSpace(item.DisplayName)), item.Slug),
-					})
+		all, orgIDs := projectCreateOrgIDs(auth.FromContext(r.Context()))
+		var items []organization.BrowseItem
+		var err error
+		switch {
+		case all:
+			// Super-admin: any org is a valid owner. Enumerate all orgs
+			// (owners are institutions, not high-cardinality; a large single
+			// page covers the picker) — see Redmine #3559.
+			res, berr := h.orgs.Browse(r.Context(), organization.BrowseInput{IncludePrivate: true, Page: 1, PerPage: 1000})
+			if berr == nil {
+				items = res.Items
+			}
+			err = berr
+		case len(orgIDs) > 0:
+			items, err = h.orgs.ListByIDs(r.Context(), orgIDs)
+		}
+		if err != nil {
+			h.logger.Debug("load org owner options failed", "err", err)
+		} else {
+			slices.SortFunc(items, func(a, b organization.BrowseItem) int {
+				if cmp := strings.Compare(strings.ToLower(a.DisplayName), strings.ToLower(b.DisplayName)); cmp != 0 {
+					return cmp
 				}
+				return strings.Compare(a.Slug, b.Slug)
+			})
+			for _, item := range items {
+				if _, ok := seen[item.ID]; ok {
+					continue
+				}
+				seen[item.ID] = struct{}{}
+				options = append(options, formschema.SelectOption{
+					Value: item.ID,
+					Label: pkglangOrFallback(fmt.Sprintf("Organization · %s", strings.TrimSpace(item.DisplayName)), item.Slug),
+				})
 			}
 		}
 	}
@@ -235,25 +247,33 @@ func (h *Handler) attachProjectOwnerField(r *http.Request, schema *formschema.Fo
 	schema.Sections[0].Fields = fields
 }
 
-func projectCreateOrgIDs(snap *auth.AuthSnapshot) []string {
+// projectCreateOrgIDs reports which organizations the snapshot may own a new
+// project. It returns (all=true, nil) for a super-admin — who can create under
+// ANY org, so the caller must enumerate every org rather than a fixed id set
+// (mirrors organization.ReadableOrgIDs). Otherwise it returns
+// (false, the org ids whose role grants auth.OrgProjectCreate). A non
+// super-admin only ever sees orgs present as an "org:" role key, so a
+// super-admin with no explicit membership would otherwise get an empty
+// list — the all=true sentinel is what lets the caller show them the org
+// options they are in fact authorized for (Redmine #3559).
+func projectCreateOrgIDs(snap *auth.AuthSnapshot) (all bool, ids []string) {
 	if snap == nil {
-		return nil
+		return false, nil
 	}
-	ids := make([]string, 0, len(snap.Roles))
+	if snap.IsSuperAdmin {
+		return true, nil
+	}
+	ids = make([]string, 0, len(snap.Roles))
 	for key := range snap.Roles {
 		if !strings.HasPrefix(key, "org:") {
 			continue
 		}
 		orgID := strings.TrimPrefix(key, "org:")
-		// snap.Can short-circuits true for a super-admin regardless of the
-		// org's own role (see AuthSnapshot.Can), so a super-admin org
-		// membership row of any role — even "member" — is included here.
-		// Intentional: a super-admin can create projects in any org.
 		if snap.Can(auth.OrgProjectCreate, auth.OrgResourceByID(orgID), nil) {
 			ids = append(ids, orgID)
 		}
 	}
-	return ids
+	return false, ids
 }
 
 func pkglangOrFallback(label, fallback string) pkgdomain.Translations {
