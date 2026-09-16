@@ -773,7 +773,13 @@
   }
 
   function occurrenceIsStub(field: ExampleFormField, occurrence: OccurrenceState): boolean {
-    return field.value_kind === 'example_ref' && !occurrence.value.trim() && Boolean(occurrence.stub_label?.trim());
+    return (
+      field.value_kind === 'example_ref' &&
+      (field.expected_value_type || '').trim() === 'Model' &&
+      (field.resource_models ?? []).length > 0 &&
+      !occurrence.value.trim() &&
+      Boolean(occurrence.stub_label?.trim())
+    );
   }
 
   function occurrenceIsBlank(field: ExampleFormField, occurrence: OccurrenceState): boolean {
@@ -998,7 +1004,7 @@
         for (const occurrence of fieldOccurrences(field)) {
           if (!occurrenceIsStub(field, occurrence)) continue;
           const models = field.resource_models ?? [];
-          const missingTarget = (models.length > 1 && !occurrence.stub_model) || (models.length === 0 && !occurrence.stub_model?.trim());
+          const missingTarget = models.length > 1 && !occurrence.stub_model;
           if (missingTarget) {
             return `Choose a model for the new draft "${occurrence.stub_label!.trim()}".`;
           }
@@ -1431,8 +1437,7 @@
                                             No eligible examples exist yet for this field.
                                           </div>
                                         {/if}
-                                        {#if !linkedSelection}
-                                          {@const occ = valuesByOverride[key][occurrenceIdx]}
+                                        {#if !linkedSelection && (field.expected_value_type || '').trim() === 'Model' && (field.resource_models ?? []).length > 0}
                                           {@const models = field.resource_models ?? []}
                                           <div class="rounded-md border border-dashed border-gray-300 bg-white px-3 py-2">
                                             <label class="block text-xs font-medium text-gray-600" for={`stub-${field.override_id}-${occurrence.occurrence_index}`}>
@@ -1453,16 +1458,9 @@
                                                     <option value={model.id}>{translated(model.name, model.semantic_id || model.id)}</option>
                                                   {/each}
                                                 </select>
-                                              {:else if models.length === 0}
-                                                <input
-                                                  type="text"
-                                                  class="w-40 rounded-md border border-gray-300 px-2 py-1 font-mono text-sm"
-                                                  placeholder="Model ID, e.g. LAM.3"
-                                                  bind:value={valuesByOverride[key][occurrenceIdx].stub_model}
-                                                />
                                               {/if}
                                             </div>
-                                            {#if occurrenceIsStub(field, occ)}
+                                            {#if occurrenceIsStub(field, occurrence)}
                                               <p class="mt-1 text-xs text-gray-500">Saving creates a <span class="font-medium">draft</span> example with this title and links it here. Finish it from the Examples tab.</p>
                                             {/if}
                                           </div>
@@ -1631,8 +1629,7 @@
                                                       No eligible examples exist yet for this field.
                                                     </div>
                                                   {/if}
-                                                  {#if !linkedSelection}
-                                                    {@const occ = valuesByOverride[key][occurrenceIdx]}
+                                                  {#if !linkedSelection && (field.expected_value_type || '').trim() === 'Model' && (field.resource_models ?? []).length > 0}
                                                     {@const models = field.resource_models ?? []}
                                                     <div class="rounded-md border border-dashed border-gray-300 bg-white px-3 py-2">
                                                       <label class="block text-xs font-medium text-gray-600" for={`stub-${field.override_id}-${occurrence.occurrence_index}`}>
@@ -1653,16 +1650,9 @@
                                                               <option value={model.id}>{translated(model.name, model.semantic_id || model.id)}</option>
                                                             {/each}
                                                           </select>
-                                                        {:else if models.length === 0}
-                                                          <input
-                                                            type="text"
-                                                            class="w-40 rounded-md border border-gray-300 px-2 py-1 font-mono text-sm"
-                                                            placeholder="Model ID, e.g. LAM.3"
-                                                            bind:value={valuesByOverride[key][occurrenceIdx].stub_model}
-                                                          />
                                                         {/if}
                                                       </div>
-                                                      {#if occurrenceIsStub(field, occ)}
+                                                      {#if occurrenceIsStub(field, occurrence)}
                                                         <p class="mt-1 text-xs text-gray-500">Saving creates a <span class="font-medium">draft</span> example with this title and links it here. Finish it from the Examples tab.</p>
                                                       {/if}
                                                     </div>
