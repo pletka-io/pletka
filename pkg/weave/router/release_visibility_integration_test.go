@@ -418,6 +418,16 @@ func testPrivateProjectWithMember(t *testing.T, pool *pgxpool.Pool, router http.
 		}
 	})
 
+	t.Run("stats: anonymous 404s, member sees stats", func(t *testing.T) {
+		statsPath := detailPath + "/stats"
+		if code := doRequest(router, statsPath, nil).Code; code != http.StatusNotFound {
+			t.Fatalf("anonymous status = %d, want 404", code)
+		}
+		if code := doRequest(router, statsPath, member).Code; code != http.StatusOK {
+			t.Fatalf("member status = %d, want 200", code)
+		}
+	})
+
 	t.Run("page-schema: anonymous 404s, member reaches the page", func(t *testing.T) {
 		if code, _ := fetchOverviewContentURL(t, router, schemaPath, nil); code != http.StatusNotFound {
 			t.Fatalf("anonymous status = %d, want 404", code)

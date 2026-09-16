@@ -170,10 +170,17 @@ func Mount(r chi.Router, host Host) error {
 
 // Mount registers the parallel detailview routes under the weave project base.
 func (h *Handler) Mount(r chi.Router) {
-	mw := []func(http.Handler) http.Handler{auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)}
+	// RequireProjectRead both loads the project into context (same
+	// auth.WithProject attachment auth.ProjectFromContext/
+	// auth.ResolveContentVersion read) and 404s a caller without
+	// ProjectRead on it — anonymous on a private project. That replaces
+	// the previous auth.WithProjectResource, which loaded+attached the
+	// project but never enforced read access, leaving API/StatsAPI open
+	// to anonymous reads of private project content.
+	mw := []func(http.Handler) http.Handler{auth.WithProjectVersionContext, auth.RequireProjectRead(h.weave.Projects())}
 	if h.publication != nil {
 		// ResolveContentVersion needs the project loaded into context by
-		// WithProjectResource, so it must come after it in the chain.
+		// RequireProjectRead, so it must come after it in the chain.
 		mw = append(mw, auth.ResolveContentVersion(h.publication))
 	}
 	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}", h.API)
