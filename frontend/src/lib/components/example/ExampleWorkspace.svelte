@@ -338,7 +338,7 @@
   }
 
   function fieldFilledCount(field: ExampleFormField): number {
-    return fieldOccurrences(field).filter((occ) => !isBlank(field, occ.value)).length;
+    return fieldOccurrences(field).filter((occ) => !occurrenceIsBlank(field, occ)).length;
   }
 
   function fieldHasAnyValue(field: ExampleFormField): boolean {
@@ -910,6 +910,9 @@
   }
 
   function occurrenceDisplayValue(field: ExampleFormField, occurrence: OccurrenceState): string {
+    if (occurrenceIsStub(field, occurrence)) {
+      return `${occurrence.stub_label!.trim()} (new draft)`;
+    }
     const raw = occurrence.value?.trim() ?? '';
     if (!raw) return '';
     if (field.value_kind === 'example_ref') {
@@ -987,10 +990,33 @@
     return out;
   }
 
+  function firstStubWithoutTarget(): string | null {
+    if (!schema) return null;
+    for (const section of schema.sections ?? []) {
+      const fields = [...(section.direct_fields ?? []), ...(section.groups ?? []).flatMap((group) => group.fields ?? [])];
+      for (const field of fields) {
+        for (const occurrence of fieldOccurrences(field)) {
+          if (!occurrenceIsStub(field, occurrence)) continue;
+          const models = field.resource_models ?? [];
+          const missingTarget = (models.length > 1 && !occurrence.stub_model) || (models.length === 0 && !occurrence.stub_model?.trim());
+          if (missingTarget) {
+            return `Choose a model for the new draft "${occurrence.stub_label!.trim()}".`;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   async function submit() {
     if (!schema?.endpoint) return;
     if (!selectedModelId) {
       error = 'Select a model first.';
+      return;
+    }
+    const stubIssue = firstStubWithoutTarget();
+    if (stubIssue) {
+      error = stubIssue;
       return;
     }
     saving = true;
@@ -1024,10 +1050,12 @@
         currentMode = 'edit';
         titleValues = data.example?.title ?? titleValues;
         descriptionValues = data.example?.description ?? descriptionValues;
+        await loadAvailableExamples();
         await loadSchemaForEdit(currentExampleId);
         return;
       }
       addToast('success', translated(schema.ui.success_message, 'Example saved'));
+      await loadAvailableExamples();
       onsuccess?.();
     } catch (e: any) {
       error = e?.message || 'Failed to save example';
@@ -1403,6 +1431,42 @@
                                             No eligible examples exist yet for this field.
                                           </div>
                                         {/if}
+                                        {#if !linkedSelection}
+                                          {@const occ = valuesByOverride[key][occurrenceIdx]}
+                                          {@const models = field.resource_models ?? []}
+                                          <div class="rounded-md border border-dashed border-gray-300 bg-white px-3 py-2">
+                                            <label class="block text-xs font-medium text-gray-600" for={`stub-${field.override_id}-${occurrence.occurrence_index}`}>
+                                              Or create a new draft {models.length === 1 ? translated(models[0].name, models[0].semantic_id || models[0].id) : 'example'} named
+                                            </label>
+                                            <div class="mt-1 flex flex-wrap items-center gap-2">
+                                              <input
+                                                id={`stub-${field.override_id}-${occurrence.occurrence_index}`}
+                                                type="text"
+                                                class="min-w-[12rem] flex-1 rounded-md border border-gray-300 px-2 py-1 text-sm"
+                                                placeholder="e.g. Van Gogh"
+                                                bind:value={valuesByOverride[key][occurrenceIdx].stub_label}
+                                              />
+                                              {#if models.length > 1}
+                                                <select class="rounded-md border border-gray-300 px-2 py-1 text-sm" bind:value={valuesByOverride[key][occurrenceIdx].stub_model}>
+                                                  <option value="">Choose model…</option>
+                                                  {#each models as model (model.id)}
+                                                    <option value={model.id}>{translated(model.name, model.semantic_id || model.id)}</option>
+                                                  {/each}
+                                                </select>
+                                              {:else if models.length === 0}
+                                                <input
+                                                  type="text"
+                                                  class="w-40 rounded-md border border-gray-300 px-2 py-1 font-mono text-sm"
+                                                  placeholder="Model ID, e.g. LAM.3"
+                                                  bind:value={valuesByOverride[key][occurrenceIdx].stub_model}
+                                                />
+                                              {/if}
+                                            </div>
+                                            {#if occurrenceIsStub(field, occ)}
+                                              <p class="mt-1 text-xs text-gray-500">Saving creates a <span class="font-medium">draft</span> example with this title and links it here. Finish it from the Examples tab.</p>
+                                            {/if}
+                                          </div>
+                                        {/if}
                                       </div>
                                     {/if}
                                     {#if occurrenceWarningMessages.length}
@@ -1567,6 +1631,42 @@
                                                       No eligible examples exist yet for this field.
                                                     </div>
                                                   {/if}
+                                                  {#if !linkedSelection}
+                                                    {@const occ = valuesByOverride[key][occurrenceIdx]}
+                                                    {@const models = field.resource_models ?? []}
+                                                    <div class="rounded-md border border-dashed border-gray-300 bg-white px-3 py-2">
+                                                      <label class="block text-xs font-medium text-gray-600" for={`stub-${field.override_id}-${occurrence.occurrence_index}`}>
+                                                        Or create a new draft {models.length === 1 ? translated(models[0].name, models[0].semantic_id || models[0].id) : 'example'} named
+                                                      </label>
+                                                      <div class="mt-1 flex flex-wrap items-center gap-2">
+                                                        <input
+                                                          id={`stub-${field.override_id}-${occurrence.occurrence_index}`}
+                                                          type="text"
+                                                          class="min-w-[12rem] flex-1 rounded-md border border-gray-300 px-2 py-1 text-sm"
+                                                          placeholder="e.g. Van Gogh"
+                                                          bind:value={valuesByOverride[key][occurrenceIdx].stub_label}
+                                                        />
+                                                        {#if models.length > 1}
+                                                          <select class="rounded-md border border-gray-300 px-2 py-1 text-sm" bind:value={valuesByOverride[key][occurrenceIdx].stub_model}>
+                                                            <option value="">Choose model…</option>
+                                                            {#each models as model (model.id)}
+                                                              <option value={model.id}>{translated(model.name, model.semantic_id || model.id)}</option>
+                                                            {/each}
+                                                          </select>
+                                                        {:else if models.length === 0}
+                                                          <input
+                                                            type="text"
+                                                            class="w-40 rounded-md border border-gray-300 px-2 py-1 font-mono text-sm"
+                                                            placeholder="Model ID, e.g. LAM.3"
+                                                            bind:value={valuesByOverride[key][occurrenceIdx].stub_model}
+                                                          />
+                                                        {/if}
+                                                      </div>
+                                                      {#if occurrenceIsStub(field, occ)}
+                                                        <p class="mt-1 text-xs text-gray-500">Saving creates a <span class="font-medium">draft</span> example with this title and links it here. Finish it from the Examples tab.</p>
+                                                      {/if}
+                                                    </div>
+                                                  {/if}
                                                 </div>
                                               {/if}
                                               {#if occurrenceWarningMessages.length}
@@ -1608,7 +1708,7 @@
                                 </div>
                                 <div class="mt-3 space-y-2">
                                   {#each fieldOccurrences(field) as occurrence (occurrence.occurrence_index)}
-                                    {#if !isBlank(field, occurrence.value)}
+                                    {#if !occurrenceIsBlank(field, occurrence)}
                                       <div class="rounded-md border border-gray-100 bg-gray-50/60 px-3 py-2">
                                         {#if field.repeatable}
                                           <div class="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">Occurrence {occurrence.occurrence_index + 1}</div>
@@ -1656,7 +1756,7 @@
                                         </div>
                                         <div class="mt-3 space-y-2">
                                           {#each fieldOccurrences(field) as occurrence (occurrence.occurrence_index)}
-                                            {#if !isBlank(field, occurrence.value)}
+                                            {#if !occurrenceIsBlank(field, occurrence)}
                                               <div class="rounded-md border border-gray-100 bg-gray-50/60 px-3 py-2">
                                                 {#if field.repeatable}
                                                   <div class="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">Occurrence {occurrence.occurrence_index + 1}</div>
