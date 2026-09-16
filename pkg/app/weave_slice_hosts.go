@@ -281,13 +281,15 @@ func buildProjectPagesHost(
 	weave domain.WeaveStore,
 	i18nManager i18n.Manager,
 	sessionManager *session.Manager,
+	publicationReader *publication.Reader,
 ) weavepages.Host {
 	return weavepages.Host{
-		Logger:   logger,
-		Renderer: templates,
-		Weave:    weave,
-		I18n:     i18nManager,
-		Session:  sessionManager,
+		Logger:        logger,
+		Renderer:      templates,
+		Weave:         weave,
+		I18n:          i18nManager,
+		Session:       sessionManager,
+		LatestRelease: publicationReader,
 	}
 }
 
