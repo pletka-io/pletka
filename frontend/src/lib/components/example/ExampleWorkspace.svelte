@@ -55,6 +55,10 @@
   type OccurrenceState = {
     occurrence_index: number;
     value: string;
+    // Stub creation for example_ref fields: a typed label (and, when the
+    // field allows several models, the chosen target) instead of `value`.
+    stub_label?: string;
+    stub_model?: string;
   };
 
   type FilterMode = 'all' | 'required' | 'issues';
@@ -763,6 +767,32 @@
     return raw.trim() === '';
   }
 
+  function soleResourceModel(field: ExampleFormField): string {
+    const models = field.resource_models ?? [];
+    return models.length === 1 ? models[0].id : '';
+  }
+
+  function occurrenceIsStub(field: ExampleFormField, occurrence: OccurrenceState): boolean {
+    return field.value_kind === 'example_ref' && !occurrence.value.trim() && Boolean(occurrence.stub_label?.trim());
+  }
+
+  function occurrenceIsBlank(field: ExampleFormField, occurrence: OccurrenceState): boolean {
+    if (occurrenceIsStub(field, occurrence)) return false;
+    return isBlank(field, occurrence.value);
+  }
+
+  function refPayload(field: ExampleFormField, occurrence: OccurrenceState): Record<string, any> {
+    if (occurrenceIsStub(field, occurrence)) {
+      const target = occurrence.stub_model || soleResourceModel(field);
+      return {
+        kind: 'example_ref',
+        target_label: occurrence.stub_label!.trim(),
+        ...(target ? { target_entity_id: target } : {}),
+      };
+    }
+    return { kind: 'example_ref', example_id: occurrence.value };
+  }
+
   function occurrenceFieldDef(field: ExampleFormField, occurrenceIndex: number): FieldDef {
     const fixedConcept = field.value_kind === 'concept' && Boolean(field.set_value);
     return {
@@ -942,13 +972,14 @@
       const fields = [...(section.direct_fields ?? []), ...(section.groups ?? []).flatMap((group) => group.fields ?? [])];
       for (const field of fields) {
         for (const occurrence of fieldOccurrences(field)) {
-          if (isBlank(field, occurrence.value)) continue;
+          if (occurrenceIsBlank(field, occurrence)) continue;
           out.push({
             override_id: field.override_id,
             field_id: field.field_id,
             occurrence_index: occurrence.occurrence_index,
             value_kind: field.value_kind,
-            value_payload: inputToPayload(field, occurrence.value),
+            value_payload:
+              field.value_kind === 'example_ref' ? refPayload(field, occurrence) : inputToPayload(field, occurrence.value),
           });
         }
       }
@@ -971,6 +1002,7 @@
         title: titleValues,
         description: descriptionValues,
         values: serializeValues(),
+        lang: primaryLang,
       };
       const res = await fetch(schema.endpoint.url, {
         method: schema.endpoint.method,
