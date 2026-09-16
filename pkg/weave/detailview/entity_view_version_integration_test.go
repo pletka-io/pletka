@@ -55,6 +55,9 @@ func TestEntityViewVersion_ServesResolvedRelease(t *testing.T) {
 	modelID := ids.GenerateULID()
 	collectionID := ids.GenerateULID()
 	fieldID := ids.GenerateULID()
+	unreleasedModelID := ids.GenerateULID()
+	unreleasedCollectionID := ids.GenerateULID()
+	unreleasedFieldID := ids.GenerateULID()
 
 	t.Cleanup(func() {
 		bg := context.Background()
@@ -176,6 +179,55 @@ func TestEntityViewVersion_ServesResolvedRelease(t *testing.T) {
 		t.Fatalf("rename live override: %v", err)
 	}
 
+	// Seed a model/collection/field CREATED AFTER the release, on the
+	// SAME project. These have no archive row anywhere (never released),
+	// which is the leak case the header-getter fallback must not paper
+	// over: falling back to hot here would serve draft content to an
+	// anonymous viewer under a "Viewing release X" response.
+	unreleasedModel := &domain.Model{
+		Entity: domain.Entity{
+			ID:         unreleasedModelID,
+			ProjectID:  projectID,
+			SemanticID: "ENTVERM.2",
+			SystemName: "unreleased_model",
+			UIName:     domain.Translations{"en": "Unreleased Model"},
+			Status:     domain.StatusDraft,
+		},
+		OntologyScope: domain.PathElement{Type: "class", Prefix: "crm", LocalName: "E21_Person"},
+		ModelType:     domain.ModelTypeAuxiliary,
+	}
+	if err := modelStore.Create(ctx, unreleasedModel); err != nil {
+		t.Fatalf("seed unreleased model: %v", err)
+	}
+	unreleasedCollection := &domain.Collection{
+		Entity: domain.Entity{
+			ID:         unreleasedCollectionID,
+			ProjectID:  projectID,
+			SemanticID: "ENTVERC.2",
+			SystemName: "unreleased_collection",
+			UIName:     domain.Translations{"en": "Unreleased Collection"},
+			Status:     domain.StatusDraft,
+		},
+		OntologyScope: domain.PathElement{Type: "class", Prefix: "crm", LocalName: "E67_Birth"},
+	}
+	if err := collectionStore.Create(ctx, unreleasedCollection); err != nil {
+		t.Fatalf("seed unreleased collection: %v", err)
+	}
+	unreleasedField := &domain.Field{
+		Entity: domain.Entity{
+			ID:         unreleasedFieldID,
+			ProjectID:  projectID,
+			SemanticID: "ENTVERF.2",
+			SystemName: "unreleased_field",
+			UIName:     domain.Translations{"en": "Unreleased Field"},
+			Status:     domain.StatusDraft,
+		},
+		PathElements: []domain.PathElement{},
+	}
+	if err := fieldStore.Create(ctx, unreleasedField); err != nil {
+		t.Fatalf("seed unreleased field: %v", err)
+	}
+
 	i18nMgr, err := i18n.New(i18n.Config{
 		DefaultLanguage:  "en",
 		FallbackLanguage: "en",
@@ -280,6 +332,72 @@ func TestEntityViewVersion_ServesResolvedRelease(t *testing.T) {
 			t.Fatalf("entity.set_value = %q, want the released override value %q", setValue, "original-value")
 		}
 	})
+
+	// Leak regression: an entity that owns THIS project but was created
+	// after the release (or never released) has no archive row anywhere.
+	// An anonymous viewer defaulting to the release must get a clean 404,
+	// never the hot/draft header under a "Viewing release X" response.
+	t.Run("model: anonymous viewer of an unreleased same-project model gets 404, not the draft header", func(t *testing.T) {
+		status, body := fetchStatus(t, router, entityPath("model", unreleasedModelID), nil)
+		if status != http.StatusNotFound {
+			t.Fatalf("status = %d, body = %s, want 404 (not the draft header leaking through)", status, body)
+		}
+	})
+	t.Run("model: editor still sees the unreleased model (hot path unaffected)", func(t *testing.T) {
+		name, _ := fetchEntity(t, router, entityPath("model", unreleasedModelID), orgOwner)
+		if name != "Unreleased Model" {
+			t.Fatalf("entity.name.en = %q, want %q", name, "Unreleased Model")
+		}
+	})
+	t.Run("collection: anonymous viewer of an unreleased same-project collection gets 404, not the draft header", func(t *testing.T) {
+		status, body := fetchStatus(t, router, entityPath("collection", unreleasedCollectionID), nil)
+		if status != http.StatusNotFound {
+			t.Fatalf("status = %d, body = %s, want 404 (not the draft header leaking through)", status, body)
+		}
+	})
+	t.Run("collection: editor still sees the unreleased collection (hot path unaffected)", func(t *testing.T) {
+		name, _ := fetchEntity(t, router, entityPath("collection", unreleasedCollectionID), orgOwner)
+		if name != "Unreleased Collection" {
+			t.Fatalf("entity.name.en = %q, want %q", name, "Unreleased Collection")
+		}
+	})
+	t.Run("field: anonymous viewer of an unreleased same-project field gets 404, not the draft header", func(t *testing.T) {
+		status, body := fetchStatus(t, router, entityPath("field", unreleasedFieldID), nil)
+		if status != http.StatusNotFound {
+			t.Fatalf("status = %d, body = %s, want 404 (not the draft header leaking through)", status, body)
+		}
+	})
+	t.Run("field: editor still sees the unreleased field (hot path unaffected)", func(t *testing.T) {
+		name, _ := fetchEntity(t, router, entityPath("field", unreleasedFieldID), orgOwner)
+		if name != "Unreleased Field" {
+			t.Fatalf("entity.name.en = %q, want %q", name, "Unreleased Field")
+		}
+	})
+
+	// Note: a cross-project adopted/inherited entity — archived under its
+	// OWNING project rather than the route project — should still fall
+	// back to hot under a released route project. Seeding that case needs
+	// a second project plus an explicit adoption/fork record
+	// (weave_adoptions / weave_entity_forks) wired up so
+	// weavepkg.ResolveReuseOrigin resolves it; that's heavier than this
+	// regression test's scope. The gap: no automated coverage here that
+	// the cross-project fallback branch (hot.ProjectID != projectID)
+	// still fires. The released/hot/explicit-version cases above and the
+	// leak-regression cases here are covered.
+}
+
+// fetchStatus performs the request and returns the raw status code and
+// body, without requiring 200 — used to assert a clean 404 on the leak
+// regression cases.
+func fetchStatus(t *testing.T, router chi.Router, path string, snap *auth.AuthSnapshot) (int, string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if snap != nil {
+		req = req.WithContext(auth.WithSnapshot(req.Context(), snap))
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec.Code, rec.Body.String()
 }
 
 func fetchEntity(t *testing.T, router chi.Router, path string, snap *auth.AuthSnapshot) (name, setValue string) {

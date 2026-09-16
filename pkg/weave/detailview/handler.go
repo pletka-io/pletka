@@ -310,6 +310,13 @@ func (h *Handler) API(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
+		if errors.Is(err, errEntityViewNotFound) {
+			// Routine case: the entity doesn't exist, or (release mode)
+			// legitimately isn't part of the resolved release — created
+			// after it, or never released. Not an internal failure.
+			h.writeAPIError(w, "entity not found", http.StatusNotFound)
+			return
+		}
 		h.logger.Error("build detailview response", "entity_type", entityType, "entity_id", entityID, "err", err)
 		h.writeAPIError(w, "Failed to build detailview response", http.StatusInternalServerError)
 		return
@@ -453,6 +460,14 @@ func (h *Handler) ReuseAPI(w http.ResponseWriter, r *http.Request) {
 // surface as 400 Bad Request; every other BuildReuse error is a store
 // failure the caller surfaces as 500.
 var errUnsupportedReuseEntityType = errors.New("reuse not supported for entity type")
+
+// errEntityViewNotFound marks a buildModel/buildCollection/buildField
+// failure the caller (API) should surface as 404, not 500 — the routine
+// case of viewing an entity that doesn't exist, or (in release mode)
+// legitimately isn't part of the resolved release: created after it, or
+// never released. Every other build* error is a store failure and stays
+// 500.
+var errEntityViewNotFound = errors.New("entity not found")
 
 // reuseUsageError wraps a ListUsage failure inside BuildReuse with enough
 // context (slog op name + id field key) for the HTTP handler to log with the
@@ -667,44 +682,80 @@ func (h *Handler) breadcrumbs(projectID, projectName, entityType, entityTypeLabe
 // (see buildModel's overrideScope comment). version == "" is unchanged
 // (hot GetByID), matching pre-Task-4b behavior exactly.
 func (h *Handler) getModelHeader(ctx context.Context, projectID, modelID, version string) (*pkgdomain.Model, error) {
-	if version != "" {
-		m, err := h.weave.Models().GetByIDVersion(ctx, projectID, modelID, version)
-		if err != nil {
-			return nil, err
-		}
-		if m != nil {
-			return m, nil
-		}
+	if version == "" {
+		return h.weave.Models().GetByID(ctx, modelID)
 	}
-	return h.weave.Models().GetByID(ctx, modelID)
+	m, err := h.weave.Models().GetByIDVersion(ctx, projectID, modelID, version)
+	if err != nil {
+		return nil, err
+	}
+	if m != nil {
+		return m, nil
+	}
+	// No archive row under this project at this version. Distinguish the
+	// two reasons GetByIDVersion can return nil: (a) a cross-project
+	// adopted/inherited model, archived under its OWNING project, not the
+	// route project — fall back to hot, read-only, same as buildModel's
+	// overrideScope handling; (b) a model that legitimately owns this
+	// project but was created after the release / never released — there
+	// is no archive row anywhere, and falling back to hot would leak the
+	// draft under a "Viewing release X" response. Only (a) falls back.
+	hot, err := h.weave.Models().GetByID(ctx, modelID)
+	if err != nil {
+		return nil, err
+	}
+	if hot != nil && hot.ProjectID != projectID {
+		return hot, nil
+	}
+	return nil, nil
 }
 
 // getCollectionHeader is getModelHeader's sibling for collections.
 func (h *Handler) getCollectionHeader(ctx context.Context, projectID, collectionID, version string) (*pkgdomain.Collection, error) {
-	if version != "" {
-		c, err := h.weave.Collections().GetByIDVersion(ctx, projectID, collectionID, version)
-		if err != nil {
-			return nil, err
-		}
-		if c != nil {
-			return c, nil
-		}
+	if version == "" {
+		return h.weave.Collections().GetByID(ctx, collectionID)
 	}
-	return h.weave.Collections().GetByID(ctx, collectionID)
+	c, err := h.weave.Collections().GetByIDVersion(ctx, projectID, collectionID, version)
+	if err != nil {
+		return nil, err
+	}
+	if c != nil {
+		return c, nil
+	}
+	// See getModelHeader for why the fallback is gated on cross-project
+	// ownership rather than firing unconditionally.
+	hot, err := h.weave.Collections().GetByID(ctx, collectionID)
+	if err != nil {
+		return nil, err
+	}
+	if hot != nil && hot.ProjectID != projectID {
+		return hot, nil
+	}
+	return nil, nil
 }
 
 // getFieldHeader is getModelHeader's sibling for fields.
 func (h *Handler) getFieldHeader(ctx context.Context, projectID, fieldID, version string) (*pkgdomain.Field, error) {
-	if version != "" {
-		f, err := h.weave.WeaveFields().GetByIDVersion(ctx, projectID, fieldID, version)
-		if err != nil {
-			return nil, err
-		}
-		if f != nil {
-			return f, nil
-		}
+	if version == "" {
+		return h.weave.WeaveFields().GetByID(ctx, fieldID)
 	}
-	return h.weave.WeaveFields().GetByID(ctx, fieldID)
+	f, err := h.weave.WeaveFields().GetByIDVersion(ctx, projectID, fieldID, version)
+	if err != nil {
+		return nil, err
+	}
+	if f != nil {
+		return f, nil
+	}
+	// See getModelHeader for why the fallback is gated on cross-project
+	// ownership rather than firing unconditionally.
+	hot, err := h.weave.WeaveFields().GetByID(ctx, fieldID)
+	if err != nil {
+		return nil, err
+	}
+	if hot != nil && hot.ProjectID != projectID {
+		return hot, nil
+	}
+	return nil, nil
 }
 
 // getFieldBaseOverride loads the field's base override (entity_type='')
@@ -737,7 +788,7 @@ func (h *Handler) buildModel(ctx context.Context, projectID, modelID string) (*R
 		return nil, fmt.Errorf("get model: %w", err)
 	}
 	if model == nil {
-		return nil, fmt.Errorf("model not found: %s", modelID)
+		return nil, fmt.Errorf("model not found: %s: %w", modelID, errEntityViewNotFound)
 	}
 	// Cross-project adopted/inherited entities have no current-project
 	// overrides until Adapt is invoked. Building the view in the
@@ -910,7 +961,7 @@ func (h *Handler) buildCollection(ctx context.Context, projectID, collectionID s
 		return nil, fmt.Errorf("get collection: %w", err)
 	}
 	if collection == nil {
-		return nil, fmt.Errorf("collection not found: %s", collectionID)
+		return nil, fmt.Errorf("collection not found: %s: %w", collectionID, errEntityViewNotFound)
 	}
 
 	// Cross-project read-only view — see buildModel for the rationale.
@@ -1092,7 +1143,7 @@ func (h *Handler) buildField(ctx context.Context, projectID, fieldID string) (*R
 		return nil, fmt.Errorf("get field: %w", err)
 	}
 	if field == nil {
-		return nil, fmt.Errorf("field not found: %s", fieldID)
+		return nil, fmt.Errorf("field not found: %s: %w", fieldID, errEntityViewNotFound)
 	}
 
 	refs := ViewRefs{
