@@ -22,10 +22,11 @@ import (
 // read auth check itself (the URL has no {projectID} so middleware
 // gating is not possible).
 type Handler struct {
-	weave   pkgdomain.WeaveStore
-	gens    *generators.Service
-	bundles ontologyBundleReader
-	logger  *slog.Logger
+	weave         pkgdomain.WeaveStore
+	gens          *generators.Service
+	bundles       ontologyBundleReader
+	logger        *slog.Logger
+	latestRelease auth.LatestReleaseReader
 }
 
 // ontologyBundleReader supplies a project's linked ontologies (with raw
@@ -48,11 +49,13 @@ type versionedFieldLookup interface {
 	GetByIDVersion(ctx context.Context, projectID, id, version string) (*pkgdomain.Field, error)
 }
 
-func NewHandler(weave pkgdomain.WeaveStore, gens *generators.Service, bundles ontologyBundleReader, logger *slog.Logger) *Handler {
+// NewHandler builds the visualization Handler. latestRelease is optional —
+// nil disables the release-mode default, leaving readers on the hot draft.
+func NewHandler(weave pkgdomain.WeaveStore, gens *generators.Service, bundles ontologyBundleReader, logger *slog.Logger, latestRelease auth.LatestReleaseReader) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handler{weave: weave, gens: gens, bundles: bundles, logger: logger}
+	return &Handler{weave: weave, gens: gens, bundles: bundles, logger: logger, latestRelease: latestRelease}
 }
 
 // DiagramResponse mirrors the legacy diagram JSON envelope so the
@@ -853,7 +856,13 @@ func (h *Handler) loadModelAndGate(w http.ResponseWriter, r *http.Request) (*pkg
 		writeError(w, "model not found", http.StatusNotFound)
 		return nil, ctx, false
 	}
-	if version := auth.ProjectVersionFromContext(ctx); version != "" {
+	project, ok := h.loadAndGateProject(ctx, model.ProjectID)
+	if !ok {
+		writeError(w, "model not found", http.StatusNotFound)
+		return nil, ctx, false
+	}
+	ctx = auth.WithProject(ctx, project)
+	if version := h.effectiveVersion(ctx, project); version != "" {
 		if vr, ok := h.weave.Models().(versionedModelLookup); ok {
 			versioned, err := vr.GetByIDVersion(ctx, model.ProjectID, modelID, version)
 			if err != nil {
@@ -868,12 +877,7 @@ func (h *Handler) loadModelAndGate(w http.ResponseWriter, r *http.Request) (*pkg
 			model = versioned
 		}
 	}
-	project, ok := h.loadAndGateProject(ctx, model.ProjectID)
-	if !ok {
-		writeError(w, "model not found", http.StatusNotFound)
-		return nil, ctx, false
-	}
-	return model, auth.WithProject(ctx, project), true
+	return model, ctx, true
 }
 
 func (h *Handler) loadCollectionAndGate(w http.ResponseWriter, r *http.Request) (*pkgdomain.Collection, context.Context, bool) {
@@ -888,7 +892,13 @@ func (h *Handler) loadCollectionAndGate(w http.ResponseWriter, r *http.Request) 
 		writeError(w, "collection not found", http.StatusNotFound)
 		return nil, ctx, false
 	}
-	if version := auth.ProjectVersionFromContext(ctx); version != "" {
+	project, ok := h.loadAndGateProject(ctx, coll.ProjectID)
+	if !ok {
+		writeError(w, "collection not found", http.StatusNotFound)
+		return nil, ctx, false
+	}
+	ctx = auth.WithProject(ctx, project)
+	if version := h.effectiveVersion(ctx, project); version != "" {
 		if vr, ok := h.weave.Collections().(versionedCollectionLookup); ok {
 			versioned, err := vr.GetByIDVersion(ctx, coll.ProjectID, collectionID, version)
 			if err != nil {
@@ -903,12 +913,7 @@ func (h *Handler) loadCollectionAndGate(w http.ResponseWriter, r *http.Request) 
 			coll = versioned
 		}
 	}
-	project, ok := h.loadAndGateProject(ctx, coll.ProjectID)
-	if !ok {
-		writeError(w, "collection not found", http.StatusNotFound)
-		return nil, ctx, false
-	}
-	return coll, auth.WithProject(ctx, project), true
+	return coll, ctx, true
 }
 
 func (h *Handler) loadFieldAndGate(w http.ResponseWriter, r *http.Request) (*pkgdomain.Field, context.Context, bool) {
@@ -923,7 +928,13 @@ func (h *Handler) loadFieldAndGate(w http.ResponseWriter, r *http.Request) (*pkg
 		writeError(w, "field not found", http.StatusNotFound)
 		return nil, ctx, false
 	}
-	if version := auth.ProjectVersionFromContext(ctx); version != "" {
+	project, ok := h.loadAndGateProject(ctx, field.ProjectID)
+	if !ok {
+		writeError(w, "field not found", http.StatusNotFound)
+		return nil, ctx, false
+	}
+	ctx = auth.WithProject(ctx, project)
+	if version := h.effectiveVersion(ctx, project); version != "" {
 		if vr, ok := h.weave.WeaveFields().(versionedFieldLookup); ok {
 			versioned, err := vr.GetByIDVersion(ctx, field.ProjectID, fieldID, version)
 			if err != nil {
@@ -938,12 +949,7 @@ func (h *Handler) loadFieldAndGate(w http.ResponseWriter, r *http.Request) (*pkg
 			field = versioned
 		}
 	}
-	project, ok := h.loadAndGateProject(ctx, field.ProjectID)
-	if !ok {
-		writeError(w, "field not found", http.StatusNotFound)
-		return nil, ctx, false
-	}
-	return field, auth.WithProject(ctx, project), true
+	return field, ctx, true
 }
 
 // loadAndGateProject loads projectID and verifies the caller has
@@ -958,6 +964,32 @@ func (h *Handler) loadAndGateProject(ctx context.Context, projectID string) (*pk
 		return nil, false
 	}
 	return project, true
+}
+
+// effectiveVersion applies auth.ResolveEffectiveVersion for routes where the
+// project can only be resolved from inside the handler (these /gen/ routes
+// have no {projectID} URL param, so auth.ResolveContentVersion can't be
+// installed as router middleware — see the Host.LatestRelease doc comment).
+// auth.ResolveEffectiveVersion is the single source of truth for the
+// decision; the only logic kept here is a perf guard so the reader is
+// queried at most once, only when its answer could actually matter
+// (implicit lookup, public project, non-editor) — and a fail-safe-to-hot
+// on a reader error.
+func (h *Handler) effectiveVersion(ctx context.Context, project *pkgdomain.Project) string {
+	explicit := auth.ProjectVersionFromContext(ctx)
+	snap := auth.FromContext(ctx)
+
+	var latest string
+	if explicit == "" && h.latestRelease != nil && project != nil && project.Visibility == pkgdomain.VisibilityPublic &&
+		!snap.Can(auth.ProjectEdit, auth.ProjectResource(project), nil) {
+		v, err := h.latestRelease.LatestReleaseVersion(ctx, project.ID)
+		if err != nil {
+			h.logger.ErrorContext(ctx, "resolve content version: latest release lookup failed; serving hot", "project", project.ID, "err", err)
+		} else {
+			latest = v
+		}
+	}
+	return auth.ResolveEffectiveVersion(snap, project, explicit, latest)
 }
 
 // sparqlOptionsFromRequest reads ?count and ?limit from the URL.

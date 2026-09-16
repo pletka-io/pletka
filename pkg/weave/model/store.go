@@ -13,6 +13,10 @@ import (
 type Store interface {
 	Create(ctx context.Context, m *domain.Model) error
 	GetByID(ctx context.Context, id string) (*domain.Model, error)
+	// GetByIDVersion returns the archived model at a specific release
+	// version, scoped to projectID, or (nil, nil) when no such row was
+	// archived. See versionedModelReader / field's equivalent.
+	GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Model, error)
 	GetByIdentifier(ctx context.Context, projectID, identifier string) (*domain.Model, error)
 	Update(ctx context.Context, m *domain.Model) error
 	Delete(ctx context.Context, id string) error

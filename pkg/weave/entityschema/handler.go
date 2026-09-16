@@ -29,6 +29,10 @@ type Host struct {
 	Languages     []formschema.LanguageInfo
 	LangResolver  LangResolver
 	I18n          i18n.Manager
+	// LatestRelease backs auth.ResolveContentVersion so a public project's
+	// non-editor reader defaults to the latest release instead of the hot
+	// draft. Optional; nil disables the release default (readers see hot).
+	LatestRelease auth.LatestReleaseReader
 }
 
 func (h Host) Validate() error {
@@ -46,13 +50,14 @@ func (h Host) Validate() error {
 }
 
 type Handler struct {
-	logger       *slog.Logger
-	weave        pkgdomain.WeaveStore
-	orgs         *organization.Service
-	languages    []formschema.LanguageInfo
-	langResolver LangResolver
-	i18n         i18n.Manager
-	schemas      *schemaregistry.SchemaRegistry
+	logger        *slog.Logger
+	weave         pkgdomain.WeaveStore
+	orgs          *organization.Service
+	languages     []formschema.LanguageInfo
+	langResolver  LangResolver
+	i18n          i18n.Manager
+	schemas       *schemaregistry.SchemaRegistry
+	latestRelease auth.LatestReleaseReader
 }
 
 func NewHandler(
@@ -62,14 +67,16 @@ func NewHandler(
 	languages []formschema.LanguageInfo,
 	langResolver LangResolver,
 	i18nMgr i18n.Manager,
+	latestRelease auth.LatestReleaseReader,
 ) *Handler {
 	h := &Handler{
-		logger:       logger,
-		weave:        weaveStore,
-		orgs:         orgs,
-		languages:    languages,
-		langResolver: langResolver,
-		i18n:         i18nMgr,
+		logger:        logger,
+		weave:         weaveStore,
+		orgs:          orgs,
+		languages:     languages,
+		langResolver:  langResolver,
+		i18n:          i18nMgr,
+		latestRelease: latestRelease,
 	}
 	h.schemas = h.defaultSchemaRegistry()
 	return h
@@ -79,15 +86,27 @@ func Mount(r chi.Router, host Host) {
 	if err := host.Validate(); err != nil {
 		panic(err)
 	}
-	NewHandler(host.Logger, host.Weave, host.Organizations, host.Languages, host.LangResolver, host.I18n).Mount(r)
+	NewHandler(host.Logger, host.Weave, host.Organizations, host.Languages, host.LangResolver, host.I18n, host.LatestRelease).Mount(r)
 }
 
 func (h *Handler) Mount(r chi.Router) {
 	r.Get("/projects/form-schema/project", h.ProjectFormSchema)
-	r.With(auth.WithProjectVersionContext).Get("/projects/{projectID:[A-Z0-9]+}/entity-list-schema/{entityType}", auth.WrapProjectRead(h.weave.Projects(), h.EntityListSchema))
-	r.With(auth.WithProjectVersionContext).Get("/projects/{projectID:[A-Z0-9]+}/form-schema/{entityType}", auth.WrapProjectRead(h.weave.Projects(), h.FormSchema))
-	r.With(auth.WithProjectVersionContext).Get("/projects/{projectID:[A-Z0-9]+}/models/options", auth.WrapProjectRead(h.weave.Projects(), h.ProjectModelOptions))
-	r.With(auth.WithProjectVersionContext).Get("/projects/{projectID:[A-Z0-9]+}/collections/options", auth.WrapProjectRead(h.weave.Projects(), h.ProjectCollectionOptions))
+
+	// projectRead gates on auth.ProjectRead and loads the project into
+	// context (equivalent to auth.WrapProjectRead, expanded into discrete
+	// middlewares so auth.ResolveContentVersion can run after the project
+	// is resolved but before the handler).
+	projectRead := []func(http.Handler) http.Handler{
+		auth.WithProjectVersionContext,
+		auth.RequireProjectRead(h.weave.Projects()),
+	}
+	if h.latestRelease != nil {
+		projectRead = append(projectRead, auth.ResolveContentVersion(h.latestRelease))
+	}
+	r.With(projectRead...).Get("/projects/{projectID:[A-Z0-9]+}/entity-list-schema/{entityType}", h.EntityListSchema)
+	r.With(projectRead...).Get("/projects/{projectID:[A-Z0-9]+}/form-schema/{entityType}", h.FormSchema)
+	r.With(projectRead...).Get("/projects/{projectID:[A-Z0-9]+}/models/options", h.ProjectModelOptions)
+	r.With(projectRead...).Get("/projects/{projectID:[A-Z0-9]+}/collections/options", h.ProjectCollectionOptions)
 }
 
 func (h *Handler) EntityListSchema(w http.ResponseWriter, r *http.Request) {

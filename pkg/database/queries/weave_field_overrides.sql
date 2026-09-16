@@ -56,6 +56,15 @@ SELECT * FROM weave_field_overrides
 WHERE field_id = $1 AND project_id = $2 AND entity_type = ''
 LIMIT 1;
 
+-- name: WeaveGetBaseOverrideVersion :one
+-- Version-aware sibling of WeaveGetBaseOverride: reads the archived base
+-- override (entity_type='') for (field, project) at a specific release
+-- version. Backs detailview's buildField header/override-base load when
+-- serving a resolved release instead of hot (Task 4b).
+SELECT * FROM weave_field_overrides_archive
+WHERE field_id = $1 AND project_id = $2 AND entity_type = '' AND version_number = $3
+LIMIT 1;
+
 -- name: WeaveUpdateOverride :one
 UPDATE weave_field_overrides SET
     position = $2, collection_order = $3,

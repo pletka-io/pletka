@@ -169,6 +169,7 @@ func testVisualizationRouter(t *testing.T, project domain.Project, model domain.
 		gens,
 		nil, // ontologyBundleReader — x3ml routes not exercised here
 		nil,
+		nil, // latestRelease — release default not exercised here
 	)
 	router := chi.NewMux()
 	router.Get("/gen/models/{modelID}/exportgraph", handler.GetModelExportGraph)

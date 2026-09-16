@@ -164,11 +164,22 @@ func Mount(r chi.Router, host Host) {
 // owned by the project slice (entity-shaped); they used to live here
 // in parallel and were dropped in the alignment commit.
 func (h *Handler) Mount(r chi.Router) {
-	r.With(auth.WithProjectVersionContext).Get("/projects/{projectID:[A-Z0-9]+}/page-schema", auth.WrapProjectRead(h.weave.Projects(), h.ProjectPageSchema))
-	r.With(auth.WithProjectVersionContext).Get("/projects/{projectID:[A-Z0-9]+}/overview-schema", auth.WrapProjectRead(h.weave.Projects(), h.ProjectOverviewSchema))
-	r.With(auth.WithProjectVersionContext).Get("/projects/{projectID:[A-Z0-9]+}/adoptions-tab-schema", auth.WrapProjectRead(h.weave.Projects(), h.ProjectAdoptionsTabSchema))
-	r.With(auth.WithProjectVersionContext).Get("/projects/{projectID:[A-Z0-9]+}/adoptions/{sourceProjectID}/{sourceEntityID}/closure", auth.WrapProjectRead(h.weave.Projects(), h.ProjectAdoptionClosure))
-	r.With(auth.WithProjectVersionContext).Get("/projects/{projectID:[A-Z0-9]+}/release-tab-schema", auth.WrapProjectRead(h.weave.Projects(), h.ProjectReleaseTabSchema))
+	// projectRead gates on auth.ProjectRead and loads the project into
+	// context (equivalent to auth.WrapProjectRead, expanded into discrete
+	// middlewares so auth.ResolveContentVersion can run after the project
+	// is resolved but before the handler).
+	projectRead := []func(http.Handler) http.Handler{
+		auth.WithProjectVersionContext,
+		auth.RequireProjectRead(h.weave.Projects()),
+	}
+	if h.publication != nil {
+		projectRead = append(projectRead, auth.ResolveContentVersion(h.publication))
+	}
+	r.With(projectRead...).Get("/projects/{projectID:[A-Z0-9]+}/page-schema", h.ProjectPageSchema)
+	r.With(projectRead...).Get("/projects/{projectID:[A-Z0-9]+}/overview-schema", h.ProjectOverviewSchema)
+	r.With(projectRead...).Get("/projects/{projectID:[A-Z0-9]+}/adoptions-tab-schema", h.ProjectAdoptionsTabSchema)
+	r.With(projectRead...).Get("/projects/{projectID:[A-Z0-9]+}/adoptions/{sourceProjectID}/{sourceEntityID}/closure", h.ProjectAdoptionClosure)
+	r.With(projectRead...).Get("/projects/{projectID:[A-Z0-9]+}/release-tab-schema", h.ProjectReleaseTabSchema)
 }
 
 func (h *Handler) ProjectPageSchema(w http.ResponseWriter, r *http.Request) {

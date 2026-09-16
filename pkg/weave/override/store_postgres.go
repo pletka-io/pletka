@@ -74,6 +74,24 @@ func (s *postgresStore) GetBase(ctx context.Context, fieldID, projectID string) 
 	return rowToOverride(row), nil
 }
 
+// GetBaseVersion returns the archived base override for (fieldID,
+// projectID) at version, or (nil, nil) when no base row was archived at
+// that version.
+func (s *postgresStore) GetBaseVersion(ctx context.Context, fieldID, projectID, version string) (*domain.FieldOverride, error) {
+	row, err := s.queries.WeaveGetBaseOverrideVersion(ctx, sqlcgen.WeaveGetBaseOverrideVersionParams{
+		FieldID:       fieldID,
+		ProjectID:     projectID,
+		VersionNumber: version,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get archived base override: %w", err)
+	}
+	return rowToArchivedOverride(row), nil
+}
+
 // Update writes the full row. Returns "not found" if the row has been
 // deleted between Get and Update.
 func (s *postgresStore) Update(ctx context.Context, o *domain.FieldOverride) error {
@@ -241,6 +259,39 @@ func (s *postgresStore) GetRefs(ctx context.Context, overrideID int64) ([]domain
 // nullable / pointer-typed sqlc columns are dereferenced through small
 // helpers below; MaxOccurs is widened from *int32 to *int.
 func rowToOverride(row sqlcgen.WeaveFieldOverride) *domain.FieldOverride {
+	o := &domain.FieldOverride{
+		ID:                 row.ID,
+		FieldID:            row.FieldID,
+		ProjectID:          row.ProjectID,
+		EntityType:         row.EntityType,
+		EntityID:           row.EntityID,
+		Position:           int(row.Position),
+		CollectionOrder:    int(row.CollectionOrder),
+		DisplayName:        unmarshalTranslations(row.DisplayName),
+		Description:        unmarshalTranslations(row.Description),
+		CollectionName:     unmarshalTranslations(row.CollectionName),
+		CategoryID:         derefStr(row.CategoryID),
+		PartOfCollectionID: derefStr(row.PartOfCollectionID),
+		SetValue:           derefStr(row.SetValue),
+		IsRequired:         derefBool(row.IsRequired),
+		MinOccurs:          derefInt32(row.MinOccurs),
+		IsHidden:           derefBool(row.IsHidden),
+		Visibility:         derefStr(row.Visibility),
+		StagingID:          row.StagingID,
+		CreatedAt:          row.CreatedAt,
+		UpdatedAt:          row.UpdatedAt,
+	}
+	if row.MaxOccurs != nil {
+		v := int(*row.MaxOccurs)
+		o.MaxOccurs = &v
+	}
+	return o
+}
+
+// rowToArchivedOverride converts an archived (weave_field_overrides_archive)
+// sqlc row to a domain.FieldOverride. Mirrors rowToOverride; the archive
+// table lacks set_value_entry_id, otherwise same columns.
+func rowToArchivedOverride(row sqlcgen.WeaveFieldOverridesArchive) *domain.FieldOverride {
 	o := &domain.FieldOverride{
 		ID:                 row.ID,
 		FieldID:            row.FieldID,

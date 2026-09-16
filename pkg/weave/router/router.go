@@ -97,7 +97,8 @@ type Options struct {
 // ProjectMiddlewareHost contains the shared project middleware dependencies
 // used for project-scoped route groups.
 type ProjectMiddlewareHost struct {
-	Weave domain.WeaveStore
+	Weave         domain.WeaveStore
+	LatestRelease auth.LatestReleaseReader
 }
 
 // ErrorPageHost contains the global shell error-page dependencies.
@@ -196,8 +197,14 @@ func Mount(parent chi.Router, projects ProjectMiddlewareHost, errors ErrorPageHo
 	//   - csvexport: HTML index + 8 typed project-wide CSVs + all.zip
 	//   - exports:  per-entity CSV at /{kind}/{id}.csv
 	// Both gate on project membership (Phase 1 of the CSV export/
-	// restore plan).
-	mountSlice(parent, "/projects/{projectID}/exports", projects, func(r chi.Router) {
+	// restore plan) and always serve hot: this is the member-only
+	// draft-verification tool, not a release-serving surface (design
+	// spec §5). Mount with LatestRelease cleared so ResolveContentVersion
+	// never installs here, even though `projects` (every other mountSlice
+	// call) carries one.
+	exportsProjects := projects
+	exportsProjects.LatestRelease = nil
+	mountSlice(parent, "/projects/{projectID}/exports", exportsProjects, func(r chi.Router) {
 		weavecsvexport.Mount(r, opts.ProjectCSVExport)
 		exports.Mount(r, opts.Exports)
 	})
@@ -431,6 +438,9 @@ func mountSlice(parent chi.Router, pattern string, h ProjectMiddlewareHost, atta
 	if h.Weave != nil {
 		sub.Use(auth.WithProjectVersionContext)
 		sub.Use(auth.WithProjectResource(h.Weave))
+		if h.LatestRelease != nil {
+			sub.Use(auth.ResolveContentVersion(h.LatestRelease))
+		}
 	}
 	sub.Use(withChangeSetHint)
 	attach(sub)

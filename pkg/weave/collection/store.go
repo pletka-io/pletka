@@ -10,6 +10,10 @@ import (
 type Store interface {
 	Create(ctx context.Context, c *domain.Collection) error
 	GetByID(ctx context.Context, id string) (*domain.Collection, error)
+	// GetByIDVersion returns the archived collection at a specific
+	// release version, scoped to projectID, or (nil, nil) when no such
+	// row was archived. See versionedCollectionReader.
+	GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error)
 	GetByIdentifier(ctx context.Context, projectID, identifier string) (*domain.Collection, error)
 	Update(ctx context.Context, c *domain.Collection) error
 	Delete(ctx context.Context, id string) error

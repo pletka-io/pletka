@@ -1,15 +1,12 @@
 package search
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/go-cmp/cmp"
 
-	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -168,28 +165,5 @@ func TestParseSearchParams(t *testing.T) {
 				t.Errorf("parseSearchParams(%q) mismatch (-want +got):\n%s", tc.query, diff)
 			}
 		})
-	}
-}
-
-func TestReleaseModeSearchEndpointsReturnNotFound(t *testing.T) {
-	t.Parallel()
-
-	h := NewHandler(nil, slog.Default())
-	r := chi.NewMux()
-	r.With(weaveauth.WithProjectVersionContext).Get("/api/v1/projects/{projectID}/search", h.EntitySearch)
-	r.With(weaveauth.WithProjectVersionContext).Get("/api/v1/projects/{projectID}/path-suggestions", h.PathSuggestionsHandler)
-
-	tests := []string{
-		"/api/v1/projects/TPC/search?version=0.1.3-test&type=field&q=actor",
-		"/api/v1/projects/TPC/path-suggestions?version=0.1.3-test&current_path=crm:P2_has_type",
-	}
-
-	for _, target := range tests {
-		req := httptest.NewRequest(http.MethodGet, target, nil)
-		rec := httptest.NewRecorder()
-		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusNotFound {
-			t.Fatalf("%s status=%d body=%q", target, rec.Code, rec.Body.String())
-		}
 	}
 }

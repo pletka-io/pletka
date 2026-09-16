@@ -324,6 +324,54 @@ func (q *Queries) WeaveGetBaseOverride(ctx context.Context, arg WeaveGetBaseOver
 	return i, err
 }
 
+const weaveGetBaseOverrideVersion = `-- name: WeaveGetBaseOverrideVersion :one
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number FROM weave_field_overrides_archive
+WHERE field_id = $1 AND project_id = $2 AND entity_type = '' AND version_number = $3
+LIMIT 1
+`
+
+type WeaveGetBaseOverrideVersionParams struct {
+	FieldID       string `json:"field_id"`
+	ProjectID     string `json:"project_id"`
+	VersionNumber string `json:"version_number"`
+}
+
+// Version-aware sibling of WeaveGetBaseOverride: reads the archived base
+// override (entity_type=”) for (field, project) at a specific release
+// version. Backs detailview's buildField header/override-base load when
+// serving a resolved release instead of hot (Task 4b).
+func (q *Queries) WeaveGetBaseOverrideVersion(ctx context.Context, arg WeaveGetBaseOverrideVersionParams) (WeaveFieldOverridesArchive, error) {
+	row := q.db.QueryRow(ctx, weaveGetBaseOverrideVersion, arg.FieldID, arg.ProjectID, arg.VersionNumber)
+	var i WeaveFieldOverridesArchive
+	err := row.Scan(
+		&i.ID,
+		&i.FieldID,
+		&i.ProjectID,
+		&i.EntityType,
+		&i.EntityID,
+		&i.Position,
+		&i.CollectionOrder,
+		&i.DisplayName,
+		&i.Description,
+		&i.CollectionName,
+		&i.CategoryID,
+		&i.PartOfCollectionID,
+		&i.ExpectedValueType,
+		&i.SetValue,
+		&i.IsRequired,
+		&i.MinOccurs,
+		&i.MaxOccurs,
+		&i.IsHidden,
+		&i.Visibility,
+		&i.StagingID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ContentHash,
+		&i.VersionNumber,
+	)
+	return i, err
+}
+
 const weaveGetOverrideByID = `-- name: WeaveGetOverrideByID :one
 SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides WHERE id = $1
 `

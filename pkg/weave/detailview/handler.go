@@ -65,7 +65,11 @@ type Host struct {
 	IntLookup    IntegrationsLookup
 	Preloader    AutocompletePreloader
 	// Publication derives live entities' draft/published/modified state for
-	// the detail header badge. Optional; nil disables the badge.
+	// the detail header badge, and (satisfying auth.LatestReleaseReader)
+	// backs auth.ResolveContentVersion so a public project's non-editor
+	// reader defaults to the latest release instead of the hot draft.
+	// Optional; nil disables the badge and the release default (readers see
+	// hot).
 	Publication *publication.Reader
 	// HasFormat reports whether a generator renderer for the format is
 	// registered in this build. Wired by pkg/app from the same renderer
@@ -166,13 +170,26 @@ func Mount(r chi.Router, host Host) error {
 
 // Mount registers the parallel detailview routes under the weave project base.
 func (h *Handler) Mount(r chi.Router) {
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}", h.API)
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}/stats", h.StatsAPI)
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}/reuse", h.ReuseAPI)
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/models/{modelID:[^/]+\\.[^/]+(?:_[^/]+)?}", h.Page("model"))
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/collections/{collectionID:[^/]+\\.[^/]+(?:_[^/]+)?}", h.Page("collection"))
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/fields/{fieldID:[^/]+\\.[^/]+(?:_[^/]+)?}", h.Page("field"))
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/concept-lists/{conceptListID:[^/]+}", h.Page("concept-list"))
+	// RequireProjectRead both loads the project into context (same
+	// auth.WithProject attachment auth.ProjectFromContext/
+	// auth.ResolveContentVersion read) and 404s a caller without
+	// ProjectRead on it — anonymous on a private project. That replaces
+	// the previous auth.WithProjectResource, which loaded+attached the
+	// project but never enforced read access, leaving API/StatsAPI open
+	// to anonymous reads of private project content.
+	mw := []func(http.Handler) http.Handler{auth.WithProjectVersionContext, auth.RequireProjectRead(h.weave.Projects())}
+	if h.publication != nil {
+		// ResolveContentVersion needs the project loaded into context by
+		// RequireProjectRead, so it must come after it in the chain.
+		mw = append(mw, auth.ResolveContentVersion(h.publication))
+	}
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}", h.API)
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}/stats", h.StatsAPI)
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}/reuse", h.ReuseAPI)
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/models/{modelID:[^/]+\\.[^/]+(?:_[^/]+)?}", h.Page("model"))
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/collections/{collectionID:[^/]+\\.[^/]+(?:_[^/]+)?}", h.Page("collection"))
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/fields/{fieldID:[^/]+\\.[^/]+(?:_[^/]+)?}", h.Page("field"))
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/concept-lists/{conceptListID:[^/]+}", h.Page("concept-list"))
 }
 
 // Page renders the detailview page shell using the compatibility island name,
@@ -233,7 +250,7 @@ func (h *Handler) Page(entityType string) http.HandlerFunc {
 
 		lang := h.currentLang(r)
 		projectName := project.UIName.Get(lang, projectID)
-		entityName, entityTypeLabel, err := h.entityPageMeta(ctx, entityType, entityID, lang)
+		entityName, entityTypeLabel, err := h.entityPageMeta(ctx, projectID, entityType, entityID, activeVersion, lang)
 		if err != nil {
 			errresp.Error(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
@@ -300,6 +317,13 @@ func (h *Handler) API(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
+		if errors.Is(err, errEntityViewNotFound) {
+			// Routine case: the entity doesn't exist, or (release mode)
+			// legitimately isn't part of the resolved release — created
+			// after it, or never released. Not an internal failure.
+			h.writeAPIError(w, "entity not found", http.StatusNotFound)
+			return
+		}
 		h.logger.Error("build detailview response", "entity_type", entityType, "entity_id", entityID, "err", err)
 		h.writeAPIError(w, "Failed to build detailview response", http.StatusInternalServerError)
 		return
@@ -443,6 +467,14 @@ func (h *Handler) ReuseAPI(w http.ResponseWriter, r *http.Request) {
 // surface as 400 Bad Request; every other BuildReuse error is a store
 // failure the caller surfaces as 500.
 var errUnsupportedReuseEntityType = errors.New("reuse not supported for entity type")
+
+// errEntityViewNotFound marks a buildModel/buildCollection/buildField
+// failure the caller (API) should surface as 404, not 500 — the routine
+// case of viewing an entity that doesn't exist, or (in release mode)
+// legitimately isn't part of the resolved release: created after it, or
+// never released. Every other build* error is a store failure and stays
+// 500.
+var errEntityViewNotFound = errors.New("entity not found")
 
 // reuseUsageError wraps a ListUsage failure inside BuildReuse with enough
 // context (slog op name + id field key) for the HTTP handler to log with the
@@ -591,22 +623,33 @@ func partitionFieldUsage(ctx context.Context, weave pkgdomain.WeaveStore, projec
 	return sec
 }
 
-func (h *Handler) entityPageMeta(ctx context.Context, entityType, entityID, lang string) (name, label string, err error) {
+// entityPageMeta resolves the page-shell title/breadcrumb name for an
+// entity. It is version-aware for model/collection/field: when version is
+// non-empty (release mode) it goes through the same version-aware header
+// getters (getModelHeader/getCollectionHeader/getFieldHeader) that
+// buildModel/buildCollection/buildField use for the response body, so the
+// page shell (title, breadcrumb) never shows a draft name the body would
+// 404 or replace with the released name. A nil result from the
+// version-aware getter is treated like not-found, matching the body's 404
+// — it must never fall back to the unversioned draft row. version == ""
+// (hot/editor) is unchanged. concept-list has no archive/versioned store
+// yet (see buildConceptList), so it stays unversioned here too.
+func (h *Handler) entityPageMeta(ctx context.Context, projectID, entityType, entityID, version, lang string) (name, label string, err error) {
 	switch entityType {
 	case "model":
-		m, e := h.weave.Models().GetByID(ctx, entityID)
+		m, e := h.getModelHeader(ctx, projectID, entityID, version)
 		if e != nil || m == nil {
 			return "", "", fmt.Errorf("model not found")
 		}
 		return m.UIName.Get(lang, entityID), "Models", nil
 	case "collection":
-		c, e := h.weave.Collections().GetByID(ctx, entityID)
+		c, e := h.getCollectionHeader(ctx, projectID, entityID, version)
 		if e != nil || c == nil {
 			return "", "", fmt.Errorf("collection not found")
 		}
 		return c.UIName.Get(lang, entityID), "Collections", nil
 	case "field":
-		f, e := h.weave.WeaveFields().GetByID(ctx, entityID)
+		f, e := h.getFieldHeader(ctx, projectID, entityID, version)
 		if e != nil || f == nil {
 			return "", "", fmt.Errorf("field not found")
 		}
@@ -649,6 +692,103 @@ func (h *Handler) breadcrumbs(projectID, projectName, entityType, entityTypeLabe
 	}
 }
 
+// getModelHeader loads the model header. When version is non-empty it
+// reads the archived model at that release, scoped to projectID, falling
+// back to the hot (hot/unscoped) row when nothing was archived under this
+// project — the case for a cross-project adopted/inherited model, whose
+// read-only view is always rendered from its owning project's live state
+// (see buildModel's overrideScope comment). version == "" is unchanged
+// (hot GetByID), matching pre-Task-4b behavior exactly.
+func (h *Handler) getModelHeader(ctx context.Context, projectID, modelID, version string) (*pkgdomain.Model, error) {
+	if version == "" {
+		return h.weave.Models().GetByID(ctx, modelID)
+	}
+	m, err := h.weave.Models().GetByIDVersion(ctx, projectID, modelID, version)
+	if err != nil {
+		return nil, err
+	}
+	if m != nil {
+		return m, nil
+	}
+	// No archive row under this project at this version. Distinguish the
+	// two reasons GetByIDVersion can return nil: (a) a cross-project
+	// adopted/inherited model, archived under its OWNING project, not the
+	// route project — fall back to hot, read-only, same as buildModel's
+	// overrideScope handling; (b) a model that legitimately owns this
+	// project but was created after the release / never released — there
+	// is no archive row anywhere, and falling back to hot would leak the
+	// draft under a "Viewing release X" response. Only (a) falls back.
+	hot, err := h.weave.Models().GetByID(ctx, modelID)
+	if err != nil {
+		return nil, err
+	}
+	if hot != nil && hot.ProjectID != projectID {
+		return hot, nil
+	}
+	return nil, nil
+}
+
+// getCollectionHeader is getModelHeader's sibling for collections.
+func (h *Handler) getCollectionHeader(ctx context.Context, projectID, collectionID, version string) (*pkgdomain.Collection, error) {
+	if version == "" {
+		return h.weave.Collections().GetByID(ctx, collectionID)
+	}
+	c, err := h.weave.Collections().GetByIDVersion(ctx, projectID, collectionID, version)
+	if err != nil {
+		return nil, err
+	}
+	if c != nil {
+		return c, nil
+	}
+	// See getModelHeader for why the fallback is gated on cross-project
+	// ownership rather than firing unconditionally.
+	hot, err := h.weave.Collections().GetByID(ctx, collectionID)
+	if err != nil {
+		return nil, err
+	}
+	if hot != nil && hot.ProjectID != projectID {
+		return hot, nil
+	}
+	return nil, nil
+}
+
+// getFieldHeader is getModelHeader's sibling for fields.
+func (h *Handler) getFieldHeader(ctx context.Context, projectID, fieldID, version string) (*pkgdomain.Field, error) {
+	if version == "" {
+		return h.weave.WeaveFields().GetByID(ctx, fieldID)
+	}
+	f, err := h.weave.WeaveFields().GetByIDVersion(ctx, projectID, fieldID, version)
+	if err != nil {
+		return nil, err
+	}
+	if f != nil {
+		return f, nil
+	}
+	// See getModelHeader for why the fallback is gated on cross-project
+	// ownership rather than firing unconditionally.
+	hot, err := h.weave.WeaveFields().GetByID(ctx, fieldID)
+	if err != nil {
+		return nil, err
+	}
+	if hot != nil && hot.ProjectID != projectID {
+		return hot, nil
+	}
+	return nil, nil
+}
+
+// getFieldBaseOverride loads the field's base override (entity_type is
+// empty) scoped to projectID. When version is non-empty it reads the archived
+// row for that release instead of the hot row — a nil result there is a
+// legitimate "no base override existed at that version" and is not a
+// signal to fall back to hot (unlike the header getters above, which
+// fall back for the cross-project case).
+func (h *Handler) getFieldBaseOverride(ctx context.Context, fieldID, projectID, version string) (*pkgdomain.FieldOverride, error) {
+	if version != "" {
+		return h.weave.Overrides().GetBaseVersion(ctx, fieldID, projectID, version)
+	}
+	return h.weave.Overrides().GetBase(ctx, fieldID, projectID)
+}
+
 func (h *Handler) buildModel(ctx context.Context, projectID, modelID string) (*Response, error) {
 	projectResource := h.projectResource(ctx, projectID)
 	canEdit := h.canEditProject(ctx, projectID)
@@ -661,12 +801,12 @@ func (h *Handler) buildModel(ctx context.Context, projectID, modelID string) (*R
 	if err != nil {
 		return nil, fmt.Errorf("list model adoptions: %w", err)
 	}
-	model, err := h.weave.Models().GetByID(ctx, modelID)
+	model, err := h.getModelHeader(ctx, projectID, modelID, activeVersion)
 	if err != nil {
 		return nil, fmt.Errorf("get model: %w", err)
 	}
 	if model == nil {
-		return nil, fmt.Errorf("model not found: %s", modelID)
+		return nil, fmt.Errorf("model not found: %s: %w", modelID, errEntityViewNotFound)
 	}
 	// Cross-project adopted/inherited entities have no current-project
 	// overrides until Adapt is invoked. Building the view in the
@@ -834,12 +974,12 @@ func (h *Handler) buildCollection(ctx context.Context, projectID, collectionID s
 	if err != nil {
 		return nil, fmt.Errorf("list collection adoptions: %w", err)
 	}
-	collection, err := h.weave.Collections().GetByID(ctx, collectionID)
+	collection, err := h.getCollectionHeader(ctx, projectID, collectionID, activeVersion)
 	if err != nil {
 		return nil, fmt.Errorf("get collection: %w", err)
 	}
 	if collection == nil {
-		return nil, fmt.Errorf("collection not found: %s", collectionID)
+		return nil, fmt.Errorf("collection not found: %s: %w", collectionID, errEntityViewNotFound)
 	}
 
 	// Cross-project read-only view — see buildModel for the rationale.
@@ -1016,12 +1156,12 @@ func (h *Handler) buildField(ctx context.Context, projectID, fieldID string) (*R
 	if err != nil {
 		return nil, fmt.Errorf("list field adoptions: %w", err)
 	}
-	field, err := h.weave.WeaveFields().GetByID(ctx, fieldID)
+	field, err := h.getFieldHeader(ctx, projectID, fieldID, activeVersion)
 	if err != nil {
 		return nil, fmt.Errorf("get field: %w", err)
 	}
 	if field == nil {
-		return nil, fmt.Errorf("field not found: %s", fieldID)
+		return nil, fmt.Errorf("field not found: %s: %w", fieldID, errEntityViewNotFound)
 	}
 
 	refs := ViewRefs{
@@ -1032,10 +1172,13 @@ func (h *Handler) buildField(ctx context.Context, projectID, fieldID string) (*R
 
 	// CategoryID + SetValue moved to weave_field_overrides (base
 	// override row, entity_type='') in migration 027. Read them from
-	// there for the entity-view response.
+	// there for the entity-view response. When activeVersion is set,
+	// read the archived base row so the override-derived fields match
+	// the resolved release, not the hot draft.
 	categoryID := ""
 	setValue := ""
-	if base, _ := h.weave.Overrides().GetBase(ctx, fieldID, projectID); base != nil {
+	base, _ := h.getFieldBaseOverride(ctx, fieldID, projectID, activeVersion)
+	if base != nil {
 		categoryID = base.CategoryID
 		setValue = base.SetValue
 	}
