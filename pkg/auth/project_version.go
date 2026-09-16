@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
@@ -46,6 +47,26 @@ func WithProjectVersionContext(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(WithProjectVersion(r.Context(), version)))
 	})
+}
+
+// ResolveEffectiveVersion decides which content version a read should serve.
+// explicitVersion is the ?version= value (wins for any reader with ProjectRead).
+// latestRelease is the project's highest-semver release ("" if none), supplied
+// by the caller. See the visibility design doc for the contract.
+func ResolveEffectiveVersion(snap *AuthSnapshot, project *domain.Project, explicitVersion, latestRelease string) string {
+	if explicitVersion != "" {
+		return explicitVersion
+	}
+	if project == nil {
+		return ""
+	}
+	if project.Visibility != "public" {
+		return "" // internal/private: only members read here; members see hot
+	}
+	if snap.Can(ProjectEdit, ProjectResource(project), nil) {
+		return "" // public editor sees the working state
+	}
+	return latestRelease // public non-editor: latest release ("" ⇒ hot fallback)
 }
 
 func isSafeMethod(method string) bool {
