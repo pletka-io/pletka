@@ -964,29 +964,30 @@ func (h *Handler) loadAndGateProject(ctx context.Context, projectID string) (*pk
 	return project, true
 }
 
-// effectiveVersion mirrors auth.ResolveContentVersion's policy for routes
-// where the project can only be resolved from inside the handler (these
-// /gen/ routes have no {projectID} URL param, so the middleware form can't
-// be installed on the router — see the Host.LatestRelease doc comment).
-// Returns "" for hot, an explicit ?version= value verbatim, or the latest
-// release for a public project's non-editor reader.
+// effectiveVersion applies auth.ResolveEffectiveVersion for routes where the
+// project can only be resolved from inside the handler (these /gen/ routes
+// have no {projectID} URL param, so auth.ResolveContentVersion can't be
+// installed as router middleware — see the Host.LatestRelease doc comment).
+// auth.ResolveEffectiveVersion is the single source of truth for the
+// decision; the only logic kept here is a perf guard so the reader is
+// queried at most once, only when its answer could actually matter
+// (implicit lookup, public project, non-editor) — and a fail-safe-to-hot
+// on a reader error.
 func (h *Handler) effectiveVersion(ctx context.Context, project *pkgdomain.Project) string {
-	if explicit := auth.ProjectVersionFromContext(ctx); explicit != "" {
-		return explicit
-	}
-	if h.latestRelease == nil || project == nil || project.Visibility != "public" {
-		return ""
-	}
+	explicit := auth.ProjectVersionFromContext(ctx)
 	snap := auth.FromContext(ctx)
-	if snap.Can(auth.ProjectEdit, auth.ProjectResource(project), nil) {
-		return "" // editor: hot
+
+	var latest string
+	if explicit == "" && h.latestRelease != nil && project != nil && project.Visibility == "public" &&
+		!snap.Can(auth.ProjectEdit, auth.ProjectResource(project), nil) {
+		v, err := h.latestRelease.LatestReleaseVersion(ctx, project.ID)
+		if err != nil {
+			h.logger.ErrorContext(ctx, "resolve content version: latest release lookup failed; serving hot", "project", project.ID, "err", err)
+		} else {
+			latest = v
+		}
 	}
-	latest, err := h.latestRelease.LatestReleaseVersion(ctx, project.ID)
-	if err != nil {
-		h.logger.ErrorContext(ctx, "resolve content version: latest release lookup failed; serving hot", "project", project.ID, "err", err)
-		return ""
-	}
-	return auth.ResolveEffectiveVersion(snap, project, "", latest)
+	return auth.ResolveEffectiveVersion(snap, project, explicit, latest)
 }
 
 // sparqlOptionsFromRequest reads ?count and ?limit from the URL.
