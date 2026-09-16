@@ -97,7 +97,8 @@ type Options struct {
 // ProjectMiddlewareHost contains the shared project middleware dependencies
 // used for project-scoped route groups.
 type ProjectMiddlewareHost struct {
-	Weave domain.WeaveStore
+	Weave         domain.WeaveStore
+	LatestRelease auth.LatestReleaseReader
 }
 
 // ErrorPageHost contains the global shell error-page dependencies.
@@ -431,6 +432,9 @@ func mountSlice(parent chi.Router, pattern string, h ProjectMiddlewareHost, atta
 	if h.Weave != nil {
 		sub.Use(auth.WithProjectVersionContext)
 		sub.Use(auth.WithProjectResource(h.Weave))
+		if h.LatestRelease != nil {
+			sub.Use(auth.ResolveContentVersion(h.LatestRelease))
+		}
 	}
 	sub.Use(withChangeSetHint)
 	attach(sub)

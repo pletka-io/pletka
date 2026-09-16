@@ -17,6 +17,14 @@ type Host struct {
 	Weave      domain.WeaveStore
 	Bundles    ontologyBundleReader
 	Logger     *slog.Logger
+	// LatestRelease backs the release-default policy applied in
+	// loadAndGateProject so a public project's non-editor reader gets the
+	// latest release instead of the hot draft, matching
+	// auth.ResolveContentVersion. Optional; nil disables the default
+	// (readers see hot). Routes here have no {projectID} URL param, so
+	// auth.ResolveContentVersion can't be installed as router middleware —
+	// the same policy runs inline once the project is resolved.
+	LatestRelease weaveauth.LatestReleaseReader
 }
 
 func (h Host) Validate() error {
@@ -39,7 +47,7 @@ func Mount(parent chi.Router, h Host) {
 	if err := h.Validate(); err != nil {
 		panic(err)
 	}
-	handler := NewHandler(h.Weave, h.Generators, h.Bundles, h.Logger)
+	handler := NewHandler(h.Weave, h.Generators, h.Bundles, h.Logger, h.LatestRelease)
 
 	withVersion := parent.With(weaveauth.WithProjectVersionContext)
 

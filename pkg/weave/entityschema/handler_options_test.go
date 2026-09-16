@@ -50,7 +50,7 @@ func TestProjectModelOptions_CarriesSemanticID(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM weave_models WHERE project_id = $1`, projectID)
 	})
 
-	h := NewHandler(nil, weave.NewPostgresStore(pool), nil, nil, nil, nil)
+	h := NewHandler(nil, weave.NewPostgresStore(pool), nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/projects/"+projectID+"/models/options", nil)
 	rctx := chi.NewRouteContext()
@@ -100,7 +100,7 @@ func TestProjectCollectionOptions_CarriesSemanticID(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM weave_collections WHERE project_id = $1`, projectID)
 	})
 
-	h := NewHandler(nil, weave.NewPostgresStore(pool), nil, nil, nil, nil)
+	h := NewHandler(nil, weave.NewPostgresStore(pool), nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/projects/"+projectID+"/collections/options", nil)
 	rctx := chi.NewRouteContext()
@@ -172,7 +172,7 @@ func TestProjectModelOptions_CarriesSourceProjectLabel(t *testing.T) {
 		_, _ = pool.Exec(bg, `DELETE FROM weave_projects WHERE id = $1`, parentID)
 	})
 
-	h := NewHandler(nil, weave.NewPostgresStore(pool), nil, nil, nil, nil)
+	h := NewHandler(nil, weave.NewPostgresStore(pool), nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/projects/"+childID+"/models/options", nil)
 	rctx := chi.NewRouteContext()
@@ -243,7 +243,7 @@ func TestProjectCollectionOptions_CarriesSourceProjectLabel(t *testing.T) {
 		_, _ = pool.Exec(bg, `DELETE FROM weave_projects WHERE id = $1`, parentID)
 	})
 
-	h := NewHandler(nil, weave.NewPostgresStore(pool), nil, nil, nil, nil)
+	h := NewHandler(nil, weave.NewPostgresStore(pool), nil, nil, nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/projects/"+childID+"/collections/options", nil)
 	rctx := chi.NewRouteContext()

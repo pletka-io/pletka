@@ -255,9 +255,11 @@ func buildAuthPagesHost(
 
 func buildProjectMiddlewareHost(
 	weave domain.WeaveStore,
+	publicationReader *publication.Reader,
 ) weaverouter.ProjectMiddlewareHost {
 	return weaverouter.ProjectMiddlewareHost{
-		Weave: weave,
+		Weave:         weave,
+		LatestRelease: publicationReader,
 	}
 }
 
@@ -299,6 +301,7 @@ func buildDetailViewHost(
 	integrations *integrationsregistry.Registry,
 	preloader weavedetailview.AutocompletePreloader,
 	hasFormat func(generators.Format) bool,
+	publicationReader *publication.Reader,
 ) weavedetailview.Host {
 	return weavedetailview.Host{
 		Logger:       logger,
@@ -310,7 +313,7 @@ func buildDetailViewHost(
 		Integrations: integrations,
 		IntLookup:    detailViewIntegrationsLookup{store: hub.NewPostgresStore(pool)},
 		Preloader:    preloader,
-		Publication:  publication.NewReader(pool),
+		Publication:  publicationReader,
 		HasFormat:    hasFormat,
 	}
 }
@@ -382,6 +385,7 @@ func buildEntitySchemaHost(
 	langResolver entityschema.LangResolver,
 	i18nManager i18n.Manager,
 	organizationHost organization.Host,
+	publicationReader *publication.Reader,
 ) entityschema.Host {
 	return entityschema.Host{
 		Logger:        logger,
@@ -390,6 +394,7 @@ func buildEntitySchemaHost(
 		Languages:     languages,
 		LangResolver:  langResolver,
 		I18n:          i18nManager,
+		LatestRelease: publicationReader,
 	}
 }
 
@@ -403,6 +408,7 @@ func buildProjectPageHost(
 	i18nManager i18n.Manager,
 	ontologyReader projectontologyversion.OntologyReader,
 	ontologyVersionReader projectontologyversion.OntologyVersionReader,
+	publicationReader *publication.Reader,
 ) projectpage.Host {
 	povSvc := projectontologyversion.NewService(
 		projectontologyversion.NewPostgresStore(pool),
@@ -423,7 +429,7 @@ func buildProjectPageHost(
 		Languages:        languages,
 		LangResolver:     langResolver,
 		I18n:             i18nManager,
-		Publication:      publication.NewReader(pool),
+		Publication:      publicationReader,
 	}
 }
 
@@ -688,12 +694,14 @@ func buildVisualizationHost(
 	weave domain.WeaveStore,
 	logger *slog.Logger,
 	gens *generators.Service,
+	publicationReader *publication.Reader,
 ) visualization.Host {
 	return visualization.Host{
-		Generators: gens,
-		Weave:      weave,
-		Bundles:    projectontologyversion.NewPostgresStore(pool),
-		Logger:     logger,
+		Generators:    gens,
+		Weave:         weave,
+		Bundles:       projectontologyversion.NewPostgresStore(pool),
+		Logger:        logger,
+		LatestRelease: publicationReader,
 	}
 }
 

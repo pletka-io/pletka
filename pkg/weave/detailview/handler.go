@@ -65,7 +65,11 @@ type Host struct {
 	IntLookup    IntegrationsLookup
 	Preloader    AutocompletePreloader
 	// Publication derives live entities' draft/published/modified state for
-	// the detail header badge. Optional; nil disables the badge.
+	// the detail header badge, and (satisfying auth.LatestReleaseReader)
+	// backs auth.ResolveContentVersion so a public project's non-editor
+	// reader defaults to the latest release instead of the hot draft.
+	// Optional; nil disables the badge and the release default (readers see
+	// hot).
 	Publication *publication.Reader
 	// HasFormat reports whether a generator renderer for the format is
 	// registered in this build. Wired by pkg/app from the same renderer
@@ -166,13 +170,19 @@ func Mount(r chi.Router, host Host) error {
 
 // Mount registers the parallel detailview routes under the weave project base.
 func (h *Handler) Mount(r chi.Router) {
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}", h.API)
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}/stats", h.StatsAPI)
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}/reuse", h.ReuseAPI)
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/models/{modelID:[^/]+\\.[^/]+(?:_[^/]+)?}", h.Page("model"))
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/collections/{collectionID:[^/]+\\.[^/]+(?:_[^/]+)?}", h.Page("collection"))
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/fields/{fieldID:[^/]+\\.[^/]+(?:_[^/]+)?}", h.Page("field"))
-	r.With(auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)).Get("/projects/{projectID:[A-Z0-9]+}/concept-lists/{conceptListID:[^/]+}", h.Page("concept-list"))
+	mw := []func(http.Handler) http.Handler{auth.WithProjectVersionContext, auth.WithProjectResource(h.weave)}
+	if h.publication != nil {
+		// ResolveContentVersion needs the project loaded into context by
+		// WithProjectResource, so it must come after it in the chain.
+		mw = append(mw, auth.ResolveContentVersion(h.publication))
+	}
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}", h.API)
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}/stats", h.StatsAPI)
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/entity-view/{entityType}/{entityID}/reuse", h.ReuseAPI)
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/models/{modelID:[^/]+\\.[^/]+(?:_[^/]+)?}", h.Page("model"))
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/collections/{collectionID:[^/]+\\.[^/]+(?:_[^/]+)?}", h.Page("collection"))
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/fields/{fieldID:[^/]+\\.[^/]+(?:_[^/]+)?}", h.Page("field"))
+	r.With(mw...).Get("/projects/{projectID:[A-Z0-9]+}/concept-lists/{conceptListID:[^/]+}", h.Page("concept-list"))
 }
 
 // Page renders the detailview page shell using the compatibility island name,

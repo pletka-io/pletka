@@ -31,6 +31,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/materializationadmin"
 	ontologyslice "github.com/pletka-io/pletka/pkg/weave/ontology"
 	"github.com/pletka-io/pletka/pkg/weave/pathaudit"
+	"github.com/pletka-io/pletka/pkg/weave/publication"
 	weaverouter "github.com/pletka-io/pletka/pkg/weave/router"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
 )
@@ -243,6 +244,10 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		formatAvailable[r.Spec().Format] = true
 	}
 	hasFormat := func(f generators.Format) bool { return formatAvailable[f] }
+	// publicationReader is built once and shared by every host that needs
+	// auth.LatestReleaseReader (draft vs. release visibility default) or
+	// the publication rollup — see auth.ResolveContentVersion.
+	publicationReader := publication.NewReader(opts.Pool)
 	organizationHost, orgMembersHost := buildOrganizationHosts(opts.Pool, logger, languages, langResolver)
 	projectHost := buildProjectHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver)
 	workspaceHost := buildWorkspaceHost(logger, templateRenderer, i18nManager, sessionManager, languages, langResolver, organizationHost, projectHost, orgMembersHost)
@@ -250,8 +255,8 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	projectPagesHost := buildProjectPagesHost(logger, templateRenderer, weaveStore, i18nManager, sessionManager)
 	searchHost := buildSearchHost(weaveStore, logger)
 	vocabularyHost := buildVocabularyHost(opts.Pool, weaveStore, logger, languages, langResolver)
-	entitySchemaHost := buildEntitySchemaHost(weaveStore, logger, languages, langResolver, i18nManager, organizationHost)
-	projectPageHost := buildProjectPageHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver, i18nManager, ontologyReader, ontologyVersionReader)
+	entitySchemaHost := buildEntitySchemaHost(weaveStore, logger, languages, langResolver, i18nManager, organizationHost, publicationReader)
+	projectPageHost := buildProjectPageHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver, i18nManager, ontologyReader, ontologyVersionReader, publicationReader)
 	draftsHost := buildDraftsHost(weaveStore, logger)
 	settingsHost := buildSettingsHost(opts.Pool, weaveStore, logger, languages)
 	ontologySvc, ontologyAdminHost, ontologyAPIHost, ontologyPagesHost := buildOntologyHosts(
@@ -316,11 +321,11 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		namespaceSvc,
 		generatorRenderers,
 	)
-	visualizationHost := buildVisualizationHost(opts.Pool, weaveStore, logger, generatorService)
-	detailViewHost := buildDetailViewHost(opts.Pool, logger, templateRenderer, weaveStore, i18nManager, sessionManager, opts.IntegrationRegistry, ontologySvc, hasFormat)
+	visualizationHost := buildVisualizationHost(opts.Pool, weaveStore, logger, generatorService, publicationReader)
+	detailViewHost := buildDetailViewHost(opts.Pool, logger, templateRenderer, weaveStore, i18nManager, sessionManager, opts.IntegrationRegistry, ontologySvc, hasFormat, publicationReader)
 	categoryHost, categoryService := buildCategoryHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver)
 	errPageHost := buildErrorPageHost(templateRenderer, i18nManager, langResolver)
-	weaverouter.Mount(handler, buildProjectMiddlewareHost(weaveStore), errPageHost, weaverouter.Options{
+	weaverouter.Mount(handler, buildProjectMiddlewareHost(weaveStore, publicationReader), errPageHost, weaverouter.Options{
 		Integrations: opts.IntegrationRegistry,
 		ActorAdmin:   buildActorAdminHost(opts.Pool, weaveStore, logger, languages, langResolver),
 		APIKey: apikey.Host{
