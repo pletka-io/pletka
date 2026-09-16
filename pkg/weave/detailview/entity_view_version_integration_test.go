@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -371,6 +372,74 @@ func TestEntityViewVersion_ServesResolvedRelease(t *testing.T) {
 		name, _ := fetchEntity(t, router, entityPath("field", unreleasedFieldID), orgOwner)
 		if name != "Unreleased Field" {
 			t.Fatalf("entity.name.en = %q, want %q", name, "Unreleased Field")
+		}
+	})
+
+	// Page-shell regression: entityPageMeta (the HTML page's <title> and
+	// breadcrumb) must resolve through the SAME version-aware header
+	// getters as the JSON body above. Before the fix, entityPageMeta
+	// called the unversioned GetByID unconditionally, so an anonymous
+	// viewer of a released public project got the correct RELEASED body
+	// but the page shell (title/breadcrumb) leaked the DRAFT entity
+	// name — the exact work-in-progress disclosure this feature exists
+	// to prevent.
+	pagePath := func(entityType, id string) string {
+		// The Page route's chi pattern requires a literal "." in the
+		// captured segment (see detailview.Mount); production URLs are
+		// "<ULID>_<SemanticID>" so the dot comes from the semantic ID
+		// suffix, and Page() recovers the ULID by splitting on the
+		// first "_". Mirror that shape here.
+		semanticSuffix := map[string]string{
+			modelID:      "ENTVERM.1",
+			collectionID: "ENTVERC.1",
+			fieldID:      "ENTVERF.1",
+		}[id]
+		return "/projects/" + projectID + "/" + entityType + "/" + id + "_" + semanticSuffix
+	}
+
+	t.Run("page shell: anonymous viewer of a released model gets the released name in title and breadcrumb", func(t *testing.T) {
+		status, body := fetchStatus(t, router, pagePath("models", modelID), nil)
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", status, body)
+		}
+		if !strings.Contains(body, "Original Model") {
+			t.Errorf("page body does not contain released name %q:\n%s", "Original Model", body)
+		}
+		if strings.Contains(body, "Renamed Hot Model") {
+			t.Errorf("page body leaks the draft name %q:\n%s", "Renamed Hot Model", body)
+		}
+	})
+	t.Run("page shell: editor sees the hot name in title and breadcrumb", func(t *testing.T) {
+		status, body := fetchStatus(t, router, pagePath("models", modelID), orgOwner)
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", status, body)
+		}
+		if !strings.Contains(body, "Renamed Hot Model") {
+			t.Errorf("page body does not contain hot name %q:\n%s", "Renamed Hot Model", body)
+		}
+	})
+	t.Run("page shell: anonymous viewer of a released collection gets the released name", func(t *testing.T) {
+		status, body := fetchStatus(t, router, pagePath("collections", collectionID), nil)
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", status, body)
+		}
+		if !strings.Contains(body, "Original Collection") {
+			t.Errorf("page body does not contain released name %q:\n%s", "Original Collection", body)
+		}
+		if strings.Contains(body, "Renamed Hot Collection") {
+			t.Errorf("page body leaks the draft name %q:\n%s", "Renamed Hot Collection", body)
+		}
+	})
+	t.Run("page shell: anonymous viewer of a released field gets the released name", func(t *testing.T) {
+		status, body := fetchStatus(t, router, pagePath("fields", fieldID), nil)
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", status, body)
+		}
+		if !strings.Contains(body, "Original Field") {
+			t.Errorf("page body does not contain released name %q:\n%s", "Original Field", body)
+		}
+		if strings.Contains(body, "Renamed Hot Field") {
+			t.Errorf("page body leaks the draft name %q:\n%s", "Renamed Hot Field", body)
 		}
 	})
 

@@ -37,7 +37,7 @@ func versionEchoHandler() http.Handler {
 
 func newRequestWithContext(t *testing.T, method, target string, project *domain.Project, snap *AuthSnapshot) *http.Request {
 	t.Helper()
-	req := httptest.NewRequest(method, target, nil)
+	req := httptest.NewRequestWithContext(context.Background(), method, target, nil)
 	ctx := req.Context()
 	ctx = WithProject(ctx, project)
 	ctx = WithSnapshot(ctx, snap)

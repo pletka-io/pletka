@@ -250,7 +250,7 @@ func (h *Handler) Page(entityType string) http.HandlerFunc {
 
 		lang := h.currentLang(r)
 		projectName := project.UIName.Get(lang, projectID)
-		entityName, entityTypeLabel, err := h.entityPageMeta(ctx, entityType, entityID, lang)
+		entityName, entityTypeLabel, err := h.entityPageMeta(ctx, projectID, entityType, entityID, activeVersion, lang)
 		if err != nil {
 			errresp.Error(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
@@ -623,22 +623,33 @@ func partitionFieldUsage(ctx context.Context, weave pkgdomain.WeaveStore, projec
 	return sec
 }
 
-func (h *Handler) entityPageMeta(ctx context.Context, entityType, entityID, lang string) (name, label string, err error) {
+// entityPageMeta resolves the page-shell title/breadcrumb name for an
+// entity. It is version-aware for model/collection/field: when version is
+// non-empty (release mode) it goes through the same version-aware header
+// getters (getModelHeader/getCollectionHeader/getFieldHeader) that
+// buildModel/buildCollection/buildField use for the response body, so the
+// page shell (title, breadcrumb) never shows a draft name the body would
+// 404 or replace with the released name. A nil result from the
+// version-aware getter is treated like not-found, matching the body's 404
+// — it must never fall back to the unversioned draft row. version == ""
+// (hot/editor) is unchanged. concept-list has no archive/versioned store
+// yet (see buildConceptList), so it stays unversioned here too.
+func (h *Handler) entityPageMeta(ctx context.Context, projectID, entityType, entityID, version, lang string) (name, label string, err error) {
 	switch entityType {
 	case "model":
-		m, e := h.weave.Models().GetByID(ctx, entityID)
+		m, e := h.getModelHeader(ctx, projectID, entityID, version)
 		if e != nil || m == nil {
 			return "", "", fmt.Errorf("model not found")
 		}
 		return m.UIName.Get(lang, entityID), "Models", nil
 	case "collection":
-		c, e := h.weave.Collections().GetByID(ctx, entityID)
+		c, e := h.getCollectionHeader(ctx, projectID, entityID, version)
 		if e != nil || c == nil {
 			return "", "", fmt.Errorf("collection not found")
 		}
 		return c.UIName.Get(lang, entityID), "Collections", nil
 	case "field":
-		f, e := h.weave.WeaveFields().GetByID(ctx, entityID)
+		f, e := h.getFieldHeader(ctx, projectID, entityID, version)
 		if e != nil || f == nil {
 			return "", "", fmt.Errorf("field not found")
 		}
@@ -765,8 +776,8 @@ func (h *Handler) getFieldHeader(ctx context.Context, projectID, fieldID, versio
 	return nil, nil
 }
 
-// getFieldBaseOverride loads the field's base override (entity_type='')
-// scoped to projectID. When version is non-empty it reads the archived
+// getFieldBaseOverride loads the field's base override (entity_type is
+// empty) scoped to projectID. When version is non-empty it reads the archived
 // row for that release instead of the hot row — a nil result there is a
 // legitimate "no base override existed at that version" and is not a
 // signal to fall back to hot (unlike the header getters above, which

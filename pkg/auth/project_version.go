@@ -61,7 +61,7 @@ func ResolveEffectiveVersion(snap *AuthSnapshot, project *domain.Project, explic
 	if project == nil {
 		return ""
 	}
-	if project.Visibility != "public" {
+	if project.Visibility != domain.VisibilityPublic {
 		return "" // internal/private: only members read here; members see hot
 	}
 	if snap.Can(ProjectEdit, ProjectResource(project), nil) {
@@ -84,7 +84,7 @@ func ResolveContentVersion(reader LatestReleaseReader) func(http.Handler) http.H
 				return
 			}
 			project := ProjectFromContext(ctx)
-			if project == nil || project.Visibility != "public" {
+			if project == nil || project.Visibility != domain.VisibilityPublic {
 				next.ServeHTTP(w, r)
 				return
 			}

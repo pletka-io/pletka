@@ -49,6 +49,8 @@ type versionedFieldLookup interface {
 	GetByIDVersion(ctx context.Context, projectID, id, version string) (*pkgdomain.Field, error)
 }
 
+// NewHandler builds the visualization Handler. latestRelease is optional —
+// nil disables the release-mode default, leaving readers on the hot draft.
 func NewHandler(weave pkgdomain.WeaveStore, gens *generators.Service, bundles ontologyBundleReader, logger *slog.Logger, latestRelease auth.LatestReleaseReader) *Handler {
 	if logger == nil {
 		logger = slog.Default()
@@ -978,7 +980,7 @@ func (h *Handler) effectiveVersion(ctx context.Context, project *pkgdomain.Proje
 	snap := auth.FromContext(ctx)
 
 	var latest string
-	if explicit == "" && h.latestRelease != nil && project != nil && project.Visibility == "public" &&
+	if explicit == "" && h.latestRelease != nil && project != nil && project.Visibility == pkgdomain.VisibilityPublic &&
 		!snap.Can(auth.ProjectEdit, auth.ProjectResource(project), nil) {
 		v, err := h.latestRelease.LatestReleaseVersion(ctx, project.ID)
 		if err != nil {

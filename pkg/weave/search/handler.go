@@ -49,6 +49,8 @@ func (h Host) Validate() error {
 	return nil
 }
 
+// NewHandler builds the search Handler. latestRelease is optional — nil
+// disables the release-mode default, leaving readers on the hot draft.
 func NewHandler(weave domain.WeaveStore, logger *slog.Logger, latestRelease weaveauth.LatestReleaseReader) *Handler {
 	if logger == nil {
 		logger = slog.Default()

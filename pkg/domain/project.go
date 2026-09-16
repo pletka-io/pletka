@@ -1,5 +1,12 @@
 package domain
 
+// Visibility values for Project.Visibility.
+const (
+	VisibilityPublic   = "public"
+	VisibilityInternal = "internal"
+	VisibilityPrivate  = "private"
+)
+
 // Project represents a workspace that owns patterns (fields, models, collections).
 // ID is the IDPrefix (e.g., "LA", "SRD") — used as PK and in URL routing.
 type Project struct {
