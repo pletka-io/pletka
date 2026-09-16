@@ -7,9 +7,11 @@ package publication
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -100,6 +102,20 @@ rel AS (
            created_at DESC
   LIMIT 1
 )`
+
+// LatestReleaseVersion returns the highest-semver release version for
+// projectID, or "" when the project has no release.
+func (r *Reader) LatestReleaseVersion(ctx context.Context, projectID string) (string, error) {
+	var version string
+	err := r.pool.QueryRow(ctx, `WITH `+latestReleaseCTE+` SELECT version FROM rel`, projectID).Scan(&version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("latest release version for %s: %w", projectID, err)
+	}
+	return version, nil
+}
 
 // stateCase is the shared CASE deriving State from the joined rel/archive/ovr.
 const stateCase = `

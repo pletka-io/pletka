@@ -9,6 +9,13 @@ import (
 
 type projectVersionKey struct{}
 
+// LatestReleaseReader resolves the highest-semver release version for a
+// project, or "" when it has none. Injected so pkg/auth needn't import the
+// release/publication layer.
+type LatestReleaseReader interface {
+	LatestReleaseVersion(ctx context.Context, projectID string) (string, error)
+}
+
 // WithProjectVersion stores the requested project version (typically from
 // ?version=...) in the request context. Empty means "hot draft view".
 func WithProjectVersion(ctx context.Context, version string) context.Context {
