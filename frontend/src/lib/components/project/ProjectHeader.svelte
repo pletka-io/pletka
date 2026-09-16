@@ -77,11 +77,13 @@
         <div class="text-xs text-blue-700">This page is showing a read-only snapshot.</div>
       </div>
     </div>
-    <a
-      href={release.draft_url}
-      class="inline-flex items-center rounded-md border border-blue-300 bg-white px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
-    >
-      Return to draft
-    </a>
+    {#if release.draft_url}
+      <a
+        href={release.draft_url}
+        class="inline-flex items-center rounded-md border border-blue-300 bg-white px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
+      >
+        Return to draft
+      </a>
+    {/if}
   </div>
 {/if}

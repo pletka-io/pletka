@@ -22,7 +22,8 @@ export interface EntityViewResponse {
 
 export interface DetailReleaseView {
   version: string;
-  draft_url: string;
+  /** Present only when the viewer can edit the project (ProjectEdit). */
+  draft_url?: string;
   label: Translations;
 }
 

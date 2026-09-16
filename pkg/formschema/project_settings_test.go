@@ -214,6 +214,29 @@ func TestBuildProjectInheritanceListSchema_ReleaseReadOnly(t *testing.T) {
 	}
 }
 
+func TestBuildSettingsSchema_ReleaseDraftURLGatedByEdit(t *testing.T) {
+	p := &domain.Project{Entity: domain.Entity{ID: "LA", UIName: domain.Translations{"en": "LA"}}}
+	res := auth.Resource{ScopeType: "project", ID: "LA", Visibility: "private"}
+
+	editor := snap("u1", map[string]string{"project:LA": "maintainer"})
+	got := formschema.BuildSettingsSchema(p, editor, res, formschema.ProjectSetupState{HasOntology: true}, "1.0.0")
+	if got.Release == nil {
+		t.Fatalf("expected release view for a release version")
+	}
+	if got.Release.DraftURL == "" {
+		t.Fatalf("expected editor to get a non-empty draft_url")
+	}
+
+	nonEditor := snap("u2", map[string]string{"project:LA": "contributor"})
+	got = formschema.BuildSettingsSchema(p, nonEditor, res, formschema.ProjectSetupState{HasOntology: true}, "1.0.0")
+	if got.Release == nil {
+		t.Fatalf("expected release view for a release version")
+	}
+	if got.Release.DraftURL != "" {
+		t.Fatalf("expected non-editor draft_url to be empty, got %q", got.Release.DraftURL)
+	}
+}
+
 func TestBuildGeneralSettingsSchema_IncludesVisibilityChoices(t *testing.T) {
 	p := &domain.Project{
 		Entity:     domain.Entity{ID: "TPC", UIName: domain.Translations{"en": "Test Project"}},

@@ -958,7 +958,7 @@ func (h *Handler) buildModel(ctx context.Context, projectID, modelID string) (*R
 		Adoptions: adoptions,
 		Refs:      refs,
 		StatsURL:  withVersion(fmt.Sprintf("%s/%s/entity-view/model/%s/stats", weaveroutes.ProjectBase, projectID, modelID), activeVersion),
-		Release:   releaseView(projectID, activeVersion),
+		Release:   releaseView(projectID, activeVersion, h.hasProjectEdit(ctx, projectID)),
 	}, nil
 }
 
@@ -1140,7 +1140,7 @@ func (h *Handler) buildCollection(ctx context.Context, projectID, collectionID s
 		Adoptions: adoptions,
 		Refs:      refs,
 		StatsURL:  withVersion(fmt.Sprintf("%s/%s/entity-view/collection/%s/stats", weaveroutes.ProjectBase, projectID, collectionID), activeVersion),
-		Release:   releaseView(projectID, activeVersion),
+		Release:   releaseView(projectID, activeVersion, h.hasProjectEdit(ctx, projectID)),
 	}, nil
 }
 
@@ -1257,7 +1257,7 @@ func (h *Handler) buildField(ctx context.Context, projectID, fieldID string) (*R
 		Sections: []ViewSection{},
 		Refs:     refs,
 		StatsURL: withVersion(fmt.Sprintf("%s/%s/entity-view/field/%s/stats", weaveroutes.ProjectBase, projectID, fieldID), activeVersion),
-		Release:  releaseView(projectID, activeVersion),
+		Release:  releaseView(projectID, activeVersion, h.hasProjectEdit(ctx, projectID)),
 	}, nil
 }
 
@@ -1387,7 +1387,7 @@ func (h *Handler) buildConceptList(ctx context.Context, projectID, conceptListID
 		Sections: []ViewSection{},
 		Entries:  entries,
 		Refs:     ViewRefs{},
-		Release:  releaseView(projectID, activeVersion),
+		Release:  releaseView(projectID, activeVersion, h.hasProjectEdit(ctx, projectID)),
 	}, nil
 }
 
@@ -1416,6 +1416,17 @@ func (h *Handler) canEditProject(ctx context.Context, projectID string) bool {
 		resource = auth.ProjectResource(project)
 	}
 	return auth.FromContext(ctx).Can(auth.ProjectEdit, resource, nil)
+}
+
+// hasProjectEdit reports the viewer's raw ProjectEdit capability, without
+// canEditProject's release-mode short-circuit. Entity content (fields on a
+// model, rows in a collection, ...) is never editable while viewing a
+// specific release, so canEditProject correctly forces false whenever a
+// version is pinned — but the release banner's "return to draft" link is
+// exactly the affordance an editor needs while looking at that pinned
+// version, so it must gate on the underlying capability instead.
+func (h *Handler) hasProjectEdit(ctx context.Context, projectID string) bool {
+	return auth.FromContext(ctx).Can(auth.ProjectEdit, h.projectResource(ctx, projectID), nil)
 }
 
 func capabilityURL(enabled bool, url string) string {
@@ -1809,16 +1820,19 @@ func requestPathWithVersion(r *http.Request, activeVersion string) string {
 	return withVersion(r.URL.Path, activeVersion)
 }
 
-func releaseView(projectID, activeVersion string) *ReleaseView {
+func releaseView(projectID, activeVersion string, canEdit bool) *ReleaseView {
 	if activeVersion == "" {
 		return nil
 	}
-	return &ReleaseView{
-		Version:  activeVersion,
-		DraftURL: fmt.Sprintf("%s/%s", weaveroutes.ProjectBase, projectID),
+	view := &ReleaseView{
+		Version: activeVersion,
 		Label: i18n.LF("release.viewing_version", "Viewing release {version}",
 			map[string]string{"version": activeVersion}),
 	}
+	if canEdit {
+		view.DraftURL = fmt.Sprintf("%s/%s", weaveroutes.ProjectBase, projectID)
+	}
+	return view
 }
 
 func placeholderHTML() template.HTML {

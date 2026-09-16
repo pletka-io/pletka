@@ -189,12 +189,14 @@
           <div class="text-xs text-blue-700">Settings are read-only for this release snapshot.</div>
         </div>
       </div>
-      <a
-        href={schema.release.draft_url}
-        class="inline-flex items-center rounded-md border border-blue-300 bg-white px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
-      >
-        Return to draft
-      </a>
+      {#if schema.release.draft_url}
+        <a
+          href={schema.release.draft_url}
+          class="inline-flex items-center rounded-md border border-blue-300 bg-white px-3 py-1.5 text-sm font-medium text-blue-800 hover:bg-blue-100"
+        >
+          Return to draft
+        </a>
+      {/if}
     </div>
   {/if}
 

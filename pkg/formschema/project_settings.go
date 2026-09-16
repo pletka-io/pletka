@@ -182,7 +182,7 @@ func BuildSettingsSchema(project *domain.Project, snap *auth.AuthSnapshot, r aut
 		ProjectName: project.UIName,
 		Sections:    sections,
 		Warnings:    ComputeProjectWarnings(projectID, setup, snap, r),
-		Release:     buildProjectReleaseView(projectID, activeVersion),
+		Release:     buildProjectReleaseView(projectID, activeVersion, snap.Can(auth.ProjectEdit, r, nil)),
 	}
 }
 
@@ -533,16 +533,19 @@ func releaseAwareSettingsGate(activeVersion string, draftCapability auth.Capabil
 	return draftCapability
 }
 
-func buildProjectReleaseView(projectID, activeVersion string) *ProjectReleaseView {
+func buildProjectReleaseView(projectID, activeVersion string, canEdit bool) *ProjectReleaseView {
 	if activeVersion == "" {
 		return nil
 	}
-	return &ProjectReleaseView{
-		Version:  activeVersion,
-		DraftURL: fmt.Sprintf("/projects/%s/settings", projectID),
+	view := &ProjectReleaseView{
+		Version: activeVersion,
 		Label: i18n.LF("release.viewing_version", "Viewing release {version}",
 			map[string]string{"version": activeVersion}),
 	}
+	if canEdit {
+		view.DraftURL = fmt.Sprintf("/projects/%s/settings", projectID)
+	}
+	return view
 }
 
 func withVersionQuery(raw, activeVersion string) string {
