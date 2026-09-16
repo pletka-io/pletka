@@ -35,12 +35,16 @@ type CreateInput struct {
 	Title       domain.Translations      `json:"title,omitempty"`
 	Description domain.Translations      `json:"description,omitempty"`
 	Values      []domain.ExampleValue    `json:"values,omitempty"`
+	// Lang is the form's primary language; stub examples created from a
+	// typed label store the label under it. Defaults to "en".
+	Lang string `json:"lang,omitempty"`
 }
 
 type UpdateInput struct {
 	Title       *domain.Translations  `json:"title,omitempty"`
 	Description *domain.Translations  `json:"description,omitempty"`
 	Values      []domain.ExampleValue `json:"values,omitempty"`
+	Lang        string                `json:"lang,omitempty"`
 }
 
 type ExampleRecord struct {
@@ -133,6 +137,9 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 		Description: in.Description,
 		Status:      domain.ExampleStatusDraft,
 	}
+	if err := s.materializeStubs(ctx, projectID, in.EntityID, in.Lang, in.Values); err != nil {
+		return nil, err
+	}
 	values := normalizeValues(in.Values)
 	report, err := s.validateModelValues(ctx, projectID, in.EntityID, values)
 	if err != nil {
@@ -163,6 +170,9 @@ func (s *Service) Update(ctx context.Context, projectID, exampleID string, in Up
 	if in.Description != nil {
 		ex.Description = *in.Description
 	}
+	if err := s.materializeStubs(ctx, projectID, ex.EntityID, in.Lang, in.Values); err != nil {
+		return nil, err
+	}
 	values := normalizeValues(in.Values)
 	report, err := s.validateModelValues(ctx, projectID, ex.EntityID, values)
 	if err != nil {
@@ -177,6 +187,84 @@ func (s *Service) Update(ctx context.Context, projectID, exampleID string, in Up
 		return nil, err
 	}
 	return &ExampleRecord{Example: ex, Values: values, Validation: report}, nil
+}
+
+// materializeStubs turns "reference by label" payloads into real draft
+// examples. A value whose payload is example_ref with no example_id but a
+// non-blank target_label creates a draft example of the target model
+// (title = label, no values) and links it by id. The target model comes
+// from target_entity_id, or is inferred when the field allows exactly one
+// resource model. Values are mutated in place; callers normalize afterwards
+// so the linked_example_id column follows.
+//
+// ponytail: stubs are created before the parent is saved and are not rolled
+// back if the parent save fails afterwards; they are drafts and harmless.
+// Wrap in one transaction if that ever bites.
+func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang string, values []domain.ExampleValue) error {
+	lang = strings.TrimSpace(lang)
+	if lang == "" {
+		lang = "en"
+	}
+	var view *domain.ModelView
+	fieldByOverride := map[int64]domain.ResolvedField{}
+	for i := range values {
+		p := &values[i].ValuePayload
+		if p.Kind != domain.ExampleValueKindExampleRef || p.ExampleID != nil || p.TargetLabel == nil {
+			continue
+		}
+		label := strings.TrimSpace(*p.TargetLabel)
+		if label == "" {
+			continue
+		}
+		if view == nil {
+			v, err := s.views.ModelView(ctx, modelID, projectID)
+			if err != nil {
+				return err
+			}
+			view = v
+			for _, cat := range view.Categories {
+				for _, coll := range cat.Collections {
+					for _, f := range coll.Fields {
+						fieldByOverride[f.OverrideID] = f
+					}
+				}
+			}
+		}
+		field, ok := fieldByOverride[values[i].OverrideID]
+		if !ok {
+			continue // validation reports stale_override
+		}
+		if strings.TrimSpace(field.ExpectedValueType) != "Model" {
+			return fmt.Errorf("field %s: a new draft can only be created for Model-typed fields", field.ID)
+		}
+		target := ""
+		if p.TargetEntityID != nil {
+			target = strings.TrimSpace(*p.TargetEntityID)
+		}
+		if target == "" && len(field.ResourceModels) == 1 {
+			target = field.ResourceModels[0].ID
+		}
+		if target == "" {
+			return fmt.Errorf("field %s: target_entity_id is required to create a draft (field allows %d models)", field.ID, len(field.ResourceModels))
+		}
+		if len(field.ResourceModels) > 0 && !slices.ContainsFunc(field.ResourceModels, func(ref domain.EntityRef) bool { return ref.ID == target }) {
+			return fmt.Errorf("field %s: model %s is not an allowed target", field.ID, target)
+		}
+		stub := &domain.Example{
+			ID:         ids.GenerateULID(),
+			ProjectID:  projectID,
+			EntityType: domain.ExampleEntityTypeModel,
+			EntityID:   target,
+			Title:      domain.Translations{lang: label},
+			Status:     domain.ExampleStatusDraft,
+		}
+		if err := s.store.CreateWithValues(ctx, stub, nil); err != nil {
+			return fmt.Errorf("create draft example for %s: %w", target, err)
+		}
+		p.ExampleID = &stub.ID
+		p.TargetEntityID = &target
+	}
+	return nil
 }
 
 func (s *Service) Get(ctx context.Context, projectID, exampleID string) (*ExampleRecord, error) {
