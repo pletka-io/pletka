@@ -72,7 +72,7 @@ type ProjectPageNavLink struct {
 
 type ProjectReleaseView struct {
 	Version  string             `json:"version"`
-	DraftURL string             `json:"draft_url"`
+	DraftURL string             `json:"draft_url,omitempty"`
 	Label    domain.Localizable `json:"label"`
 }
 
@@ -263,12 +263,17 @@ func BuildProjectPageSchema(
 			if activeVersion == "" {
 				return nil
 			}
-			return &ProjectReleaseView{
-				Version:  activeVersion,
-				DraftURL: fmt.Sprintf("/projects/%s", project.ID),
+			view := &ProjectReleaseView{
+				Version: activeVersion,
 				Label: i18n.LF("release.viewing_version", "Viewing release {version}",
 					map[string]string{"version": activeVersion}),
 			}
+			// canAdmin actually carries the ProjectEdit capability signal
+			// (see the caller) — only editors get a return-to-draft link.
+			if canAdmin {
+				view.DraftURL = fmt.Sprintf("/projects/%s", project.ID)
+			}
+			return view
 		}(),
 		UI: SchemaUI{
 			Languages:   languages,

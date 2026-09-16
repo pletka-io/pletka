@@ -10,7 +10,8 @@ export interface SettingsSchema {
 
 export interface SettingsReleaseView {
   version: string;
-  draft_url: string;
+  /** Present only when the viewer can edit the project (ProjectEdit). */
+  draft_url?: string;
   label: Translations;
 }
 

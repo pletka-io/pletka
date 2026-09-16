@@ -506,7 +506,7 @@ type ProjectReleaseTabSchema struct {
 	CreateBlockedMessage    pkgdomain.Localizable            `json:"create_blocked_message,omitempty"`
 	DependencySettingsURL   string                           `json:"dependency_settings_url,omitempty"`
 	DraftParentDependencies []ProjectReleaseParentDependency `json:"draft_parent_dependencies,omitempty"`
-	DraftURL                string                           `json:"draft_url"`
+	DraftURL                string                           `json:"draft_url,omitempty"`
 	Items                   []ProjectReleaseTabItem          `json:"items"`
 	EmptyMessage            pkgdomain.Localizable            `json:"empty_message,omitempty"`
 }
@@ -551,9 +551,11 @@ func (h *Handler) ProjectReleaseTabSchema(w http.ResponseWriter, r *http.Request
 		ProjectID:      projectID,
 		CurrentVersion: currentVersion,
 		CanCreate:      canCreate,
-		DraftURL:       "/projects/" + projectID,
 		Items:          make([]ProjectReleaseTabItem, 0, len(items)),
 		EmptyMessage:   i18n.L("project_page.releases_empty", "No releases yet."),
+	}
+	if canEdit {
+		out.DraftURL = "/projects/" + projectID
 	}
 	if canCreate {
 		links, ierr := h.weave.ProjectInheritances().List(ctx, projectID)

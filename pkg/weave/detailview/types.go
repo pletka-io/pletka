@@ -119,7 +119,7 @@ type ConceptListCap struct {
 
 type ReleaseView struct {
 	Version  string                `json:"version"`
-	DraftURL string                `json:"draft_url"`
+	DraftURL string                `json:"draft_url,omitempty"`
 	Label    pkgdomain.Localizable `json:"label"`
 }
 

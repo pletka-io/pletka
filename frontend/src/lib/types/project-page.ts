@@ -64,7 +64,8 @@ export interface ProjectPageNavLink {
 
 export interface ProjectReleaseView {
   version: string;
-  draft_url: string;
+  /** Present only when the viewer can edit the project (ProjectEdit). */
+  draft_url?: string;
   label: Translations;
 }
 
@@ -77,7 +78,8 @@ export interface ProjectReleaseTabSchema {
   create_blocked_message?: Translations;
   dependency_settings_url?: string;
   draft_parent_dependencies?: ProjectReleaseParentDependency[];
-  draft_url: string;
+  /** Present only when the viewer can edit the project (ProjectEdit). */
+  draft_url?: string;
   items: ProjectReleaseTabItem[];
   empty_message?: Translations;
 }

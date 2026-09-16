@@ -958,7 +958,7 @@ func (h *Handler) buildModel(ctx context.Context, projectID, modelID string) (*R
 		Adoptions: adoptions,
 		Refs:      refs,
 		StatsURL:  withVersion(fmt.Sprintf("%s/%s/entity-view/model/%s/stats", weaveroutes.ProjectBase, projectID, modelID), activeVersion),
-		Release:   releaseView(projectID, activeVersion),
+		Release:   releaseView(projectID, activeVersion, canEdit),
 	}, nil
 }
 
@@ -1140,7 +1140,7 @@ func (h *Handler) buildCollection(ctx context.Context, projectID, collectionID s
 		Adoptions: adoptions,
 		Refs:      refs,
 		StatsURL:  withVersion(fmt.Sprintf("%s/%s/entity-view/collection/%s/stats", weaveroutes.ProjectBase, projectID, collectionID), activeVersion),
-		Release:   releaseView(projectID, activeVersion),
+		Release:   releaseView(projectID, activeVersion, canEdit),
 	}, nil
 }
 
@@ -1257,7 +1257,7 @@ func (h *Handler) buildField(ctx context.Context, projectID, fieldID string) (*R
 		Sections: []ViewSection{},
 		Refs:     refs,
 		StatsURL: withVersion(fmt.Sprintf("%s/%s/entity-view/field/%s/stats", weaveroutes.ProjectBase, projectID, fieldID), activeVersion),
-		Release:  releaseView(projectID, activeVersion),
+		Release:  releaseView(projectID, activeVersion, canEdit),
 	}, nil
 }
 
@@ -1387,7 +1387,7 @@ func (h *Handler) buildConceptList(ctx context.Context, projectID, conceptListID
 		Sections: []ViewSection{},
 		Entries:  entries,
 		Refs:     ViewRefs{},
-		Release:  releaseView(projectID, activeVersion),
+		Release:  releaseView(projectID, activeVersion, canEdit),
 	}, nil
 }
 
@@ -1809,16 +1809,19 @@ func requestPathWithVersion(r *http.Request, activeVersion string) string {
 	return withVersion(r.URL.Path, activeVersion)
 }
 
-func releaseView(projectID, activeVersion string) *ReleaseView {
+func releaseView(projectID, activeVersion string, canEdit bool) *ReleaseView {
 	if activeVersion == "" {
 		return nil
 	}
-	return &ReleaseView{
-		Version:  activeVersion,
-		DraftURL: fmt.Sprintf("%s/%s", weaveroutes.ProjectBase, projectID),
+	view := &ReleaseView{
+		Version: activeVersion,
 		Label: i18n.LF("release.viewing_version", "Viewing release {version}",
 			map[string]string{"version": activeVersion}),
 	}
+	if canEdit {
+		view.DraftURL = fmt.Sprintf("%s/%s", weaveroutes.ProjectBase, projectID)
+	}
+	return view
 }
 
 func placeholderHTML() template.HTML {
