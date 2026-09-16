@@ -16,8 +16,15 @@ type selectorTarget struct {
 
 const maxSelectorDepth = 10
 
-func resolveProjectTargets(ctx context.Context, pool *pgxpool.Pool, projectID, scope string) ([]selectorTarget, error) {
-	queue := []selectorTarget{{ProjectID: projectID}}
+// resolveProjectTargets walks the project's inheritance chain (when
+// scope == "inherited") into a flat list of {project, version} search
+// targets. rootVersion is the effective version for projectID itself —
+// resolved by auth.ResolveContentVersion/auth.WithProjectVersionContext
+// upstream, "" for the hot draft view. A non-empty rootVersion makes the
+// root target read from the project's own archived (_archive) rows via
+// searchArchivedFields/searchArchivedCollections, instead of the hot tables.
+func resolveProjectTargets(ctx context.Context, pool *pgxpool.Pool, projectID, scope, rootVersion string) ([]selectorTarget, error) {
+	queue := []selectorTarget{{ProjectID: projectID, Version: rootVersion}}
 	visited := make(map[string]struct{})
 	out := make([]selectorTarget, 0)
 

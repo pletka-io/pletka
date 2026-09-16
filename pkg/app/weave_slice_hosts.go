@@ -357,10 +357,11 @@ func buildContentHost(
 	}
 }
 
-func buildSearchHost(weave domain.WeaveStore, logger *slog.Logger) search.Host {
+func buildSearchHost(weave domain.WeaveStore, logger *slog.Logger, publicationReader *publication.Reader) search.Host {
 	return search.Host{
-		Weave:  weave,
-		Logger: logger,
+		Weave:         weave,
+		Logger:        logger,
+		LatestRelease: publicationReader,
 	}
 }
 

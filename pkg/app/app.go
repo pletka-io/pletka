@@ -253,7 +253,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	workspaceHost := buildWorkspaceHost(logger, templateRenderer, i18nManager, sessionManager, languages, langResolver, organizationHost, projectHost, orgMembersHost)
 	authPagesHost := buildAuthPagesHost(logger, templateRenderer, i18nManager, sessionManager, langResolver, opts.RegistrationEnabled, opts.SSOLoginURL)
 	projectPagesHost := buildProjectPagesHost(logger, templateRenderer, weaveStore, i18nManager, sessionManager, publicationReader)
-	searchHost := buildSearchHost(weaveStore, logger)
+	searchHost := buildSearchHost(weaveStore, logger, publicationReader)
 	vocabularyHost := buildVocabularyHost(opts.Pool, weaveStore, logger, languages, langResolver)
 	entitySchemaHost := buildEntitySchemaHost(weaveStore, logger, languages, langResolver, i18nManager, organizationHost, publicationReader)
 	projectPageHost := buildProjectPageHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver, i18nManager, ontologyReader, ontologyVersionReader, publicationReader)

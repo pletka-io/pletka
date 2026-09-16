@@ -140,7 +140,7 @@ func TestWeaveSearchFields_UsesProjectInheritanceScope(t *testing.T) {
 func TestInheritedSearch_UsesPinnedParentReleaseState(t *testing.T) {
 	pool := testPool(t)
 	store := weave.NewPostgresStore(pool)
-	h := NewHandler(store, slog.Default())
+	h := NewHandler(store, slog.Default(), nil)
 	r := chi.NewRouter()
 	r.Use(withSuperadmin)
 	h.Mount(r)
@@ -236,7 +236,7 @@ func TestInheritedSearch_UsesPinnedParentReleaseState(t *testing.T) {
 func TestPathSuggestions_UsePinnedParentReleaseState(t *testing.T) {
 	pool := testPool(t)
 	store := weave.NewPostgresStore(pool)
-	h := NewHandler(store, slog.Default())
+	h := NewHandler(store, slog.Default(), nil)
 	r := chi.NewRouter()
 	r.Use(withSuperadmin)
 	h.Mount(r)
@@ -323,7 +323,7 @@ func TestPathSuggestions_UsePinnedParentReleaseState(t *testing.T) {
 func TestSearchEndpoints_RequireProjectRead(t *testing.T) {
 	pool := testPool(t)
 	store := weave.NewPostgresStore(pool)
-	h := NewHandler(store, slog.Default())
+	h := NewHandler(store, slog.Default(), nil)
 
 	ownerID := seedActor(t, pool, "TEST_SEARCH_GATE_OWNER")
 	const projectID = "TEST_SEARCH_GATE_PROJECT"

@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -261,9 +262,6 @@ func intersect(base, next []string) []string {
 
 // PathSuggestionsHandler handles GET /api/v1/projects/{projectID}/path-suggestions.
 func (h *Handler) PathSuggestionsHandler(w http.ResponseWriter, r *http.Request) {
-	if searchUnavailableInReleaseMode(w, r) {
-		return
-	}
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
 		writeAPIError(w, "missing project id", http.StatusBadRequest)
@@ -290,7 +288,7 @@ func (h *Handler) PathSuggestionsHandler(w http.ResponseWriter, r *http.Request)
 		limit = 200
 	}
 
-	targets, err := resolveProjectTargets(ctx, pool, projectID, scope)
+	targets, err := resolveProjectTargets(ctx, pool, projectID, scope, weaveauth.ProjectVersionFromContext(ctx))
 	if err != nil {
 		h.logger.Error("resolve project targets failed", "err", err, "project_id", projectID)
 		writeAPIError(w, "failed to resolve project scope", http.StatusInternalServerError)

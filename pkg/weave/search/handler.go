@@ -28,13 +28,18 @@ type poolProvider interface {
 }
 
 type Handler struct {
-	weave  domain.WeaveStore
-	logger *slog.Logger
+	weave         domain.WeaveStore
+	logger        *slog.Logger
+	latestRelease weaveauth.LatestReleaseReader
 }
 
 type Host struct {
 	Weave  domain.WeaveStore
 	Logger *slog.Logger
+	// LatestRelease backs auth.ResolveContentVersion so a public project's
+	// non-editor reader defaults to the latest release instead of the hot
+	// draft. Optional; nil disables the release default (readers see hot).
+	LatestRelease weaveauth.LatestReleaseReader
 }
 
 func (h Host) Validate() error {
@@ -44,13 +49,14 @@ func (h Host) Validate() error {
 	return nil
 }
 
-func NewHandler(weave domain.WeaveStore, logger *slog.Logger) *Handler {
+func NewHandler(weave domain.WeaveStore, logger *slog.Logger, latestRelease weaveauth.LatestReleaseReader) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Handler{
-		weave:  weave,
-		logger: logger.With("handler", "weave-search"),
+		weave:         weave,
+		logger:        logger.With("handler", "weave-search"),
+		latestRelease: latestRelease,
 	}
 }
 
@@ -58,24 +64,32 @@ func Mount(r chi.Router, host Host) {
 	if err := host.Validate(); err != nil {
 		panic(err)
 	}
-	NewHandler(host.Weave, host.Logger).Mount(r)
+	NewHandler(host.Weave, host.Logger, host.LatestRelease).Mount(r)
 }
 
 func (h *Handler) Mount(r chi.Router) {
 	// Both routes expose a project's entity names, semantic IDs and ontology
 	// paths (walking the inheritance chain), so they must require read access
 	// to that project — otherwise a private project's schema is enumerable
-	// anonymously by ID.
-	requireRead := weaveauth.RequireProjectRead(h.weave.Projects())
-	r.With(weaveauth.WithProjectVersionContext, requireRead).Get("/api/v1/projects/{projectID}/search", h.EntitySearch)
-	r.With(weaveauth.WithProjectVersionContext, requireRead).Get("/api/v1/projects/{projectID}/path-suggestions", h.PathSuggestionsHandler)
+	// anonymously by ID. Expanded into discrete middlewares (mirroring
+	// entityschema.Handler.Mount) so auth.ResolveContentVersion can run after
+	// the project is resolved but before the handler — a public project's
+	// non-editor reader then defaults to the latest release instead of the
+	// hot draft, and the handlers serve the resolved version's archived rows
+	// instead of refusing release-mode requests outright.
+	projectRead := []func(http.Handler) http.Handler{
+		weaveauth.WithProjectVersionContext,
+		weaveauth.RequireProjectRead(h.weave.Projects()),
+	}
+	if h.latestRelease != nil {
+		projectRead = append(projectRead, weaveauth.ResolveContentVersion(h.latestRelease))
+	}
+	r.With(projectRead...).Get("/api/v1/projects/{projectID}/search", h.EntitySearch)
+	r.With(projectRead...).Get("/api/v1/projects/{projectID}/path-suggestions", h.PathSuggestionsHandler)
 }
 
 // EntitySearch handles GET /api/v1/projects/{projectID}/search?type=field&q=...
 func (h *Handler) EntitySearch(w http.ResponseWriter, r *http.Request) {
-	if searchUnavailableInReleaseMode(w, r) {
-		return
-	}
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
 		writeAPIError(w, "missing project id", http.StatusBadRequest)
@@ -118,14 +132,6 @@ func (h *Handler) pool() (*pgxpool.Pool, bool) {
 	return pp.Pool(), true
 }
 
-func searchUnavailableInReleaseMode(w http.ResponseWriter, r *http.Request) bool {
-	if weaveauth.ProjectVersionFromContext(r.Context()) == "" {
-		return false
-	}
-	writeAPIError(w, "not found", http.StatusNotFound)
-	return true
-}
-
 func (h *Handler) searchFields(w http.ResponseWriter, r *http.Request, q *sqlcgen.Queries, params domain.SearchParams) {
 	ctx := r.Context()
 
@@ -135,7 +141,7 @@ func (h *Handler) searchFields(w http.ResponseWriter, r *http.Request, q *sqlcge
 		return
 	}
 
-	targets, err := resolveProjectTargets(ctx, pool, params.ProjectID, params.Scope)
+	targets, err := resolveProjectTargets(ctx, pool, params.ProjectID, params.Scope, weaveauth.ProjectVersionFromContext(ctx))
 	if err != nil {
 		h.logger.Error("resolve project targets failed", "err", err, "project_id", params.ProjectID)
 		writeAPIError(w, "search query failed", http.StatusInternalServerError)
@@ -366,7 +372,7 @@ func (h *Handler) searchCollections(w http.ResponseWriter, r *http.Request, q *s
 		return
 	}
 
-	targets, err := resolveProjectTargets(ctx, pool, params.ProjectID, params.Scope)
+	targets, err := resolveProjectTargets(ctx, pool, params.ProjectID, params.Scope, weaveauth.ProjectVersionFromContext(ctx))
 	if err != nil {
 		h.logger.Error("resolve project targets failed", "err", err, "project_id", params.ProjectID)
 		writeAPIError(w, "search query failed", http.StatusInternalServerError)
