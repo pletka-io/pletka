@@ -584,6 +584,26 @@ func TestServiceStubGuards(t *testing.T) {
 	}
 }
 
+func TestServiceStubGuardFailsOnSecondValueStoresNothing(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+
+	first := stubValue("", "Van Gogh")
+	second := stubValue("M9", "Bad")
+	second.OccurrenceIndex = 1
+
+	_, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{first, second},
+	})
+	if err == nil || !strings.Contains(err.Error(), "not an allowed target") {
+		t.Fatalf("err = %v, want containing %q", err, "not an allowed target")
+	}
+	if len(store.examples) != 0 {
+		t.Fatalf("a guard failure on the second value must not leave the first value's stub stored, got %d examples", len(store.examples))
+	}
+}
+
 func TestServiceStubIgnoresBlankLabelAndExplicitLink(t *testing.T) {
 	store := newFakeStore()
 	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})

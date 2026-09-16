@@ -189,6 +189,15 @@ func (s *Service) Update(ctx context.Context, projectID, exampleID string, in Up
 	return &ExampleRecord{Example: ex, Values: values, Validation: report}, nil
 }
 
+// stubCandidate is a validated "reference by label" value awaiting draft
+// creation: the index into the values slice it came from, the resolved
+// target model, and the draft's title.
+type stubCandidate struct {
+	index  int
+	target string
+	label  string
+}
+
 // materializeStubs turns "reference by label" payloads into real draft
 // examples. A value whose payload is example_ref with no example_id but a
 // non-blank target_label creates a draft example of the target model
@@ -197,8 +206,13 @@ func (s *Service) Update(ctx context.Context, projectID, exampleID string, in Up
 // resource model. Values are mutated in place; callers normalize afterwards
 // so the linked_example_id column follows.
 //
-// ponytail: stubs are created before the parent is saved and are not rolled
-// back if the parent save fails afterwards; they are drafts and harmless.
+// Resolution and validation of every stub value happens first, so a guard
+// failure on a later value never leaves an earlier value's draft created;
+// only then does a second pass create the drafts and link them.
+//
+// ponytail: only a DB error on the parent save can now leave an unlinked
+// draft — stubs are still created before the parent is saved and are not
+// rolled back if that save fails afterwards; they are drafts and harmless.
 // Wrap in one transaction if that ever bites.
 func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang string, values []domain.ExampleValue) error {
 	lang = strings.TrimSpace(lang)
@@ -207,6 +221,7 @@ func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang
 	}
 	var view *domain.ModelView
 	fieldByOverride := map[int64]domain.ResolvedField{}
+	var candidates []stubCandidate
 	for i := range values {
 		p := &values[i].ValuePayload
 		if p.Kind != domain.ExampleValueKindExampleRef || p.ExampleID != nil || p.TargetLabel == nil {
@@ -250,19 +265,23 @@ func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang
 		if len(field.ResourceModels) > 0 && !slices.ContainsFunc(field.ResourceModels, func(ref domain.EntityRef) bool { return ref.ID == target }) {
 			return fmt.Errorf("field %s: model %s is not an allowed target", field.ID, target)
 		}
+		candidates = append(candidates, stubCandidate{index: i, target: target, label: label})
+	}
+	for _, c := range candidates {
 		stub := &domain.Example{
 			ID:         ids.GenerateULID(),
 			ProjectID:  projectID,
 			EntityType: domain.ExampleEntityTypeModel,
-			EntityID:   target,
-			Title:      domain.Translations{lang: label},
+			EntityID:   c.target,
+			Title:      domain.Translations{lang: c.label},
 			Status:     domain.ExampleStatusDraft,
 		}
 		if err := s.store.CreateWithValues(ctx, stub, nil); err != nil {
-			return fmt.Errorf("create draft example for %s: %w", target, err)
+			return fmt.Errorf("create draft example for %s: %w", c.target, err)
 		}
+		p := &values[c.index].ValuePayload
 		p.ExampleID = &stub.ID
-		p.TargetEntityID = &target
+		p.TargetEntityID = &c.target
 	}
 	return nil
 }
