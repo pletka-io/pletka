@@ -287,6 +287,25 @@ func TestEntityViewVersion_ServesResolvedRelease(t *testing.T) {
 		}
 	})
 
+	// Release-banner regression: releaseView must gate DraftURL on the raw
+	// ProjectEdit capability, not on canEditProject (which intentionally
+	// forces false whenever a version is pinned, for entity-editability
+	// purposes). An editor looking at ?version=1.0.0 still needs the
+	// "return to draft" link; a non-editor/anonymous viewer must never see
+	// it — that's the original bug this branch fixes.
+	t.Run("model: editor with explicit version query keeps the return-to-draft button", func(t *testing.T) {
+		draftURL := fetchReleaseDraftURL(t, router, entityPath("model", modelID)+"?version=1.0.0", orgOwner)
+		if draftURL == "" {
+			t.Fatalf("release.draft_url is empty, want a non-empty draft URL for an editor viewing a pinned release")
+		}
+	})
+	t.Run("model: anonymous with explicit version query has no return-to-draft button", func(t *testing.T) {
+		draftURL := fetchReleaseDraftURL(t, router, entityPath("model", modelID)+"?version=1.0.0", nil)
+		if draftURL != "" {
+			t.Fatalf("release.draft_url = %q, want empty for an anonymous viewer of a pinned release", draftURL)
+		}
+	})
+
 	t.Run("collection: anonymous sees the released header", func(t *testing.T) {
 		name, _ := fetchEntity(t, router, entityPath("collection", collectionID), nil)
 		if name != "Original Collection" {
@@ -483,11 +502,38 @@ func fetchEntity(t *testing.T, router chi.Router, path string, snap *auth.AuthSn
 	var body struct {
 		Entity struct {
 			Name     map[string]string `json:"name"`
-			SetValue string             `json:"set_value"`
+			SetValue string            `json:"set_value"`
 		} `json:"entity"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal entity-view response: %v\n%s", err, rec.Body.String())
 	}
 	return body.Entity.Name["en"], body.Entity.SetValue
+}
+
+// fetchReleaseDraftURL returns the release.draft_url carried on an
+// entity-view response, "" when the release object omits it (or is absent).
+func fetchReleaseDraftURL(t *testing.T, router chi.Router, path string, snap *auth.AuthSnapshot) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if snap != nil {
+		req = req.WithContext(auth.WithSnapshot(req.Context(), snap))
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s: status = %d, body = %s", path, rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Release *struct {
+			DraftURL string `json:"draft_url"`
+		} `json:"release"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal entity-view response: %v\n%s", err, rec.Body.String())
+	}
+	if body.Release == nil {
+		return ""
+	}
+	return body.Release.DraftURL
 }
