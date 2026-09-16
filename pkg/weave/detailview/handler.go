@@ -659,6 +659,67 @@ func (h *Handler) breadcrumbs(projectID, projectName, entityType, entityTypeLabe
 	}
 }
 
+// getModelHeader loads the model header. When version is non-empty it
+// reads the archived model at that release, scoped to projectID, falling
+// back to the hot (hot/unscoped) row when nothing was archived under this
+// project — the case for a cross-project adopted/inherited model, whose
+// read-only view is always rendered from its owning project's live state
+// (see buildModel's overrideScope comment). version == "" is unchanged
+// (hot GetByID), matching pre-Task-4b behavior exactly.
+func (h *Handler) getModelHeader(ctx context.Context, projectID, modelID, version string) (*pkgdomain.Model, error) {
+	if version != "" {
+		m, err := h.weave.Models().GetByIDVersion(ctx, projectID, modelID, version)
+		if err != nil {
+			return nil, err
+		}
+		if m != nil {
+			return m, nil
+		}
+	}
+	return h.weave.Models().GetByID(ctx, modelID)
+}
+
+// getCollectionHeader is getModelHeader's sibling for collections.
+func (h *Handler) getCollectionHeader(ctx context.Context, projectID, collectionID, version string) (*pkgdomain.Collection, error) {
+	if version != "" {
+		c, err := h.weave.Collections().GetByIDVersion(ctx, projectID, collectionID, version)
+		if err != nil {
+			return nil, err
+		}
+		if c != nil {
+			return c, nil
+		}
+	}
+	return h.weave.Collections().GetByID(ctx, collectionID)
+}
+
+// getFieldHeader is getModelHeader's sibling for fields.
+func (h *Handler) getFieldHeader(ctx context.Context, projectID, fieldID, version string) (*pkgdomain.Field, error) {
+	if version != "" {
+		f, err := h.weave.WeaveFields().GetByIDVersion(ctx, projectID, fieldID, version)
+		if err != nil {
+			return nil, err
+		}
+		if f != nil {
+			return f, nil
+		}
+	}
+	return h.weave.WeaveFields().GetByID(ctx, fieldID)
+}
+
+// getFieldBaseOverride loads the field's base override (entity_type='')
+// scoped to projectID. When version is non-empty it reads the archived
+// row for that release instead of the hot row — a nil result there is a
+// legitimate "no base override existed at that version" and is not a
+// signal to fall back to hot (unlike the header getters above, which
+// fall back for the cross-project case).
+func (h *Handler) getFieldBaseOverride(ctx context.Context, fieldID, projectID, version string) (*pkgdomain.FieldOverride, error) {
+	if version != "" {
+		return h.weave.Overrides().GetBaseVersion(ctx, fieldID, projectID, version)
+	}
+	return h.weave.Overrides().GetBase(ctx, fieldID, projectID)
+}
+
 func (h *Handler) buildModel(ctx context.Context, projectID, modelID string) (*Response, error) {
 	projectResource := h.projectResource(ctx, projectID)
 	canEdit := h.canEditProject(ctx, projectID)
@@ -671,7 +732,7 @@ func (h *Handler) buildModel(ctx context.Context, projectID, modelID string) (*R
 	if err != nil {
 		return nil, fmt.Errorf("list model adoptions: %w", err)
 	}
-	model, err := h.weave.Models().GetByID(ctx, modelID)
+	model, err := h.getModelHeader(ctx, projectID, modelID, activeVersion)
 	if err != nil {
 		return nil, fmt.Errorf("get model: %w", err)
 	}
@@ -844,7 +905,7 @@ func (h *Handler) buildCollection(ctx context.Context, projectID, collectionID s
 	if err != nil {
 		return nil, fmt.Errorf("list collection adoptions: %w", err)
 	}
-	collection, err := h.weave.Collections().GetByID(ctx, collectionID)
+	collection, err := h.getCollectionHeader(ctx, projectID, collectionID, activeVersion)
 	if err != nil {
 		return nil, fmt.Errorf("get collection: %w", err)
 	}
@@ -1026,7 +1087,7 @@ func (h *Handler) buildField(ctx context.Context, projectID, fieldID string) (*R
 	if err != nil {
 		return nil, fmt.Errorf("list field adoptions: %w", err)
 	}
-	field, err := h.weave.WeaveFields().GetByID(ctx, fieldID)
+	field, err := h.getFieldHeader(ctx, projectID, fieldID, activeVersion)
 	if err != nil {
 		return nil, fmt.Errorf("get field: %w", err)
 	}
@@ -1042,10 +1103,13 @@ func (h *Handler) buildField(ctx context.Context, projectID, fieldID string) (*R
 
 	// CategoryID + SetValue moved to weave_field_overrides (base
 	// override row, entity_type='') in migration 027. Read them from
-	// there for the entity-view response.
+	// there for the entity-view response. When activeVersion is set,
+	// read the archived base row so the override-derived fields match
+	// the resolved release, not the hot draft.
 	categoryID := ""
 	setValue := ""
-	if base, _ := h.weave.Overrides().GetBase(ctx, fieldID, projectID); base != nil {
+	base, _ := h.getFieldBaseOverride(ctx, fieldID, projectID, activeVersion)
+	if base != nil {
 		categoryID = base.CategoryID
 		setValue = base.SetValue
 	}

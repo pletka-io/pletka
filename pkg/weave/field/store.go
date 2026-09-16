@@ -26,6 +26,11 @@ type Store interface {
 	// also accepted by GetByIdentifier).
 	GetByID(ctx context.Context, id string) (*domain.Field, error)
 
+	// GetByIDVersion returns the archived field at a specific release
+	// version, scoped to projectID, or (nil, nil) when no such row was
+	// archived. See versionedFieldReader.
+	GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Field, error)
+
 	// GetByIdentifier looks up by ULID, semantic_id, or system_name —
 	// scoped to project. Same nil/nil convention as GetByID.
 	GetByIdentifier(ctx context.Context, projectID, identifier string) (*domain.Field, error)

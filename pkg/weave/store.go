@@ -67,6 +67,10 @@ func (a *fieldStoreAdapter) GetByID(ctx context.Context, id string) (*domain.Fie
 	return a.inner.GetByID(ctx, id)
 }
 
+func (a *fieldStoreAdapter) GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Field, error) {
+	return a.inner.GetByIDVersion(ctx, projectID, id, version)
+}
+
 func (a *fieldStoreAdapter) Update(ctx context.Context, f *domain.Field) error {
 	return a.inner.Update(ctx, f)
 }
@@ -137,6 +141,10 @@ func (a *modelStoreAdapter) GetByID(ctx context.Context, id string) (*domain.Mod
 	return a.inner.GetByID(ctx, id)
 }
 
+func (a *modelStoreAdapter) GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Model, error) {
+	return a.inner.GetByIDVersion(ctx, projectID, id, version)
+}
+
 func (a *modelStoreAdapter) GetByIdentifier(ctx context.Context, identifier, projectID string) (*domain.Model, error) {
 	return a.inner.GetByIdentifier(ctx, projectID, identifier)
 }
@@ -202,6 +210,10 @@ func (a *collectionStoreAdapter) Create(ctx context.Context, c *domain.Collectio
 
 func (a *collectionStoreAdapter) GetByID(ctx context.Context, id string) (*domain.Collection, error) {
 	return a.inner.GetByID(ctx, id)
+}
+
+func (a *collectionStoreAdapter) GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error) {
+	return a.inner.GetByIDVersion(ctx, projectID, id, version)
 }
 
 func (a *collectionStoreAdapter) GetByIdentifier(ctx context.Context, identifier, projectID string) (*domain.Collection, error) {

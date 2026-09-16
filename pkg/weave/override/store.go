@@ -51,6 +51,12 @@ type Store interface {
 	// resolver — the base layer is consulted for every field render.
 	GetBase(ctx context.Context, fieldID, projectID string) (*domain.FieldOverride, error)
 
+	// GetBaseVersion is the version-aware sibling of GetBase: reads the
+	// archived base override for (field, project) at a specific release
+	// version, or (nil, nil) if no base row was archived at that version.
+	// Backs detailview's entity-view when serving a resolved release.
+	GetBaseVersion(ctx context.Context, fieldID, projectID, version string) (*domain.FieldOverride, error)
+
 	// Update writes the full row. Caller must populate every mutable
 	// field. Returns "not found" if the row has been deleted.
 	Update(ctx context.Context, override *domain.FieldOverride) error

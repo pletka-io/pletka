@@ -91,6 +91,9 @@ type WeaveCategoryStore interface {
 type WeaveFieldStore interface {
 	Create(ctx context.Context, field *Field) error
 	GetByID(ctx context.Context, id string) (*Field, error)
+	// GetByIDVersion returns the archived field at a specific release
+	// version, scoped to projectID, or (nil, nil) when not archived.
+	GetByIDVersion(ctx context.Context, projectID, id, version string) (*Field, error)
 	Update(ctx context.Context, field *Field) error
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, opts ...QueryOption) ([]*Field, int64, error)
@@ -212,6 +215,9 @@ type WeaveFieldWithCounts struct {
 type WeaveModelStore interface {
 	Create(ctx context.Context, model *Model) error
 	GetByID(ctx context.Context, id string) (*Model, error)
+	// GetByIDVersion returns the archived model at a specific release
+	// version, scoped to projectID, or (nil, nil) when not archived.
+	GetByIDVersion(ctx context.Context, projectID, id, version string) (*Model, error)
 	Update(ctx context.Context, model *Model) error
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, opts ...QueryOption) ([]*Model, int64, error)
@@ -249,6 +255,10 @@ type WeaveModelStore interface {
 type WeaveCollectionStore interface {
 	Create(ctx context.Context, collection *Collection) error
 	GetByID(ctx context.Context, id string) (*Collection, error)
+	// GetByIDVersion returns the archived collection at a specific
+	// release version, scoped to projectID, or (nil, nil) when not
+	// archived.
+	GetByIDVersion(ctx context.Context, projectID, id, version string) (*Collection, error)
 	Update(ctx context.Context, collection *Collection) error
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, opts ...QueryOption) ([]*Collection, int64, error)
@@ -468,6 +478,9 @@ type OverrideStore interface {
 	Delete(ctx context.Context, id int64) error
 	GetByID(ctx context.Context, id int64) (*FieldOverride, error)
 	GetBase(ctx context.Context, fieldID, projectID string) (*FieldOverride, error)
+	// GetBaseVersion is the version-aware sibling of GetBase — reads the
+	// archived base override at a specific release version.
+	GetBaseVersion(ctx context.Context, fieldID, projectID, version string) (*FieldOverride, error)
 	ListForEntity(ctx context.Context, entityType, entityID string) ([]FieldOverride, error)
 	ListForField(ctx context.Context, fieldID string) ([]FieldOverride, error)
 	ListByProjectAndType(ctx context.Context, projectID, entityType string) ([]FieldOverride, error)
