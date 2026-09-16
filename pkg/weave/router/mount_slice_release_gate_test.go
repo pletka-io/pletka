@@ -72,7 +72,7 @@ func TestMountSlice_ExportsExcludedFromReleaseDefault(t *testing.T) {
 	parent := chi.NewMux()
 	mountSlice(parent, "/projects/{projectID}/fields", h, attach)
 
-	req := httptest.NewRequest(http.MethodGet, "/projects/PUB/fields/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/PUB/fields/", nil)
 	rec := httptest.NewRecorder()
 	parent.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -90,7 +90,7 @@ func TestMountSlice_ExportsExcludedFromReleaseDefault(t *testing.T) {
 	parent2 := chi.NewMux()
 	mountSlice(parent2, "/projects/{projectID}/exports", hExports, attach2)
 
-	req2 := httptest.NewRequest(http.MethodGet, "/projects/PUB/exports/", nil)
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/projects/PUB/exports/", nil)
 	rec2 := httptest.NewRecorder()
 	parent2.ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusOK {

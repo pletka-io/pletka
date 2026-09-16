@@ -66,7 +66,7 @@ func newTestProjectPages(t *testing.T, reader auth.LatestReleaseReader) *Project
 }
 
 func requestWithProjectContext(target string, project *domain.Project, snap *auth.AuthSnapshot) *http.Request {
-	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)
 	ctx := req.Context()
 	ctx = auth.WithProject(ctx, project)
 	ctx = auth.WithSnapshot(ctx, snap)
