@@ -2,6 +2,7 @@ package example
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -527,5 +528,85 @@ func TestServiceUpdateMaterializesStubExample(t *testing.T) {
 	}
 	if len(store.examples) != 2 {
 		t.Fatalf("re-save created a duplicate stub: %d examples", len(store.examples))
+	}
+}
+
+func TestServiceStubGuards(t *testing.T) {
+	cases := []struct {
+		name    string
+		view    *domain.ModelView
+		value   domain.ExampleValue
+		wantErr string
+	}{
+		{
+			name:    "ambiguous target with two resource models and no target id",
+			view:    stubModelView("M2", "M3"),
+			value:   stubValue("", "Van Gogh"),
+			wantErr: "target_entity_id is required",
+		},
+		{
+			name:    "ambiguous target when any model is allowed",
+			view:    stubModelView(),
+			value:   stubValue("", "Van Gogh"),
+			wantErr: "target_entity_id is required",
+		},
+		{
+			name:    "target outside resource models",
+			view:    stubModelView("M2"),
+			value:   stubValue("M9", "Van Gogh"),
+			wantErr: "not an allowed target",
+		},
+		{
+			name: "non-Model field",
+			view: singleFieldModelView(21, "F1", "String", false, 0, nil),
+			value: domain.ExampleValue{
+				OverrideID: 21, FieldID: "F1", ValueKind: domain.ExampleValueKindExampleRef,
+				ValuePayload: domain.ExampleValuePayload{Kind: domain.ExampleValueKindExampleRef, TargetLabel: ptr("x")},
+			},
+			wantErr: "only be created for Model-typed fields",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakeStore()
+			svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": tc.view}})
+			_, err := svc.Create(context.Background(), "P1", CreateInput{
+				EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+				Values: []domain.ExampleValue{tc.value},
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
+			}
+			if len(store.examples) != 0 {
+				t.Fatalf("no example may be stored on a guard failure, got %d", len(store.examples))
+			}
+		})
+	}
+}
+
+func TestServiceStubIgnoresBlankLabelAndExplicitLink(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+	linked := &domain.Example{ID: "EX-LINKED", ProjectID: "P1", EntityType: domain.ExampleEntityTypeModel, EntityID: "M2", Status: domain.ExampleStatusDraft}
+	if err := store.CreateWithValues(context.Background(), linked, nil); err != nil {
+		t.Fatal(err)
+	}
+	explicit := stubValue("", "ignored label")
+	explicit.ValuePayload.ExampleID = ptr("EX-LINKED")
+	blank := stubValue("", "   ")
+	blank.OccurrenceIndex = 1
+
+	record, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{explicit, blank},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if len(store.examples) != 2 { // linked + the record itself, no stubs
+		t.Fatalf("want 2 examples, got %d", len(store.examples))
+	}
+	if got := *record.Values[0].ValuePayload.ExampleID; got != "EX-LINKED" {
+		t.Fatalf("explicit link overwritten: %s", got)
 	}
 }
