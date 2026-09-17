@@ -219,17 +219,40 @@ export class ProjectDetailState {
     }
   }
 
-  /** Read active tab from URL hash (#tab=fields). */
-  private readHashTab(): string | null {
+  /** Read one `key=value` parameter from the URL hash (#tab=fields&item=01…). */
+  private readHashParam(key: string): string | null {
     const hash = window.location.hash;
     if (!hash) return null;
-    const match = hash.match(/(?:^#?|&)tab=([^&]+)/);
+    const match = hash.match(new RegExp(`(?:^#?|&)${key}=([^&]+)`));
     return match ? decodeURIComponent(match[1]) : null;
   }
 
-  /** Write active tab to URL hash. */
+  /** Read active tab from URL hash (#tab=fields). */
+  private readHashTab(): string | null {
+    return this.readHashParam('tab');
+  }
+
+  /** Read the item to open on the active tab (#tab=examples&item=01…). */
+  readHashItem(): string | null {
+    return this.readHashParam('item');
+  }
+
+  /** Write active tab to URL hash; drops any item (switching tab closes it).
+   *  A no-op when the hash already names this tab, so an `item` parameter
+   *  present on initial load survives until the list has read it. */
   private writeHashTab(tabId: string): void {
+    if (this.readHashTab() === tabId) return;
     const newHash = `#tab=${encodeURIComponent(tabId)}`;
+    if (window.location.hash !== newHash) {
+      history.replaceState(null, '', newHash);
+    }
+  }
+
+  /** Add or remove the open item on the current tab's hash. */
+  writeHashItem(id: string | null): void {
+    if (!this.activeTabId || this.activeTabId === this.defaultLeafTabId()) return;
+    const base = `#tab=${encodeURIComponent(this.activeTabId)}`;
+    const newHash = id ? `${base}&item=${encodeURIComponent(id)}` : base;
     if (window.location.hash !== newHash) {
       history.replaceState(null, '', newHash);
     }

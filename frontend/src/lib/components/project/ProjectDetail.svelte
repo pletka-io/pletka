@@ -114,6 +114,8 @@
           <EntityListView
             schemaUrl={activeTab.content_url}
             onmutate={() => state.refreshCounts()}
+            initialItemId={state.readHashItem() ?? ''}
+            onitemchange={(id) => state.writeHashItem(id)}
           />
         {/key}
       {:else if state.tabLoading.get(state.activeTabId)}

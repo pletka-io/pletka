@@ -38,6 +38,7 @@
     list_url: schema.editor?.endpoints?.list_url ?? '',
     detail_url_template: schema.editor?.endpoints?.detail_url_template ?? '',
     form_schema_url: schema.editor?.endpoints?.form_schema_url ?? '',
+    page_url_template: schema.editor?.endpoints?.page_url_template ?? '',
   });
 </script>
 
