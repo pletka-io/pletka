@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -463,8 +464,13 @@ func (s *postgresStore) BatchInUse(ctx context.Context, modelIDs []string) (map[
 // model as a value type, across all projects. A field references a model via
 // weave_override_refs (ref_type resource_model/collection_model); its container
 // is the override's entity. Deduped by (kind, project, container) so the Reuse
-// tab shows each container once.
+// tab shows each container once. Version-aware: when a release version is in
+// scope (auth.ProjectVersionFromContext) the archive tables are read instead
+// of the live tables, mirroring field.ListUsage.
 func (s *postgresStore) ListUsage(ctx context.Context, modelID string) (domain.FieldUsageList, error) {
+	if version := auth.ProjectVersionFromContext(ctx); version != "" {
+		return s.listUsageVersion(ctx, modelID, version)
+	}
 	const q = `
 SELECT
     o.entity_type                        AS kind,
@@ -491,7 +497,49 @@ ORDER BY o.project_id ASC, o.entity_type ASC, COALESCE(e.ui_name ->> 'en', e.sys
 		return domain.FieldUsageList{}, fmt.Errorf("list model usage: %w", err)
 	}
 	defer rows.Close()
+	return scanModelUsageRows(rows)
+}
 
+// listUsageVersion is the archive-table counterpart of ListUsage, read when a
+// release version is pinned in the request context.
+func (s *postgresStore) listUsageVersion(ctx context.Context, modelID, version string) (domain.FieldUsageList, error) {
+	const q = `
+SELECT
+    o.entity_type                        AS kind,
+    o.project_id                         AS project_id,
+    e.id                                 AS id,
+    COALESCE(e.system_name, '')          AS system_name,
+    COALESCE(e.ui_name, '{}'::jsonb)     AS ui_name,
+    COALESCE(e.description, '{}'::jsonb) AS description
+FROM weave_override_refs_archive r
+JOIN weave_field_overrides_archive o
+  ON o.id = r.override_id AND o.version_number = r.version_number
+JOIN LATERAL (
+    SELECT id, system_name, ui_name, description
+    FROM weave_models_archive
+    WHERE o.entity_type = 'model' AND id = o.entity_id AND version_number = r.version_number
+    UNION ALL
+    SELECT id, system_name, ui_name, description
+    FROM weave_collections_archive
+    WHERE o.entity_type = 'collection' AND id = o.entity_id AND version_number = r.version_number
+) e ON true
+WHERE r.target_id = $1
+  AND r.ref_type IN ('resource_model', 'collection_model')
+  AND o.entity_type IN ('model', 'collection')
+  AND r.version_number = $2
+ORDER BY o.project_id ASC, o.entity_type ASC, COALESCE(e.ui_name ->> 'en', e.system_name, '') ASC`
+	rows, err := s.pool.Query(ctx, q, modelID, version)
+	if err != nil {
+		return domain.FieldUsageList{}, fmt.Errorf("list archived model usage: %w", err)
+	}
+	defer rows.Close()
+	return scanModelUsageRows(rows)
+}
+
+// scanModelUsageRows scans the shared (kind, project_id, id, system_name,
+// ui_name, description) row shape produced by ListUsage/listUsageVersion,
+// deduping by (kind, project, id) so the Reuse tab shows each container once.
+func scanModelUsageRows(rows pgx.Rows) (domain.FieldUsageList, error) {
 	var out domain.FieldUsageList
 	seen := map[string]bool{}
 	for rows.Next() {
