@@ -71,6 +71,9 @@ func BuildExampleEntityListSchema(projectID, lang string, languages []LanguageIn
 				"list_url":            fmt.Sprintf("/projects/%s/examples", projectID),
 				"detail_url_template": fmt.Sprintf("/projects/%s/examples/{id}", projectID),
 				"form_schema_url":     fmt.Sprintf("/projects/%s/examples/form-schema", projectID),
+				// Browser-facing URL of one example; the route redirects a
+				// browser to the project page with the item open.
+				"page_url_template": fmt.Sprintf("/projects/%s/examples/{id}", projectID),
 			},
 		},
 		RowLayout: EntityRowLayout{
