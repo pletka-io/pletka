@@ -13,6 +13,8 @@
     list_url: string;
     detail_url_template: string;
     form_schema_url: string;
+    /** Browser URL of one example ({id} substituted client-side); '' when the schema omits it. */
+    page_url_template: string;
   };
 
   let {
@@ -862,6 +864,10 @@
     return availableExamples.find((example) => example.id === id) ?? null;
   }
 
+  function examplePageURL(id: string): string {
+    return endpoints.page_url_template ? endpoints.page_url_template.replace('{id}', encodeURIComponent(id)) : '';
+  }
+
   function linkedStatusClasses(status: string | undefined): string {
     switch (status) {
       case 'valid':
@@ -1425,7 +1431,11 @@
                                         {#if linkedSelection}
                                           <div class="rounded-md border border-blue-200 bg-blue-50/50 px-3 py-2">
                                             <div class="flex flex-wrap items-center gap-2">
-                                              <span class="text-sm font-medium text-blue-900">{translated(linkedSelection.title, linkedSelection.id)}</span>
+                                              {#if examplePageURL(linkedSelection.id)}
+                                                <a href={examplePageURL(linkedSelection.id)} target="_blank" rel="noopener" class="text-sm font-medium text-blue-900 underline decoration-blue-300 hover:decoration-blue-700">{translated(linkedSelection.title, linkedSelection.id)}</a>
+                                              {:else}
+                                                <span class="text-sm font-medium text-blue-900">{translated(linkedSelection.title, linkedSelection.id)}</span>
+                                              {/if}
                                               <span class="rounded bg-white px-2 py-0.5 font-mono text-xs text-blue-700">{linkedSelection.entity_id}</span>
                                               <span class={`rounded-full px-2 py-0.5 text-[11px] font-medium ${linkedStatusClasses(linkedSelection.status)}`}>
                                                 {linkedSelection.status ? linkedSelection.status.replace('_', ' ') : 'draft'}
@@ -1617,7 +1627,11 @@
                                                   {#if linkedSelection}
                                                     <div class="rounded-md border border-blue-200 bg-blue-50/50 px-3 py-2">
                                                       <div class="flex flex-wrap items-center gap-2">
-                                                        <span class="text-sm font-medium text-blue-900">{translated(linkedSelection.title, linkedSelection.id)}</span>
+                                                        {#if examplePageURL(linkedSelection.id)}
+                                                          <a href={examplePageURL(linkedSelection.id)} target="_blank" rel="noopener" class="text-sm font-medium text-blue-900 underline decoration-blue-300 hover:decoration-blue-700">{translated(linkedSelection.title, linkedSelection.id)}</a>
+                                                        {:else}
+                                                          <span class="text-sm font-medium text-blue-900">{translated(linkedSelection.title, linkedSelection.id)}</span>
+                                                        {/if}
                                                         <span class="rounded bg-white px-2 py-0.5 font-mono text-xs text-blue-700">{linkedSelection.entity_id}</span>
                                                         <span class={`rounded-full px-2 py-0.5 text-[11px] font-medium ${linkedStatusClasses(linkedSelection.status)}`}>
                                                           {linkedSelection.status ? linkedSelection.status.replace('_', ' ') : 'draft'}
