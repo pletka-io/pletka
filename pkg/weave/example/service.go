@@ -12,6 +12,10 @@ import (
 	"github.com/pletka-io/pletka/pkg/ids"
 )
 
+// expectedValueTypeModel is the ResolvedField.ExpectedValueType value for
+// fields that reference a single Model entity.
+const expectedValueTypeModel = "Model"
+
 type ViewReader interface {
 	ModelView(ctx context.Context, modelID, projectID string) (*domain.ModelView, error)
 }
@@ -35,12 +39,16 @@ type CreateInput struct {
 	Title       domain.Translations      `json:"title,omitempty"`
 	Description domain.Translations      `json:"description,omitempty"`
 	Values      []domain.ExampleValue    `json:"values,omitempty"`
+	// Lang is the form's primary language; stub examples created from a
+	// typed label store the label under it. Defaults to "en".
+	Lang string `json:"lang,omitempty"`
 }
 
 type UpdateInput struct {
 	Title       *domain.Translations  `json:"title,omitempty"`
 	Description *domain.Translations  `json:"description,omitempty"`
 	Values      []domain.ExampleValue `json:"values,omitempty"`
+	Lang        string                `json:"lang,omitempty"`
 }
 
 type ExampleRecord struct {
@@ -133,6 +141,9 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 		Description: in.Description,
 		Status:      domain.ExampleStatusDraft,
 	}
+	if err := s.materializeStubs(ctx, projectID, in.EntityID, in.Lang, in.Values); err != nil {
+		return nil, err
+	}
 	values := normalizeValues(in.Values)
 	report, err := s.validateModelValues(ctx, projectID, in.EntityID, values)
 	if err != nil {
@@ -163,6 +174,9 @@ func (s *Service) Update(ctx context.Context, projectID, exampleID string, in Up
 	if in.Description != nil {
 		ex.Description = *in.Description
 	}
+	if err := s.materializeStubs(ctx, projectID, ex.EntityID, in.Lang, in.Values); err != nil {
+		return nil, err
+	}
 	values := normalizeValues(in.Values)
 	report, err := s.validateModelValues(ctx, projectID, ex.EntityID, values)
 	if err != nil {
@@ -177,6 +191,121 @@ func (s *Service) Update(ctx context.Context, projectID, exampleID string, in Up
 		return nil, err
 	}
 	return &ExampleRecord{Example: ex, Values: values, Validation: report}, nil
+}
+
+// stubCandidate is a validated "reference by label" value awaiting draft
+// creation: the index into the values slice it came from, the resolved
+// target model, and the draft's title.
+type stubCandidate struct {
+	index  int
+	target string
+	label  string
+}
+
+// materializeStubs turns "reference by label" payloads into real draft
+// examples. A value whose payload is example_ref with no example_id but a
+// non-blank target_label creates a draft example of the target model
+// (title = label, no values) and links it by id. The target model comes
+// from target_entity_id, or is inferred when the field allows exactly one
+// resource model. Values are mutated in place; callers normalize afterwards
+// so the linked_example_id column follows.
+//
+// Resolution and validation of every stub value happens first, so a guard
+// failure on a later value never leaves an earlier value's draft created;
+// only then does a second pass create the drafts and link them.
+//
+// ponytail: only a DB error on the parent save can now leave an unlinked
+// draft — stubs are still created before the parent is saved and are not
+// rolled back if that save fails afterwards; they are drafts and harmless.
+// Wrap in one transaction if that ever bites.
+func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang string, values []domain.ExampleValue) error {
+	lang = strings.TrimSpace(lang)
+	if lang == "" {
+		lang = "en"
+	}
+	var fieldByOverride map[int64]domain.ResolvedField
+	var candidates []stubCandidate
+	for i := range values {
+		p := &values[i].ValuePayload
+		if p.Kind != domain.ExampleValueKindExampleRef || p.ExampleID != nil || p.TargetLabel == nil {
+			continue
+		}
+		label := strings.TrimSpace(*p.TargetLabel)
+		if label == "" {
+			continue
+		}
+		if fieldByOverride == nil {
+			view, err := s.views.ModelView(ctx, modelID, projectID)
+			if err != nil {
+				return err
+			}
+			fieldByOverride = buildFieldByOverride(view)
+		}
+		field, ok := fieldByOverride[values[i].OverrideID]
+		if !ok {
+			continue // validation reports stale_override
+		}
+		target, err := resolveStubTarget(field, p)
+		if err != nil {
+			return err
+		}
+		candidates = append(candidates, stubCandidate{index: i, target: target, label: label})
+	}
+	for _, c := range candidates {
+		stub := &domain.Example{
+			ID:         ids.GenerateULID(),
+			ProjectID:  projectID,
+			EntityType: domain.ExampleEntityTypeModel,
+			EntityID:   c.target,
+			Title:      domain.Translations{lang: c.label},
+			Status:     domain.ExampleStatusDraft,
+		}
+		if err := s.store.CreateWithValues(ctx, stub, nil); err != nil {
+			return fmt.Errorf("create draft example for %s: %w", c.target, err)
+		}
+		p := &values[c.index].ValuePayload
+		p.ExampleID = &stub.ID
+		p.TargetEntityID = &c.target
+	}
+	return nil
+}
+
+// buildFieldByOverride flattens a model view's category/collection/field
+// tree into a lookup keyed by override id, for resolving the field behind a
+// value's OverrideID.
+func buildFieldByOverride(view *domain.ModelView) map[int64]domain.ResolvedField {
+	fieldByOverride := map[int64]domain.ResolvedField{}
+	for _, cat := range view.Categories {
+		for _, coll := range cat.Collections {
+			for _, f := range coll.Fields {
+				fieldByOverride[f.OverrideID] = f
+			}
+		}
+	}
+	return fieldByOverride
+}
+
+// resolveStubTarget returns the model a typed-label stub should be created
+// for, or a guard error. Exactly one of the three error messages is kept
+// byte-for-byte (tests assert substrings).
+func resolveStubTarget(field domain.ResolvedField, p *domain.ExampleValuePayload) (string, error) {
+	if strings.TrimSpace(field.ExpectedValueType) != expectedValueTypeModel {
+		return "", fmt.Errorf("field %s: a new draft can only be created for Model-typed fields", field.ID)
+	}
+	target := ""
+	if p.TargetEntityID != nil {
+		target = strings.TrimSpace(*p.TargetEntityID)
+	}
+	if target == "" && len(field.ResourceModels) == 1 {
+		target = field.ResourceModels[0].ID
+	}
+	if target == "" {
+		return "", fmt.Errorf("field %s: target_entity_id is required to create a draft (field allows %d models)", field.ID, len(field.ResourceModels))
+	}
+	if len(field.ResourceModels) > 0 && !slices.ContainsFunc(field.ResourceModels, func(ref domain.EntityRef) bool { return ref.ID == target }) {
+		return "", fmt.Errorf("field %s: model %s is not an allowed target", field.ID, target)
+	}
+	return target, nil
 }
 
 func (s *Service) Get(ctx context.Context, projectID, exampleID string) (*ExampleRecord, error) {
@@ -567,7 +696,7 @@ func linkedTargetAllowed(linked *domain.Example, field domain.ResolvedField) boo
 	switch linked.EntityType {
 	case domain.ExampleEntityTypeModel:
 		if len(field.ResourceModels) == 0 {
-			return field.ExpectedValueType == "Model"
+			return field.ExpectedValueType == expectedValueTypeModel
 		}
 		return slices.ContainsFunc(field.ResourceModels, func(ref domain.EntityRef) bool { return ref.ID == linked.EntityID })
 	case domain.ExampleEntityTypeCollection:
@@ -592,7 +721,7 @@ func valueKindForExpectedType(expected string) domain.ExampleValueKind {
 		return domain.ExampleValueKindURI
 	case "Concept":
 		return domain.ExampleValueKindConcept
-	case "Model", "Collection":
+	case expectedValueTypeModel, "Collection":
 		return domain.ExampleValueKindExampleRef
 	default:
 		return domain.ExampleValueKindString
@@ -607,7 +736,7 @@ func widgetForExpectedType(expected string) string {
 		return "date"
 	case "URI":
 		return "url"
-	case "Concept", "Model", "Collection":
+	case "Concept", expectedValueTypeModel, "Collection":
 		return formschema.WidgetSearchSelect
 	default:
 		return formschema.WidgetText

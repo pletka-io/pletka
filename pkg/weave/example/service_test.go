@@ -2,6 +2,7 @@ package example
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -403,3 +404,229 @@ func hasIssue(issues []domain.ExampleIssue, code string, severity domain.Example
 func ptr(v string) *string { return &v }
 
 func floatPtr(v float64) *float64 { return &v }
+
+// stubModelView is a model M1 with one Model-typed field (override 21, field F1)
+// whose allowed targets are the given resource model IDs.
+func stubModelView(resourceModels ...string) *domain.ModelView {
+	view := singleFieldModelView(21, "F1", "Model", false, 0, nil)
+	f := &view.Categories[0].Collections[0].Fields[0]
+	for _, id := range resourceModels {
+		f.ResourceModels = append(f.ResourceModels, domain.EntityRef{ID: id, SemanticID: id})
+	}
+	return view
+}
+
+func stubValue(targetID, label string) domain.ExampleValue {
+	var target *string
+	if targetID != "" {
+		target = ptr(targetID)
+	}
+	return domain.ExampleValue{
+		OverrideID: 21,
+		FieldID:    "F1",
+		ValueKind:  domain.ExampleValueKindExampleRef,
+		ValuePayload: domain.ExampleValuePayload{
+			Kind:           domain.ExampleValueKindExampleRef,
+			TargetEntityID: target,
+			TargetLabel:    ptr(label),
+		},
+	}
+}
+
+func findStub(store *fakeStore, exceptID string) *domain.Example {
+	for id, ex := range store.examples {
+		if id != exceptID {
+			return ex
+		}
+	}
+	return nil
+}
+
+func TestServiceCreateMaterializesStubExample(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+
+	record, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel,
+		EntityID:   "M1",
+		Lang:       "nl",
+		Values:     []domain.ExampleValue{stubValue("", "Van Gogh")}, // target inferred: single resource model
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if len(store.examples) != 2 {
+		t.Fatalf("want 2 stored examples (record + stub), got %d", len(store.examples))
+	}
+	stub := findStub(store, record.Example.ID)
+	if stub == nil {
+		t.Fatal("stub example not stored")
+	}
+	if stub.EntityType != domain.ExampleEntityTypeModel || stub.EntityID != "M2" {
+		t.Fatalf("stub target = %s/%s, want model/M2", stub.EntityType, stub.EntityID)
+	}
+	if stub.Status != domain.ExampleStatusDraft {
+		t.Fatalf("stub status = %s, want draft", stub.Status)
+	}
+	if got := stub.Title["nl"]; got != "Van Gogh" {
+		t.Fatalf("stub title[nl] = %q, want Van Gogh", got)
+	}
+	if len(store.values[stub.ID]) != 0 {
+		t.Fatalf("stub must have no values, got %d", len(store.values[stub.ID]))
+	}
+	v := record.Values[0]
+	if v.ValuePayload.ExampleID == nil || *v.ValuePayload.ExampleID != stub.ID {
+		t.Fatalf("value payload example_id = %v, want stub id %s", v.ValuePayload.ExampleID, stub.ID)
+	}
+	if v.LinkedExampleID == nil || *v.LinkedExampleID != stub.ID {
+		t.Fatalf("linked_example_id column = %v, want %s", v.LinkedExampleID, stub.ID)
+	}
+	if !record.Validation.Valid {
+		t.Fatalf("expected valid record, issues = %+v", record.Validation.Issues)
+	}
+}
+
+func TestServiceCreateStubDefaultsTitleLangToEnglish(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+	record, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stubValue("M2", "Irises")},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if got := findStub(store, record.Example.ID).Title["en"]; got != "Irises" {
+		t.Fatalf("stub title[en] = %q, want Irises", got)
+	}
+}
+
+func TestServiceUpdateMaterializesStubExample(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+	created, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	updated, err := svc.Update(context.Background(), "P1", created.Example.ID, UpdateInput{
+		Values: []domain.ExampleValue{stubValue("", "Van Gogh")},
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(store.examples) != 2 {
+		t.Fatalf("want 2 stored examples after update, got %d", len(store.examples))
+	}
+	if updated.Values[0].ValuePayload.ExampleID == nil {
+		t.Fatal("update did not link the stub")
+	}
+	// Re-saving the returned values (now carrying example_id) must not create a second stub.
+	if _, err := svc.Update(context.Background(), "P1", created.Example.ID, UpdateInput{Values: updated.Values}); err != nil {
+		t.Fatalf("second Update() error = %v", err)
+	}
+	if len(store.examples) != 2 {
+		t.Fatalf("re-save created a duplicate stub: %d examples", len(store.examples))
+	}
+}
+
+func TestServiceStubGuards(t *testing.T) {
+	cases := []struct {
+		name    string
+		view    *domain.ModelView
+		value   domain.ExampleValue
+		wantErr string
+	}{
+		{
+			name:    "ambiguous target with two resource models and no target id",
+			view:    stubModelView("M2", "M3"),
+			value:   stubValue("", "Van Gogh"),
+			wantErr: "target_entity_id is required",
+		},
+		{
+			name:    "ambiguous target when any model is allowed",
+			view:    stubModelView(),
+			value:   stubValue("", "Van Gogh"),
+			wantErr: "target_entity_id is required",
+		},
+		{
+			name:    "target outside resource models",
+			view:    stubModelView("M2"),
+			value:   stubValue("M9", "Van Gogh"),
+			wantErr: "not an allowed target",
+		},
+		{
+			name: "non-Model field",
+			view: singleFieldModelView(21, "F1", "String", false, 0, nil),
+			value: domain.ExampleValue{
+				OverrideID: 21, FieldID: "F1", ValueKind: domain.ExampleValueKindExampleRef,
+				ValuePayload: domain.ExampleValuePayload{Kind: domain.ExampleValueKindExampleRef, TargetLabel: ptr("x")},
+			},
+			wantErr: "only be created for Model-typed fields",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newFakeStore()
+			svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": tc.view}})
+			_, err := svc.Create(context.Background(), "P1", CreateInput{
+				EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+				Values: []domain.ExampleValue{tc.value},
+			})
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want containing %q", err, tc.wantErr)
+			}
+			if len(store.examples) != 0 {
+				t.Fatalf("no example may be stored on a guard failure, got %d", len(store.examples))
+			}
+		})
+	}
+}
+
+func TestServiceStubGuardFailsOnSecondValueStoresNothing(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+
+	first := stubValue("", "Van Gogh")
+	second := stubValue("M9", "Bad")
+	second.OccurrenceIndex = 1
+
+	_, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{first, second},
+	})
+	if err == nil || !strings.Contains(err.Error(), "not an allowed target") {
+		t.Fatalf("err = %v, want containing %q", err, "not an allowed target")
+	}
+	if len(store.examples) != 0 {
+		t.Fatalf("a guard failure on the second value must not leave the first value's stub stored, got %d examples", len(store.examples))
+	}
+}
+
+func TestServiceStubIgnoresBlankLabelAndExplicitLink(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+	linked := &domain.Example{ID: "EX-LINKED", ProjectID: "P1", EntityType: domain.ExampleEntityTypeModel, EntityID: "M2", Status: domain.ExampleStatusDraft}
+	if err := store.CreateWithValues(context.Background(), linked, nil); err != nil {
+		t.Fatal(err)
+	}
+	explicit := stubValue("", "ignored label")
+	explicit.ValuePayload.ExampleID = ptr("EX-LINKED")
+	blank := stubValue("", "   ")
+	blank.OccurrenceIndex = 1
+
+	record, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{explicit, blank},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if len(store.examples) != 2 { // linked + the record itself, no stubs
+		t.Fatalf("want 2 examples, got %d", len(store.examples))
+	}
+	if got := *record.Values[0].ValuePayload.ExampleID; got != "EX-LINKED" {
+		t.Fatalf("explicit link overwritten: %s", got)
+	}
+}
