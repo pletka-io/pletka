@@ -61,7 +61,7 @@ func seedExample(t *testing.T, store *fakeStore, projectID, id string) {
 }
 
 func detailRequest(projectID, exampleID, accept string) *http.Request {
-	req := httptest.NewRequest(http.MethodGet, "/"+projectID+"/examples/"+exampleID, nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/"+projectID+"/examples/"+exampleID, nil)
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}
