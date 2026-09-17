@@ -18,12 +18,18 @@
   let {
     schemaUrl,
     onmutate,
+    initialItemId = '',
+    onitemchange,
   }: {
     schemaUrl: string;
     /** Fired after a successful create / delete / row-action so a
      *  parent (e.g. ProjectDetail) can refresh dependent counters
      *  like tab-counts. Optional — non-project consumers omit it. */
     onmutate?: () => void;
+    /** Item to open in edit mode once the schema has loaded (deep link). */
+    initialItemId?: string;
+    /** Fired when an item is opened (id) or the editor is closed (null). */
+    onitemchange?: (id: string | null) => void;
   } = $props();
 
   let schema = $state<EntityListSchema | null>(null);
@@ -99,6 +105,9 @@
         }
       }
       optionsByParam = { ...optionsByParam };
+      if (initialItemId) {
+        handleEdit(initialItemId);
+      }
       applyStateFromURL();
       await loadData();
     } catch (e: any) {
@@ -353,7 +362,7 @@
   }
 
   function showAdd() { view = 'add'; }
-  function backToList() { view = 'list'; editingId = null; }
+  function backToList() { view = 'list'; editingId = null; onitemchange?.(null); }
 
   async function handleFormSuccess() {
     await loadData();
@@ -369,6 +378,7 @@
     }
     editingId = id;
     view = 'edit';
+    onitemchange?.(id);
   }
 
   function findRowAction(actionId: string) {
