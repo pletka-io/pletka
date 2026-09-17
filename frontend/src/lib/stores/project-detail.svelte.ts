@@ -237,8 +237,11 @@ export class ProjectDetailState {
     return this.readHashParam('item');
   }
 
-  /** Write active tab to URL hash; drops any item (switching tab closes it). */
+  /** Write active tab to URL hash; drops any item (switching tab closes it).
+   *  A no-op when the hash already names this tab, so an `item` parameter
+   *  present on initial load survives until the list has read it. */
   private writeHashTab(tabId: string): void {
+    if (this.readHashTab() === tabId) return;
     const newHash = `#tab=${encodeURIComponent(tabId)}`;
     if (window.location.hash !== newHash) {
       history.replaceState(null, '', newHash);
