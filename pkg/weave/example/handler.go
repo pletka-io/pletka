@@ -2,9 +2,11 @@ package example
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -12,6 +14,21 @@ import (
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
+
+// wantsHTML reports whether the request comes from a browser navigation
+// (an Accept header that names text/html). API clients send */* or
+// application/json and keep getting JSON.
+func wantsHTML(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "text/html")
+}
+
+// projectExamplesPageURL is the browser-facing home of an example: the
+// project page's Examples tab with the item open. The frontend reads the
+// hash (see project-detail.svelte.ts readHashItem); the same shape is
+// published to the editor as page_url_template in the entity-list schema.
+func projectExamplesPageURL(projectID, exampleID string) string {
+	return fmt.Sprintf("/projects/%s#tab=examples&item=%s", projectID, exampleID)
+}
 
 type LangResolver func(r *http.Request) string
 
@@ -138,6 +155,10 @@ func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 	record, err := h.svc.Get(r.Context(), projectID, exampleID)
 	if err != nil {
 		apierror.Write(w, apierror.NotFound(err.Error()))
+		return
+	}
+	if wantsHTML(r) {
+		http.Redirect(w, r, projectExamplesPageURL(projectID, record.Example.ID), http.StatusFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, record)
