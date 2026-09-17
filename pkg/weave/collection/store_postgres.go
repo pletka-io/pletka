@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -476,8 +477,13 @@ func (s *postgresStore) Deprecate(ctx context.Context, collectionID string) erro
 // ListUsage returns the models that reuse fields from this collection
 // (weave_field_overrides rows where entity_type='model' and
 // part_of_collection_id = collectionID). Drives the Reuse tab on the
-// collection detail view. Same-project only.
+// collection detail view. Same-project only. Version-aware: when a release
+// version is in scope (auth.ProjectVersionFromContext) the archive tables
+// are read instead of the live tables, mirroring field.ListUsage.
 func (s *postgresStore) ListUsage(ctx context.Context, collectionID, projectID string) ([]domain.FieldUsageRef, error) {
+	if version := auth.ProjectVersionFromContext(ctx); version != "" {
+		return s.listUsageVersion(ctx, collectionID, version)
+	}
 	// No project filter on the collection's owner: include models in OTHER
 	// projects that bundle this collection, so the Reuse tab can show
 	// cross-project usage. The override that ties a model to the collection
@@ -504,14 +510,49 @@ ORDER BY m.project_id ASC, COALESCE(m.ui_name ->> 'en', m.system_name, '') ASC, 
 		return nil, fmt.Errorf("list collection usage: %w", err)
 	}
 	defer rows.Close()
+	return scanCollectionUsageRows(rows)
+}
 
+// listUsageVersion is the archive-table counterpart of ListUsage, read when a
+// release version is pinned in the request context.
+func (s *postgresStore) listUsageVersion(ctx context.Context, collectionID, version string) ([]domain.FieldUsageRef, error) {
+	const q = `
+SELECT
+    m.id                                     AS id,
+    m.project_id                             AS project_id,
+    COALESCE(m.system_name, '')              AS system_name,
+    COALESCE(m.ui_name, '{}'::jsonb)         AS ui_name,
+    COALESCE(m.description, '{}'::jsonb)     AS description
+FROM weave_models_archive m
+WHERE EXISTS (
+      SELECT 1 FROM weave_field_overrides_archive fo
+      WHERE fo.entity_type = 'model'
+        AND fo.entity_id = m.id
+        AND fo.part_of_collection_id = $1
+        AND fo.project_id = m.project_id
+        AND fo.version_number = $2
+        AND m.version_number = $2
+  )
+ORDER BY m.project_id ASC, COALESCE(m.ui_name ->> 'en', m.system_name, '') ASC, m.id ASC`
+
+	rows, err := s.pool.Query(ctx, q, collectionID, version)
+	if err != nil {
+		return nil, fmt.Errorf("list archived collection usage: %w", err)
+	}
+	defer rows.Close()
+	return scanCollectionUsageRows(rows)
+}
+
+// scanCollectionUsageRows scans the shared (id, project_id, system_name,
+// ui_name, description) row shape produced by ListUsage/listUsageVersion.
+func scanCollectionUsageRows(rows pgx.Rows) ([]domain.FieldUsageRef, error) {
 	var out []domain.FieldUsageRef
 	for rows.Next() {
 		var (
-			id, projectID2, sysName string
-			uiNameJSON, descJSON    []byte
+			id, projectID, sysName string
+			uiNameJSON, descJSON   []byte
 		)
-		if err := rows.Scan(&id, &projectID2, &sysName, &uiNameJSON, &descJSON); err != nil {
+		if err := rows.Scan(&id, &projectID, &sysName, &uiNameJSON, &descJSON); err != nil {
 			return nil, fmt.Errorf("scan collection usage row: %w", err)
 		}
 		out = append(out, domain.FieldUsageRef{
@@ -520,8 +561,8 @@ ORDER BY m.project_id ASC, COALESCE(m.ui_name ->> 'en', m.system_name, '') ASC, 
 			SystemName:  sysName,
 			Name:        unmarshalTranslations(uiNameJSON),
 			Description: unmarshalTranslations(descJSON),
-			ProjectID:   projectID2,
-			URL:         "/projects/" + projectID2 + "/models/" + id,
+			ProjectID:   projectID,
+			URL:         "/projects/" + projectID + "/models/" + id,
 		})
 	}
 	if err := rows.Err(); err != nil {
