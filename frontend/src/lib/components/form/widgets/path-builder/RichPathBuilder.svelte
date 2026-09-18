@@ -406,7 +406,8 @@
   function sameElement(a: PathElement | null, b: PathElement | null): boolean {
     if (a === b) return true;
     if (!a || !b) return false;
-    return a.prefix === b.prefix && a.local_name === b.local_name && a.type === b.type;
+    return a.prefix === b.prefix && a.local_name === b.local_name && a.type === b.type
+      && !!a.complete === !!b.complete;
   }
 
   // --- Autocomplete ---
