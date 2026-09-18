@@ -864,6 +864,13 @@
     return availableExamples.find((example) => example.id === id) ?? null;
   }
 
+  /** Page URL of the example an occurrence links to, or '' for stubs, blanks and non-ref fields. */
+  function occurrenceLinkURL(field: ExampleFormField, occurrence: OccurrenceState): string {
+    if (field.value_kind !== 'example_ref' || occurrenceIsStub(field, occurrence)) return '';
+    const id = occurrence.value?.trim() ?? '';
+    return id ? examplePageURL(id) : '';
+  }
+
   function examplePageURL(id: string): string {
     return endpoints.page_url_template ? endpoints.page_url_template.replace('{id}', encodeURIComponent(id)) : '';
   }
@@ -1717,7 +1724,11 @@
                                         {#if field.repeatable}
                                           <div class="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">Occurrence {occurrence.occurrence_index + 1}</div>
                                         {/if}
-                                        <div class="text-sm text-gray-800">{occurrenceDisplayValue(field, occurrence)}</div>
+                                        {#if occurrenceLinkURL(field, occurrence)}
+                                          <a href={occurrenceLinkURL(field, occurrence)} target="_blank" rel="noopener" class="text-sm text-blue-900 underline decoration-blue-300 hover:decoration-blue-700">{occurrenceDisplayValue(field, occurrence)}</a>
+                                        {:else}
+                                          <div class="text-sm text-gray-800">{occurrenceDisplayValue(field, occurrence)}</div>
+                                        {/if}
                                         {#if occurrenceTechnicalValue(field, occurrence)}
                                           <div class="mt-1 break-all font-mono text-xs text-gray-500">{occurrenceTechnicalValue(field, occurrence)}</div>
                                         {/if}
@@ -1765,7 +1776,11 @@
                                                 {#if field.repeatable}
                                                   <div class="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">Occurrence {occurrence.occurrence_index + 1}</div>
                                                 {/if}
-                                                <div class="text-sm text-gray-800">{occurrenceDisplayValue(field, occurrence)}</div>
+                                                {#if occurrenceLinkURL(field, occurrence)}
+                                          <a href={occurrenceLinkURL(field, occurrence)} target="_blank" rel="noopener" class="text-sm text-blue-900 underline decoration-blue-300 hover:decoration-blue-700">{occurrenceDisplayValue(field, occurrence)}</a>
+                                        {:else}
+                                          <div class="text-sm text-gray-800">{occurrenceDisplayValue(field, occurrence)}</div>
+                                        {/if}
                                                 {#if occurrenceTechnicalValue(field, occurrence)}
                                                   <div class="mt-1 break-all font-mono text-xs text-gray-500">{occurrenceTechnicalValue(field, occurrence)}</div>
                                                 {/if}
