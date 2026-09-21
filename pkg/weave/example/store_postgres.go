@@ -143,12 +143,12 @@ func (s *postgresStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 
 func (s *postgresStore) ListValues(ctx context.Context, exampleID string) ([]domain.ExampleValue, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, example_id, override_id, field_id, coalesce(part_of_collection_id, ''), occurrence_index,
+		SELECT id, example_id, override_id, field_id, coalesce(part_of_collection_id, ''), occurrence_index, slot_path,
 		       value_kind, value_payload, text_value, number_value, date_value, uri_value,
 		       concept_uri, linked_example_id, created_at, updated_at
 		FROM weave_example_values
 		WHERE example_id = $1
-		ORDER BY override_id ASC, occurrence_index ASC
+		ORDER BY override_id ASC, occurrence_index ASC, slot_path ASC
 	`, exampleID)
 	if err != nil {
 		return nil, err
@@ -215,11 +215,11 @@ func insertValues(ctx context.Context, tx pgx.Tx, exampleID string, values []dom
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO weave_example_values (
-				example_id, override_id, field_id, part_of_collection_id, occurrence_index,
+				example_id, override_id, field_id, part_of_collection_id, occurrence_index, slot_path,
 				value_kind, value_payload, text_value, number_value, date_value, uri_value,
 				concept_uri, linked_example_id, version_number
-			) VALUES ($1,$2,$3,nullif($4,''),$5,$6,$7,$8,$9,nullif($10,'')::date,$11,$12,$13,$14)
-		`, exampleID, v.OverrideID, v.FieldID, v.PartOfCollectionID, v.OccurrenceIndex,
+			) VALUES ($1,$2,$3,nullif($4,''),$5,$6,$7,$8,$9,$10,nullif($11,'')::date,$12,$13,$14,$15)
+		`, exampleID, v.OverrideID, v.FieldID, v.PartOfCollectionID, v.OccurrenceIndex, v.SlotPath,
 			string(v.ValueKind), payload, v.TextValue, v.NumberValue, valueString(v.DateValue), v.URIValue,
 			v.ConceptURI, v.LinkedExampleID, "",
 		); err != nil {
@@ -266,7 +266,7 @@ func scanExampleValue(row rowScanner) (domain.ExampleValue, error) {
 		textValue  *string
 		uriValue   *string
 	)
-	if err := row.Scan(&v.ID, &v.ExampleID, &v.OverrideID, &v.FieldID, &v.PartOfCollectionID, &v.OccurrenceIndex,
+	if err := row.Scan(&v.ID, &v.ExampleID, &v.OverrideID, &v.FieldID, &v.PartOfCollectionID, &v.OccurrenceIndex, &v.SlotPath,
 		&kind, &payload, &textValue, &number, &dateVal, &uriValue, &conceptURI, &linkedID, &v.CreatedAt, &v.UpdatedAt); err != nil {
 		return v, err
 	}

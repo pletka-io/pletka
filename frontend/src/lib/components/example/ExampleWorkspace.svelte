@@ -1195,161 +1195,7 @@
     {/if}
 
     {#if schema}
-      {@const summary = overallSummary()}
-      {@const status = currentStatus(summary)}
-      {@const matchOrder = searchMatchOrder()}
-      {@const activeMatch = activeMatchID()}
-
-      <section class="sticky top-0 z-20 rounded-xl border border-gray-200 bg-white/95 p-4 shadow-sm backdrop-blur">
-        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div class="space-y-3">
-            <div class="flex flex-wrap items-center gap-2">
-              <h4 class="text-base font-semibold text-gray-900">{translated(titleValues, selectedModelLabel || 'Example')}</h4>
-              <span class={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${statusClasses(status)}`}>
-                {status === 'has_issues' ? 'Has issues' : status === 'valid' ? 'Valid' : 'Draft'}
-              </span>
-              {#if selectedModelId}
-                <span class="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-500">{selectedModelId}</span>
-              {/if}
-            </div>
-            <div class="flex flex-wrap gap-2 text-sm text-gray-600">
-              <span class="rounded-full bg-gray-100 px-3 py-1">{summary.required_remaining} required remaining</span>
-              <span class="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">{completedSectionsCount()} sections complete</span>
-              <span class="rounded-full bg-rose-50 px-3 py-1 text-rose-700">{summary.errors} errors</span>
-              <span class="rounded-full bg-amber-50 px-3 py-1 text-amber-700">{summary.warnings} warnings</span>
-            </div>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
-              <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${workspaceMode === 'overview' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setWorkspaceMode('overview')}>Overview</button>
-              <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${workspaceMode === 'edit' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setWorkspaceMode('edit')}>Edit</button>
-            </div>
-            {#if workspaceMode === 'edit'}
-              <div class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  placeholder="Search fields..."
-                  class="w-48 border-0 bg-transparent px-2 py-1 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-0"
-                  oninput={handleSearchInput}
-                  onkeydown={handleSearchKeydown}
-                />
-                {#if searchQuery.trim()}
-                  <span class="text-xs text-gray-500">
-                    {matchOrder.length === 0 ? '0 matches' : `${Math.min(searchIndex + 1, matchOrder.length)} of ${matchOrder.length}`}
-                  </span>
-                  <button type="button" class="rounded px-1.5 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700" onclick={prevSearchMatch} disabled={matchOrder.length === 0}>Prev</button>
-                  <button type="button" class="rounded px-1.5 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700" onclick={nextSearchMatch} disabled={matchOrder.length === 0}>Next</button>
-                  <button type="button" class="rounded px-1.5 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700" onclick={clearSearch}>Clear</button>
-                {/if}
-              </div>
-              <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
-                <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${activeFilter === 'all' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setFilter('all')}>All</button>
-                <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${activeFilter === 'required' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setFilter('required')}>Required Only</button>
-                <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${activeFilter === 'issues' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setFilter('issues')}>Issues Only</button>
-              </div>
-            {/if}
-            {#if workspaceMode === 'edit'}
-              <button type="button" class="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" onclick={expandAllStructure}>Expand all</button>
-              <button type="button" class="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" onclick={collapseOptionalStructure}>Collapse optional</button>
-            {/if}
-            <button
-              type="button"
-              class="rounded-md bg-pletka-primary px-4 py-2 text-sm font-medium text-white hover:bg-pletka-secondary disabled:opacity-60"
-              disabled={saving}
-              onclick={submit}
-            >
-              {saving ? 'Saving…' : translated(schema.ui.submit_label, 'Save Example')}
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {#if workspaceMode === 'edit'}
-        <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div class="grid gap-4 md:grid-cols-2">
-            <WidgetDispatcher field={titleField} bind:value={titleValues} formValues={{}} {lang} languages={schema.ui.languages} errors={[]} />
-            <WidgetDispatcher field={descriptionField} bind:value={descriptionValues} formValues={{}} {lang} languages={schema.ui.languages} errors={[]} />
-          </div>
-        </section>
-      {:else if translated(descriptionValues)}
-        <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h4 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Description</h4>
-          <p class="mt-2 whitespace-pre-line text-sm leading-6 text-gray-700">{translated(descriptionValues)}</p>
-        </section>
-      {/if}
-
-      <div class="grid gap-6 xl:grid-cols-[250px_minmax(0,1fr)]">
-        <aside class="hidden xl:block">
-          <div class="sticky top-40 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-            <h4 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Structure</h4>
-            <div class="mt-4 space-y-2">
-              {#each schema.sections as section (section.id)}
-                {#if workspaceMode === 'edit' ? sectionVisible(section) : sectionVisibleInOverview(section)}
-                  {@const sectionCounts = sectionSummary(section)}
-                  <button
-                    type="button"
-                    class="block w-full rounded-lg border border-gray-200 px-3 py-3 text-left hover:border-gray-300 hover:bg-gray-50"
-                    onclick={() => jumpToSection(section.id)}
-                  >
-                    <div class="flex items-start justify-between gap-2">
-                      <span class="text-sm font-medium text-gray-900">{translated(section.label, section.id)}</span>
-                      {#if sectionCounts.errors > 0}
-                        <span class="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700">{sectionCounts.errors}</span>
-                      {:else if sectionCounts.warnings > 0}
-                        <span class="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">{sectionCounts.warnings}</span>
-                      {/if}
-                    </div>
-                    <p class="mt-2 text-xs text-gray-500">
-                      {sectionCounts.required_remaining} required remaining · {sectionCounts.filled_fields} fields filled
-                    </p>
-                  </button>
-                {/if}
-              {/each}
-            </div>
-          </div>
-        </aside>
-
-        <div class="space-y-5">
-          {#each schema.sections as section (section.id)}
-            {#if workspaceMode === 'edit' ? sectionVisible(section) : sectionVisibleInOverview(section)}
-              {@const sectionCounts = sectionSummary(section)}
-              <section id={`example-section-${section.id}`} class="rounded-xl border border-gray-200 bg-white shadow-sm">
-                <button
-                  type="button"
-                  class="flex w-full items-start justify-between gap-4 rounded-xl px-5 py-4 text-left hover:bg-gray-50/80"
-                  onclick={() => toggleSection(section.id)}
-                >
-                  <div>
-                    <div class="flex flex-wrap items-center gap-2">
-                      <h4 class="text-base font-semibold text-gray-900">{translated(section.label, section.id)}</h4>
-                      {#if sectionCounts.required_total > 0}
-                        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                          {sectionCounts.required_filled}/{sectionCounts.required_total} required
-                        </span>
-                      {/if}
-                      {#if sectionCounts.errors > 0}
-                        <span class="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700">{sectionCounts.errors} errors</span>
-                      {/if}
-                      {#if sectionCounts.warnings > 0}
-                        <span class="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">{sectionCounts.warnings} warnings</span>
-                      {/if}
-                    </div>
-                    <p class="mt-2 text-sm text-gray-500">
-                      {sectionCounts.filled_fields} fields filled
-                      {#if sectionCounts.required_remaining > 0}
-                        · {sectionCounts.required_remaining} required still missing
-                      {/if}
-                    </p>
-                  </div>
-                  <span class="mt-1 text-sm text-gray-500">{expandedSections[section.id] ? 'Hide' : 'Show'}</span>
-                </button>
-
-                {#if expandedSections[section.id]}
-                  <div class="space-y-5 border-t border-gray-100 px-5 py-5">
-                    {#if workspaceMode === 'edit' && (section.groups ?? []).some((group) => groupVisible(group))}
-                      <div class="space-y-5">
-                        {#each section.groups ?? [] as group (group.id)}
+      {#snippet editGroup(group: ExampleFormGroup, activeMatch: number | null, schema: ExampleFormSchema)}
                           {#if groupVisible(group)}
                             {@const groupCounts = groupSummary(group)}
                             <div class="rounded-xl border border-gray-200 bg-gray-50/40">
@@ -1544,14 +1390,9 @@
                               {/if}
                             </div>
                           {/if}
-                        {/each}
-                      </div>
-                    {/if}
+      {/snippet}
 
-                    {#if workspaceMode === 'overview'}
-                      {#if (section.groups ?? []).some((group) => groupVisibleInOverview(group))}
-                        <div class="space-y-5">
-                          {#each section.groups ?? [] as group (group.id)}
+      {#snippet overviewGroup(group: ExampleFormGroup)}
                             {#if groupVisibleInOverview(group)}
                               {@const groupCounts = groupSummary(group)}
                               <div class="rounded-xl border border-gray-200 bg-gray-50/40">
@@ -1601,6 +1442,173 @@
                                 </div>
                               </div>
                             {/if}
+      {/snippet}
+
+      {@const summary = overallSummary()}
+      {@const status = currentStatus(summary)}
+      {@const matchOrder = searchMatchOrder()}
+      {@const activeMatch = activeMatchID()}
+
+      <section class="sticky top-0 z-20 rounded-xl border border-gray-200 bg-white/95 p-4 shadow-sm backdrop-blur">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div class="space-y-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <h4 class="text-base font-semibold text-gray-900">{translated(titleValues, selectedModelLabel || 'Example')}</h4>
+              <span class={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${statusClasses(status)}`}>
+                {status === 'has_issues' ? 'Has issues' : status === 'valid' ? 'Valid' : 'Draft'}
+              </span>
+              {#if selectedModelId}
+                <span class="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-500">{selectedModelId}</span>
+              {/if}
+            </div>
+            <div class="flex flex-wrap gap-2 text-sm text-gray-600">
+              <span class="rounded-full bg-gray-100 px-3 py-1">{summary.required_remaining} required remaining</span>
+              <span class="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">{completedSectionsCount()} sections complete</span>
+              <span class="rounded-full bg-rose-50 px-3 py-1 text-rose-700">{summary.errors} errors</span>
+              <span class="rounded-full bg-amber-50 px-3 py-1 text-amber-700">{summary.warnings} warnings</span>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+              <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${workspaceMode === 'overview' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setWorkspaceMode('overview')}>Overview</button>
+              <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${workspaceMode === 'edit' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setWorkspaceMode('edit')}>Edit</button>
+            </div>
+            {#if workspaceMode === 'edit'}
+              <div class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  placeholder="Search fields..."
+                  class="w-48 border-0 bg-transparent px-2 py-1 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                  oninput={handleSearchInput}
+                  onkeydown={handleSearchKeydown}
+                />
+                {#if searchQuery.trim()}
+                  <span class="text-xs text-gray-500">
+                    {matchOrder.length === 0 ? '0 matches' : `${Math.min(searchIndex + 1, matchOrder.length)} of ${matchOrder.length}`}
+                  </span>
+                  <button type="button" class="rounded px-1.5 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700" onclick={prevSearchMatch} disabled={matchOrder.length === 0}>Prev</button>
+                  <button type="button" class="rounded px-1.5 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700" onclick={nextSearchMatch} disabled={matchOrder.length === 0}>Next</button>
+                  <button type="button" class="rounded px-1.5 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700" onclick={clearSearch}>Clear</button>
+                {/if}
+              </div>
+              <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+                <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${activeFilter === 'all' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setFilter('all')}>All</button>
+                <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${activeFilter === 'required' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setFilter('required')}>Required Only</button>
+                <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${activeFilter === 'issues' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setFilter('issues')}>Issues Only</button>
+              </div>
+            {/if}
+            {#if workspaceMode === 'edit'}
+              <button type="button" class="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" onclick={expandAllStructure}>Expand all</button>
+              <button type="button" class="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" onclick={collapseOptionalStructure}>Collapse optional</button>
+            {/if}
+            <button
+              type="button"
+              class="rounded-md bg-pletka-primary px-4 py-2 text-sm font-medium text-white hover:bg-pletka-secondary disabled:opacity-60"
+              disabled={saving}
+              onclick={submit}
+            >
+              {saving ? 'Saving…' : translated(schema.ui.submit_label, 'Save Example')}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {#if workspaceMode === 'edit'}
+        <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div class="grid gap-4 md:grid-cols-2">
+            <WidgetDispatcher field={titleField} bind:value={titleValues} formValues={{}} {lang} languages={schema.ui.languages} errors={[]} />
+            <WidgetDispatcher field={descriptionField} bind:value={descriptionValues} formValues={{}} {lang} languages={schema.ui.languages} errors={[]} />
+          </div>
+        </section>
+      {:else if translated(descriptionValues)}
+        <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <h4 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Description</h4>
+          <p class="mt-2 whitespace-pre-line text-sm leading-6 text-gray-700">{translated(descriptionValues)}</p>
+        </section>
+      {/if}
+
+      <div class="grid gap-6 xl:grid-cols-[250px_minmax(0,1fr)]">
+        <aside class="hidden xl:block">
+          <div class="sticky top-40 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <h4 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Structure</h4>
+            <div class="mt-4 space-y-2">
+              {#each schema.sections as section (section.id)}
+                {#if workspaceMode === 'edit' ? sectionVisible(section) : sectionVisibleInOverview(section)}
+                  {@const sectionCounts = sectionSummary(section)}
+                  <button
+                    type="button"
+                    class="block w-full rounded-lg border border-gray-200 px-3 py-3 text-left hover:border-gray-300 hover:bg-gray-50"
+                    onclick={() => jumpToSection(section.id)}
+                  >
+                    <div class="flex items-start justify-between gap-2">
+                      <span class="text-sm font-medium text-gray-900">{translated(section.label, section.id)}</span>
+                      {#if sectionCounts.errors > 0}
+                        <span class="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700">{sectionCounts.errors}</span>
+                      {:else if sectionCounts.warnings > 0}
+                        <span class="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">{sectionCounts.warnings}</span>
+                      {/if}
+                    </div>
+                    <p class="mt-2 text-xs text-gray-500">
+                      {sectionCounts.required_remaining} required remaining · {sectionCounts.filled_fields} fields filled
+                    </p>
+                  </button>
+                {/if}
+              {/each}
+            </div>
+          </div>
+        </aside>
+
+        <div class="space-y-5">
+          {#each schema.sections as section (section.id)}
+            {#if workspaceMode === 'edit' ? sectionVisible(section) : sectionVisibleInOverview(section)}
+              {@const sectionCounts = sectionSummary(section)}
+              <section id={`example-section-${section.id}`} class="rounded-xl border border-gray-200 bg-white shadow-sm">
+                <button
+                  type="button"
+                  class="flex w-full items-start justify-between gap-4 rounded-xl px-5 py-4 text-left hover:bg-gray-50/80"
+                  onclick={() => toggleSection(section.id)}
+                >
+                  <div>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <h4 class="text-base font-semibold text-gray-900">{translated(section.label, section.id)}</h4>
+                      {#if sectionCounts.required_total > 0}
+                        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                          {sectionCounts.required_filled}/{sectionCounts.required_total} required
+                        </span>
+                      {/if}
+                      {#if sectionCounts.errors > 0}
+                        <span class="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700">{sectionCounts.errors} errors</span>
+                      {/if}
+                      {#if sectionCounts.warnings > 0}
+                        <span class="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">{sectionCounts.warnings} warnings</span>
+                      {/if}
+                    </div>
+                    <p class="mt-2 text-sm text-gray-500">
+                      {sectionCounts.filled_fields} fields filled
+                      {#if sectionCounts.required_remaining > 0}
+                        · {sectionCounts.required_remaining} required still missing
+                      {/if}
+                    </p>
+                  </div>
+                  <span class="mt-1 text-sm text-gray-500">{expandedSections[section.id] ? 'Hide' : 'Show'}</span>
+                </button>
+
+                {#if expandedSections[section.id]}
+                  <div class="space-y-5 border-t border-gray-100 px-5 py-5">
+                    {#if workspaceMode === 'edit' && (section.groups ?? []).some((group) => groupVisible(group))}
+                      <div class="space-y-5">
+                        {#each section.groups ?? [] as group (group.id)}
+                          {@render editGroup(group, activeMatch, schema)}
+                        {/each}
+                      </div>
+                    {/if}
+
+                    {#if workspaceMode === 'overview'}
+                      {#if (section.groups ?? []).some((group) => groupVisibleInOverview(group))}
+                        <div class="space-y-5">
+                          {#each section.groups ?? [] as group (group.id)}
+                            {@render overviewGroup(group)}
                           {/each}
                         </div>
                       {/if}
