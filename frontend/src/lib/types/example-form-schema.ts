@@ -14,6 +14,8 @@ export interface ExampleIssue {
   field_id?: string;
   override_id?: number;
   occurrence_index?: number;
+  group_path?: string;
+  collection_id?: string;
   message?: Translations;
 }
 
@@ -56,6 +58,7 @@ export interface ExampleFormField {
   concept_sources?: ExampleConceptSource[];
   issues?: ExampleIssue[];
   occurrences?: ExampleOccurrence[];
+  slot_prefix?: string;
 }
 
 export interface ExampleFormGroup {
@@ -64,6 +67,12 @@ export interface ExampleFormGroup {
   position?: number;
   shared_path_prefix?: Array<{ predicate?: string; class?: string }>;
   fields: ExampleFormField[];
+  instance?: number;
+  slot_prefix?: string;
+  repeatable?: boolean;
+  min_occurs?: number;
+  max_occurs?: number | null;
+  issues?: ExampleIssue[];
 }
 
 export interface ExampleFormSection {

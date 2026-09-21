@@ -321,7 +321,7 @@
       nextSections[section.id] = index === 0 || summary.required_total > 0 || summary.errors > 0 || summary.warnings > 0;
       for (const group of section.groups ?? []) {
         const groupCounts = groupSummary(group);
-        nextGroups[group.id] = groupCounts.required_total > 0 || groupCounts.errors > 0 || groupCounts.warnings > 0;
+        nextGroups[groupKey(group)] = groupCounts.required_total > 0 || groupCounts.errors > 0 || groupCounts.warnings > 0;
       }
     }
     expandedSections = nextSections;
@@ -329,7 +329,57 @@
   }
 
   function fieldKey(field: ExampleFormField): string {
-    return String(field.override_id);
+    return `${field.slot_prefix ?? ''}${field.override_id}`;
+  }
+
+  // Groups repeat their id once per instance; the slot prefix tells them apart.
+  function groupKey(group: ExampleFormGroup): string {
+    return group.slot_prefix || group.id;
+  }
+
+  function groupSiblings(section: ExampleFormSection, group: ExampleFormGroup): ExampleFormGroup[] {
+    return (section.groups ?? []).filter((g) => g.id === group.id);
+  }
+
+  function groupTitle(section: ExampleFormSection, group: ExampleFormGroup): string {
+    const label = translated(group.label, group.id);
+    const siblings = groupSiblings(section, group);
+    if (siblings.length < 2) return label;
+    return `${label} ${siblings.indexOf(group) + 1}`;
+  }
+
+  function canAddInstance(section: ExampleFormSection, group: ExampleFormGroup): boolean {
+    if (!group.repeatable) return false;
+    const siblings = groupSiblings(section, group);
+    if (siblings[siblings.length - 1] !== group) return false; // button sits under the last instance
+    return group.max_occurs == null || siblings.length < group.max_occurs;
+  }
+
+  function canRemoveInstance(section: ExampleFormSection, group: ExampleFormGroup): boolean {
+    return !!group.repeatable && groupSiblings(section, group).length > Math.max(1, group.min_occurs ?? 0);
+  }
+
+  function addGroupInstance(section: ExampleFormSection, group: ExampleFormGroup) {
+    const groups = section.groups ?? [];
+    const siblings = groupSiblings(section, group);
+    const next = Math.max(...siblings.map((g) => g.instance ?? 0)) + 1;
+    const prefix = `${group.id}:${next}/`;
+    const base = $state.snapshot(group) as ExampleFormGroup;
+    const fields = base.fields.map((f) => ({ ...f, slot_prefix: prefix, issues: [], occurrences: [] }));
+    const clone: ExampleFormGroup = { ...base, instance: next, slot_prefix: prefix, issues: [], fields };
+    groups.splice(groups.indexOf(siblings[siblings.length - 1]) + 1, 0, clone);
+    section.groups = groups;
+    const nextValues = { ...valuesByOverride };
+    for (const f of fields) nextValues[fieldKey(f)] = [{ occurrence_index: 0, value: payloadToInput(f, undefined) }];
+    valuesByOverride = nextValues;
+    expandedGroups = { ...expandedGroups, [groupKey(clone)]: true };
+  }
+
+  function removeGroupInstance(section: ExampleFormSection, group: ExampleFormGroup) {
+    section.groups = (section.groups ?? []).filter((g) => g !== group);
+    const nextValues = { ...valuesByOverride };
+    for (const f of group.fields) delete nextValues[fieldKey(f)];
+    valuesByOverride = nextValues;
   }
 
   function translated(value: any, fallback = ''): string {
@@ -416,23 +466,23 @@
     return [...(section.direct_fields ?? []), ...(section.groups ?? []).flatMap((group) => group.fields ?? [])];
   }
 
-  function searchMatchOrder(): number[] {
+  function searchMatchOrder(): string[] {
     if (workspaceMode !== 'edit' || !searchQuery.trim()) return [];
-    const order: number[] = [];
+    const order: string[] = [];
     for (const section of schema?.sections ?? []) {
       for (const field of section.direct_fields ?? []) {
-        if (fieldVisibleInEdit(field)) order.push(field.override_id);
+        if (fieldVisibleInEdit(field)) order.push(fieldKey(field));
       }
       for (const group of section.groups ?? []) {
         for (const field of group.fields ?? []) {
-          if (fieldVisibleInEdit(field)) order.push(field.override_id);
+          if (fieldVisibleInEdit(field)) order.push(fieldKey(field));
         }
       }
     }
     return order;
   }
 
-  function activeMatchID(): number | null {
+  function activeMatchID(): string | null {
     const order = searchMatchOrder();
     if (order.length === 0) return null;
     const safeIndex = Math.min(searchIndex, order.length - 1);
@@ -469,6 +519,11 @@
       counts.errors += fieldIssues.errors;
       counts.warnings += fieldIssues.warnings;
     }
+    for (const group of section.groups ?? []) {
+      const groupIssues = issueCounts(group.issues);
+      counts.errors += groupIssues.errors;
+      counts.warnings += groupIssues.warnings;
+    }
     return counts;
   }
 
@@ -502,6 +557,9 @@
       counts.errors += fieldIssues.errors;
       counts.warnings += fieldIssues.warnings;
     }
+    const groupIssues = issueCounts(group.issues);
+    counts.errors += groupIssues.errors;
+    counts.warnings += groupIssues.warnings;
     return counts;
   }
 
@@ -570,7 +628,7 @@
     for (const section of schema?.sections ?? []) {
       nextSections[section.id] = true;
       for (const group of section.groups ?? []) {
-        nextGroups[group.id] = true;
+        nextGroups[groupKey(group)] = true;
       }
     }
     expandedSections = nextSections;
@@ -585,7 +643,7 @@
       nextSections[section.id] = index === 0 || summary.required_total > 0 || summary.errors > 0 || summary.warnings > 0;
       for (const group of section.groups ?? []) {
         const groupCounts = groupSummary(group);
-        nextGroups[group.id] = groupCounts.required_total > 0 || groupCounts.errors > 0 || groupCounts.warnings > 0;
+        nextGroups[groupKey(group)] = groupCounts.required_total > 0 || groupCounts.errors > 0 || groupCounts.warnings > 0;
       }
     }
     expandedSections = nextSections;
@@ -601,7 +659,7 @@
       }
       for (const group of section.groups ?? []) {
         if ((group.fields ?? []).some((field) => renderableField(field) && requiredMinimum(field) > 0)) {
-          nextGroups[group.id] = true;
+          nextGroups[groupKey(group)] = true;
         }
       }
     }
@@ -618,7 +676,7 @@
       }
       for (const group of section.groups ?? []) {
         if ((group.fields ?? []).some((field) => fieldHasIssues(field))) {
-          nextGroups[group.id] = true;
+          nextGroups[groupKey(group)] = true;
         }
       }
     }
@@ -713,7 +771,7 @@
       }
       for (const group of section.groups ?? []) {
         if ((group.fields ?? []).some((field) => fieldVisibleInEdit(field))) {
-          nextGroups[group.id] = true;
+          nextGroups[groupKey(group)] = true;
         }
       }
     }
@@ -811,7 +869,7 @@
   function occurrenceFieldDef(field: ExampleFormField, occurrenceIndex: number): FieldDef {
     const fixedConcept = field.value_kind === 'concept' && Boolean(field.set_value);
     return {
-      name: `${field.override_id}:${occurrenceIndex}`,
+      name: `${fieldKey(field)}:${occurrenceIndex}`,
       widget: renderWidget(field),
       required: Boolean(field.required && occurrenceIndex === 0),
       readonly: fixedConcept,
@@ -1006,6 +1064,7 @@
             override_id: field.override_id,
             field_id: field.field_id,
             occurrence_index: occurrence.occurrence_index,
+            slot_path: `${field.slot_prefix ?? ''}${field.override_id}:${occurrence.occurrence_index}`,
             value_kind: field.value_kind,
             value_payload:
               field.value_kind === 'example_ref' ? refPayload(field, occurrence) : inputToPayload(field, text(occurrence.value)),
@@ -1195,18 +1254,19 @@
     {/if}
 
     {#if schema}
-      {#snippet editGroup(group: ExampleFormGroup, activeMatch: number | null, schema: ExampleFormSchema)}
+      {#snippet editGroup(section: ExampleFormSection, group: ExampleFormGroup, activeMatch: string | null, schema: ExampleFormSchema)}
                           {#if groupVisible(group)}
                             {@const groupCounts = groupSummary(group)}
                             <div class="rounded-xl border border-gray-200 bg-gray-50/40">
+                              <div class="flex items-start gap-2">
                               <button
                                 type="button"
-                                class="flex w-full items-start justify-between gap-4 rounded-xl px-4 py-4 text-left hover:bg-gray-100/60"
-                                onclick={() => toggleGroup(group.id)}
+                                class="flex min-w-0 flex-1 items-start justify-between gap-4 rounded-xl px-4 py-4 text-left hover:bg-gray-100/60"
+                                onclick={() => toggleGroup(groupKey(group))}
                               >
                                 <div>
                                   <div class="flex flex-wrap items-center gap-2">
-                                    <h5 class="text-sm font-semibold uppercase tracking-wide text-gray-600">{translated(group.label, group.id)}</h5>
+                                    <h5 class="text-sm font-semibold uppercase tracking-wide text-gray-600">{groupTitle(section, group)}</h5>
                                     {#if groupCounts.required_total > 0}
                                       <span class="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-700">
                                         {groupCounts.required_filled}/{groupCounts.required_total} required
@@ -1226,15 +1286,33 @@
                                     {/if}
                                   </p>
                                 </div>
-                                <span class="mt-1 text-sm text-gray-500">{expandedGroups[group.id] ? 'Hide' : 'Show'}</span>
+                                <span class="mt-1 text-sm text-gray-500">{expandedGroups[groupKey(group)] ? 'Hide' : 'Show'}</span>
                               </button>
+                              {#if canRemoveInstance(section, group)}
+                                <button
+                                  type="button"
+                                  class="mr-4 mt-5 text-xs font-medium text-red-600 hover:text-red-700"
+                                  onclick={(e) => {
+                                    e.stopPropagation();
+                                    removeGroupInstance(section, group);
+                                  }}
+                                >Remove</button>
+                              {/if}
+                              </div>
+                              {#if errorMessages(group.issues).length}
+                                <ul class="list-disc space-y-1 px-4 pb-3 pl-9 text-sm text-rose-700">
+                                  {#each errorMessages(group.issues) as message, idx (`${groupKey(group)}-error-${idx}`)}
+                                    <li>{message}</li>
+                                  {/each}
+                                </ul>
+                              {/if}
 
-                              {#if expandedGroups[group.id]}
+                              {#if expandedGroups[groupKey(group)]}
                                 <div class="space-y-4 border-t border-gray-200 px-4 py-4">
                                   {#each group.fields as field (field.override_id)}
                                     {#if fieldVisibleInEdit(field)}
                                       {@const fieldCounts = fieldIssueCounts(field)}
-                                      <div id={`example-field-${field.override_id}`} class={`rounded-lg border bg-white p-4 shadow-sm ${activeMatch === field.override_id ? 'ring-2 ring-pletka-primary ring-offset-2' : ''} ${fieldCounts.errors > 0 ? 'border-rose-200 bg-rose-50/30' : fieldCounts.warnings > 0 ? 'border-amber-200 bg-amber-50/30' : 'border-white'}`}>
+                                      <div id={`example-field-${fieldKey(field)}`} class={`rounded-lg border bg-white p-4 shadow-sm ${activeMatch === fieldKey(field) ? 'ring-2 ring-pletka-primary ring-offset-2' : ''} ${fieldCounts.errors > 0 ? 'border-rose-200 bg-rose-50/30' : fieldCounts.warnings > 0 ? 'border-amber-200 bg-amber-50/30' : 'border-white'}`}>
                                         <div class="mb-3 flex items-start justify-between gap-3">
                                           <div>
                                             <div class="flex flex-wrap items-center gap-2">
@@ -1346,12 +1424,12 @@
                                                   {#if !linkedSelection && (field.expected_value_type || '').trim() === 'Model' && (field.resource_models ?? []).length > 0}
                                                     {@const models = field.resource_models ?? []}
                                                     <div class="rounded-md border border-dashed border-gray-300 bg-white px-3 py-2">
-                                                      <label class="block text-xs font-medium text-gray-600" for={`stub-${field.override_id}-${occurrence.occurrence_index}`}>
+                                                      <label class="block text-xs font-medium text-gray-600" for={`stub-${fieldKey(field)}-${occurrence.occurrence_index}`}>
                                                         Or create a new draft {models.length === 1 ? translated(models[0].name, models[0].semantic_id || models[0].id) : 'example'} named
                                                       </label>
                                                       <div class="mt-1 flex flex-wrap items-center gap-2">
                                                         <input
-                                                          id={`stub-${field.override_id}-${occurrence.occurrence_index}`}
+                                                          id={`stub-${fieldKey(field)}-${occurrence.occurrence_index}`}
                                                           type="text"
                                                           class="min-w-[12rem] flex-1 rounded-md border border-gray-300 px-2 py-1 text-sm"
                                                           placeholder="e.g. Van Gogh"
@@ -1389,16 +1467,19 @@
                                 </div>
                               {/if}
                             </div>
+                            {#if canAddInstance(section, group)}
+                              <button type="button" class="text-sm font-medium text-pletka-primary hover:text-pletka-secondary" onclick={() => addGroupInstance(section, group)}>+ Add {translated(group.label, group.id)}</button>
+                            {/if}
                           {/if}
       {/snippet}
 
-      {#snippet overviewGroup(group: ExampleFormGroup)}
+      {#snippet overviewGroup(section: ExampleFormSection, group: ExampleFormGroup)}
                             {#if groupVisibleInOverview(group)}
                               {@const groupCounts = groupSummary(group)}
                               <div class="rounded-xl border border-gray-200 bg-gray-50/40">
                                 <div class="border-b border-gray-200 px-4 py-4">
                                   <div class="flex flex-wrap items-center gap-2">
-                                    <h5 class="text-sm font-semibold uppercase tracking-wide text-gray-600">{translated(group.label, group.id)}</h5>
+                                    <h5 class="text-sm font-semibold uppercase tracking-wide text-gray-600">{groupTitle(section, group)}</h5>
                                     {#if groupCounts.required_total > 0}
                                       <span class="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-700">
                                         {groupCounts.required_filled}/{groupCounts.required_total} required
@@ -1598,8 +1679,8 @@
                   <div class="space-y-5 border-t border-gray-100 px-5 py-5">
                     {#if workspaceMode === 'edit' && (section.groups ?? []).some((group) => groupVisible(group))}
                       <div class="space-y-5">
-                        {#each section.groups ?? [] as group (group.id)}
-                          {@render editGroup(group, activeMatch, schema)}
+                        {#each section.groups ?? [] as group (groupKey(group))}
+                          {@render editGroup(section, group, activeMatch, schema)}
                         {/each}
                       </div>
                     {/if}
@@ -1607,8 +1688,8 @@
                     {#if workspaceMode === 'overview'}
                       {#if (section.groups ?? []).some((group) => groupVisibleInOverview(group))}
                         <div class="space-y-5">
-                          {#each section.groups ?? [] as group (group.id)}
-                            {@render overviewGroup(group)}
+                          {#each section.groups ?? [] as group (groupKey(group))}
+                            {@render overviewGroup(section, group)}
                           {/each}
                         </div>
                       {/if}
