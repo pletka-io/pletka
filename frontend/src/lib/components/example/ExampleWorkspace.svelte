@@ -36,7 +36,7 @@
     initialTargetEntityId?: string;
     lang?: string;
     oncancel?: () => void;
-    onsuccess?: () => void;
+    onsuccess?: (savedId?: string) => void;
   } = $props();
 
   type ModelResult = {
@@ -1082,7 +1082,7 @@
       }
       addToast('success', translated(schema.ui.success_message, 'Example saved'));
       await loadAvailableExamples();
-      onsuccess?.();
+      onsuccess?.(data.example?.id);
     } catch (e: any) {
       error = e?.message || 'Failed to save example';
     } finally {

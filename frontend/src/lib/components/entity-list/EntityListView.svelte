@@ -136,20 +136,13 @@
       if (s !== null) currentSearch = s;
     }
 
-    const nextFilters: Record<string, string> = {};
+    // URL values win; a filter the URL leaves out gets its schema-declared
+    // default so the curator opens the page with the intended initial
+    // selection (e.g. Origin = Owned + Adapted).
+    const nextFilters = defaultFilters();
     for (const f of schema.filters ?? []) {
       const v = params.get(f.param_name);
-      if (v !== null && v !== '') {
-        nextFilters[f.param_name] = v;
-        continue;
-      }
-      // URL has no value for this filter — apply schema-declared
-      // defaults so the curator opens the page with the intended
-      // initial selection (e.g. Origin = Owned + Adapted).
-      const defaultValues = (f.options ?? []).filter((o) => o.default).map((o) => o.value);
-      if (defaultValues.length > 0) {
-        nextFilters[f.param_name] = defaultValues.join(',');
-      }
+      if (v !== null && v !== '') nextFilters[f.param_name] = v;
     }
     currentFilters = nextFilters;
 
@@ -164,6 +157,15 @@
     if (viewParam && schema.view_modes?.some((m) => m.id === viewParam)) {
       currentViewMode = viewParam;
     }
+  }
+
+  function defaultFilters(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const f of schema?.filters ?? []) {
+      const values = (f.options ?? []).filter((o) => o.default).map((o) => o.value);
+      if (values.length > 0) out[f.param_name] = values.join(',');
+    }
+    return out;
   }
 
   function writeStateToURL() {
@@ -364,8 +366,24 @@
   function showAdd() { view = 'add'; }
   function backToList() { view = 'list'; editingId = null; onitemchange?.(null); }
 
-  async function handleFormSuccess() {
+  // A save can move the item out of the current view (a draft becomes valid
+  // under a status=draft filter, #3575). If the saved item is missing after
+  // the reload and the view is narrowed, fall back to the default filters so
+  // the curator can still see what they just saved.
+  async function handleFormSuccess(savedId?: string) {
     await loadData();
+    const id = savedId || editingId;
+    const defaults = defaultFilters();
+    const narrowed =
+      currentSearch !== '' ||
+      Object.keys({ ...defaults, ...currentFilters }).some((k) => (currentFilters[k] ?? '') !== (defaults[k] ?? ''));
+    if (id && narrowed && !items.some((it) => it.id === id)) {
+      currentFilters = defaults;
+      currentSearch = '';
+      currentPage = 1;
+      await loadData();
+      addToast('info', 'Filters were reset so the saved item stays visible');
+    }
     onmutate?.();
     backToList();
   }
