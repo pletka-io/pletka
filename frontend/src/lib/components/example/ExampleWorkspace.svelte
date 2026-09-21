@@ -243,6 +243,9 @@
       if (!res.ok) throw new Error(`Failed to load form schema: ${res.status}`);
       const nextSchema: ExampleFormSchema = await res.json();
       schema = nextSchema;
+      // The create path does this after the model pick; edit mode needs it
+      // too, else the header shows the model id instead of its name.
+      selectedModelLabel = translated(nextSchema.target?.name, selectedModelLabel || nextSchema.target?.entity_id || '');
       initValueState(nextSchema);
       void hydrateConceptLabels(nextSchema);
       initStructureState(nextSchema);
