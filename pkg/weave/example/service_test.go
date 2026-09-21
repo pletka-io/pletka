@@ -738,7 +738,7 @@ func TestBuildFormSchemaKeepsCollectionOrderIncludingDirectFields(t *testing.T) 
 	if len(sec.DirectFields) != 0 {
 		t.Fatalf("direct_fields must be empty now, got %d", len(sec.DirectFields))
 	}
-	var ids []string
+	ids := make([]string, 0, len(sec.Groups))
 	for _, g := range sec.Groups {
 		ids = append(ids, g.ID)
 	}

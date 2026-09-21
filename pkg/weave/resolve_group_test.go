@@ -28,7 +28,7 @@ func TestGroupByCategoryCollectionOrderIsDeterministic(t *testing.T) {
 		if len(groups) != 1 {
 			t.Fatalf("want 1 category, got %d", len(groups))
 		}
-		var ids []string
+		ids := make([]string, 0, len(groups[0].Collections))
 		for _, g := range groups[0].Collections {
 			ids = append(ids, g.ID)
 		}
