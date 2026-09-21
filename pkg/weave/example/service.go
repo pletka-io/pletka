@@ -520,6 +520,7 @@ func (s *Service) buildModelFormSchema(ctx context.Context, resolver *slotResolv
 		}
 		sections = append(sections, section)
 	}
+	topIssues = append(topIssues, builder.unplacedIssues(issues)...)
 	schema := &ExampleFormSchema{
 		Kind:      "example-form",
 		ExampleID: exampleID,

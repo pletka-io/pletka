@@ -561,6 +561,7 @@ type formBuilder struct {
 	issuesByKey map[string][]domain.ExampleIssue // issueKey(GroupPath, override, occurrence)
 	nested      map[string][]string              // slotCountKey(parent path, container) -> nested instance paths, by instance
 	templates   map[string][]ExampleFormField    // collectionID|level -> blank fields
+	placed      map[string]bool                  // issue keys some built field shows; nil when building templates
 }
 
 // newFormBuilder buckets the resolved values. Values that did not resolve
@@ -573,6 +574,7 @@ func newFormBuilder(r *slotResolver, values []domain.ExampleValue, slots []resol
 		issuesByKey: issuesByKey,
 		nested:      map[string][]string{},
 		templates:   map[string][]ExampleFormField{},
+		placed:      map[string]bool{},
 	}
 	for i, v := range values {
 		if slots[i].status == slotOK {
@@ -606,9 +608,14 @@ func (b *formBuilder) field(f domain.ResolvedField, path string, level int) (Exa
 	if err != nil {
 		return ExampleFormField{}, err
 	}
-	out := buildExampleField(f, b.byInstance[slotCountKey(path, f.OverrideID)], b.issuesByKey, path)
+	values := b.byInstance[slotCountKey(path, f.OverrideID)]
+	out := buildExampleField(f, values, b.issuesByKey, path)
 	out.SlotPrefix = slotPrefix(path)
+	b.markPlaced(issueKey(path, f.OverrideID, -1))
 	if strings.TrimSpace(f.ExpectedValueType) != expectedValueTypeCollection {
+		for _, v := range values {
+			b.markPlaced(issueKey(path, f.OverrideID, v.OccurrenceIndex))
+		}
 		return out, nil
 	}
 	out.Widget, out.Occurrences = widgetNestedCollection, nil
@@ -628,6 +635,28 @@ func (b *formBuilder) field(f domain.ResolvedField, path string, level int) (Exa
 		out.NestedInstances = append(out.NestedInstances, entry)
 	}
 	return out, nil
+}
+
+// markPlaced records that a built field shows the issues under key.
+func (b *formBuilder) markPlaced(key string) {
+	if b.placed != nil {
+		b.placed[key] = true
+	}
+}
+
+// unplacedIssues returns, in order, the field issues routed to a key no
+// built field shows: issues of values the form cannot place (invalid
+// nesting, stale inner overrides, moved group values, removed fields) and
+// of occurrences a container field does not render. The form shows them at
+// the top so they stay visible before a save drops those values.
+func (b *formBuilder) unplacedIssues(issues []domain.ExampleIssue) []domain.ExampleIssue {
+	var out []domain.ExampleIssue
+	for _, issue := range issues {
+		if key, ok := fieldIssueKey(issue); ok && !b.placed[key] {
+			out = append(out, issue)
+		}
+	}
+	return out
 }
 
 // instanceEntry is the group entry of container's nested instance at path;
@@ -754,23 +783,34 @@ func formGroupPresence(values []domain.ExampleValue, slots []resolvedSlot) map[s
 // routeIssues sorts a validation report's issues for the form: group-level
 // issues by collection, field issues by issueKey(GroupPath, override,
 // occurrence) (GroupPath is the instance the field lives in, nested
-// instances included), and the rest to the top.
+// instances included), and the rest to the top. Field issues whose key no
+// built field shows are added to the top afterwards (unplacedIssues).
 func routeIssues(issues []domain.ExampleIssue) (byKey, byGroup map[string][]domain.ExampleIssue, top []domain.ExampleIssue) {
 	byKey, byGroup = map[string][]domain.ExampleIssue{}, map[string][]domain.ExampleIssue{}
 	for _, issue := range issues {
-		switch {
-		case issue.CollectionID != nil:
+		if issue.CollectionID != nil {
 			byGroup[*issue.CollectionID] = append(byGroup[*issue.CollectionID], issue)
-		case issue.OverrideID == nil:
-			top = append(top, issue)
-		default:
-			idx := -1
-			if issue.OccurrenceIndex != nil {
-				idx = *issue.OccurrenceIndex
-			}
-			key := issueKey(issue.GroupPath, *issue.OverrideID, idx)
-			byKey[key] = append(byKey[key], issue)
+			continue
 		}
+		key, ok := fieldIssueKey(issue)
+		if !ok {
+			top = append(top, issue)
+			continue
+		}
+		byKey[key] = append(byKey[key], issue)
 	}
 	return byKey, byGroup, top
+}
+
+// fieldIssueKey is the issueKey a field issue routes to; ok is false for a
+// group-level issue or one without an override.
+func fieldIssueKey(issue domain.ExampleIssue) (string, bool) {
+	if issue.CollectionID != nil || issue.OverrideID == nil {
+		return "", false
+	}
+	idx := -1
+	if issue.OccurrenceIndex != nil {
+		idx = *issue.OccurrenceIndex
+	}
+	return issueKey(issue.GroupPath, *issue.OverrideID, idx), true
 }

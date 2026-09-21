@@ -752,3 +752,21 @@ func TestServiceBadNestedPathCreatesNoStubDraft(t *testing.T) {
 		t.Fatalf("examples = %+v, want no draft created", store.examples)
 	}
 }
+
+// A stored value the form cannot place (here nested past the cap) keeps its
+// issue visible: it goes to the form's top-level issues.
+func TestBuildFormSchemaUnplacedValueIssueGoesToTop(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, nestedViews(), WithMaxNestingDepth(1))
+	getStored(t, svc, store, stringValue("C1:0/302:0/603:0/701:0", "F701", "x"))
+	schema := nestedFormSchema(t, svc, formschema.ModeEdit, "EX1")
+	found := false
+	for _, is := range schema.Issues {
+		if is.Code == "invalid_nesting" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("schema issues = %+v, want the invalid_nesting issue", schema.Issues)
+	}
+}
