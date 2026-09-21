@@ -121,6 +121,12 @@ type ExampleIssue struct {
 	OverrideID      *int64               `json:"override_id,omitempty"`
 	OccurrenceIndex *int                 `json:"occurrence_index,omitempty"`
 	Message         Translations         `json:"message,omitempty"`
+	// GroupPath is the collection-group instance the issue sits in, e.g.
+	// "LAC.1:1"; empty for direct fields and example-wide issues.
+	GroupPath string `json:"group_path,omitempty"`
+	// CollectionID is set only on group-level cardinality issues
+	// (group_min_occurs, group_max_occurs).
+	CollectionID *string `json:"collection_id,omitempty"`
 }
 
 type ExampleValidationReport struct {
@@ -168,4 +174,25 @@ func ParseExampleSlotLeaf(path string) (overrideID int64, occurrence int, ok boo
 		return 0, 0, false
 	}
 	return oid, occ, true
+}
+
+// ExampleGroupSegment renders the slot-path segment for one instance of a
+// collection group placed on a model: "<collectionID>:<instance>".
+func ExampleGroupSegment(collectionID string, instance int) string {
+	return collectionID + ":" + strconv.Itoa(instance)
+}
+
+// ParseExampleGroupSegment splits a group segment. ok is false for an empty
+// collection id, a "/" anywhere, or an instance that is not a canonical
+// non-negative integer.
+func ParseExampleGroupSegment(seg string) (collectionID string, instance int, ok bool) {
+	i := strings.LastIndex(seg, ":")
+	if i <= 0 || strings.Contains(seg, "/") {
+		return "", 0, false
+	}
+	n, err := strconv.Atoi(seg[i+1:])
+	if err != nil || n < 0 || strconv.Itoa(n) != seg[i+1:] {
+		return "", 0, false
+	}
+	return seg[:i], n, true
 }

@@ -2,6 +2,7 @@ package example
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"testing"
 
@@ -278,6 +279,7 @@ func TestValidateModelValuesFlagsWrongKindAndStaleOverride(t *testing.T) {
 
 	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
 		{
+			SlotPath:        "11:0",
 			OverrideID:      11,
 			FieldID:         "F1",
 			OccurrenceIndex: 0,
@@ -288,6 +290,7 @@ func TestValidateModelValuesFlagsWrongKindAndStaleOverride(t *testing.T) {
 			},
 		},
 		{
+			SlotPath:        "999:0",
 			OverrideID:      999,
 			FieldID:         "F9",
 			OccurrenceIndex: 0,
@@ -815,7 +818,7 @@ func TestServiceCreateRejectsNestedSlotPathForNow(t *testing.T) {
 	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
 	_, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
-		Values: []domain.ExampleValue{{SlotPath: "1:0/11:0", FieldID: "F1", ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("c")}}},
+		Values: []domain.ExampleValue{{SlotPath: "C1:0/1:0/11:0", FieldID: "F1", ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("c")}}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "nested slot_path") {
 		t.Fatalf("err = %v, want nested slot_path error", err)
@@ -830,5 +833,441 @@ func TestServiceCreateRejectsContradictorySlotPath(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "disagrees") {
 		t.Fatalf("err = %v, want disagreement error", err)
+	}
+}
+
+// groupedModelView is M1 with one direct field (override 11, F1) and one
+// collection group C1 holding the given fields.
+func groupedModelView(placement *domain.CollectionPlacement, fields ...domain.ResolvedField) *domain.ModelView {
+	return &domain.ModelView{
+		ModelID:   "M1",
+		ProjectID: "P1",
+		Categories: []domain.CategoryGroup{{
+			ID:       "CAT1",
+			Name:     domain.Translations{"en": "Main"},
+			Position: 1,
+			Collections: []domain.CollectionGroup{
+				{ID: "__direct__", Name: domain.Translations{"en": "Direct Fields"}, Fields: []domain.ResolvedField{resolvedField(11, "F1", "Field", "String", false, 0, nil)}},
+				{ID: "C1", Name: domain.Translations{"en": "Name"}, Position: 1, Fields: fields, Placement: placement},
+			},
+		}},
+	}
+}
+
+func stringValue(slotPath, fieldID, text string) domain.ExampleValue {
+	// stringValue derives OverrideID/OccurrenceIndex from the slot path's
+	// leaf, as settleSlot does, so tests can call validateModelValues
+	// directly without a Create/Update normalization pass. Without this
+	// every value here carries OverrideID 0 and validateModelValues reports
+	// it stale.
+	oid, occ, _ := domain.ParseExampleSlotLeaf(slotPath)
+	return domain.ExampleValue{SlotPath: slotPath, OverrideID: oid, OccurrenceIndex: occ, FieldID: fieldID, ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{Kind: domain.ExampleValueKindString, StringValue: ptr(text)}}
+}
+
+func TestServiceCreatePlacesGroupedDepthOneValueInInstanceZero(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	rec, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stringValue("21:0", "F2", "a"), stringValue("11:0", "F1", "b")},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	got := map[string]bool{}
+	for _, v := range rec.Values {
+		got[v.SlotPath] = true
+	}
+	if !got["C1:0/21:0"] || !got["11:0"] {
+		t.Fatalf("slot paths = %v, want C1:0/21:0 and 11:0", got)
+	}
+}
+
+func TestServiceCreateKeepsGroupInstancePath(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	rec, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:1/21:0", "F2", "b")},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	for _, v := range rec.Values {
+		if v.OverrideID != 21 || v.OccurrenceIndex != 0 {
+			t.Fatalf("leaf not derived: %+v", v)
+		}
+	}
+	if len(rec.Values) != 2 {
+		t.Fatalf("values = %d, want 2", len(rec.Values))
+	}
+}
+
+func TestServiceCreateRejectsWrongGroupSegment(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	for _, path := range []string{"C9:0/21:0", "C1:0/11:0", "C1:01/21:0"} {
+		fieldID := "F2"
+		if strings.HasSuffix(path, "/11:0") {
+			fieldID = "F1"
+		}
+		_, err := svc.Create(context.Background(), "P1", CreateInput{
+			EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+			Values: []domain.ExampleValue{stringValue(path, fieldID, "a")},
+		})
+		if err == nil || !strings.Contains(err.Error(), "does not match the group") {
+			t.Errorf("path %s: err = %v, want group mismatch", path, err)
+		}
+	}
+}
+
+func TestServiceCreateRejectsDuplicateSlotPath(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	_, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stringValue("21:0", "F2", "a"), stringValue("C1:0/21:0", "F2", "b")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "duplicate slot_path") {
+		t.Fatalf("err = %v, want duplicate slot_path", err)
+	}
+}
+
+func TestValidateRequiredFieldPerGroupInstance(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil,
+		resolvedField(21, "F2", "Name", "String", true, 0, nil),
+		resolvedField(22, "F3", "Type", "String", false, 0, nil),
+	)}})
+	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
+		stringValue("C1:0/21:0", "F2", "a"),
+		stringValue("C1:1/22:0", "F3", "t"),
+	})
+	if err != nil {
+		t.Fatalf("validate error = %v", err)
+	}
+	var missing []string
+	for _, is := range report.Issues {
+		if is.Code == "missing_required_value" {
+			missing = append(missing, is.GroupPath)
+		}
+	}
+	if len(missing) != 1 || missing[0] != "C1:1" {
+		t.Fatalf("missing_required_value group paths = %v, want [C1:1]", missing)
+	}
+}
+
+func TestValidateUntouchedGroupStillReportsRequired(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", true, 0, nil))}})
+	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{stringValue("11:0", "F1", "x")})
+	if err != nil {
+		t.Fatalf("validate error = %v", err)
+	}
+	found := false
+	for _, is := range report.Issues {
+		if is.Code == "missing_required_value" && is.GroupPath == "C1:0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("issues = %+v, want missing_required_value in C1:0", report.Issues)
+	}
+}
+
+func TestValidateGroupPlacementCardinality(t *testing.T) {
+	one := 1
+	maxView := groupedModelView(&domain.CollectionPlacement{MaxOccurs: &one}, resolvedField(21, "F2", "Name", "String", false, 0, nil))
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": maxView}})
+	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
+		stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:1/21:0", "F2", "b"),
+	})
+	if err != nil {
+		t.Fatalf("validate error = %v", err)
+	}
+	if !hasIssue(report.Issues, "group_max_occurs", domain.ExampleIssueError) {
+		t.Fatalf("want group_max_occurs, got %+v", report.Issues)
+	}
+	for _, is := range report.Issues {
+		if is.Code == "group_max_occurs" && (is.CollectionID == nil || *is.CollectionID != "C1" || is.OverrideID != nil) {
+			t.Fatalf("group issue location wrong: %+v", is)
+		}
+	}
+
+	minView := groupedModelView(&domain.CollectionPlacement{MinOccurs: 2}, resolvedField(21, "F2", "Name", "String", false, 0, nil))
+	svc = NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": minView}})
+	report, err = svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a")})
+	if err != nil {
+		t.Fatalf("validate error = %v", err)
+	}
+	if !hasIssue(report.Issues, "group_min_occurs", domain.ExampleIssueError) {
+		t.Fatalf("want group_min_occurs, got %+v", report.Issues)
+	}
+}
+
+func TestValidateValueIssueCarriesGroupPath(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "Integer", false, 0, nil))}})
+	good := domain.ExampleValue{SlotPath: "C1:0/21:0", OverrideID: 21, FieldID: "F2", ValueKind: domain.ExampleValueKindInteger, ValuePayload: domain.ExampleValuePayload{Kind: domain.ExampleValueKindInteger, NumberValue: floatPtr(1)}}
+	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{good, stringValue("C1:1/21:0", "F2", "not a number")})
+	if err != nil {
+		t.Fatalf("validate error = %v", err)
+	}
+	for _, is := range report.Issues {
+		if is.Code == "wrong_value_kind" && is.GroupPath == "C1:1" {
+			return
+		}
+	}
+	t.Fatalf("want wrong_value_kind in C1:1, got %+v", report.Issues)
+}
+
+func TestServiceCreateCompactsGroupInstances(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	rec, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{
+			stringValue("C1:3/21:0", "F2", "c"),
+			stringValue("C1:1/21:0", "F2", "b"),
+			stringValue("C1:1/21:1", "F2", "b2"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	got := map[string]string{}
+	for _, v := range rec.Values {
+		got[v.SlotPath] = *v.ValuePayload.StringValue
+	}
+	want := map[string]string{"C1:0/21:0": "b", "C1:0/21:1": "b2", "C1:1/21:0": "c"}
+	if !maps.Equal(got, want) {
+		t.Fatalf("slot paths = %v, want %v", got, want)
+	}
+}
+
+// TestServiceBuildFormSchemaGroupInstancesInIndexOrder: a collection group
+// with values in two instances appears once per instance, in index order,
+// each entry carrying only that instance's values under its slot_prefix.
+func TestServiceBuildFormSchemaGroupInstancesInIndexOrder(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{
+		"M1": groupedModelView(&domain.CollectionPlacement{MinOccurs: 0}, resolvedField(21, "F2", "Name", "String", false, 0, nil)),
+	}})
+	rec, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:2/21:0", "F2", "c")},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeEdit, "", "", rec.Example.ID, "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+
+	groups := schema.Sections[0].Groups
+	if len(groups) != 3 {
+		t.Fatalf("groups = %d, want 3: %+v", len(groups), groups)
+	}
+	direct := groups[0]
+	if direct.ID != directGroupID || direct.Instance != 0 || direct.SlotPrefix != "" || direct.Repeatable {
+		t.Fatalf("direct group = %+v", direct)
+	}
+	c1a := groups[1]
+	if c1a.ID != "C1" || c1a.Instance != 0 || c1a.SlotPrefix != "C1:0/" || !c1a.Repeatable {
+		t.Fatalf("C1 instance 0 = %+v", c1a)
+	}
+	if len(c1a.Fields) != 1 || len(c1a.Fields[0].Occurrences) != 1 {
+		t.Fatalf("C1 instance 0 fields = %+v", c1a.Fields)
+	}
+	if got := c1a.Fields[0].Occurrences[0].Value.StringValue; got == nil || *got != "a" {
+		t.Fatalf("C1 instance 0 value = %#v, want a", got)
+	}
+	if c1a.Fields[0].SlotPrefix != "C1:0/" {
+		t.Fatalf("C1 instance 0 field slot_prefix = %q, want C1:0/", c1a.Fields[0].SlotPrefix)
+	}
+	c1b := groups[2]
+	if c1b.ID != "C1" || c1b.Instance != 1 || c1b.SlotPrefix != "C1:1/" {
+		t.Fatalf("C1 instance 1 = %+v", c1b)
+	}
+	if len(c1b.Fields) != 1 || len(c1b.Fields[0].Occurrences) != 1 {
+		t.Fatalf("C1 instance 1 fields = %+v", c1b.Fields)
+	}
+	if got := c1b.Fields[0].Occurrences[0].Value.StringValue; got == nil || *got != "c" {
+		t.Fatalf("C1 instance 1 value = %#v, want c", got)
+	}
+}
+
+// TestServiceBuildFormSchemaPadsInstancesToPlacementMinOccurs: a create-mode
+// form for a group with no values still shows the placement's minimum
+// instance count, padded from the next free index.
+func TestServiceBuildFormSchemaPadsInstancesToPlacementMinOccurs(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{
+		"M1": groupedModelView(&domain.CollectionPlacement{MinOccurs: 2}, resolvedField(21, "F2", "Name", "String", false, 0, nil)),
+	}})
+	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeCreate, string(domain.ExampleEntityTypeModel), "M1", "", "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	var c1 []ExampleFormGroup
+	for _, g := range schema.Sections[0].Groups {
+		if g.ID == "C1" {
+			c1 = append(c1, g)
+		}
+	}
+	if len(c1) != 2 || c1[0].Instance != 0 || c1[1].Instance != 1 {
+		t.Fatalf("C1 instances = %+v, want [0 1]", c1)
+	}
+	if c1[0].SlotPrefix != "C1:0/" || c1[1].SlotPrefix != "C1:1/" {
+		t.Fatalf("C1 slot prefixes = %q, %q, want C1:0/, C1:1/", c1[0].SlotPrefix, c1[1].SlotPrefix)
+	}
+}
+
+// TestServiceBuildFormSchemaGroupMaxOccursIssueOnFirstInstance: a group-level
+// group_max_occurs issue attaches only to the first instance's entry, and a
+// max_occurs=1 placement makes the group non-repeatable regardless of how
+// many instances actually hold values.
+func TestServiceBuildFormSchemaGroupMaxOccursIssueOnFirstInstance(t *testing.T) {
+	one := 1
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{
+		"M1": groupedModelView(&domain.CollectionPlacement{MaxOccurs: &one}, resolvedField(21, "F2", "Name", "String", false, 0, nil)),
+	}})
+	rec, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:1/21:0", "F2", "b")},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeEdit, "", "", rec.Example.ID, "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	var c1 []ExampleFormGroup
+	for _, g := range schema.Sections[0].Groups {
+		if g.ID == "C1" {
+			c1 = append(c1, g)
+		}
+	}
+	if len(c1) != 2 {
+		t.Fatalf("C1 instances = %d, want 2: %+v", len(c1), c1)
+	}
+	if c1[0].Repeatable {
+		t.Fatalf("C1 instance 0 repeatable = true, want false (max_occurs=1)")
+	}
+	if !hasIssue(c1[0].Issues, "group_max_occurs", domain.ExampleIssueError) {
+		t.Fatalf("C1 instance 0 issues = %+v, want group_max_occurs", c1[0].Issues)
+	}
+	if len(c1[1].Issues) != 0 {
+		t.Fatalf("C1 instance 1 issues = %+v, want none, C1 max_occurs issue must attach only to the first instance", c1[1].Issues)
+	}
+}
+
+// TestServiceGetToleratesFieldMovedOutOfGroup: a curator can move an
+// override's collection after values were saved against the old group. Get
+// (unlike Create/Update) must stay readable: the stored group segment is
+// left as is, excluded from validation counts, and reported as a
+// moved_group_value warning instead of an error. The edit-mode form must
+// not show the value under either the old or the new location.
+func TestServiceGetToleratesFieldMovedOutOfGroup(t *testing.T) {
+	store := newFakeStore()
+	groupedView := groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": groupedView}})
+	rec, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:1/21:0", "F2", "b")},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	// Field 21 moved: it is now direct, and C1 holds a different field (22).
+	movedView := &domain.ModelView{
+		ModelID:   "M1",
+		ProjectID: "P1",
+		Categories: []domain.CategoryGroup{{
+			ID:       "CAT1",
+			Name:     domain.Translations{"en": "Main"},
+			Position: 1,
+			Collections: []domain.CollectionGroup{
+				{
+					ID:   "__direct__",
+					Name: domain.Translations{"en": "Direct Fields"},
+					Fields: []domain.ResolvedField{
+						resolvedField(11, "F1", "Field", "String", false, 0, nil),
+						resolvedField(21, "F2", "Name", "String", false, 0, nil),
+					},
+				},
+				{
+					ID:       "C1",
+					Name:     domain.Translations{"en": "Name"},
+					Position: 1,
+					Fields:   []domain.ResolvedField{resolvedField(22, "F3", "Type", "String", false, 0, nil)},
+				},
+			},
+		}},
+	}
+	svc2 := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": movedView}})
+
+	got, err := svc2.Get(context.Background(), "P1", rec.Example.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v, want no error (moved values must not make the example unreadable)", err)
+	}
+	moved := 0
+	for _, is := range got.Validation.Issues {
+		if is.Code == "moved_group_value" && is.Severity == domain.ExampleIssueWarning {
+			moved++
+		}
+	}
+	if moved != 2 {
+		t.Fatalf("moved_group_value warnings = %d, want 2: %+v", moved, got.Validation.Issues)
+	}
+
+	schema, err := svc2.BuildFormSchema(context.Background(), "P1", formschema.ModeEdit, "", "", rec.Example.ID, "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	var directF2 *ExampleFormField
+	for _, sec := range schema.Sections {
+		for _, g := range sec.Groups {
+			if g.ID != directGroupID {
+				continue
+			}
+			for i := range g.Fields {
+				if g.Fields[i].OverrideID == 21 {
+					directF2 = &g.Fields[i]
+				}
+			}
+		}
+	}
+	if directF2 == nil {
+		t.Fatal("direct field F2 (override 21) not found in edit-mode schema")
+	}
+	if len(directF2.Occurrences) != 1 || directF2.Occurrences[0].Value.StringValue != nil {
+		t.Fatalf("direct field F2 occurrences = %+v, want a single empty occurrence and no leaked moved value", directF2.Occurrences)
+	}
+}
+
+// TestValidateStaleValuesDoNotCountAsInstances: a value on an override the
+// model no longer has must not inflate its old group's instance count
+// (group_max_occurs/group_min_occurs) or create a phantom instance; it is
+// still reported as stale_override.
+func TestValidateStaleValuesDoNotCountAsInstances(t *testing.T) {
+	one := 1
+	view := groupedModelView(&domain.CollectionPlacement{MaxOccurs: &one}, resolvedField(21, "F2", "Name", "String", false, 0, nil))
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": view}})
+	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
+		stringValue("C1:0/21:0", "F2", "a"),
+		stringValue("C1:1/99:0", "F9", "stale"),
+	})
+	if err != nil {
+		t.Fatalf("validateModelValues() error = %v", err)
+	}
+	if hasIssue(report.Issues, "group_max_occurs", domain.ExampleIssueError) {
+		t.Fatalf("issues = %+v, want no group_max_occurs (the stale value must not count as a second C1 instance)", report.Issues)
+	}
+	stale := 0
+	for _, is := range report.Issues {
+		if is.Code == "stale_override" && is.Severity == domain.ExampleIssueWarning {
+			stale++
+		}
+	}
+	if stale != 1 {
+		t.Fatalf("stale_override warnings = %d, want 1: %+v", stale, report.Issues)
 	}
 }

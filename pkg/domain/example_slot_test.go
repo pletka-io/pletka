@@ -35,3 +35,33 @@ func TestExampleSlotRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestExampleGroupSegment(t *testing.T) {
+	if got := ExampleGroupSegment("LAC.1", 2); got != "LAC.1:2" {
+		t.Fatalf("ExampleGroupSegment = %q", got)
+	}
+	cases := []struct {
+		in       string
+		coll     string
+		instance int
+		ok       bool
+	}{
+		{"LAC.1:0", "LAC.1", 0, true},
+		{"LAC.1:12", "LAC.1", 12, true},
+		{"C1:3", "C1", 3, true},
+		{":0", "", 0, false},
+		{"LAC.1", "", 0, false},
+		{"LAC.1:", "", 0, false},
+		{"LAC.1:-1", "", 0, false},
+		{"LAC.1:+1", "", 0, false},
+		{"LAC.1:01", "", 0, false},
+		{"LAC.1:x", "", 0, false},
+		{"a/b:0", "", 0, false},
+	}
+	for _, c := range cases {
+		coll, n, ok := ParseExampleGroupSegment(c.in)
+		if coll != c.coll || n != c.instance || ok != c.ok {
+			t.Errorf("ParseExampleGroupSegment(%q) = (%q, %d, %v), want (%q, %d, %v)", c.in, coll, n, ok, c.coll, c.instance, c.ok)
+		}
+	}
+}

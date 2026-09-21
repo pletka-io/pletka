@@ -3,8 +3,10 @@ package example
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -108,6 +110,16 @@ type ExampleFormGroup struct {
 	Position         int                  `json:"position,omitempty"`
 	SharedPathPrefix []domain.PathElement `json:"shared_path_prefix,omitempty"`
 	Fields           []ExampleFormField   `json:"fields"`
+	// Instance is this entry's group instance; a repeatable group appears
+	// once per instance, consecutively.
+	Instance int `json:"instance"`
+	// SlotPrefix is prepended to "<override>:<occurrence>" to form a value's
+	// slot_path: "LAC.1:1/" in a collection group, "" for direct fields.
+	SlotPrefix string                `json:"slot_prefix"`
+	Repeatable bool                  `json:"repeatable,omitempty"`
+	MinOccurs  int                   `json:"min_occurs,omitempty"`
+	MaxOccurs  *int                  `json:"max_occurs,omitempty"`
+	Issues     []domain.ExampleIssue `json:"issues,omitempty"`
 }
 
 type ExampleOccurrence struct {
@@ -137,6 +149,7 @@ type ExampleFormField struct {
 	ConceptSources    []ConceptListSource     `json:"concept_sources,omitempty"`
 	Issues            []domain.ExampleIssue   `json:"issues,omitempty"`
 	Occurrences       []ExampleOccurrence     `json:"occurrences,omitempty"`
+	SlotPrefix        string                  `json:"slot_prefix,omitempty"`
 }
 
 type ConceptListSource struct {
@@ -170,7 +183,7 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 	if err != nil {
 		return nil, err
 	}
-	report, err := s.validateModelValues(ctx, projectID, in.EntityID, values)
+	report, err := s.validateValues(ctx, projectID, in.EntityID, values, true)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +219,7 @@ func (s *Service) Update(ctx context.Context, projectID, exampleID string, in Up
 	if err != nil {
 		return nil, err
 	}
-	report, err := s.validateModelValues(ctx, projectID, ex.EntityID, values)
+	report, err := s.validateValues(ctx, projectID, ex.EntityID, values, true)
 	if err != nil {
 		return nil, err
 	}
@@ -408,24 +421,46 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 	if err != nil {
 		return nil, err
 	}
-	occByOverride := map[int64][]domain.ExampleValue{}
+	groups := groupOfOverride(view)
+	byInstance := map[string][]domain.ExampleValue{}
 	issuesByKey := map[string][]domain.ExampleIssue{}
+	groupIssues := map[string][]domain.ExampleIssue{}
+	present := map[string]map[string]bool{}
 	var topIssues []domain.ExampleIssue
 	if record != nil {
 		for _, v := range record.Values {
-			occByOverride[v.OverrideID] = append(occByOverride[v.OverrideID], v)
-		}
-		for _, issue := range record.Validation.Issues {
-			if issue.OverrideID == nil {
-				topIssues = append(topIssues, issue)
+			gp := instancePath(v.SlotPath)
+			_, known := groups[v.OverrideID]
+			if known && !groupMatches(v, groups) {
+				// The field moved to a different group (or to/from direct)
+				// since this value was saved: leave it out of the form
+				// entirely, same as Get leaves it out of validation counts.
 				continue
 			}
-			idx := -1
-			if issue.OccurrenceIndex != nil {
-				idx = *issue.OccurrenceIndex
+			byInstance[slotCountKey(gp, v.OverrideID)] = append(byInstance[slotCountKey(gp, v.OverrideID)], v)
+			if known {
+				if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
+					if present[coll] == nil {
+						present[coll] = map[string]bool{}
+					}
+					present[coll][gp] = true
+				}
 			}
-			key := issueKey(*issue.OverrideID, idx)
-			issuesByKey[key] = append(issuesByKey[key], issue)
+		}
+		for _, issue := range record.Validation.Issues {
+			switch {
+			case issue.CollectionID != nil:
+				groupIssues[*issue.CollectionID] = append(groupIssues[*issue.CollectionID], issue)
+			case issue.OverrideID == nil:
+				topIssues = append(topIssues, issue)
+			default:
+				idx := -1
+				if issue.OccurrenceIndex != nil {
+					idx = *issue.OccurrenceIndex
+				}
+				key := issueKey(issue.GroupPath, *issue.OverrideID, idx)
+				issuesByKey[key] = append(issuesByKey[key], issue)
+			}
 		}
 	}
 	sections := make([]ExampleFormSection, 0, len(view.Categories))
@@ -436,19 +471,7 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 			CanonicalOrder: cat.Position,
 		}
 		for _, coll := range cat.Collections {
-			fields := make([]ExampleFormField, 0, len(coll.Fields))
-			for _, f := range coll.Fields {
-				fields = append(fields, buildExampleField(f, occByOverride[f.OverrideID], issuesByKey))
-			}
-			// The direct bucket is a group like any other so the form keeps
-			// the resolver's order; the frontend renders it by id.
-			section.Groups = append(section.Groups, ExampleFormGroup{
-				ID:               coll.ID,
-				Label:            coll.Name,
-				Position:         coll.Position,
-				SharedPathPrefix: coll.SharedPathPrefix,
-				Fields:           fields,
-			})
+			section.Groups = append(section.Groups, buildGroupEntries(coll, byInstance, issuesByKey, groupIssues, present[coll.ID])...)
 		}
 		sections = append(sections, section)
 	}
@@ -484,7 +507,7 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 	return schema, nil
 }
 
-func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, issuesByKey map[string][]domain.ExampleIssue) ExampleFormField {
+func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, issuesByKey map[string][]domain.ExampleIssue, groupPath string) ExampleFormField {
 	out := ExampleFormField{
 		OverrideID:        f.OverrideID,
 		FieldID:           f.ID,
@@ -504,7 +527,7 @@ func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, iss
 		CollectionModels:  f.CollectionModels,
 		ConceptLists:      f.ConceptLists,
 		ConceptSources:    conceptSources(f.ConceptLists),
-		Issues:            issuesByKey[issueKey(f.OverrideID, -1)],
+		Issues:            issuesByKey[issueKey(groupPath, f.OverrideID, -1)],
 	}
 	if len(values) == 0 {
 		out.Occurrences = []ExampleOccurrence{{OccurrenceIndex: 0}}
@@ -513,7 +536,7 @@ func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, iss
 	sort.Slice(values, func(i, j int) bool { return values[i].OccurrenceIndex < values[j].OccurrenceIndex })
 	out.Occurrences = make([]ExampleOccurrence, 0, len(values))
 	for _, value := range values {
-		key := issueKey(f.OverrideID, value.OccurrenceIndex)
+		key := issueKey(groupPath, f.OverrideID, value.OccurrenceIndex)
 		out.Occurrences = append(out.Occurrences, ExampleOccurrence{
 			OccurrenceIndex: value.OccurrenceIndex,
 			Value:           value.ValuePayload,
@@ -521,6 +544,93 @@ func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, iss
 		})
 	}
 	return out
+}
+
+// formInstances lists the group instances the form shows: "" for the direct
+// bucket; otherwise the validated instances padded to the placement minimum.
+func formInstances(coll domain.CollectionGroup, present map[string]bool) []string {
+	if coll.ID == directGroupID {
+		return []string{""}
+	}
+	out := groupInstances(coll.ID, present)
+	if coll.Placement == nil {
+		return out
+	}
+	_, next, _ := domain.ParseExampleGroupSegment(out[len(out)-1])
+	for len(out) < coll.Placement.MinOccurs {
+		next++
+		out = append(out, domain.ExampleGroupSegment(coll.ID, next))
+	}
+	return out
+}
+
+// buildGroupEntries returns one ExampleFormGroup per instance of coll: one
+// entry for the direct bucket, or one per validated/padded instance of a
+// collection group. Split out of buildModelFormSchema to keep it within the
+// gocyclo limit.
+func buildGroupEntries(coll domain.CollectionGroup, byInstance map[string][]domain.ExampleValue, issuesByKey map[string][]domain.ExampleIssue, groupIssues map[string][]domain.ExampleIssue, present map[string]bool) []ExampleFormGroup {
+	instances := formInstances(coll, present)
+	out := make([]ExampleFormGroup, 0, len(instances))
+	for i, gp := range instances {
+		prefix, instance := "", 0
+		if gp != "" {
+			prefix = gp + "/"
+			_, instance, _ = domain.ParseExampleGroupSegment(gp)
+		}
+		fields := make([]ExampleFormField, 0, len(coll.Fields))
+		for _, f := range coll.Fields {
+			field := buildExampleField(f, byInstance[slotCountKey(gp, f.OverrideID)], issuesByKey, gp)
+			field.SlotPrefix = prefix
+			fields = append(fields, field)
+		}
+		out = append(out, ExampleFormGroup{
+			ID:               coll.ID,
+			Label:            coll.Name,
+			Position:         coll.Position,
+			SharedPathPrefix: coll.SharedPathPrefix,
+			Fields:           fields,
+			Instance:         instance,
+			SlotPrefix:       prefix,
+			Repeatable:       groupRepeatable(coll),
+			MinOccurs:        placementMin(coll),
+			MaxOccurs:        placementMax(coll),
+			Issues:           issuesIf(i == 0, groupIssues[coll.ID]),
+		})
+	}
+	return out
+}
+
+// groupRepeatable reports whether a collection group's form entries allow
+// adding another instance: never for the direct bucket, otherwise unless a
+// placement caps it at exactly one instance.
+func groupRepeatable(coll domain.CollectionGroup) bool {
+	if coll.ID == directGroupID {
+		return false
+	}
+	return coll.Placement == nil || coll.Placement.MaxOccurs == nil || *coll.Placement.MaxOccurs > 1
+}
+
+func placementMin(coll domain.CollectionGroup) int {
+	if coll.Placement == nil {
+		return 0
+	}
+	return coll.Placement.MinOccurs
+}
+
+func placementMax(coll domain.CollectionGroup) *int {
+	if coll.Placement == nil {
+		return nil
+	}
+	return coll.Placement.MaxOccurs
+}
+
+// issuesIf returns issues only when first is true, so a group-level issue
+// attaches to a single instance's entry rather than repeating on every one.
+func issuesIf(first bool, issues []domain.ExampleIssue) []domain.ExampleIssue {
+	if !first {
+		return nil
+	}
+	return issues
 }
 
 // normalizeValues copies values, fixes their kinds and columns, and settles
@@ -559,7 +669,7 @@ func settleSlot(v *domain.ExampleValue) error {
 	if !ok {
 		return fmt.Errorf("value for field %s: malformed slot_path %q", v.FieldID, v.SlotPath)
 	}
-	if domain.ExampleSlotDepth(v.SlotPath) > 1 {
+	if domain.ExampleSlotDepth(v.SlotPath) > 2 {
 		return fmt.Errorf("value for field %s: nested slot_path %q is not supported yet", v.FieldID, v.SlotPath)
 	}
 	if v.OverrideID == 0 {
@@ -635,90 +745,208 @@ func deriveStatus(values []domain.ExampleValue, report domain.ExampleValidationR
 	return domain.ExampleStatusHasIssues
 }
 
+// validateModelValues is the lenient wrapper Get (and reads generally) use:
+// a value whose stored group no longer matches its override's current group
+// is left in place rather than rejected. See validateValues.
 func (s *Service) validateModelValues(ctx context.Context, projectID, modelID string, values []domain.ExampleValue) (domain.ExampleValidationReport, error) {
+	return s.validateValues(ctx, projectID, modelID, values, false)
+}
+
+// validateValues validates values against modelID's current view. strict
+// controls placeInGroups: Create/Update pass true and reject a value whose
+// slot_path names the wrong group for its field. Get and other reads pass
+// false (via validateModelValues) so a field moved to a different group (or
+// to/from direct) since the value was saved does not make the example
+// unreadable; such a value is left untouched, excluded from group/field
+// counts and compaction, and reported as a moved_group_value warning
+// instead.
+func (s *Service) validateValues(ctx context.Context, projectID, modelID string, values []domain.ExampleValue, strict bool) (domain.ExampleValidationReport, error) {
 	view, err := s.views.ModelView(ctx, modelID, projectID)
 	if err != nil {
 		return domain.ExampleValidationReport{}, err
 	}
-	fieldByOverride := map[int64]domain.ResolvedField{}
-	for _, cat := range view.Categories {
-		for _, coll := range cat.Collections {
-			for _, f := range coll.Fields {
-				fieldByOverride[f.OverrideID] = f
-			}
-		}
+	groups := groupOfOverride(view)
+	if err := placeInGroups(values, groups, strict); err != nil {
+		return domain.ExampleValidationReport{}, err
 	}
+	fieldByOverride := buildFieldByOverride(view)
 	issues := make([]domain.ExampleIssue, 0)
-	byOverride := map[int64][]domain.ExampleValue{}
+	counts := map[string]int{}
+	present := map[string]map[string]bool{}
 	for _, value := range values {
-		byOverride[value.OverrideID] = append(byOverride[value.OverrideID], value)
-		field, ok := fieldByOverride[value.OverrideID]
-		if !ok {
-			issues = append(issues, warningIssue("stale_override", nil, &value.OverrideID, &value.OccurrenceIndex, "This field slot no longer exists on the target model."))
+		gp := instancePath(value.SlotPath)
+		_, known := fieldByOverride[value.OverrideID]
+		if known && !groupMatches(value, groups) {
+			issues = append(issues, movedGroupValueIssue(value, gp))
 			continue
 		}
-		if field.ID != value.FieldID {
-			fieldID := value.FieldID
-			issues = append(issues, errorIssue("field_override_mismatch", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "This value is attached to the wrong field slot."))
-		}
-		expected := valueKindForExpectedType(field.ExpectedValueType)
-		if expected != "" && value.ValuePayload.Kind != expected {
-			fieldID := value.FieldID
-			issues = append(issues, errorIssue("wrong_value_kind", &fieldID, &value.OverrideID, &value.OccurrenceIndex, fmt.Sprintf("Expected %s but got %s.", expected, value.ValuePayload.Kind)))
-		}
-		if field.IsHidden {
-			fieldID := value.FieldID
-			issues = append(issues, warningIssue("hidden_field_value", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "This field is hidden in the current model configuration."))
-		}
-		if field.SetValue != "" && value.ValuePayload.Kind == domain.ExampleValueKindConcept {
-			if value.ValuePayload.ConceptURI == nil || *value.ValuePayload.ConceptURI != field.SetValue {
-				fieldID := value.FieldID
-				issues = append(issues, errorIssue("set_value_mismatch", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The selected concept does not match the field's fixed value constraint."))
+		counts[slotCountKey(gp, value.OverrideID)]++
+		if known {
+			if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
+				if present[coll] == nil {
+					present[coll] = map[string]bool{}
+				}
+				present[coll][gp] = true
 			}
 		}
-		if value.ValuePayload.Kind == domain.ExampleValueKindConcept && value.ValuePayload.ConceptURI != nil && len(field.ConceptLists) > 0 {
-			allowed, err := s.conceptURIAllowed(ctx, *value.ValuePayload.ConceptURI, field.ConceptLists)
-			if err != nil {
-				return domain.ExampleValidationReport{}, err
-			}
-			if !allowed {
-				fieldID := value.FieldID
-				issues = append(issues, errorIssue("concept_not_in_allowed_list", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The selected concept is not part of the allowed concept list."))
-			}
+		vIssues, err := s.valueIssues(ctx, value, fieldByOverride)
+		if err != nil {
+			return domain.ExampleValidationReport{}, err
 		}
-		if value.ValuePayload.Kind == domain.ExampleValueKindExampleRef && value.ValuePayload.ExampleID != nil {
-			linked, err := s.store.GetByID(ctx, *value.ValuePayload.ExampleID)
-			if err != nil {
-				return domain.ExampleValidationReport{}, err
-			}
-			if linked == nil {
-				fieldID := value.FieldID
-				issues = append(issues, errorIssue("missing_linked_example", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The referenced example no longer exists."))
-			} else if !linkedTargetAllowed(linked, field) {
-				fieldID := value.FieldID
-				issues = append(issues, errorIssue("linked_example_not_allowed", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The referenced example does not match the allowed target models or collections."))
-			}
+		for i := range vIssues {
+			vIssues[i].GroupPath = gp
 		}
+		issues = append(issues, vIssues...)
 	}
-	for overrideID, field := range fieldByOverride {
-		count := len(byOverride[overrideID])
-		if field.IsRequired && count == 0 {
-			fieldID := field.ID
-			issues = append(issues, errorIssue("missing_required_value", &fieldID, &overrideID, nil, "This required field has no value."))
-		}
-		if count < field.MinOccurs {
-			fieldID := field.ID
-			issues = append(issues, errorIssue("min_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At least %d value(s) are required.", field.MinOccurs)))
-		}
-		if field.MaxOccurs != nil && count > *field.MaxOccurs {
-			fieldID := field.ID
-			issues = append(issues, errorIssue("max_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At most %d value(s) are allowed.", *field.MaxOccurs)))
-		}
-	}
+	issues = append(issues, cardinalityIssues(view, counts, present)...)
 	return domain.ExampleValidationReport{
 		Valid:  len(issues) == 0,
 		Issues: issues,
 	}, nil
+}
+
+// movedGroupValueIssue reports a value whose stored group segment no longer
+// matches its override's current group: left as is by validateValues, out
+// of group/field counts, and surfaced as a warning instead of dropped
+// silently.
+func movedGroupValueIssue(value domain.ExampleValue, groupPath string) domain.ExampleIssue {
+	fieldID := value.FieldID
+	overrideID := value.OverrideID
+	occurrenceIndex := value.OccurrenceIndex
+	issue := warningIssue("moved_group_value", &fieldID, &overrideID, &occurrenceIndex, "This value was saved in a group the field no longer belongs to.")
+	issue.GroupPath = groupPath
+	return issue
+}
+
+// valueIssues runs the per-value checks for one value.
+func (s *Service) valueIssues(ctx context.Context, value domain.ExampleValue, fieldByOverride map[int64]domain.ResolvedField) ([]domain.ExampleIssue, error) {
+	var out []domain.ExampleIssue
+	field, ok := fieldByOverride[value.OverrideID]
+	if !ok {
+		out = append(out, warningIssue("stale_override", nil, &value.OverrideID, &value.OccurrenceIndex, "This field slot no longer exists on the target model."))
+		return out, nil
+	}
+	if field.ID != value.FieldID {
+		fieldID := value.FieldID
+		out = append(out, errorIssue("field_override_mismatch", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "This value is attached to the wrong field slot."))
+	}
+	expected := valueKindForExpectedType(field.ExpectedValueType)
+	if expected != "" && value.ValuePayload.Kind != expected {
+		fieldID := value.FieldID
+		out = append(out, errorIssue("wrong_value_kind", &fieldID, &value.OverrideID, &value.OccurrenceIndex, fmt.Sprintf("Expected %s but got %s.", expected, value.ValuePayload.Kind)))
+	}
+	if field.IsHidden {
+		fieldID := value.FieldID
+		out = append(out, warningIssue("hidden_field_value", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "This field is hidden in the current model configuration."))
+	}
+	if field.SetValue != "" && value.ValuePayload.Kind == domain.ExampleValueKindConcept {
+		if value.ValuePayload.ConceptURI == nil || *value.ValuePayload.ConceptURI != field.SetValue {
+			fieldID := value.FieldID
+			out = append(out, errorIssue("set_value_mismatch", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The selected concept does not match the field's fixed value constraint."))
+		}
+	}
+	if value.ValuePayload.Kind == domain.ExampleValueKindConcept && value.ValuePayload.ConceptURI != nil && len(field.ConceptLists) > 0 {
+		allowed, err := s.conceptURIAllowed(ctx, *value.ValuePayload.ConceptURI, field.ConceptLists)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			fieldID := value.FieldID
+			out = append(out, errorIssue("concept_not_in_allowed_list", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The selected concept is not part of the allowed concept list."))
+		}
+	}
+	if value.ValuePayload.Kind == domain.ExampleValueKindExampleRef && value.ValuePayload.ExampleID != nil {
+		linked, err := s.store.GetByID(ctx, *value.ValuePayload.ExampleID)
+		if err != nil {
+			return nil, err
+		}
+		if linked == nil {
+			fieldID := value.FieldID
+			out = append(out, errorIssue("missing_linked_example", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The referenced example no longer exists."))
+		} else if !linkedTargetAllowed(linked, field) {
+			fieldID := value.FieldID
+			out = append(out, errorIssue("linked_example_not_allowed", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The referenced example does not match the allowed target models or collections."))
+		}
+	}
+	return out, nil
+}
+
+func slotCountKey(groupPath string, overrideID int64) string {
+	return groupPath + "|" + strconv.FormatInt(overrideID, 10)
+}
+
+// groupInstances lists the instance segments of a collection group that
+// validation and the form cover: every instance holding values plus
+// instance 0, by index.
+func groupInstances(collectionID string, present map[string]bool) []string {
+	idx := map[int]bool{0: true}
+	for seg := range present {
+		if _, n, ok := domain.ParseExampleGroupSegment(seg); ok {
+			idx[n] = true
+		}
+	}
+	keys := slices.Sorted(maps.Keys(idx))
+	out := make([]string, 0, len(keys))
+	for _, n := range keys {
+		out = append(out, domain.ExampleGroupSegment(collectionID, n))
+	}
+	return out
+}
+
+// cardinalityIssues checks required/min/max of every field slot within each
+// instance of its group, and the instance count of each placed group.
+func cardinalityIssues(view *domain.ModelView, counts map[string]int, present map[string]map[string]bool) []domain.ExampleIssue {
+	var issues []domain.ExampleIssue
+	for _, cat := range view.Categories {
+		for _, coll := range cat.Collections {
+			instances := []string{""}
+			if coll.ID != directGroupID {
+				instances = groupInstances(coll.ID, present[coll.ID])
+			}
+			for _, gp := range instances {
+				for _, field := range coll.Fields {
+					issues = append(issues, fieldCardinalityIssues(field, gp, counts[slotCountKey(gp, field.OverrideID)])...)
+				}
+			}
+			if coll.Placement != nil {
+				issues = append(issues, groupCardinalityIssues(coll.ID, coll.Placement, len(present[coll.ID]))...)
+			}
+		}
+	}
+	return issues
+}
+
+func fieldCardinalityIssues(field domain.ResolvedField, groupPath string, count int) []domain.ExampleIssue {
+	fieldID, overrideID := field.ID, field.OverrideID
+	var out []domain.ExampleIssue
+	if field.IsRequired && count == 0 {
+		out = append(out, errorIssue("missing_required_value", &fieldID, &overrideID, nil, "This required field has no value."))
+	}
+	if count < field.MinOccurs {
+		out = append(out, errorIssue("min_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At least %d value(s) are required.", field.MinOccurs)))
+	}
+	if field.MaxOccurs != nil && count > *field.MaxOccurs {
+		out = append(out, errorIssue("max_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At most %d value(s) are allowed.", *field.MaxOccurs)))
+	}
+	for i := range out {
+		out[i].GroupPath = groupPath
+	}
+	return out
+}
+
+func groupCardinalityIssues(collectionID string, pl *domain.CollectionPlacement, count int) []domain.ExampleIssue {
+	var out []domain.ExampleIssue
+	if pl.MinOccurs > 1 && count < pl.MinOccurs {
+		out = append(out, errorIssue("group_min_occurs", nil, nil, nil, fmt.Sprintf("At least %d instance(s) of this group are required.", pl.MinOccurs)))
+	}
+	if pl.MaxOccurs != nil && count > *pl.MaxOccurs {
+		out = append(out, errorIssue("group_max_occurs", nil, nil, nil, fmt.Sprintf("At most %d instance(s) of this group are allowed.", *pl.MaxOccurs)))
+	}
+	for i := range out {
+		id := collectionID
+		out[i].CollectionID = &id
+	}
+	return out
 }
 
 func (s *Service) conceptURIAllowed(ctx context.Context, uri string, refs []domain.EntityRef) (bool, error) {
@@ -812,8 +1040,155 @@ func widgetForExpectedType(expected string) string {
 	}
 }
 
-func issueKey(overrideID int64, occurrenceIndex int) string {
-	return fmt.Sprintf("%d:%d", overrideID, occurrenceIndex)
+// directGroupID is the resolver's bucket for fields placed on the model
+// outside any collection (pkg/weave resolve.go directKey).
+const directGroupID = "__direct__"
+
+// groupOfOverride maps every field slot on the model to the id of the
+// collection group holding it; "" for direct fields.
+func groupOfOverride(view *domain.ModelView) map[int64]string {
+	out := map[int64]string{}
+	for _, cat := range view.Categories {
+		for _, coll := range cat.Collections {
+			group := coll.ID
+			if group == directGroupID {
+				group = ""
+			}
+			for _, f := range coll.Fields {
+				out[f.OverrideID] = group
+			}
+		}
+	}
+	return out
+}
+
+// instancePath is the group segment of a two-segment slot path ("C1:1" for
+// "C1:1/21:0"); "" for a one-segment path.
+func instancePath(slotPath string) string {
+	if i := strings.Index(slotPath, "/"); i >= 0 {
+		return slotPath[:i]
+	}
+	return ""
+}
+
+// compactGroupInstances renumbers each collection group's instances to
+// 0..n-1 in their existing order. The form always shows instance 0, so a
+// removed first instance must not leave a gap behind. Only values whose
+// override is known and whose stored group matches that override's current
+// group count toward the instance set and get renumbered: a value on a
+// removed field, or one whose field moved to a different group, is left
+// exactly where it is.
+func compactGroupInstances(values []domain.ExampleValue, groups map[int64]string) {
+	seen := map[string]map[int]bool{}
+	for _, v := range values {
+		if !countsTowardGroup(v, groups) {
+			continue
+		}
+		if coll, n, ok := domain.ParseExampleGroupSegment(instancePath(v.SlotPath)); ok {
+			if seen[coll] == nil {
+				seen[coll] = map[int]bool{}
+			}
+			seen[coll][n] = true
+		}
+	}
+	renumber := make(map[string]map[int]int, len(seen))
+	for coll, set := range seen {
+		m := make(map[int]int, len(set))
+		for i, n := range slices.Sorted(maps.Keys(set)) {
+			m[n] = i
+		}
+		renumber[coll] = m
+	}
+	for i := range values {
+		v := &values[i]
+		if !countsTowardGroup(*v, groups) {
+			continue
+		}
+		gp := instancePath(v.SlotPath)
+		coll, n, ok := domain.ParseExampleGroupSegment(gp)
+		if !ok || renumber[coll][n] == n {
+			continue
+		}
+		v.SlotPath = domain.ExampleGroupSegment(coll, renumber[coll][n]) + v.SlotPath[len(gp):]
+	}
+}
+
+// countsTowardGroup reports whether v should count as an instance of its
+// group for compaction and cardinality purposes: its override must still be
+// on the model, and its stored group segment must still be where that
+// override lives.
+func countsTowardGroup(v domain.ExampleValue, groups map[int64]string) bool {
+	_, known := groups[v.OverrideID]
+	return known && groupMatches(v, groups)
+}
+
+// groupMatches reports whether v's stored group segment agrees with its
+// override's current group. An override no longer on the model is not this
+// function's concern (the stale_override check handles it); it always
+// matches here.
+func groupMatches(v domain.ExampleValue, groups map[int64]string) bool {
+	group, known := groups[v.OverrideID]
+	if !known {
+		return true
+	}
+	coll, _, ok := domain.ParseExampleGroupSegment(instancePath(v.SlotPath))
+	if !ok {
+		coll = ""
+	}
+	return coll == group
+}
+
+// placeInGroups gives every value in a collection group its group segment.
+// A one-segment path on a grouped field is instance 0 in both modes: rows
+// saved before step B.2 and clients that do not know about groups. A
+// two-segment path must name the group currently holding the field: strict
+// (Create/Update) rejects a mismatch, lenient (Get, via validateModelValues)
+// leaves the value exactly as stored so a field moved to another group
+// since it was saved does not make the example unreadable — validateValues
+// reports it as a moved_group_value warning instead. Values on slots the
+// model no longer has are left alone either way; validation reports them as
+// stale. Duplicate paths are an input error in both modes. Group instances
+// are then renumbered 0..n-1, skipping values that are not a current
+// instance of their group (see compactGroupInstances).
+func placeInGroups(values []domain.ExampleValue, groups map[int64]string, strict bool) error {
+	seen := make(map[string]bool, len(values))
+	for i := range values {
+		v := &values[i]
+		group, known := groups[v.OverrideID]
+		if known {
+			if err := placeValue(v, group, strict); err != nil {
+				return err
+			}
+		}
+		if seen[v.SlotPath] {
+			return fmt.Errorf("value for field %s: duplicate slot_path %q", v.FieldID, v.SlotPath)
+		}
+		seen[v.SlotPath] = true
+	}
+	compactGroupInstances(values, groups)
+	return nil
+}
+
+func placeValue(v *domain.ExampleValue, group string, strict bool) error {
+	gp := instancePath(v.SlotPath)
+	if gp == "" {
+		if group != "" {
+			v.SlotPath = domain.ExampleGroupSegment(group, 0) + "/" + v.SlotPath
+		}
+		return nil
+	}
+	coll, _, ok := domain.ParseExampleGroupSegment(gp)
+	if ok && coll == group {
+		return nil
+	}
+	if !strict {
+		return nil
+	}
+	return fmt.Errorf("value for field %s: slot_path %q does not match the group holding field slot %d", v.FieldID, v.SlotPath, v.OverrideID)
+}
+
+func issueKey(groupPath string, overrideID int64, occurrenceIndex int) string {
+	return fmt.Sprintf("%s|%d:%d", groupPath, overrideID, occurrenceIndex)
 }
 
 func errorIssue(code string, fieldID *string, overrideID *int64, occurrenceIndex *int, msg string) domain.ExampleIssue {
