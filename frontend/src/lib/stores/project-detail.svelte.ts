@@ -21,6 +21,8 @@ export class ProjectDetailState {
 
   pageSchema: ProjectPageSchema | null = $state(null);
   activeTabId: string = $state('');
+  /** Bumped when the active tab is re-clicked so the page remounts its list. */
+  listReset = $state(0);
   tabContent: Map<string, unknown> = $state(new Map());
 
   loading: boolean = $state(false);
@@ -256,6 +258,12 @@ export class ProjectDetailState {
     if (window.location.hash !== newHash) {
       history.replaceState(null, '', newHash);
     }
+  }
+
+  /** Close whatever the active tab's list has open and remount it. */
+  resetActiveList(): void {
+    this.writeHashItem(null);
+    this.listReset += 1;
   }
 
   /** Strip any tab hash from the URL — used on default-tab entry. */

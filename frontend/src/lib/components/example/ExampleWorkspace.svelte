@@ -1113,7 +1113,10 @@
     <div class="flex items-center justify-between">
       <div>
         <h3 class="text-lg font-semibold text-gray-900">
-          {currentMode === 'create' ? 'New Example' : `Editing ${currentExampleId}`}
+          {currentMode === 'create' ? `New ${selectedModelLabel || ''} example`.replace('  ', ' ') : `Editing ${selectedModelLabel || 'example'}`}
+          {#if currentMode !== 'create'}
+            <span class="ml-2 align-middle font-mono text-xs font-normal text-gray-400">{currentExampleId}</span>
+          {/if}
         </h3>
         <p class="mt-1 text-sm text-gray-500">
           Fill in a worked example to verify that the model can actually be used as intended.
@@ -1337,169 +1340,6 @@
 
                 {#if expandedSections[section.id]}
                   <div class="space-y-5 border-t border-gray-100 px-5 py-5">
-                    {#if workspaceMode === 'edit' && (section.direct_fields ?? []).some((field) => fieldVisibleInEdit(field))}
-                      <div class="space-y-4">
-                        <div class="flex items-center justify-between">
-                          <h5 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Direct Fields</h5>
-                        </div>
-                        {#each section.direct_fields ?? [] as field (field.override_id)}
-                          {#if fieldVisibleInEdit(field)}
-                            {@const fieldCounts = fieldIssueCounts(field)}
-                            <div id={`example-field-${field.override_id}`} class={`rounded-lg border p-4 ${activeMatch === field.override_id ? 'ring-2 ring-pletka-primary ring-offset-2' : ''} ${fieldCounts.errors > 0 ? 'border-rose-200 bg-rose-50/30' : fieldCounts.warnings > 0 ? 'border-amber-200 bg-amber-50/30' : 'border-gray-200'}`}>
-                              <div class="mb-3 flex items-start justify-between gap-3">
-                                <div>
-                                  <div class="flex flex-wrap items-center gap-2">
-                                    <h5 class="text-sm font-semibold text-gray-900">{translated(field.label, field.field_id)}</h5>
-                                    <span class="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-500">{field.field_semantic_id}</span>
-                                    {#if requiredMinimum(field) > 0}
-                                      <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">Required</span>
-                                    {/if}
-                                    {#if field.repeatable}
-                                      <span class="rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">Repeatable</span>
-                                    {/if}
-                                  </div>
-                                  {#if translated(field.help)}
-                                    <p class="mt-1 text-sm text-gray-500">{translated(field.help)}</p>
-                                  {/if}
-                                  {#if fieldContextNotes(field).length}
-                                    <div class="mt-2 flex flex-wrap gap-2">
-                                      {#each fieldContextNotes(field) as note}
-                                        <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{note}</span>
-                                      {/each}
-                                    </div>
-                                  {/if}
-                                </div>
-                                {#if field.repeatable}
-                                  <button type="button" class="text-sm font-medium text-pletka-primary hover:text-pletka-secondary" onclick={() => addOccurrence(field)}>+ Add value</button>
-                                {/if}
-                              </div>
-                              {#if errorMessages(field.issues).length}
-                                <ul class="mb-3 list-disc space-y-1 pl-5 text-sm text-rose-700">
-                                  {#each errorMessages(field.issues) as message, idx (`${field.override_id}-error-${idx}`)}
-                                    <li>{message}</li>
-                                  {/each}
-                                </ul>
-                              {/if}
-                              {#if warningMessages(field.issues).length}
-                                <ul class="mb-3 list-disc space-y-1 pl-5 text-sm text-amber-700">
-                                  {#each warningMessages(field.issues) as message, idx (`${field.override_id}-warning-${idx}`)}
-                                    <li>{message}</li>
-                                  {/each}
-                                </ul>
-                              {/if}
-                              <div class="space-y-3">
-                                {#each fieldOccurrences(field) as occurrence, occurrenceIdx (occurrence.occurrence_index)}
-                                  {@const fieldDef = occurrenceFieldDef(field, occurrence.occurrence_index)}
-                                  {@const key = fieldKey(field)}
-                                  {@const occurrenceErrorMessages = occurrenceIssues(field, occurrence.occurrence_index)}
-                                  {@const occurrenceWarningMessages = occurrenceWarnings(field, occurrence.occurrence_index)}
-                                  {@const linkedSelection = field.value_kind === 'example_ref' ? linkedExampleByID(valuesByOverride[key][occurrenceIdx].value) : null}
-                                  {@const eligibleExamples = field.value_kind === 'example_ref' ? eligibleLinkedExamples(field) : []}
-                                  <div class={`rounded-md border p-3 ${occurrenceErrorMessages.length ? 'border-rose-200 bg-rose-50/40' : occurrenceWarningMessages.length ? 'border-amber-200 bg-amber-50/40' : 'border-gray-100 bg-gray-50/60'}`}>
-                                    <div class="mb-2 flex items-center justify-between">
-                                      <div class="flex items-center gap-2">
-                                        <span class="text-xs font-medium uppercase tracking-wide text-gray-500">Occurrence {occurrence.occurrence_index + 1}</span>
-                                        {#if occurrenceErrorMessages.length}
-                                          <span class="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-700">{occurrenceErrorMessages.length} error{occurrenceErrorMessages.length === 1 ? '' : 's'}</span>
-                                        {:else if occurrenceWarningMessages.length}
-                                          <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">{occurrenceWarningMessages.length} warning{occurrenceWarningMessages.length === 1 ? '' : 's'}</span>
-                                        {/if}
-                                      </div>
-                                      {#if field.repeatable && fieldOccurrences(field).length > 1}
-                                        <button type="button" class="text-xs font-medium text-red-600 hover:text-red-700" onclick={() => removeOccurrence(field, occurrence.occurrence_index)}>Remove</button>
-                                      {/if}
-                                    </div>
-                                    {#if field.value_kind === 'concept' && field.concept_sources?.length && !field.set_value}
-                                      <ConceptPicker
-                                        {field}
-                                        bind:value={valuesByOverride[key][occurrenceIdx].value}
-                                        {lang}
-                                        errors={occurrenceErrorMessages}
-                                        onchoose={rememberConceptLabel}
-                                      />
-                                    {:else}
-                                      <WidgetDispatcher
-                                        field={fieldDef}
-                                        bind:value={valuesByOverride[key][occurrenceIdx].value}
-                                        formValues={{}}
-                                        {lang}
-                                        languages={schema.ui.languages}
-                                        errors={occurrenceErrorMessages}
-                                      />
-                                    {/if}
-                                    {#if field.value_kind === 'example_ref'}
-                                      <div class="mt-3 space-y-2">
-                                        <div class="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                                          <span>{eligibleExamples.length} eligible example{eligibleExamples.length === 1 ? '' : 's'}</span>
-                                          {#if field.resource_models?.length}
-                                            <span>· scoped to {field.resource_models.length} model{field.resource_models.length === 1 ? '' : 's'}</span>
-                                          {/if}
-                                        </div>
-                                        {#if linkedSelection}
-                                          <div class="rounded-md border border-blue-200 bg-blue-50/50 px-3 py-2">
-                                            <div class="flex flex-wrap items-center gap-2">
-                                              {#if examplePageURL(linkedSelection.id)}
-                                                <a href={examplePageURL(linkedSelection.id)} target="_blank" rel="noopener" class="text-sm font-medium text-blue-900 underline decoration-blue-300 hover:decoration-blue-700">{translated(linkedSelection.title, linkedSelection.id)}</a>
-                                              {:else}
-                                                <span class="text-sm font-medium text-blue-900">{translated(linkedSelection.title, linkedSelection.id)}</span>
-                                              {/if}
-                                              <span class="rounded bg-white px-2 py-0.5 font-mono text-xs text-blue-700">{linkedSelection.entity_id}</span>
-                                              <span class={`rounded-full px-2 py-0.5 text-[11px] font-medium ${linkedStatusClasses(linkedSelection.status)}`}>
-                                                {linkedSelection.status ? linkedSelection.status.replace('_', ' ') : 'draft'}
-                                              </span>
-                                            </div>
-                                          </div>
-                                        {:else if eligibleExamples.length === 0}
-                                          <div class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                                            No eligible examples exist yet for this field.
-                                          </div>
-                                        {/if}
-                                        {#if !linkedSelection && (field.expected_value_type || '').trim() === 'Model' && (field.resource_models ?? []).length > 0}
-                                          {@const models = field.resource_models ?? []}
-                                          <div class="rounded-md border border-dashed border-gray-300 bg-white px-3 py-2">
-                                            <label class="block text-xs font-medium text-gray-600" for={`stub-${field.override_id}-${occurrence.occurrence_index}`}>
-                                              Or create a new draft {models.length === 1 ? translated(models[0].name, models[0].semantic_id || models[0].id) : 'example'} named
-                                            </label>
-                                            <div class="mt-1 flex flex-wrap items-center gap-2">
-                                              <input
-                                                id={`stub-${field.override_id}-${occurrence.occurrence_index}`}
-                                                type="text"
-                                                class="min-w-[12rem] flex-1 rounded-md border border-gray-300 px-2 py-1 text-sm"
-                                                placeholder="e.g. Van Gogh"
-                                                bind:value={valuesByOverride[key][occurrenceIdx].stub_label}
-                                              />
-                                              {#if models.length > 1}
-                                                <select class="rounded-md border border-gray-300 px-2 py-1 text-sm" bind:value={valuesByOverride[key][occurrenceIdx].stub_model}>
-                                                  <option value="">Choose model…</option>
-                                                  {#each models as model (model.id)}
-                                                    <option value={model.id}>{translated(model.name, model.semantic_id || model.id)}</option>
-                                                  {/each}
-                                                </select>
-                                              {/if}
-                                            </div>
-                                            {#if occurrenceIsStub(field, occurrence)}
-                                              <p class="mt-1 text-xs text-gray-500">Saving creates a <span class="font-medium">draft</span> example with this title and links it here. Finish it from the Examples tab.</p>
-                                            {/if}
-                                          </div>
-                                        {/if}
-                                      </div>
-                                    {/if}
-                                    {#if occurrenceWarningMessages.length}
-                                      <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-700">
-                                        {#each occurrenceWarningMessages as message, idx (`${field.override_id}-${occurrence.occurrence_index}-warning-${idx}`)}
-                                          <li>{message}</li>
-                                        {/each}
-                                      </ul>
-                                    {/if}
-                                  </div>
-                                {/each}
-                              </div>
-                            </div>
-                          {/if}
-                        {/each}
-                      </div>
-                    {/if}
-
                     {#if workspaceMode === 'edit' && (section.groups ?? []).some((group) => groupVisible(group))}
                       <div class="space-y-5">
                         {#each section.groups ?? [] as group (group.id)}
@@ -1674,7 +1514,7 @@
                                                         {/if}
                                                       </div>
                                                       {#if occurrenceIsStub(field, occurrence)}
-                                                        <p class="mt-1 text-xs text-gray-500">Saving creates a <span class="font-medium">draft</span> example with this title and links it here. Finish it from the Examples tab.</p>
+                                                        <p class="mt-1 text-xs text-gray-500">Saving creates a <span class="font-medium">draft</span> example with this title and links it here. Type the same name in another field to link the same draft. Finish it from the Examples tab.</p>
                                                       {/if}
                                                     </div>
                                                   {/if}
@@ -1702,46 +1542,6 @@
                     {/if}
 
                     {#if workspaceMode === 'overview'}
-                      {#if (section.direct_fields ?? []).some((field) => fieldHasOverviewContent(field))}
-                        <div class="space-y-4">
-                          <div class="flex items-center justify-between">
-                            <h5 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Direct Fields</h5>
-                          </div>
-                          {#each section.direct_fields ?? [] as field (field.override_id)}
-                            {#if fieldHasOverviewContent(field)}
-                              <div class="rounded-lg border border-gray-200 p-4">
-                                <div class="flex flex-wrap items-center gap-2">
-                                  <h5 class="text-sm font-semibold text-gray-900">{translated(field.label, field.field_id)}</h5>
-                                  <span class="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-500">{field.field_semantic_id}</span>
-                                  {#if field.value_kind === 'example_ref'}
-                                    <span class="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">Linked example</span>
-                                  {/if}
-                                </div>
-                                <div class="mt-3 space-y-2">
-                                  {#each fieldOccurrences(field) as occurrence (occurrence.occurrence_index)}
-                                    {#if !occurrenceIsBlank(field, occurrence)}
-                                      <div class="rounded-md border border-gray-100 bg-gray-50/60 px-3 py-2">
-                                        {#if field.repeatable}
-                                          <div class="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">Occurrence {occurrence.occurrence_index + 1}</div>
-                                        {/if}
-                                        {#if occurrenceLinkURL(field, occurrence)}
-                                          <a href={occurrenceLinkURL(field, occurrence)} target="_blank" rel="noopener" class="text-sm text-blue-900 underline decoration-blue-300 hover:decoration-blue-700">{occurrenceDisplayValue(field, occurrence)}</a>
-                                        {:else}
-                                          <div class="text-sm text-gray-800">{occurrenceDisplayValue(field, occurrence)}</div>
-                                        {/if}
-                                        {#if occurrenceTechnicalValue(field, occurrence)}
-                                          <div class="mt-1 break-all font-mono text-xs text-gray-500">{occurrenceTechnicalValue(field, occurrence)}</div>
-                                        {/if}
-                                      </div>
-                                    {/if}
-                                  {/each}
-                                </div>
-                              </div>
-                            {/if}
-                          {/each}
-                        </div>
-                      {/if}
-
                       {#if (section.groups ?? []).some((group) => groupVisibleInOverview(group))}
                         <div class="space-y-5">
                           {#each section.groups ?? [] as group (group.id)}

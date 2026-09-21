@@ -829,6 +829,7 @@ func groupByCategory(
 
 		// Build CollectionGroup slices.
 		collGroups := make([]domain.CollectionGroup, 0, len(colls))
+		collMinPos := map[string]int{}
 
 		for _, entry := range colls {
 			collGroup := domain.CollectionGroup{
@@ -847,9 +848,22 @@ func groupByCategory(
 				collGroup.Name = domain.Translations{"en": "Direct Fields"}
 			}
 
-			// Position from first field's CollectionOrder.
+			// Position: the smallest collection_order among the fields (rows
+			// of one collection can disagree after edits); tie-break by the
+			// smallest field position so the order never depends on map
+			// iteration.
 			if len(entry.fields) > 0 {
 				collGroup.Position = entry.fields[0].CollectionOrder
+				minFieldPos := entry.fields[0].Position
+				for _, f := range entry.fields[1:] {
+					if f.CollectionOrder < collGroup.Position {
+						collGroup.Position = f.CollectionOrder
+					}
+					if f.Position < minFieldPos {
+						minFieldPos = f.Position
+					}
+				}
+				collMinPos[entry.id] = minFieldPos
 			}
 
 			// Sort fields by Position within collection.
@@ -862,8 +876,15 @@ func groupByCategory(
 		}
 
 		// Sort collections by position.
-		sort.Slice(collGroups, func(i, j int) bool {
-			return collGroups[i].Position < collGroups[j].Position
+		sort.SliceStable(collGroups, func(i, j int) bool {
+			a, b := collGroups[i], collGroups[j]
+			if a.Position != b.Position {
+				return a.Position < b.Position
+			}
+			if collMinPos[a.ID] != collMinPos[b.ID] {
+				return collMinPos[a.ID] < collMinPos[b.ID]
+			}
+			return a.ID < b.ID
 		})
 
 		cg.Collections = collGroups

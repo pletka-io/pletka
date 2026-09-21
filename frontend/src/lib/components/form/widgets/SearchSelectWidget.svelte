@@ -70,12 +70,19 @@
       return label.includes(q) || description.includes(q) || semanticID.includes(q);
     });
   });
+
+  /** Uncapped lists of hundreds of examples were unwieldy; show a slice
+   *  until the user types (the filter is the type-ahead). */
+  const MENU_CAP = 25;
+  let shownOptions = $derived(query.trim() ? filteredOptions : filteredOptions.slice(0, MENU_CAP));
+  let hiddenCount = $derived(filteredOptions.length - shownOptions.length);
+
   let menuOptions = $derived.by(() => {
     const items: Array<{ option: SelectOption | null; label: string; description?: string; semanticID?: string; status?: string; sourceProjectId?: string; sourceProjectLabel?: string }> = [];
     if (!field.required) {
       items.push({ option: null, label: '—' });
     }
-    for (const option of filteredOptions) {
+    for (const option of shownOptions) {
       items.push({
         option,
         label: tr(option.label, lang),
@@ -214,7 +221,7 @@
           type="text"
           bind:this={inputEl}
           bind:value={query}
-          placeholder="Filter options…"
+          placeholder="Type to search…"
           class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-pletka-primary focus:outline-none focus:ring-pletka-primary"
         />
       </div>
@@ -249,6 +256,9 @@
             {/if}
           </button>
         {/each}
+        {#if hiddenCount > 0}
+          <div class="border-t border-gray-100 px-3 py-2 text-xs text-gray-400">{hiddenCount} more · type to filter</div>
+        {/if}
         {#if menuOptions.length === 0}
           <div class="px-3 py-2 text-sm text-gray-400">No matches</div>
         {/if}

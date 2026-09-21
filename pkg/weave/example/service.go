@@ -29,6 +29,27 @@ type conceptValidator interface {
 	ConceptURIAllowedForLists(ctx context.Context, uri string, conceptListIDs []string) (bool, error)
 }
 
+// modelNamer is satisfied by the real weave store; used to show the target
+// model's display name in the example form instead of its id.
+type modelNamer interface {
+	Models() domain.WeaveModelStore
+}
+
+// targetName returns the model's display name when the view reader can look
+// it up, else the id.
+func (s *Service) targetName(ctx context.Context, modelID string) domain.Translations {
+	fallback := domain.Translations{"en": modelID}
+	namer, ok := s.views.(modelNamer)
+	if !ok {
+		return fallback
+	}
+	m, err := namer.Models().GetByID(ctx, modelID)
+	if err != nil || m == nil || len(m.UIName) == 0 {
+		return fallback
+	}
+	return m.UIName
+}
+
 func NewService(store Store, views ViewReader) *Service {
 	return &Service{store: store, views: views}
 }
@@ -84,6 +105,7 @@ type ExampleFormSection struct {
 type ExampleFormGroup struct {
 	ID               string               `json:"id"`
 	Label            domain.Translations  `json:"label"`
+	Position         int                  `json:"position,omitempty"`
 	SharedPathPrefix []domain.PathElement `json:"shared_path_prefix,omitempty"`
 	Fields           []ExampleFormField   `json:"fields"`
 }
@@ -251,21 +273,31 @@ func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang
 		}
 		candidates = append(candidates, stubCandidate{index: i, target: target, label: label})
 	}
+	// One draft per (target model, label) within this save: the same new
+	// entity typed into two fields links one record, not two.
+	created := map[string]string{}
 	for _, c := range candidates {
-		stub := &domain.Example{
-			ID:         ids.GenerateULID(),
-			ProjectID:  projectID,
-			EntityType: domain.ExampleEntityTypeModel,
-			EntityID:   c.target,
-			Title:      domain.Translations{lang: c.label},
-			Status:     domain.ExampleStatusDraft,
-		}
-		if err := s.store.CreateWithValues(ctx, stub, nil); err != nil {
-			return fmt.Errorf("create draft example for %s: %w", c.target, err)
+		key := c.target + "\x00" + c.label
+		id, ok := created[key]
+		if !ok {
+			stub := &domain.Example{
+				ID:         ids.GenerateULID(),
+				ProjectID:  projectID,
+				EntityType: domain.ExampleEntityTypeModel,
+				EntityID:   c.target,
+				Title:      domain.Translations{lang: c.label},
+				Status:     domain.ExampleStatusDraft,
+			}
+			if err := s.store.CreateWithValues(ctx, stub, nil); err != nil {
+				return fmt.Errorf("create draft example for %s: %w", c.target, err)
+			}
+			id = stub.ID
+			created[key] = id
 		}
 		p := &values[c.index].ValuePayload
-		p.ExampleID = &stub.ID
-		p.TargetEntityID = &c.target
+		p.ExampleID = &id
+		target := c.target
+		p.TargetEntityID = &target
 	}
 	return nil
 }
@@ -402,13 +434,12 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 			for _, f := range coll.Fields {
 				fields = append(fields, buildExampleField(f, occByOverride[f.OverrideID], issuesByKey))
 			}
-			if coll.ID == "__direct__" {
-				section.DirectFields = fields
-				continue
-			}
+			// The direct bucket is a group like any other so the form keeps
+			// the resolver's order; the frontend renders it by id.
 			section.Groups = append(section.Groups, ExampleFormGroup{
 				ID:               coll.ID,
 				Label:            coll.Name,
+				Position:         coll.Position,
 				SharedPathPrefix: coll.SharedPathPrefix,
 				Fields:           fields,
 			})
@@ -421,7 +452,7 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 		Target: ExampleFormTarget{
 			EntityType: string(domain.ExampleEntityTypeModel),
 			EntityID:   modelID,
-			Name:       domain.Translations{"en": modelID},
+			Name:       s.targetName(ctx, modelID),
 		},
 		Sections: sections,
 		Issues:   topIssues,

@@ -197,16 +197,17 @@ func TestServiceBuildFormSchemaGroupsFieldsAndValues(t *testing.T) {
 		t.Fatalf("sections = %d, want 1", len(schema.Sections))
 	}
 	section := schema.Sections[0]
-	if len(section.DirectFields) != 1 {
-		t.Fatalf("direct fields = %d, want 1", len(section.DirectFields))
+	if len(section.Groups) != 2 {
+		t.Fatalf("groups = %d, want 2", len(section.Groups))
 	}
-	if !hasIssue(section.DirectFields[0].Issues, "missing_required_value", domain.ExampleIssueError) {
-		t.Fatalf("direct field issues = %#v, want missing_required_value", section.DirectFields[0].Issues)
+	directGroup := section.Groups[0]
+	if directGroup.ID != "__direct__" || len(directGroup.Fields) != 1 {
+		t.Fatalf("direct group = %+v, want 1 field", directGroup)
 	}
-	if len(section.Groups) != 1 {
-		t.Fatalf("groups = %d, want 1", len(section.Groups))
+	if !hasIssue(directGroup.Fields[0].Issues, "missing_required_value", domain.ExampleIssueError) {
+		t.Fatalf("direct field issues = %#v, want missing_required_value", directGroup.Fields[0].Issues)
 	}
-	groupField := section.Groups[0].Fields[0]
+	groupField := section.Groups[1].Fields[0]
 	if len(groupField.Occurrences) != 1 {
 		t.Fatalf("occurrences = %d, want 1", len(groupField.Occurrences))
 	}
@@ -258,7 +259,7 @@ func TestServiceBuildFormSchemaExposesConceptSources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildFormSchema() error = %v", err)
 	}
-	got := schema.Sections[0].DirectFields[0]
+	got := schema.Sections[0].Groups[0].Fields[0]
 	if len(got.ConceptSources) != 1 {
 		t.Fatalf("ConceptSources = %#v, want one source", got.ConceptSources)
 	}
@@ -628,5 +629,123 @@ func TestServiceStubIgnoresBlankLabelAndExplicitLink(t *testing.T) {
 	}
 	if got := *record.Values[0].ValuePayload.ExampleID; got != "EX-LINKED" {
 		t.Fatalf("explicit link overwritten: %s", got)
+	}
+}
+
+// TestServiceStubSameLabelTwiceCreatesOneDraft locks George's case: the same
+// new draft typed in two fields of one unsaved example becomes one draft,
+// linked from both occurrences.
+func TestServiceStubSameLabelTwiceCreatesOneDraft(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+	first := stubValue("", "Van Gogh")
+	second := stubValue("M2", "  Van Gogh ") // same target after inference, same label after trimming
+	second.OccurrenceIndex = 1
+	record, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{first, second},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if len(store.examples) != 2 { // parent + ONE draft
+		t.Fatalf("want 2 stored examples, got %d", len(store.examples))
+	}
+	a, b := record.Values[0].ValuePayload.ExampleID, record.Values[1].ValuePayload.ExampleID
+	if a == nil || b == nil || *a != *b {
+		t.Fatalf("both occurrences must link the same draft, got %v and %v", a, b)
+	}
+	other := stubValue("", "Gauguin")
+	other.OccurrenceIndex = 2
+	if _, err := svc.Update(context.Background(), "P1", record.Example.ID, UpdateInput{Values: append(record.Values, other)}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(store.examples) != 3 { // a different label still creates its own draft
+		t.Fatalf("want 3 stored examples after adding Gauguin, got %d", len(store.examples))
+	}
+}
+
+// namingViews is fakeViews plus a Models() reader, mirroring the optional
+// interface the real store satisfies.
+type namingViews struct {
+	fakeViews
+	names map[string]domain.Translations
+}
+
+func (v namingViews) Models() domain.WeaveModelStore { return namingModels{names: v.names} }
+
+type namingModels struct {
+	domain.WeaveModelStore // nil; only GetByID is called
+	names                  map[string]domain.Translations
+}
+
+func (m namingModels) GetByID(_ context.Context, id string) (*domain.Model, error) {
+	name, ok := m.names[id]
+	if !ok {
+		return nil, nil
+	}
+	mod := &domain.Model{}
+	mod.ID = id
+	mod.UIName = name
+	return mod, nil
+}
+
+func TestBuildFormSchemaNamesTargetModel(t *testing.T) {
+	views := namingViews{
+		fakeViews: fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}},
+		names:     map[string]domain.Translations{"M1": {"en": "Physical Thing", "nl": "Fysiek object"}},
+	}
+	svc := NewService(newFakeStore(), views)
+	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	if got := schema.Target.Name["en"]; got != "Physical Thing" {
+		t.Fatalf("target name = %q, want Physical Thing", got)
+	}
+	if got := schema.Target.Name["nl"]; got != "Fysiek object" {
+		t.Fatalf("target name[nl] = %q", got)
+	}
+	// Without a namer the id stays the fallback.
+	plain := NewService(newFakeStore(), views.fakeViews)
+	schema, err = plain.BuildFormSchema(context.Background(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	if got := schema.Target.Name["en"]; got != "M1" {
+		t.Fatalf("fallback target name = %q, want M1", got)
+	}
+}
+
+// TestBuildFormSchemaKeepsCollectionOrderIncludingDirectFields: the form
+// emits the direct-fields bucket as a group at its own position rather than
+// always first, matching the model page.
+func TestBuildFormSchemaKeepsCollectionOrderIncludingDirectFields(t *testing.T) {
+	view := &domain.ModelView{ModelID: "M1", ProjectID: "P1", Categories: []domain.CategoryGroup{{
+		ID: "CAT1", Name: domain.Translations{"en": "Names"}, Position: 1,
+		Collections: []domain.CollectionGroup{
+			{ID: "C1", Name: domain.Translations{"en": "Name"}, Position: 1, Fields: []domain.ResolvedField{resolvedField(11, "F1", "Name", "String", false, 0, nil)}},
+			{ID: "__direct__", Name: domain.Translations{"en": "Direct Fields"}, Position: 2, Fields: []domain.ResolvedField{resolvedField(12, "F2", "Equivalent", "URI", false, 0, nil)}},
+			{ID: "C2", Name: domain.Translations{"en": "Identifier"}, Position: 3, Fields: []domain.ResolvedField{resolvedField(13, "F3", "Identifier", "String", false, 0, nil)}},
+		},
+	}}}
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": view}})
+	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	sec := schema.Sections[0]
+	if len(sec.DirectFields) != 0 {
+		t.Fatalf("direct_fields must be empty now, got %d", len(sec.DirectFields))
+	}
+	ids := make([]string, 0, len(sec.Groups))
+	for _, g := range sec.Groups {
+		ids = append(ids, g.ID)
+	}
+	if len(ids) != 3 || ids[0] != "C1" || ids[1] != "__direct__" || ids[2] != "C2" {
+		t.Fatalf("groups = %v, want [C1 __direct__ C2]", ids)
+	}
+	if sec.Groups[1].Label["en"] != "Direct Fields" || sec.Groups[1].Position != 2 {
+		t.Fatalf("direct group = %+v", sec.Groups[1])
 	}
 }

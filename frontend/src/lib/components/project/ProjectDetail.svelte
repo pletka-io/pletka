@@ -34,6 +34,12 @@
   const activeContent = $derived(state.tabContent.get(state.activeTabId));
 
   function handleTabClick(tabId: string) {
+    // Clicking the tab you are already on closes whatever the list has open
+    // (George: "clicking Examples should take me back to the list").
+    if (state.findTab(tabId)?.id === state.activeTabId) {
+      state.resetActiveList();
+      return;
+    }
     state.setActiveTab(tabId);
   }
 
@@ -110,7 +116,7 @@
 
     <div>
       {#if activeTab && state.isEntityListTab(activeTab) && activeTab.content_url}
-        {#key activeTab.id}
+        {#key `${activeTab.id}:${state.listReset}`}
           <EntityListView
             schemaUrl={activeTab.content_url}
             onmutate={() => state.refreshCounts()}
