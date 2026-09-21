@@ -1001,16 +1001,17 @@ func TestValidateGroupPlacementCardinality(t *testing.T) {
 
 func TestValidateValueIssueCarriesGroupPath(t *testing.T) {
 	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "Integer", false, 0, nil))}})
-	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{stringValue("C1:3/21:0", "F2", "not a number")})
+	good := domain.ExampleValue{SlotPath: "C1:0/21:0", OverrideID: 21, FieldID: "F2", ValueKind: domain.ExampleValueKindInteger, ValuePayload: domain.ExampleValuePayload{Kind: domain.ExampleValueKindInteger, NumberValue: floatPtr(1)}}
+	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{good, stringValue("C1:1/21:0", "F2", "not a number")})
 	if err != nil {
 		t.Fatalf("validate error = %v", err)
 	}
 	for _, is := range report.Issues {
-		if is.Code == "wrong_value_kind" && is.GroupPath == "C1:0" {
+		if is.Code == "wrong_value_kind" && is.GroupPath == "C1:1" {
 			return
 		}
 	}
-	t.Fatalf("want wrong_value_kind in C1:0, got %+v", report.Issues)
+	t.Fatalf("want wrong_value_kind in C1:1, got %+v", report.Issues)
 }
 
 func TestServiceCreateCompactsGroupInstances(t *testing.T) {
