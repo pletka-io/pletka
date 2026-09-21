@@ -164,5 +164,8 @@ func ParseExampleSlotLeaf(path string) (overrideID int64, occurrence int, ok boo
 	if err != nil || occ < 0 {
 		return 0, 0, false
 	}
+	if oid <= 0 || ExampleSlot(oid, occ) != leaf {
+		return 0, 0, false
+	}
 	return oid, occ, true
 }

@@ -20,6 +20,10 @@ func TestExampleSlotRoundTrip(t *testing.T) {
 		{"21", 0, 0, false, 1},
 		{"21:x", 0, 0, false, 1},
 		{"21:-1", 0, 0, false, 1},
+		{"+21:0", 0, 0, false, 1},
+		{"021:0", 0, 0, false, 1},
+		{"21:+0", 0, 0, false, 1},
+		{"0:0", 0, 0, false, 1},
 	}
 	for _, c := range cases {
 		oid, occ, ok := ParseExampleSlotLeaf(c.path)
