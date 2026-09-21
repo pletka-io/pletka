@@ -405,29 +405,49 @@ func (r *slotResolver) nestedCardinalityIssues(values []domain.ExampleValue, slo
 	}
 	var issues []domain.ExampleIssue
 	for _, path := range slices.Sorted(maps.Keys(instances)) {
-		fields, err := r.instanceFields(path)
+		fields, level, err := r.instanceFields(path)
 		if err != nil {
 			return nil, err
 		}
 		for _, f := range fields {
-			issues = append(issues, fieldCardinalityIssues(f, path, counts[slotCountKey(path, f.OverrideID)])...)
+			issues = append(issues, fieldCardinalityIssues(r.cardinalityField(f, level), path, counts[slotCountKey(path, f.OverrideID)])...)
 		}
 	}
 	return issues, nil
 }
 
 // instanceFields returns the fields of the collection opened by the nested
-// instance at path (whose last segment is the container). A path that does
-// not resolve to an expandable container yields no fields; nestedInstances
-// only produces paths under resolved values, so that does not happen.
-func (r *slotResolver) instanceFields(path string) ([]domain.ResolvedField, error) {
+// instance at path (whose last segment is the container), and the nesting
+// level at which a container among those fields would open. A path that
+// does not resolve to an expandable container yields no fields;
+// nestedInstances only produces paths under resolved values, so that does
+// not happen.
+func (r *slotResolver) instanceFields(path string) ([]domain.ResolvedField, int, error) {
 	rs, err := r.resolve(path)
 	if err != nil || rs.status != slotOK {
-		return nil, err
+		return nil, 0, err
 	}
 	collectionID, ok, _ := r.expandTarget(rs.field, rs.depth+1)
 	if !ok {
-		return nil, nil
+		return nil, 0, nil
 	}
-	return r.collectionFields(collectionID)
+	fields, err := r.collectionFields(collectionID)
+	return fields, rs.depth + 2, err
+}
+
+// cardinalityField is field as the cardinality checks see it when a
+// container among its siblings would open at nesting level (1 for a
+// model-level slot, 2 inside a nested collection). A Collection container
+// that cannot open there (no target, several targets, past the depth cap)
+// can never be filled, so it is neither required nor has a minimum;
+// max_occurs still applies.
+func (r *slotResolver) cardinalityField(field domain.ResolvedField, level int) domain.ResolvedField {
+	if strings.TrimSpace(field.ExpectedValueType) != expectedValueTypeCollection {
+		return field
+	}
+	if _, ok, _ := r.expandTarget(field, level); ok {
+		return field
+	}
+	field.IsRequired, field.MinOccurs = false, 0
+	return field
 }

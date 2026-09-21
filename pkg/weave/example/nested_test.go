@@ -388,3 +388,45 @@ func TestServiceStaleNestedValueDoesNotCountOrMove(t *testing.T) {
 		t.Fatalf("slot paths = %v, want %v", got, want)
 	}
 }
+
+// A container that cannot open (no target collection) can never be filled,
+// so it is never reported as missing.
+func TestServiceRequiredContainerWithoutTargetNotMissing(t *testing.T) {
+	views := nestedViews()
+	nestedModelField(views, 303).IsRequired = true
+	nestedModelField(views, 303).MinOccurs = 1
+	rec, err := createNested(NewService(newFakeStore(), views), stringValue("C1:0/21:0", "F21", "x"))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	for _, code := range []string{"missing_required_value", "min_occurs"} {
+		if got := issuesFor(rec.Validation.Issues, code, 303); len(got) != 0 {
+			t.Fatalf("%s on 303 = %+v, want none", code, got)
+		}
+	}
+}
+
+// A container nested past the depth cap cannot open either; below the cap
+// the same required container is reported per nested instance.
+func TestServiceRequiredContainerPastCapNotMissing(t *testing.T) {
+	values := []domain.ExampleValue{
+		stringValue("C1:0/302:0/601:0", "F601", "1650"),
+		stringValue("C1:0/302:0/602:0", "F602", "1660"),
+	}
+	views := nestedViews()
+	views.collections["LAC6"][2].IsRequired = true // 603 -> LAC1
+	rec, err := createNested(NewService(newFakeStore(), views), values...)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if got := issuesFor(rec.Validation.Issues, "missing_required_value", 603); len(got) != 1 || got[0].GroupPath != "C1:0/302:0" {
+		t.Fatalf("default cap: missing_required_value on 603 = %+v, want one at C1:0/302:0", got)
+	}
+	rec, err = createNested(NewService(newFakeStore(), views, WithMaxNestingDepth(1)), values...)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if got := issuesFor(rec.Validation.Issues, "missing_required_value", 603); len(got) != 0 {
+		t.Fatalf("cap 1: missing_required_value on 603 = %+v, want none", got)
+	}
+}

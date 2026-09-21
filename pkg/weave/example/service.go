@@ -823,7 +823,7 @@ func (s *Service) validateValues(ctx context.Context, projectID, modelID string,
 	if err != nil {
 		return domain.ExampleValidationReport{}, err
 	}
-	issues = append(issues, cardinalityIssues(view, counts, present)...)
+	issues = append(issues, cardinalityIssues(resolver, view, counts, present)...)
 	issues = append(issues, nested...)
 	return domain.ExampleValidationReport{
 		Valid:  len(issues) == 0,
@@ -916,8 +916,9 @@ func groupInstances(collectionID string, present map[string]bool) []string {
 }
 
 // cardinalityIssues checks required/min/max of every field slot within each
-// instance of its group, and the instance count of each placed group.
-func cardinalityIssues(view *domain.ModelView, counts map[string]int, present map[string]map[string]bool) []domain.ExampleIssue {
+// instance of its group, and the instance count of each placed group. A
+// container that cannot open is never required (see cardinalityField).
+func cardinalityIssues(r *slotResolver, view *domain.ModelView, counts map[string]int, present map[string]map[string]bool) []domain.ExampleIssue {
 	var issues []domain.ExampleIssue
 	for _, cat := range view.Categories {
 		for _, coll := range cat.Collections {
@@ -927,7 +928,7 @@ func cardinalityIssues(view *domain.ModelView, counts map[string]int, present ma
 			}
 			for _, gp := range instances {
 				for _, field := range coll.Fields {
-					issues = append(issues, fieldCardinalityIssues(field, gp, counts[slotCountKey(gp, field.OverrideID)])...)
+					issues = append(issues, fieldCardinalityIssues(r.cardinalityField(field, 1), gp, counts[slotCountKey(gp, field.OverrideID)])...)
 				}
 			}
 			if coll.Placement != nil {
