@@ -181,7 +181,10 @@ func (r *slotResolver) step(container domain.ResolvedField, seg string, level in
 	if strings.TrimSpace(container.ExpectedValueType) != expectedValueTypeCollection {
 		return domain.ResolvedField{}, slotInvalid, fmt.Sprintf("Field slot %d is not a Collection field.", container.OverrideID), nil
 	}
-	collectionID, ok, note := r.expandTarget(container, level)
+	collectionID, ok, note, err := r.expandTarget(container, level)
+	if err != nil {
+		return domain.ResolvedField{}, slotInvalid, "", err
+	}
 	if !ok {
 		return domain.ResolvedField{}, slotInvalid, fmt.Sprintf("Field slot %d cannot hold nested values: %s.", container.OverrideID, note), nil
 	}
@@ -208,12 +211,26 @@ func (r *slotResolver) inGroup(group string, anchor int64) bool {
 	return coll == r.groups[anchor]
 }
 
-// collectionFields returns the (cached) CollectionView of collectionID.
+// collectionOwner is satisfied by the real weave store; used to read a
+// container's target collection in the project that owns it, which is often
+// not the example's project (a field pointing at a parent project's
+// collection).
+type collectionOwner interface {
+	Collections() domain.WeaveCollectionStore
+}
+
+// collectionFields returns the (cached) CollectionView of collectionID, read
+// in the collection's owning project. The owner is looked up once per
+// collection, on the cache miss that reads the view.
 func (r *slotResolver) collectionFields(collectionID string) ([]domain.ResolvedField, error) {
 	if fields, ok := r.collections[collectionID]; ok {
 		return fields, nil
 	}
-	fields, err := r.views.CollectionView(r.ctx, collectionID, r.projectID)
+	projectID, err := r.ownerProject(collectionID)
+	if err != nil {
+		return nil, err
+	}
+	fields, err := r.views.CollectionView(r.ctx, collectionID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("collection view %s: %w", collectionID, err)
 	}
@@ -221,28 +238,56 @@ func (r *slotResolver) collectionFields(collectionID string) ([]domain.ResolvedF
 	return fields, nil
 }
 
+// ownerProject is the project owning collectionID, or the example's project
+// when the views cannot look collections up or the collection is not found.
+func (r *slotResolver) ownerProject(collectionID string) (string, error) {
+	owner, ok := r.views.(collectionOwner)
+	if !ok {
+		return r.projectID, nil
+	}
+	c, err := owner.Collections().GetByID(r.ctx, collectionID)
+	if err != nil {
+		return "", fmt.Errorf("collection %s: %w", collectionID, err)
+	}
+	if c == nil || c.ProjectID == "" {
+		return r.projectID, nil
+	}
+	return c.ProjectID, nil
+}
+
 // Notes expandTarget gives for a container that cannot open.
 const (
 	noteNoTarget       = "No target collection set"
 	noteSeveralTargets = "Several target collections"
 	noteNestingLimit   = "Nesting limit reached"
+	noteNoFields       = "Target collection has no fields"
 )
 
 // expandTarget returns the single target collection of a container field and
 // whether it may expand at the given nesting level (1-based). note explains a
-// refusal ("No target collection set", "Several target collections", "Nesting limit reached").
-func (r *slotResolver) expandTarget(field domain.ResolvedField, level int) (collectionID string, ok bool, note string) {
+// refusal ("No target collection set", "Several target collections",
+// "Nesting limit reached", "Target collection has no fields"). The error is
+// only for a failed collection view read.
+func (r *slotResolver) expandTarget(field domain.ResolvedField, level int) (collectionID string, ok bool, note string, err error) {
 	switch len(field.CollectionModels) {
 	case 0:
-		return "", false, noteNoTarget
+		return "", false, noteNoTarget, nil
 	case 1:
 	default:
-		return "", false, noteSeveralTargets
+		return "", false, noteSeveralTargets, nil
 	}
 	if level > r.maxDepth {
-		return "", false, noteNestingLimit
+		return "", false, noteNestingLimit, nil
 	}
-	return field.CollectionModels[0].ID, true, ""
+	collectionID = field.CollectionModels[0].ID
+	fields, err := r.collectionFields(collectionID)
+	if err != nil {
+		return "", false, "", err
+	}
+	if len(fields) == 0 {
+		return "", false, noteNoFields, nil
+	}
+	return collectionID, true, "", nil
 }
 
 // resolveAll resolves every value's slot path, in values order. The error
@@ -417,7 +462,11 @@ func (r *slotResolver) nestedCardinalityIssues(values []domain.ExampleValue, slo
 			return nil, err
 		}
 		for _, f := range fields {
-			issues = append(issues, fieldCardinalityIssues(r.cardinalityField(f, level), path, counts[slotCountKey(path, f.OverrideID)])...)
+			cf, err := r.cardinalityField(f, level)
+			if err != nil {
+				return nil, err
+			}
+			issues = append(issues, fieldCardinalityIssues(cf, path, counts[slotCountKey(path, f.OverrideID)])...)
 		}
 	}
 	return issues, nil
@@ -434,9 +483,9 @@ func (r *slotResolver) instanceFields(path string) ([]domain.ResolvedField, int,
 	if err != nil || rs.status != slotOK {
 		return nil, 0, err
 	}
-	collectionID, ok, _ := r.expandTarget(rs.field, rs.depth+1)
-	if !ok {
-		return nil, 0, nil
+	collectionID, ok, _, err := r.expandTarget(rs.field, rs.depth+1)
+	if err != nil || !ok {
+		return nil, 0, err
 	}
 	fields, err := r.collectionFields(collectionID)
 	return fields, rs.depth + 2, err
@@ -445,18 +494,20 @@ func (r *slotResolver) instanceFields(path string) ([]domain.ResolvedField, int,
 // cardinalityField is field as the cardinality checks see it when a
 // container among its siblings would open at nesting level (1 for a
 // model-level slot, 2 inside a nested collection). A Collection container
-// that cannot open there (no target, several targets, past the depth cap)
-// can never be filled, so it is neither required nor has a minimum;
-// max_occurs still applies.
-func (r *slotResolver) cardinalityField(field domain.ResolvedField, level int) domain.ResolvedField {
+// that cannot open there (no target, several targets, past the depth cap,
+// a target without fields) can never be filled, so it is neither required
+// nor has a minimum; max_occurs still applies. The error is only for a
+// failed collection view read.
+func (r *slotResolver) cardinalityField(field domain.ResolvedField, level int) (domain.ResolvedField, error) {
 	if strings.TrimSpace(field.ExpectedValueType) != expectedValueTypeCollection {
-		return field
+		return field, nil
 	}
-	if _, ok, _ := r.expandTarget(field, level); ok {
-		return field
+	_, ok, _, err := r.expandTarget(field, level)
+	if err != nil || ok {
+		return field, err
 	}
 	field.IsRequired, field.MinOccurs = false, 0
-	return field
+	return field, nil
 }
 
 // widgetNestedCollection is the form widget of a Collection-typed field: its
@@ -514,7 +565,10 @@ func (b *formBuilder) blank() *formBuilder {
 // Collection-typed field gets the nested-collection widget, no occurrences,
 // its target's template and its nested instances holding values.
 func (b *formBuilder) field(f domain.ResolvedField, path string, level int) (ExampleFormField, error) {
-	f = b.r.cardinalityField(f, level)
+	f, err := b.r.cardinalityField(f, level)
+	if err != nil {
+		return ExampleFormField{}, err
+	}
 	out := buildExampleField(f, b.byInstance[slotCountKey(path, f.OverrideID)], b.issuesByKey, path)
 	out.SlotPrefix = slotPrefix(path)
 	if strings.TrimSpace(f.ExpectedValueType) != expectedValueTypeCollection {
@@ -569,7 +623,10 @@ func (b *formBuilder) instanceEntry(container ExampleFormField, path string, lev
 // template describes container f's target collection at nesting level, with
 // a blank copy of its fields when it can open there.
 func (b *formBuilder) template(f domain.ResolvedField, level int) (*ExampleNestedCollection, error) {
-	collectionID, ok, note := b.r.expandTarget(f, level)
+	collectionID, ok, note, err := b.r.expandTarget(f, level)
+	if err != nil {
+		return nil, err
+	}
 	out := &ExampleNestedCollection{Expandable: ok, Note: note}
 	if len(f.CollectionModels) == 1 {
 		ref := f.CollectionModels[0]

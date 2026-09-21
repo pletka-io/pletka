@@ -822,7 +822,11 @@ func (s *Service) validateValues(ctx context.Context, projectID, modelID string,
 	if err != nil {
 		return domain.ExampleValidationReport{}, err
 	}
-	issues = append(issues, cardinalityIssues(resolver, view, counts, present)...)
+	modelIssues, err := cardinalityIssues(resolver, view, counts, present)
+	if err != nil {
+		return domain.ExampleValidationReport{}, err
+	}
+	issues = append(issues, modelIssues...)
 	issues = append(issues, nested...)
 	return domain.ExampleValidationReport{
 		Valid:  len(issues) == 0,
@@ -916,8 +920,9 @@ func groupInstances(collectionID string, present map[string]bool) []string {
 
 // cardinalityIssues checks required/min/max of every field slot within each
 // instance of its group, and the instance count of each placed group. A
-// container that cannot open is never required (see cardinalityField).
-func cardinalityIssues(r *slotResolver, view *domain.ModelView, counts map[string]int, present map[string]map[string]bool) []domain.ExampleIssue {
+// container that cannot open is never required (see cardinalityField). The
+// error is only for a failed collection view read.
+func cardinalityIssues(r *slotResolver, view *domain.ModelView, counts map[string]int, present map[string]map[string]bool) ([]domain.ExampleIssue, error) {
 	var issues []domain.ExampleIssue
 	for _, cat := range view.Categories {
 		for _, coll := range cat.Collections {
@@ -927,7 +932,11 @@ func cardinalityIssues(r *slotResolver, view *domain.ModelView, counts map[strin
 			}
 			for _, gp := range instances {
 				for _, field := range coll.Fields {
-					issues = append(issues, fieldCardinalityIssues(r.cardinalityField(field, 1), gp, counts[slotCountKey(gp, field.OverrideID)])...)
+					cf, err := r.cardinalityField(field, 1)
+					if err != nil {
+						return nil, err
+					}
+					issues = append(issues, fieldCardinalityIssues(cf, gp, counts[slotCountKey(gp, field.OverrideID)])...)
 				}
 			}
 			if coll.Placement != nil {
@@ -935,7 +944,7 @@ func cardinalityIssues(r *slotResolver, view *domain.ModelView, counts map[strin
 			}
 		}
 	}
-	return issues
+	return issues, nil
 }
 
 func fieldCardinalityIssues(field domain.ResolvedField, groupPath string, count int) []domain.ExampleIssue {

@@ -611,3 +611,101 @@ func TestServiceGetPlacesValueWithoutSlotPath(t *testing.T) {
 		t.Fatalf("issues = %+v, want no invalid_nesting", rec.Validation.Issues)
 	}
 }
+
+// ownedViews wraps fakeViews with the weave store's Collections() lookup:
+// owners maps a collection id to its owning project, and CollectionView in
+// any other project returns no fields, as the real override query does. It
+// records the project every CollectionView call was made with, and counts
+// ModelView and CollectionView calls.
+type ownedViews struct {
+	fakeViews
+	owners      map[string]string
+	projects    map[string][]string
+	modelCalls  int
+	collections map[string]int
+}
+
+func newOwnedViews(owners map[string]string) *ownedViews {
+	return &ownedViews{fakeViews: nestedViews(), owners: owners, projects: map[string][]string{}, collections: map[string]int{}}
+}
+
+func (v *ownedViews) ModelView(ctx context.Context, modelID, projectID string) (*domain.ModelView, error) {
+	v.modelCalls++
+	return v.fakeViews.ModelView(ctx, modelID, projectID)
+}
+
+func (v *ownedViews) CollectionView(ctx context.Context, collectionID, projectID string) ([]domain.ResolvedField, error) {
+	v.projects[collectionID] = append(v.projects[collectionID], projectID)
+	v.collections[collectionID]++
+	if owner, ok := v.owners[collectionID]; ok && owner != projectID {
+		return nil, nil // the override query filters on the owning project
+	}
+	return v.fakeViews.CollectionView(ctx, collectionID, projectID)
+}
+
+func (v *ownedViews) Collections() domain.WeaveCollectionStore {
+	return ownerStore{owners: v.owners}
+}
+
+// ownerStore answers GetByID from owners; every other method panics.
+type ownerStore struct {
+	domain.WeaveCollectionStore
+	owners map[string]string
+}
+
+func (s ownerStore) GetByID(_ context.Context, id string) (*domain.Collection, error) {
+	owner, ok := s.owners[id]
+	if !ok {
+		return nil, nil
+	}
+	c := &domain.Collection{}
+	c.ID, c.ProjectID = id, owner
+	return c, nil
+}
+
+// A container's target collection owned by another project (LA) is read in
+// that project, not the example's (P1).
+func TestServiceReadsNestedCollectionInOwningProject(t *testing.T) {
+	views := newOwnedViews(map[string]string{"LAC6": "LA"})
+	rec, err := createNested(NewService(newFakeStore(), views),
+		stringValue("C1:0/302:0/601:0", "F601", "1650"),
+		stringValue("C1:0/302:0/602:0", "F602", "1660"),
+	)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if !rec.Validation.Valid {
+		t.Fatalf("issues = %+v, want valid", rec.Validation.Issues)
+	}
+	for _, p := range views.projects["LAC6"] {
+		if p != "LA" {
+			t.Fatalf("CollectionView(LAC6) projects = %v, want only LA", views.projects["LAC6"])
+		}
+	}
+	if len(views.projects["LAC6"]) == 0 {
+		t.Fatal("CollectionView(LAC6) never called")
+	}
+}
+
+// A target collection without fields cannot open: the container is not
+// expandable, carries a note, and is never required.
+func TestServiceTargetWithoutFieldsNotExpandable(t *testing.T) {
+	views := nestedViews()
+	views.collections["LAC6"] = nil
+	nestedModelField(views, 302).IsRequired = true
+	nestedModelField(views, 302).MinOccurs = 1
+	svc := NewService(newFakeStore(), views)
+	f := formField(t, nestedFormSchema(t, svc, formschema.ModeCreate, ""), "C1", 0, 302)
+	if f.Nested == nil || f.Nested.Expandable || f.Nested.Note != "Target collection has no fields" {
+		t.Fatalf("302 nested = %+v, want not expandable with note", f.Nested)
+	}
+	rec, err := createNested(svc, stringValue("C1:0/21:0", "F21", "x"))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	for _, code := range []string{"missing_required_value", "min_occurs"} {
+		if got := issuesFor(rec.Validation.Issues, code, 302); len(got) != 0 {
+			t.Fatalf("%s on 302 = %+v, want none", code, got)
+		}
+	}
+}
