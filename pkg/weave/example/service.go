@@ -33,6 +33,7 @@ type Service struct {
 	maxDepth int
 }
 
+// ServiceOption configures a Service at construction.
 type ServiceOption func(*Service)
 
 // WithMaxNestingDepth sets the nesting cap; n <= 0 keeps the default.
@@ -69,6 +70,8 @@ func (s *Service) TargetName(ctx context.Context, modelID string) domain.Transla
 	return m.UIName
 }
 
+// NewService builds the example service; opts adjust defaults such as the
+// nesting depth cap.
 func NewService(store Store, views ViewReader, opts ...ServiceOption) *Service {
 	s := &Service{store: store, views: views, maxDepth: defaultMaxNestingDepth}
 	for _, opt := range opts {
@@ -173,16 +176,16 @@ type ExampleFormField struct {
 	SlotPrefix        string                  `json:"slot_prefix,omitempty"`
 	// Nested describes a Collection-typed field's target collection. Present
 	// on every Collection-typed field; Expandable false carries a Note.
-	Nested *ExampleNestedCollection `json:"nested,omitempty"`
+	Nested *NestedCollection `json:"nested,omitempty"`
 	// NestedInstances are the collection instances holding values, in
 	// order, each a group entry whose SlotPrefix is
 	// "<field slot_prefix><override>:<k>/".
 	NestedInstances []ExampleFormGroup `json:"nested_instances,omitempty"`
 }
 
-// ExampleNestedCollection is the target collection a Collection-typed field
+// NestedCollection is the target collection a Collection-typed field
 // opens in place.
-type ExampleNestedCollection struct {
+type NestedCollection struct {
 	CollectionID string              `json:"collection_id,omitempty"`
 	Label        domain.Translations `json:"label,omitempty"`
 	Expandable   bool                `json:"expandable"`

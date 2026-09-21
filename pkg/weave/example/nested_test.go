@@ -441,13 +441,13 @@ func nestedFormSchema(t *testing.T, svc *Service, mode, exampleID string) *Examp
 	return schema
 }
 
-// formField returns field overrideID of the entry for group groupID
-// instance instance in schema, or fails.
-func formField(t *testing.T, schema *ExampleFormSchema, groupID string, instance int, overrideID int64) ExampleFormField {
+// formField returns field overrideID of the fixture group C1's entry
+// instance 0 in schema, or fails.
+func formField(t *testing.T, schema *ExampleFormSchema, overrideID int64) ExampleFormField {
 	t.Helper()
 	for _, sec := range schema.Sections {
 		for _, g := range sec.Groups {
-			if g.ID != groupID || g.Instance != instance {
+			if g.ID != "C1" || g.Instance != 0 {
 				continue
 			}
 			for _, f := range g.Fields {
@@ -457,7 +457,7 @@ func formField(t *testing.T, schema *ExampleFormSchema, groupID string, instance
 			}
 		}
 	}
-	t.Fatalf("field %d not found in %s instance %d", overrideID, groupID, instance)
+	t.Fatalf("field %d not found in C1 instance 0", overrideID)
 	return ExampleFormField{}
 }
 
@@ -471,7 +471,7 @@ func overrideIDs(fields []ExampleFormField) []int64 {
 
 func TestBuildFormSchemaNestedTemplate(t *testing.T) {
 	schema := nestedFormSchema(t, NewService(newFakeStore(), nestedViews()), formschema.ModeCreate, "")
-	f := formField(t, schema, "C1", 0, 302)
+	f := formField(t, schema, 302)
 	if f.Widget != widgetNestedCollection || f.Occurrences != nil || f.NestedInstances != nil {
 		t.Fatalf("302 = widget %q occurrences %+v instances %+v, want nested-collection without either", f.Widget, f.Occurrences, f.NestedInstances)
 	}
@@ -499,7 +499,7 @@ func TestBuildFormSchemaNestedTemplate(t *testing.T) {
 	}
 
 	capped := nestedFormSchema(t, NewService(newFakeStore(), nestedViews(), WithMaxNestingDepth(1)), formschema.ModeCreate, "")
-	inner = formField(t, capped, "C1", 0, 302).Nested.Fields[2].Nested
+	inner = formField(t, capped, 302).Nested.Fields[2].Nested
 	if inner == nil || inner.Expandable || inner.Note != noteNestingLimit || len(inner.Fields) != 0 {
 		t.Fatalf("capped 603 nested = %+v, want not expandable with nesting limit note", inner)
 	}
@@ -516,7 +516,7 @@ func TestBuildFormSchemaNestedInstances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	f := formField(t, nestedFormSchema(t, svc, formschema.ModeEdit, rec.Example.ID), "C1", 0, 302)
+	f := formField(t, nestedFormSchema(t, svc, formschema.ModeEdit, rec.Example.ID), 302)
 	if len(f.NestedInstances) != 2 {
 		t.Fatalf("302 nested_instances = %+v, want 2", f.NestedInstances)
 	}
@@ -560,7 +560,7 @@ func TestBuildFormSchemaNestedDepthTwoAndContainerIssues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	f := formField(t, nestedFormSchema(t, svc, formschema.ModeEdit, rec.Example.ID), "C1", 0, 302)
+	f := formField(t, nestedFormSchema(t, svc, formschema.ModeEdit, rec.Example.ID), 302)
 	if len(f.Issues) != 1 || f.Issues[0].Code != "max_occurs" {
 		t.Fatalf("302 issues = %+v, want max_occurs", f.Issues)
 	}
@@ -585,14 +585,14 @@ func TestBuildFormSchemaContainerWithoutTarget(t *testing.T) {
 	nestedModelField(views, 303).IsRequired = true
 	nestedModelField(views, 303).MinOccurs = 1
 	schema := nestedFormSchema(t, NewService(newFakeStore(), views), formschema.ModeCreate, "")
-	f := formField(t, schema, "C1", 0, 303)
+	f := formField(t, schema, 303)
 	if f.Widget != widgetNestedCollection || f.Nested == nil || f.Nested.Expandable || f.Nested.Note != noteNoTarget || f.Nested.Fields != nil {
 		t.Fatalf("303 = widget %q nested %+v, want not expandable with note", f.Widget, f.Nested)
 	}
 	if f.Required || f.MinOccurs != 0 {
 		t.Fatalf("303 required=%v min_occurs=%d, want false/0 (a container that cannot open is never required)", f.Required, f.MinOccurs)
 	}
-	if f := formField(t, schema, "C1", 0, 304); f.Nested == nil || f.Nested.Expandable || f.Nested.Note != noteSeveralTargets {
+	if f := formField(t, schema, 304); f.Nested == nil || f.Nested.Expandable || f.Nested.Note != noteSeveralTargets {
 		t.Fatalf("304 nested = %+v, want several targets note", f.Nested)
 	}
 }
@@ -695,7 +695,7 @@ func TestServiceTargetWithoutFieldsNotExpandable(t *testing.T) {
 	nestedModelField(views, 302).IsRequired = true
 	nestedModelField(views, 302).MinOccurs = 1
 	svc := NewService(newFakeStore(), views)
-	f := formField(t, nestedFormSchema(t, svc, formschema.ModeCreate, ""), "C1", 0, 302)
+	f := formField(t, nestedFormSchema(t, svc, formschema.ModeCreate, ""), 302)
 	if f.Nested == nil || f.Nested.Expandable || f.Nested.Note != "Target collection has no fields" {
 		t.Fatalf("302 nested = %+v, want not expandable with note", f.Nested)
 	}

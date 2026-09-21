@@ -687,12 +687,12 @@ func (b *formBuilder) instanceEntry(container ExampleFormField, path string, lev
 
 // template describes container f's target collection at nesting level, with
 // a blank copy of its fields when it can open there.
-func (b *formBuilder) template(f domain.ResolvedField, level int) (*ExampleNestedCollection, error) {
+func (b *formBuilder) template(f domain.ResolvedField, level int) (*NestedCollection, error) {
 	collectionID, ok, note, err := b.r.expandTarget(f, level)
 	if err != nil {
 		return nil, err
 	}
-	out := &ExampleNestedCollection{Expandable: ok, Note: note}
+	out := &NestedCollection{Expandable: ok, Note: note}
 	if len(f.CollectionModels) == 1 {
 		ref := f.CollectionModels[0]
 		out.CollectionID, out.Label = ref.ID, ref.Name
