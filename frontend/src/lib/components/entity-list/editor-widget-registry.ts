@@ -6,7 +6,8 @@ export type EntityListEditorProps = {
   mode: 'create' | 'edit';
   itemId?: string;
   lang: string;
-  onsuccess?: () => void | Promise<void>;
+  /** savedId lets the list keep the saved item visible after reload. */
+  onsuccess?: (savedId?: string) => void | Promise<void>;
   oncancel?: () => void;
 };
 
