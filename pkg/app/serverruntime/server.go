@@ -58,6 +58,7 @@ type Config struct {
 	FrontendManifests         []app.FrontendManifestSet
 	AutocompleteMode          string
 	AutocompleteAllowOverride bool
+	ExamplesMaxNestingDepth   int
 	IntegrationSecretKey      string
 	Database                  database.Settings
 
@@ -126,6 +127,7 @@ func ConfigFromViper() Config {
 		ContentOverlayPath:        viper.GetString("content.overlay_path"),
 		AutocompleteMode:          viper.GetString("autocomplete.mode"),
 		AutocompleteAllowOverride: viper.GetBool("autocomplete.allow_per_request_override"),
+		ExamplesMaxNestingDepth:   viper.GetInt("examples.max_nesting_depth"),
 		IntegrationSecretKey:      viper.GetString("integrations.secret_key"),
 		Database:                  cliruntime.DatabaseSettingsFromViper().WithEnvOverrides(),
 	}
@@ -469,6 +471,7 @@ func buildApp(ctx context.Context, cfg Config, logger *slog.Logger, pool *pgxpoo
 		IntegrationCipher:         integrationCipher,
 		AutocompleteMode:          cfg.AutocompleteMode,
 		AutocompleteAllowOverride: cfg.AutocompleteAllowOverride,
+		ExamplesMaxNestingDepth:   cfg.ExamplesMaxNestingDepth,
 	}
 	appOptions.Contributions.StaticAssets = append(appOptions.Contributions.StaticAssets, cfg.StaticAssets...)
 	appOptions.Contributions.FrontendManifests = append(appOptions.Contributions.FrontendManifests, cfg.FrontendManifests...)

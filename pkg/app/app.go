@@ -74,6 +74,7 @@ type Options struct {
 
 	AutocompleteMode          string
 	AutocompleteAllowOverride bool
+	ExamplesMaxNestingDepth   int
 
 	ManagedConfigResolver hub.ManagedConfigResolver
 	ManagedLabelResolver  hub.ManagedLabelResolver
@@ -256,7 +257,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	searchHost := buildSearchHost(weaveStore, logger, publicationReader)
 	vocabularyHost := buildVocabularyHost(opts.Pool, weaveStore, logger, languages, langResolver)
 	entitySchemaHost := buildEntitySchemaHost(weaveStore, logger, languages, langResolver, i18nManager, organizationHost, publicationReader)
-	projectPageHost := buildProjectPageHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver, i18nManager, ontologyReader, ontologyVersionReader, publicationReader)
+	projectPageHost := buildProjectPageHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver, i18nManager, ontologyReader, ontologyVersionReader, publicationReader, opts.ExamplesMaxNestingDepth)
 	draftsHost := buildDraftsHost(weaveStore, logger)
 	settingsHost := buildSettingsHost(opts.Pool, weaveStore, logger, languages)
 	ontologySvc, ontologyAdminHost, ontologyAPIHost, ontologyPagesHost := buildOntologyHosts(
@@ -278,7 +279,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	}
 	membersHost := buildMembersHost(opts.Pool, logger, languages, langResolver)
 	releaseHost := buildReleaseHost(opts.Pool, logger, languages, langResolver)
-	exampleHost := buildExampleHost(opts.Pool, weaveStore, logger, languages, langResolver)
+	exampleHost := buildExampleHost(opts.Pool, weaveStore, logger, languages, langResolver, opts.ExamplesMaxNestingDepth)
 	namespaceBindingHost, namespaceSvc := buildNamespaceBindingHost(opts.Pool, logger, changeLog, languages, langResolver)
 	projectOntologyVersionHost := buildProjectOntologyVersionHost(
 		opts.Pool,

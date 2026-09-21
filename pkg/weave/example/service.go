@@ -20,11 +20,28 @@ const expectedValueTypeModel = "Model"
 
 type ViewReader interface {
 	ModelView(ctx context.Context, modelID, projectID string) (*domain.ModelView, error)
+	CollectionView(ctx context.Context, collectionID, projectID string) ([]domain.ResolvedField, error)
 }
 
+// defaultMaxNestingDepth is how many collection levels an example form opens
+// inside a Collection-typed field when examples.max_nesting_depth is unset.
+const defaultMaxNestingDepth = 2
+
 type Service struct {
-	store Store
-	views ViewReader
+	store    Store
+	views    ViewReader
+	maxDepth int
+}
+
+type ServiceOption func(*Service)
+
+// WithMaxNestingDepth sets the nesting cap; n <= 0 keeps the default.
+func WithMaxNestingDepth(n int) ServiceOption {
+	return func(s *Service) {
+		if n > 0 {
+			s.maxDepth = n
+		}
+	}
 }
 
 type conceptValidator interface {
@@ -52,8 +69,12 @@ func (s *Service) TargetName(ctx context.Context, modelID string) domain.Transla
 	return m.UIName
 }
 
-func NewService(store Store, views ViewReader) *Service {
-	return &Service{store: store, views: views}
+func NewService(store Store, views ViewReader, opts ...ServiceOption) *Service {
+	s := &Service{store: store, views: views, maxDepth: defaultMaxNestingDepth}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 type CreateInput struct {

@@ -73,11 +73,16 @@ func (s *fakeStore) ConceptURIAllowedForLists(_ context.Context, uri string, _ [
 }
 
 type fakeViews struct {
-	models map[string]*domain.ModelView
+	models      map[string]*domain.ModelView
+	collections map[string][]domain.ResolvedField
 }
 
 func (v fakeViews) ModelView(_ context.Context, modelID, _ string) (*domain.ModelView, error) {
 	return v.models[modelID], nil
+}
+
+func (v fakeViews) CollectionView(_ context.Context, collectionID, _ string) ([]domain.ResolvedField, error) {
+	return v.collections[collectionID], nil
 }
 
 func TestServiceCreateNormalizesValueKind(t *testing.T) {
