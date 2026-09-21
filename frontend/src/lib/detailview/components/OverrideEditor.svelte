@@ -1259,7 +1259,9 @@
 
         <div class="flex items-center justify-between gap-4 border-t border-gray-100 pt-4">
           <div class="text-sm text-gray-500">
-            {#if activeCategoryName()}
+            {#if !activeCategoryId || activeCategoryId === UNCATEGORIZED_ID}
+              Selected fields will be added to <span class="font-medium text-gray-700">Uncategorized</span>; collections are placed in their default category.
+            {:else if activeCategoryName()}
               Selected fields and collections will be added to <span class="font-medium text-gray-700">{activeCategoryName()}</span>.
             {:else}
               Selected items will be applied to the composition.
