@@ -302,12 +302,17 @@ type stubCandidate struct {
 //
 // Resolution and validation of every stub value happens first, so a guard
 // failure on a later value never leaves an earlier value's draft created;
-// only then does a second pass create the drafts and link them.
+// when there are drafts to create, every value's slot path is then checked
+// the way validateValues checks it on a write (checkStrictPaths), so a bad
+// nested path elsewhere in the request fails before any draft exists. Only
+// then does a second pass create the drafts and link them.
 //
-// ponytail: only a DB error on the parent save can now leave an unlinked
-// draft — stubs are still created before the parent is saved and are not
-// rolled back if that save fails afterwards; they are drafts and harmless.
-// Wrap in one transaction if that ever bites.
+// ponytail: an unlinked draft can still be left by a DB error on the parent
+// save, or by a write rejected after this point for a reason other than an
+// unresolvable path (wrong or duplicate group segment, a slot_path that
+// contradicts override_id/occurrence_index): stubs are created before the
+// parent is saved and are not rolled back; they are drafts and harmless. Wrap in one transaction
+// if that ever bites.
 func (s *Service) materializeStubs(ctx context.Context, resolver *slotResolver, lang string, values []domain.ExampleValue) error {
 	lang = strings.TrimSpace(lang)
 	if lang == "" {
@@ -335,6 +340,12 @@ func (s *Service) materializeStubs(ctx context.Context, resolver *slotResolver, 
 			return err
 		}
 		candidates = append(candidates, stubCandidate{index: i, target: target, label: label})
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	if err := resolver.checkStrictPaths(values); err != nil {
+		return err
 	}
 	// One draft per (target model, label) within this save: the same new
 	// entity typed into two fields links one record, not two.

@@ -323,6 +323,11 @@ func (r *slotResolver) resolveAll(values []domain.ExampleValue) ([]resolvedSlot,
 // depth-0 value on a removed slot stays a stale_override warning in both
 // modes, as before B.3.
 func (s *Service) checkValue(ctx context.Context, rs resolvedSlot, value domain.ExampleValue, strict bool) ([]domain.ExampleIssue, error) {
+	if strict {
+		if err := strictSlotError(rs, value); err != nil {
+			return nil, err
+		}
+	}
 	cp := containerPath(value.SlotPath)
 	var out []domain.ExampleIssue
 	switch rs.status {
@@ -335,14 +340,8 @@ func (s *Service) checkValue(ctx context.Context, rs resolvedSlot, value domain.
 	case slotMoved:
 		return []domain.ExampleIssue{movedGroupValueIssue(value, cp)}, nil
 	case slotUnknown:
-		if strict && rs.depth > 0 {
-			return nil, fmt.Errorf("value for field %s: slot_path %q does not resolve: %s", value.FieldID, value.SlotPath, rs.reason)
-		}
 		out = []domain.ExampleIssue{warningIssue("stale_override", nil, &value.OverrideID, &value.OccurrenceIndex, rs.reason)}
 	case slotInvalid:
-		if strict {
-			return nil, fmt.Errorf("value for field %s: slot_path %q does not resolve: %s", value.FieldID, value.SlotPath, rs.reason)
-		}
 		fieldID := value.FieldID
 		out = []domain.ExampleIssue{warningIssue("invalid_nesting", &fieldID, &value.OverrideID, &value.OccurrenceIndex, rs.reason)}
 	}
@@ -350,6 +349,31 @@ func (s *Service) checkValue(ctx context.Context, rs resolvedSlot, value domain.
 		out[i].GroupPath = cp
 	}
 	return out, nil
+}
+
+// strictSlotError is the input error a write (strict) returns for a value
+// whose path does not resolve: an invalid path, or an unknown override on a
+// nested path. It is nil for every other status.
+func strictSlotError(rs resolvedSlot, value domain.ExampleValue) error {
+	if rs.status == slotInvalid || (rs.status == slotUnknown && rs.depth > 0) {
+		return fmt.Errorf("value for field %s: slot_path %q does not resolve: %s", value.FieldID, value.SlotPath, rs.reason)
+	}
+	return nil
+}
+
+// checkStrictPaths returns the first strictSlotError among values, so a
+// write that validation will reject fails before it has side effects.
+func (r *slotResolver) checkStrictPaths(values []domain.ExampleValue) error {
+	for _, v := range values {
+		rs, err := r.resolve(valueSlotPath(v))
+		if err != nil {
+			return err
+		}
+		if err := strictSlotError(rs, v); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // compactInstances renumbers instances to 0..n-1 in their existing order at

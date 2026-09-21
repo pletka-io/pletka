@@ -737,3 +737,18 @@ func TestServiceOneResolverPerRequest(t *testing.T) {
 	nestedFormSchema(t, svc, formschema.ModeEdit, rec.Example.ID)
 	check("edit form")
 }
+
+// A write that fails on a bad nested path creates no stub draft, even when
+// another value carries a valid typed label.
+func TestServiceBadNestedPathCreatesNoStubDraft(t *testing.T) {
+	store := newFakeStore()
+	stub := stubValue("", "Rembrandt")
+	stub.OverrideID, stub.FieldID, stub.SlotPath = 0, "F604", "C1:0/302:0/604:0"
+	_, err := createNested(NewService(store, nestedViews()), stub, stringValue("C1:0/302:0/999:0", "F999", "x"))
+	if err == nil || !strings.Contains(err.Error(), "does not resolve") {
+		t.Fatalf("Create() error = %v, want an unresolvable slot_path error", err)
+	}
+	if len(store.examples) != 0 {
+		t.Fatalf("examples = %+v, want no draft created", store.examples)
+	}
+}
