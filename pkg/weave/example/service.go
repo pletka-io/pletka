@@ -1032,12 +1032,44 @@ func instancePath(slotPath string) string {
 	return ""
 }
 
+// compactGroupInstances renumbers each collection group's instances to
+// 0..n-1 in their existing order. The form always shows instance 0, so a
+// removed first instance must not leave a gap behind.
+func compactGroupInstances(values []domain.ExampleValue) {
+	seen := map[string]map[int]bool{}
+	for _, v := range values {
+		if coll, n, ok := domain.ParseExampleGroupSegment(instancePath(v.SlotPath)); ok {
+			if seen[coll] == nil {
+				seen[coll] = map[int]bool{}
+			}
+			seen[coll][n] = true
+		}
+	}
+	renumber := make(map[string]map[int]int, len(seen))
+	for coll, set := range seen {
+		m := make(map[int]int, len(set))
+		for i, n := range slices.Sorted(maps.Keys(set)) {
+			m[n] = i
+		}
+		renumber[coll] = m
+	}
+	for i := range values {
+		v := &values[i]
+		gp := instancePath(v.SlotPath)
+		coll, n, ok := domain.ParseExampleGroupSegment(gp)
+		if !ok || renumber[coll][n] == n {
+			continue
+		}
+		v.SlotPath = domain.ExampleGroupSegment(coll, renumber[coll][n]) + v.SlotPath[len(gp):]
+	}
+}
+
 // placeInGroups gives every value in a collection group its group segment.
 // A one-segment path on a grouped field is instance 0: rows saved before
 // step B.2 and clients that do not know about groups. A two-segment path
 // must name the group holding the field. Values on slots the model no
 // longer has are left alone; validation reports them as stale. Duplicate
-// paths are an input error.
+// paths are an input error. Group instances are then renumbered 0..n-1.
 func placeInGroups(values []domain.ExampleValue, groups map[int64]string) error {
 	seen := make(map[string]bool, len(values))
 	for i := range values {
@@ -1053,6 +1085,7 @@ func placeInGroups(values []domain.ExampleValue, groups map[int64]string) error 
 		}
 		seen[v.SlotPath] = true
 	}
+	compactGroupInstances(values)
 	return nil
 }
 

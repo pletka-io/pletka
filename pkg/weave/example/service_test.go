@@ -2,6 +2,7 @@ package example
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"testing"
 
@@ -1005,11 +1006,34 @@ func TestValidateValueIssueCarriesGroupPath(t *testing.T) {
 		t.Fatalf("validate error = %v", err)
 	}
 	for _, is := range report.Issues {
-		if is.Code == "wrong_value_kind" && is.GroupPath == "C1:3" {
+		if is.Code == "wrong_value_kind" && is.GroupPath == "C1:0" {
 			return
 		}
 	}
-	t.Fatalf("want wrong_value_kind in C1:3, got %+v", report.Issues)
+	t.Fatalf("want wrong_value_kind in C1:0, got %+v", report.Issues)
+}
+
+func TestServiceCreateCompactsGroupInstances(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	rec, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{
+			stringValue("C1:3/21:0", "F2", "c"),
+			stringValue("C1:1/21:0", "F2", "b"),
+			stringValue("C1:1/21:1", "F2", "b2"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	got := map[string]string{}
+	for _, v := range rec.Values {
+		got[v.SlotPath] = *v.ValuePayload.StringValue
+	}
+	want := map[string]string{"C1:0/21:0": "b", "C1:0/21:1": "b2", "C1:1/21:0": "c"}
+	if !maps.Equal(got, want) {
+		t.Fatalf("slot paths = %v, want %v", got, want)
+	}
 }
 
 // TestServiceBuildFormSchemaGroupInstancesInIndexOrder: a collection group
@@ -1055,14 +1079,14 @@ func TestServiceBuildFormSchemaGroupInstancesInIndexOrder(t *testing.T) {
 		t.Fatalf("C1 instance 0 field slot_prefix = %q, want C1:0/", c1a.Fields[0].SlotPrefix)
 	}
 	c1b := groups[2]
-	if c1b.ID != "C1" || c1b.Instance != 2 || c1b.SlotPrefix != "C1:2/" {
-		t.Fatalf("C1 instance 2 = %+v", c1b)
+	if c1b.ID != "C1" || c1b.Instance != 1 || c1b.SlotPrefix != "C1:1/" {
+		t.Fatalf("C1 instance 1 = %+v", c1b)
 	}
 	if len(c1b.Fields) != 1 || len(c1b.Fields[0].Occurrences) != 1 {
-		t.Fatalf("C1 instance 2 fields = %+v", c1b.Fields)
+		t.Fatalf("C1 instance 1 fields = %+v", c1b.Fields)
 	}
 	if got := c1b.Fields[0].Occurrences[0].Value.StringValue; got == nil || *got != "c" {
-		t.Fatalf("C1 instance 2 value = %#v, want c", got)
+		t.Fatalf("C1 instance 1 value = %#v, want c", got)
 	}
 }
 
