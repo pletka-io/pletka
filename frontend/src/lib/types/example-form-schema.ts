@@ -59,6 +59,20 @@ export interface ExampleFormField {
   issues?: ExampleIssue[];
   occurrences?: ExampleOccurrence[];
   slot_prefix?: string;
+  /** Present on a Collection-typed field (widget "nested-collection"): the blank template of the target collection. */
+  nested?: ExampleNestedCollection;
+  /** Instances of the nested collection that hold values, ordered by instance number. */
+  nested_instances?: ExampleFormGroup[];
+}
+
+export interface ExampleNestedCollection {
+  collection_id?: string;
+  label?: Translations;
+  /** False when the field cannot open (no single target, or the nesting limit); `note` says why. */
+  expandable: boolean;
+  note?: string;
+  /** Blank template fields with an empty slot_prefix; absent when not expandable. */
+  fields?: ExampleFormField[];
 }
 
 export interface ExampleFormGroup {

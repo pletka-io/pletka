@@ -260,7 +260,8 @@
     const next: Record<string, OccurrenceState[]> = {};
     const nextConceptLabels: Record<string, string> = {};
     for (const section of nextSchema.sections ?? []) {
-      for (const field of [...(section.direct_fields ?? []), ...(section.groups ?? []).flatMap((group) => group.fields ?? [])]) {
+      for (const field of allSectionFields(section)) {
+        if (isContainer(field)) continue;
         const key = fieldKey(field);
         const occurrences = (field.occurrences?.length ? field.occurrences : [{ occurrence_index: 0, value: undefined }]).map((occ) => ({
           occurrence_index: occ.occurrence_index,
@@ -283,7 +284,7 @@
   async function hydrateConceptLabels(nextSchema: ExampleFormSchema) {
     const uris = new Set<string>();
     for (const section of nextSchema.sections ?? []) {
-      for (const field of [...(section.direct_fields ?? []), ...(section.groups ?? []).flatMap((group) => group.fields ?? [])]) {
+      for (const field of allSectionFields(section)) {
         if (field.value_kind !== 'concept') continue;
         for (const occ of field.occurrences ?? []) {
           const uri = occ.value?.concept_uri?.trim();
@@ -319,7 +320,7 @@
     for (const [index, section] of (nextSchema.sections ?? []).entries()) {
       const summary = sectionSummary(section);
       nextSections[section.id] = index === 0 || summary.required_total > 0 || summary.errors > 0 || summary.warnings > 0;
-      for (const group of section.groups ?? []) {
+      for (const group of sectionGroups(section)) {
         const groupCounts = groupSummary(group);
         nextGroups[groupKey(group)] = groupCounts.required_total > 0 || groupCounts.errors > 0 || groupCounts.warnings > 0;
       }
@@ -337,26 +338,78 @@
     return group.slot_prefix || group.id;
   }
 
-  function groupSiblings(section: ExampleFormSection, group: ExampleFormGroup): ExampleFormGroup[] {
-    return (section.groups ?? []).filter((g) => g.id === group.id);
+  /** A Collection-typed field: it holds nested instances, never values of its own. */
+  function isContainer(field: ExampleFormField): boolean {
+    return field.widget === 'nested-collection' || field.nested != null;
   }
 
-  function groupTitle(section: ExampleFormSection, group: ExampleFormGroup): string {
+  /** A field followed by every field inside its nested instances, depth-first (render order). */
+  function fieldTree(field: ExampleFormField): ExampleFormField[] {
+    return [field, ...(field.nested_instances ?? []).flatMap(groupFields)];
+  }
+
+  /** Every field of a group, nested instance fields included. */
+  function groupFields(group: ExampleFormGroup): ExampleFormField[] {
+    return (group.fields ?? []).flatMap(fieldTree);
+  }
+
+  /** A group followed by every nested instance inside it, depth-first. */
+  function groupTree(group: ExampleFormGroup): ExampleFormGroup[] {
+    return [group, ...(group.fields ?? []).flatMap((f) => (f.nested_instances ?? []).flatMap(groupTree))];
+  }
+
+  /** Every group of a section, nested instances included. */
+  function sectionGroups(section: ExampleFormSection): ExampleFormGroup[] {
+    return (section.groups ?? []).flatMap(groupTree);
+  }
+
+  // A group instance is owned either by its section (top-level groups, told
+  // apart by id) or by its container field (nested instances).
+  type GroupOwner = ExampleFormSection | ExampleFormField;
+
+  function ownedByField(owner: GroupOwner): owner is ExampleFormField {
+    return 'override_id' in owner;
+  }
+
+  function groupSiblings(owner: GroupOwner, group: ExampleFormGroup): ExampleFormGroup[] {
+    if (ownedByField(owner)) return owner.nested_instances ?? [];
+    return (owner.groups ?? []).filter((g) => g.id === group.id);
+  }
+
+  function groupTitle(owner: GroupOwner, group: ExampleFormGroup): string {
     const label = translated(group.label, group.id);
-    const siblings = groupSiblings(section, group);
+    const siblings = groupSiblings(owner, group);
     if (siblings.length < 2) return label;
     return `${label} ${siblings.indexOf(group) + 1}`;
   }
 
-  function canAddInstance(section: ExampleFormSection, group: ExampleFormGroup): boolean {
-    if (!group.repeatable) return false;
-    const siblings = groupSiblings(section, group);
+  /** Top-level groups add under their last instance; nested instances add from their container field. */
+  function canAddInstance(owner: GroupOwner, group: ExampleFormGroup): boolean {
+    if (ownedByField(owner) || !group.repeatable) return false;
+    const siblings = groupSiblings(owner, group);
     if (siblings[siblings.length - 1] !== group) return false; // button sits under the last instance
     return group.max_occurs == null || siblings.length < group.max_occurs;
   }
 
-  function canRemoveInstance(section: ExampleFormSection, group: ExampleFormGroup): boolean {
-    return !!group.repeatable && groupSiblings(section, group).length > Math.max(1, group.min_occurs ?? 0);
+  /** Top-level groups keep one instance at least; nested instances are on demand and may go down to zero. */
+  function canRemoveInstance(owner: GroupOwner, group: ExampleFormGroup): boolean {
+    const count = groupSiblings(owner, group).length;
+    if (ownedByField(owner)) return count > Math.max(0, owner.min_occurs ?? 0);
+    return !!group.repeatable && count > Math.max(1, group.min_occurs ?? 0);
+  }
+
+  /** A fresh copy of a field for a new instance: new prefix, no issues, no values, no nested instances. */
+  function blankField(field: ExampleFormField, prefix: string): ExampleFormField {
+    if (isContainer(field)) return { ...field, slot_prefix: prefix, issues: [], occurrences: undefined, nested_instances: [] };
+    return { ...field, slot_prefix: prefix, issues: [], occurrences: [{ occurrence_index: 0 }] };
+  }
+
+  function withBlankValues(values: Record<string, OccurrenceState[]>, fields: ExampleFormField[]): Record<string, OccurrenceState[]> {
+    const next = { ...values };
+    for (const f of fields) {
+      if (!isContainer(f)) next[fieldKey(f)] = [{ occurrence_index: 0, value: payloadToInput(f, undefined) }];
+    }
+    return next;
   }
 
   function addGroupInstance(section: ExampleFormSection, group: ExampleFormGroup) {
@@ -365,20 +418,22 @@
     const next = Math.max(...siblings.map((g) => g.instance ?? 0)) + 1;
     const prefix = `${group.id}:${next}/`;
     const base = $state.snapshot(group) as ExampleFormGroup;
-    const fields = base.fields.map((f) => ({ ...f, slot_prefix: prefix, issues: [], occurrences: [] }));
+    const fields = base.fields.map((f) => blankField(f, prefix));
     const clone: ExampleFormGroup = { ...base, instance: next, slot_prefix: prefix, issues: [], fields };
     groups.splice(groups.indexOf(siblings[siblings.length - 1]) + 1, 0, clone);
     section.groups = groups;
-    const nextValues = { ...valuesByOverride };
-    for (const f of fields) nextValues[fieldKey(f)] = [{ occurrence_index: 0, value: payloadToInput(f, undefined) }];
-    valuesByOverride = nextValues;
+    valuesByOverride = withBlankValues(valuesByOverride, fields);
     expandedGroups = { ...expandedGroups, [groupKey(clone)]: true };
   }
 
-  function removeGroupInstance(section: ExampleFormSection, group: ExampleFormGroup) {
-    section.groups = (section.groups ?? []).filter((g) => g !== group);
+  function removeGroupInstance(owner: GroupOwner, group: ExampleFormGroup) {
+    if (ownedByField(owner)) {
+      owner.nested_instances = (owner.nested_instances ?? []).filter((g) => g !== group);
+    } else {
+      owner.groups = (owner.groups ?? []).filter((g) => g !== group);
+    }
     const nextValues = { ...valuesByOverride };
-    for (const f of group.fields) delete nextValues[fieldKey(f)];
+    for (const f of groupFields(group)) delete nextValues[fieldKey(f)];
     valuesByOverride = nextValues;
   }
 
@@ -392,7 +447,9 @@
     return Math.max(field.required ? 1 : 0, field.min_occurs ?? 0);
   }
 
+  /** Filled occurrences; for a container, its nested instances. */
   function fieldFilledCount(field: ExampleFormField): number {
+    if (isContainer(field)) return (field.nested_instances ?? []).length;
     return fieldOccurrences(field).filter((occ) => !occurrenceIsBlank(field, occ)).length;
   }
 
@@ -440,6 +497,7 @@
   }
 
   function fieldHasOverviewContent(field: ExampleFormField): boolean {
+    if (isContainer(field)) return (field.nested_instances ?? []).some(groupVisibleInOverview);
     return fieldHasAnyValue(field);
   }
 
@@ -462,8 +520,13 @@
     return fieldMatchesFilter(field) && fieldMatchesSearch(field);
   }
 
+  /** A field card shows when the field itself matches, or when something inside its nested instances does. */
+  function fieldCardVisibleInEdit(field: ExampleFormField): boolean {
+    return fieldVisibleInEdit(field) || (field.nested_instances ?? []).some(groupVisible);
+  }
+
   function allSectionFields(section: ExampleFormSection): ExampleFormField[] {
-    return [...(section.direct_fields ?? []), ...(section.groups ?? []).flatMap((group) => group.fields ?? [])];
+    return [...(section.direct_fields ?? []).flatMap(fieldTree), ...(section.groups ?? []).flatMap(groupFields)];
   }
 
   function searchMatchOrder(): string[] {
@@ -474,7 +537,7 @@
         if (fieldVisibleInEdit(field)) order.push(fieldKey(field));
       }
       for (const group of section.groups ?? []) {
-        for (const field of group.fields ?? []) {
+        for (const field of groupFields(group)) {
           if (fieldVisibleInEdit(field)) order.push(fieldKey(field));
         }
       }
@@ -519,7 +582,7 @@
       counts.errors += fieldIssues.errors;
       counts.warnings += fieldIssues.warnings;
     }
-    for (const group of section.groups ?? []) {
+    for (const group of sectionGroups(section)) {
       const groupIssues = issueCounts(group.issues);
       counts.errors += groupIssues.errors;
       counts.warnings += groupIssues.warnings;
@@ -537,7 +600,7 @@
       warnings: 0,
       has_value: false,
     };
-    for (const field of group.fields ?? []) {
+    for (const field of groupFields(group)) {
       if (!renderableField(field)) continue;
       const requiredCount = requiredMinimum(field);
       const filledCount = fieldFilledCount(field);
@@ -557,9 +620,11 @@
       counts.errors += fieldIssues.errors;
       counts.warnings += fieldIssues.warnings;
     }
-    const groupIssues = issueCounts(group.issues);
-    counts.errors += groupIssues.errors;
-    counts.warnings += groupIssues.warnings;
+    for (const g of groupTree(group)) {
+      const groupIssues = issueCounts(g.issues);
+      counts.errors += groupIssues.errors;
+      counts.warnings += groupIssues.warnings;
+    }
     return counts;
   }
 
@@ -594,7 +659,7 @@
   }
 
   function groupVisible(group: ExampleFormGroup): boolean {
-    return (group.fields ?? []).some((field) => fieldVisibleInEdit(field));
+    return groupFields(group).some((field) => fieldVisibleInEdit(field));
   }
 
   function sectionVisibleInOverview(section: ExampleFormSection): boolean {
@@ -627,7 +692,7 @@
     const nextGroups: Record<string, boolean> = {};
     for (const section of schema?.sections ?? []) {
       nextSections[section.id] = true;
-      for (const group of section.groups ?? []) {
+      for (const group of sectionGroups(section)) {
         nextGroups[groupKey(group)] = true;
       }
     }
@@ -641,7 +706,7 @@
     for (const [index, section] of (schema?.sections ?? []).entries()) {
       const summary = sectionSummary(section);
       nextSections[section.id] = index === 0 || summary.required_total > 0 || summary.errors > 0 || summary.warnings > 0;
-      for (const group of section.groups ?? []) {
+      for (const group of sectionGroups(section)) {
         const groupCounts = groupSummary(group);
         nextGroups[groupKey(group)] = groupCounts.required_total > 0 || groupCounts.errors > 0 || groupCounts.warnings > 0;
       }
@@ -657,8 +722,8 @@
       if (allSectionFields(section).some((field) => renderableField(field) && requiredMinimum(field) > 0)) {
         nextSections[section.id] = true;
       }
-      for (const group of section.groups ?? []) {
-        if ((group.fields ?? []).some((field) => renderableField(field) && requiredMinimum(field) > 0)) {
+      for (const group of sectionGroups(section)) {
+        if (groupFields(group).some((field) => renderableField(field) && requiredMinimum(field) > 0)) {
           nextGroups[groupKey(group)] = true;
         }
       }
@@ -674,8 +739,8 @@
       if (allSectionFields(section).some((field) => fieldHasIssues(field))) {
         nextSections[section.id] = true;
       }
-      for (const group of section.groups ?? []) {
-        if ((group.fields ?? []).some((field) => fieldHasIssues(field))) {
+      for (const group of sectionGroups(section)) {
+        if (groupFields(group).some((field) => fieldHasIssues(field))) {
           nextGroups[groupKey(group)] = true;
         }
       }
@@ -769,8 +834,8 @@
       if (allSectionFields(section).some((field) => fieldVisibleInEdit(field))) {
         nextSections[section.id] = true;
       }
-      for (const group of section.groups ?? []) {
-        if ((group.fields ?? []).some((field) => fieldVisibleInEdit(field))) {
+      for (const group of sectionGroups(section)) {
+        if (groupFields(group).some((field) => fieldVisibleInEdit(field))) {
           nextGroups[groupKey(group)] = true;
         }
       }
@@ -1056,8 +1121,8 @@
     if (!schema) return [];
     const out: Array<Record<string, any>> = [];
     for (const section of schema.sections ?? []) {
-      const fields = [...(section.direct_fields ?? []), ...(section.groups ?? []).flatMap((group) => group.fields ?? [])];
-      for (const field of fields) {
+      for (const field of allSectionFields(section)) {
+        if (isContainer(field)) continue;
         for (const occurrence of fieldOccurrences(field)) {
           if (occurrenceIsBlank(field, occurrence)) continue;
           out.push({
@@ -1078,8 +1143,8 @@
   function firstStubWithoutTarget(): string | null {
     if (!schema) return null;
     for (const section of schema.sections ?? []) {
-      const fields = [...(section.direct_fields ?? []), ...(section.groups ?? []).flatMap((group) => group.fields ?? [])];
-      for (const field of fields) {
+      for (const field of allSectionFields(section)) {
+        if (isContainer(field)) continue;
         for (const occurrence of fieldOccurrences(field)) {
           if (!occurrenceIsStub(field, occurrence)) continue;
           const models = field.resource_models ?? [];
@@ -1336,7 +1401,7 @@
                                               </div>
                                             {/if}
                                           </div>
-                                          {#if field.repeatable}
+                                          {#if field.repeatable && !isContainer(field)}
                                             <button type="button" class="text-sm font-medium text-pletka-primary hover:text-pletka-secondary" onclick={() => addOccurrence(field)}>+ Add value</button>
                                           {/if}
                                         </div>
@@ -1354,6 +1419,7 @@
                                             {/each}
                                           </ul>
                                         {/if}
+                                        {#if !isContainer(field)}
                                         <div class="space-y-3">
                                           {#each fieldOccurrences(field) as occurrence, occurrenceIdx (occurrence.occurrence_index)}
                                             {@const fieldDef = occurrenceFieldDef(field, occurrence.occurrence_index)}
@@ -1461,6 +1527,7 @@
                                             </div>
                                           {/each}
                                         </div>
+                                        {/if}
                                       </div>
                                     {/if}
                                   {/each}
