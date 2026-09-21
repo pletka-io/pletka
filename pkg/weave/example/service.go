@@ -559,7 +559,7 @@ func settleSlot(v *domain.ExampleValue) error {
 	if !ok {
 		return fmt.Errorf("value for field %s: malformed slot_path %q", v.FieldID, v.SlotPath)
 	}
-	if domain.ExampleSlotDepth(v.SlotPath) > 1 {
+	if domain.ExampleSlotDepth(v.SlotPath) > 2 {
 		return fmt.Errorf("value for field %s: nested slot_path %q is not supported yet", v.FieldID, v.SlotPath)
 	}
 	if v.OverrideID == 0 {
@@ -638,6 +638,9 @@ func deriveStatus(values []domain.ExampleValue, report domain.ExampleValidationR
 func (s *Service) validateModelValues(ctx context.Context, projectID, modelID string, values []domain.ExampleValue) (domain.ExampleValidationReport, error) {
 	view, err := s.views.ModelView(ctx, modelID, projectID)
 	if err != nil {
+		return domain.ExampleValidationReport{}, err
+	}
+	if err := placeInGroups(values, groupOfOverride(view)); err != nil {
 		return domain.ExampleValidationReport{}, err
 	}
 	fieldByOverride := map[int64]domain.ResolvedField{}
@@ -810,6 +813,76 @@ func widgetForExpectedType(expected string) string {
 	default:
 		return formschema.WidgetText
 	}
+}
+
+// directGroupID is the resolver's bucket for fields placed on the model
+// outside any collection (pkg/weave resolve.go directKey).
+const directGroupID = "__direct__"
+
+// groupOfOverride maps every field slot on the model to the id of the
+// collection group holding it; "" for direct fields.
+func groupOfOverride(view *domain.ModelView) map[int64]string {
+	out := map[int64]string{}
+	for _, cat := range view.Categories {
+		for _, coll := range cat.Collections {
+			group := coll.ID
+			if group == directGroupID {
+				group = ""
+			}
+			for _, f := range coll.Fields {
+				out[f.OverrideID] = group
+			}
+		}
+	}
+	return out
+}
+
+// instancePath is the group segment of a two-segment slot path ("C1:1" for
+// "C1:1/21:0"); "" for a one-segment path.
+func instancePath(slotPath string) string {
+	if i := strings.Index(slotPath, "/"); i >= 0 {
+		return slotPath[:i]
+	}
+	return ""
+}
+
+// placeInGroups gives every value in a collection group its group segment.
+// A one-segment path on a grouped field is instance 0: rows saved before
+// step B.2 and clients that do not know about groups. A two-segment path
+// must name the group holding the field. Values on slots the model no
+// longer has are left alone; validation reports them as stale. Duplicate
+// paths are an input error.
+func placeInGroups(values []domain.ExampleValue, groups map[int64]string) error {
+	seen := make(map[string]bool, len(values))
+	for i := range values {
+		v := &values[i]
+		group, known := groups[v.OverrideID]
+		if known {
+			if err := placeValue(v, group); err != nil {
+				return err
+			}
+		}
+		if seen[v.SlotPath] {
+			return fmt.Errorf("value for field %s: duplicate slot_path %q", v.FieldID, v.SlotPath)
+		}
+		seen[v.SlotPath] = true
+	}
+	return nil
+}
+
+func placeValue(v *domain.ExampleValue, group string) error {
+	gp := instancePath(v.SlotPath)
+	if gp == "" {
+		if group != "" {
+			v.SlotPath = domain.ExampleGroupSegment(group, 0) + "/" + v.SlotPath
+		}
+		return nil
+	}
+	coll, _, ok := domain.ParseExampleGroupSegment(gp)
+	if !ok || coll != group {
+		return fmt.Errorf("value for field %s: slot_path %q does not match the group holding field slot %d", v.FieldID, v.SlotPath, v.OverrideID)
+	}
+	return nil
 }
 
 func issueKey(overrideID int64, occurrenceIndex int) string {

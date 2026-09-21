@@ -278,6 +278,7 @@ func TestValidateModelValuesFlagsWrongKindAndStaleOverride(t *testing.T) {
 
 	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
 		{
+			SlotPath:        "11:0",
 			OverrideID:      11,
 			FieldID:         "F1",
 			OccurrenceIndex: 0,
@@ -288,6 +289,7 @@ func TestValidateModelValuesFlagsWrongKindAndStaleOverride(t *testing.T) {
 			},
 		},
 		{
+			SlotPath:        "999:0",
 			OverrideID:      999,
 			FieldID:         "F9",
 			OccurrenceIndex: 0,
@@ -815,7 +817,7 @@ func TestServiceCreateRejectsNestedSlotPathForNow(t *testing.T) {
 	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
 	_, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
-		Values: []domain.ExampleValue{{SlotPath: "1:0/11:0", FieldID: "F1", ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("c")}}},
+		Values: []domain.ExampleValue{{SlotPath: "C1:0/1:0/11:0", FieldID: "F1", ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("c")}}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "nested slot_path") {
 		t.Fatalf("err = %v, want nested slot_path error", err)
@@ -830,5 +832,92 @@ func TestServiceCreateRejectsContradictorySlotPath(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "disagrees") {
 		t.Fatalf("err = %v, want disagreement error", err)
+	}
+}
+
+// groupedModelView is M1 with one direct field (override 11, F1) and one
+// collection group C1 holding the given fields.
+func groupedModelView(placement *domain.CollectionPlacement, fields ...domain.ResolvedField) *domain.ModelView {
+	return &domain.ModelView{
+		ModelID:   "M1",
+		ProjectID: "P1",
+		Categories: []domain.CategoryGroup{{
+			ID:       "CAT1",
+			Name:     domain.Translations{"en": "Main"},
+			Position: 1,
+			Collections: []domain.CollectionGroup{
+				{ID: "__direct__", Name: domain.Translations{"en": "Direct Fields"}, Fields: []domain.ResolvedField{resolvedField(11, "F1", "Field", "String", false, 0, nil)}},
+				{ID: "C1", Name: domain.Translations{"en": "Name"}, Position: 1, Fields: fields, Placement: placement},
+			},
+		}},
+	}
+}
+
+func stringValue(slotPath, fieldID, text string) domain.ExampleValue {
+	return domain.ExampleValue{SlotPath: slotPath, FieldID: fieldID, ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr(text)}}
+}
+
+func TestServiceCreatePlacesGroupedDepthOneValueInInstanceZero(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	rec, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stringValue("21:0", "F2", "a"), stringValue("11:0", "F1", "b")},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	got := map[string]bool{}
+	for _, v := range rec.Values {
+		got[v.SlotPath] = true
+	}
+	if !got["C1:0/21:0"] || !got["11:0"] {
+		t.Fatalf("slot paths = %v, want C1:0/21:0 and 11:0", got)
+	}
+}
+
+func TestServiceCreateKeepsGroupInstancePath(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	rec, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:1/21:0", "F2", "b")},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	for _, v := range rec.Values {
+		if v.OverrideID != 21 || v.OccurrenceIndex != 0 {
+			t.Fatalf("leaf not derived: %+v", v)
+		}
+	}
+	if len(rec.Values) != 2 {
+		t.Fatalf("values = %d, want 2", len(rec.Values))
+	}
+}
+
+func TestServiceCreateRejectsWrongGroupSegment(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	for _, path := range []string{"C9:0/21:0", "C1:0/11:0", "C1:01/21:0"} {
+		fieldID := "F2"
+		if strings.HasSuffix(path, "/11:0") {
+			fieldID = "F1"
+		}
+		_, err := svc.Create(context.Background(), "P1", CreateInput{
+			EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+			Values: []domain.ExampleValue{stringValue(path, fieldID, "a")},
+		})
+		if err == nil || !strings.Contains(err.Error(), "does not match the group") {
+			t.Errorf("path %s: err = %v, want group mismatch", path, err)
+		}
+	}
+}
+
+func TestServiceCreateRejectsDuplicateSlotPath(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	_, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stringValue("21:0", "F2", "a"), stringValue("C1:0/21:0", "F2", "b")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "duplicate slot_path") {
+		t.Fatalf("err = %v, want duplicate slot_path", err)
 	}
 }
