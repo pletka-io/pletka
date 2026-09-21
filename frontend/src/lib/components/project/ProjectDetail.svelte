@@ -33,7 +33,17 @@
 
   const activeContent = $derived(state.tabContent.get(state.activeTabId));
 
+  // svelte-ignore non_reactive_update
+  let listReset = 0;
+
   function handleTabClick(tabId: string) {
+    // Clicking the tab you are already on closes whatever the list has open
+    // (George: "clicking Examples should take me back to the list").
+    if (state.findTab(tabId)?.id === state.activeTabId) {
+      state.writeHashItem(null);
+      listReset += 1;
+      return;
+    }
     state.setActiveTab(tabId);
   }
 
@@ -110,7 +120,7 @@
 
     <div>
       {#if activeTab && state.isEntityListTab(activeTab) && activeTab.content_url}
-        {#key activeTab.id}
+        {#key `${activeTab.id}:${listReset}`}
           <EntityListView
             schemaUrl={activeTab.content_url}
             onmutate={() => state.refreshCounts()}
