@@ -1145,11 +1145,13 @@
         notes.push('Links to another example');
       }
     }
+    // A container counts nested instances, not values.
+    const noun = isContainer(field) ? 'instance(s)' : 'value(s)';
     if (field.repeatable && field.max_occurs != null) {
-      notes.push(`Up to ${field.max_occurs} value(s)`);
+      notes.push(`Up to ${field.max_occurs} ${noun}`);
     }
     if (field.min_occurs && field.min_occurs > 1) {
-      notes.push(`At least ${field.min_occurs} value(s) required`);
+      notes.push(`At least ${field.min_occurs} ${noun} required`);
     }
     return notes;
   }

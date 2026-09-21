@@ -41,10 +41,9 @@ func slotSegments(path string) (group string, fields []string, ok bool) {
 	return group, segs, true
 }
 
+// isFieldSegment reports whether seg, one segment already split on "/", is
+// a field segment "<override>:<occurrence>".
 func isFieldSegment(seg string) bool {
-	if strings.Contains(seg, "/") {
-		return false
-	}
 	_, _, ok := domain.ParseExampleSlotLeaf(seg)
 	return ok
 }
@@ -726,8 +725,11 @@ func (b *formBuilder) template(f domain.ResolvedField, level int) (*ExampleNeste
 	return out, nil
 }
 
-// cloneFormFields deep-copies template fields so no two places in a form
-// share a template's slices.
+// cloneFormFields copies template fields so no two places in a form share a
+// template's mutable parts: the fields slice, each field's Occurrences, and
+// each Nested (with its Fields, recursively). Read-only metadata stays
+// shared: Translations maps, ref slices (ResourceModels, CollectionModels,
+// ConceptLists, ConceptSources) and Issues.
 func cloneFormFields(fields []ExampleFormField) []ExampleFormField {
 	out := slices.Clone(fields)
 	for i := range out {

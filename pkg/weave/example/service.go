@@ -971,17 +971,23 @@ func cardinalityIssues(r *slotResolver, view *domain.ModelView, counts map[strin
 	return issues, nil
 }
 
+// fieldCardinalityIssues checks required/min/max of one field slot given
+// its count: values, or nested instances for a Collection container.
 func fieldCardinalityIssues(field domain.ResolvedField, groupPath string, count int) []domain.ExampleIssue {
 	fieldID, overrideID := field.ID, field.OverrideID
+	noun := "value(s)"
+	if strings.TrimSpace(field.ExpectedValueType) == expectedValueTypeCollection {
+		noun = "instance(s)"
+	}
 	var out []domain.ExampleIssue
 	if field.IsRequired && count == 0 {
 		out = append(out, errorIssue("missing_required_value", &fieldID, &overrideID, nil, "This required field has no value."))
 	}
 	if count < field.MinOccurs {
-		out = append(out, errorIssue("min_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At least %d value(s) are required.", field.MinOccurs)))
+		out = append(out, errorIssue("min_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At least %d %s are required.", field.MinOccurs, noun)))
 	}
 	if field.MaxOccurs != nil && count > *field.MaxOccurs {
-		out = append(out, errorIssue("max_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At most %d value(s) are allowed.", *field.MaxOccurs)))
+		out = append(out, errorIssue("max_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At most %d %s are allowed.", *field.MaxOccurs, noun)))
 	}
 	for i := range out {
 		out[i].GroupPath = groupPath

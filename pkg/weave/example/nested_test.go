@@ -770,3 +770,24 @@ func TestBuildFormSchemaUnplacedValueIssueGoesToTop(t *testing.T) {
 		t.Fatalf("schema issues = %+v, want the invalid_nesting issue", schema.Issues)
 	}
 }
+
+// Container cardinality messages count instances, not values; a normal
+// field keeps "value(s)".
+func TestFieldCardinalityIssuesContainerWording(t *testing.T) {
+	one := 1
+	container := resolvedField(302, "F302", "When", expectedValueTypeCollection, false, 2, &one)
+	msgs := map[string]string{}
+	for _, is := range fieldCardinalityIssues(container, "C1:0", 0) {
+		msgs[is.Code] = is.Message["en"]
+	}
+	for _, is := range fieldCardinalityIssues(container, "C1:0", 3) {
+		msgs[is.Code] = is.Message["en"]
+	}
+	if msgs["min_occurs"] != "At least 2 instance(s) are required." || msgs["max_occurs"] != "At most 1 instance(s) are allowed." {
+		t.Fatalf("container messages = %v", msgs)
+	}
+	plain := resolvedField(21, "F21", "Name", "String", false, 2, nil)
+	if got := fieldCardinalityIssues(plain, "", 0); len(got) != 1 || got[0].Message["en"] != "At least 2 value(s) are required." {
+		t.Fatalf("plain field messages = %+v", got)
+	}
+}
