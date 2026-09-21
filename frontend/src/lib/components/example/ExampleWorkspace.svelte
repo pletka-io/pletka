@@ -767,9 +767,13 @@
     }
   }
 
-  function isBlank(field: ExampleFormField, raw: string): boolean {
-    if (field.value_kind === 'concept' && field.set_value) return raw.trim() === '';
-    return raw.trim() === '';
+  /** Occurrence values are strings, except that a number input binds a number; read them through this. */
+  function text(v: unknown): string {
+    return v == null ? '' : String(v);
+  }
+
+  function isBlank(field: ExampleFormField, raw: unknown): boolean {
+    return text(raw).trim() === '';
   }
 
   function soleResourceModel(field: ExampleFormField): string {
@@ -782,7 +786,7 @@
       field.value_kind === 'example_ref' &&
       (field.expected_value_type || '').trim() === 'Model' &&
       (field.resource_models ?? []).length > 0 &&
-      !occurrence.value.trim() &&
+      !text(occurrence.value).trim() &&
       Boolean(occurrence.stub_label?.trim())
     );
   }
@@ -870,7 +874,7 @@
   /** Page URL of the example an occurrence links to, or '' for stubs, blanks and non-ref fields. */
   function occurrenceLinkURL(field: ExampleFormField, occurrence: OccurrenceState): string {
     if (field.value_kind !== 'example_ref' || occurrenceIsStub(field, occurrence)) return '';
-    const id = occurrence.value?.trim() ?? '';
+    const id = text(occurrence.value).trim();
     return id ? examplePageURL(id) : '';
   }
 
@@ -935,7 +939,7 @@
     if (occurrenceIsStub(field, occurrence)) {
       return `${occurrence.stub_label!.trim()} (new draft)`;
     }
-    const raw = occurrence.value?.trim() ?? '';
+    const raw = text(occurrence.value).trim();
     if (!raw) return '';
     if (field.value_kind === 'example_ref') {
       const linked = availableExamples.find((example) => example.id === raw);
@@ -951,7 +955,7 @@
   }
 
   function occurrenceTechnicalValue(field: ExampleFormField, occurrence: OccurrenceState): string {
-    const raw = occurrence.value?.trim() ?? '';
+    const raw = text(occurrence.value).trim();
     if (!raw) return '';
     if (field.value_kind === 'concept' && conceptLabelsByURI[raw] && conceptLabelsByURI[raw] !== raw) {
       return raw;
@@ -1004,7 +1008,7 @@
             occurrence_index: occurrence.occurrence_index,
             value_kind: field.value_kind,
             value_payload:
-              field.value_kind === 'example_ref' ? refPayload(field, occurrence) : inputToPayload(field, occurrence.value),
+              field.value_kind === 'example_ref' ? refPayload(field, occurrence) : inputToPayload(field, text(occurrence.value)),
           });
         }
       }
@@ -1116,7 +1120,7 @@
     <div class="flex items-center justify-between">
       <div>
         <h3 class="text-lg font-semibold text-gray-900">
-          {currentMode === 'create' ? `New ${selectedModelLabel || ''} example`.replace('  ', ' ') : `Editing ${selectedModelLabel || 'example'}`}
+          {currentMode === 'create' ? `New ${selectedModelLabel || ''} example`.replace('  ', ' ') : `Editing ${selectedModelLabel ? `${selectedModelLabel} example` : 'example'}`}
           {#if currentMode !== 'create'}
             <span class="ml-2 align-middle font-mono text-xs font-normal text-gray-400">{currentExampleId}</span>
           {/if}

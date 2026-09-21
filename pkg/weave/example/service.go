@@ -35,9 +35,9 @@ type modelNamer interface {
 	Models() domain.WeaveModelStore
 }
 
-// targetName returns the model's display name when the view reader can look
+// TargetName returns the model's display name when the view reader can look
 // it up, else the id.
-func (s *Service) targetName(ctx context.Context, modelID string) domain.Translations {
+func (s *Service) TargetName(ctx context.Context, modelID string) domain.Translations {
 	fallback := domain.Translations{"en": modelID}
 	namer, ok := s.views.(modelNamer)
 	if !ok {
@@ -452,7 +452,7 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 		Target: ExampleFormTarget{
 			EntityType: string(domain.ExampleEntityTypeModel),
 			EntityID:   modelID,
-			Name:       s.targetName(ctx, modelID),
+			Name:       s.TargetName(ctx, modelID),
 		},
 		Sections: sections,
 		Issues:   topIssues,

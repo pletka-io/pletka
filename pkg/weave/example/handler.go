@@ -101,17 +101,33 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		EntityType      string              `json:"entity_type"`
 		EntityTypeLabel string              `json:"entity_type_label"`
 		EntityID        string              `json:"entity_id"`
+		EntityName      string              `json:"entity_name,omitempty"`
 		Title           domain.Translations `json:"title,omitempty"`
 		Description     domain.Translations `json:"description,omitempty"`
 		Status          string              `json:"status"`
 		UpdatedAt       any                 `json:"updated_at,omitempty"`
 		CreatedAt       any                 `json:"created_at,omitempty"`
 	}
+	lang := "en"
+	if h.lang != nil {
+		lang = h.lang(r)
+	}
+	// Display name of the target model next to its id, so the list reads
+	// "Physical Thing LAM.10" rather than ids alone; one lookup per model.
+	names := map[string]string{}
 	rows := make([]item, 0, len(items))
 	for _, ex := range items {
 		label := "Model"
 		if ex.EntityType == domain.ExampleEntityTypeCollection {
 			label = "Collection"
+		}
+		name, ok := names[ex.EntityID]
+		if !ok && ex.EntityType == domain.ExampleEntityTypeModel {
+			name = h.svc.TargetName(r.Context(), ex.EntityID).Get(lang)
+			if name == ex.EntityID {
+				name = ""
+			}
+			names[ex.EntityID] = name
 		}
 		rows = append(rows, item{
 			ID:              ex.ID,
@@ -119,6 +135,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			EntityType:      string(ex.EntityType),
 			EntityTypeLabel: label,
 			EntityID:        ex.EntityID,
+			EntityName:      name,
 			Title:           ex.Title,
 			Description:     ex.Description,
 			Status:          string(ex.Status),
