@@ -166,7 +166,10 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 	if err := s.materializeStubs(ctx, projectID, in.EntityID, in.Lang, in.Values); err != nil {
 		return nil, err
 	}
-	values := normalizeValues(in.Values)
+	values, err := normalizeValues(in.Values)
+	if err != nil {
+		return nil, err
+	}
 	report, err := s.validateModelValues(ctx, projectID, in.EntityID, values)
 	if err != nil {
 		return nil, err
@@ -199,7 +202,10 @@ func (s *Service) Update(ctx context.Context, projectID, exampleID string, in Up
 	if err := s.materializeStubs(ctx, projectID, ex.EntityID, in.Lang, in.Values); err != nil {
 		return nil, err
 	}
-	values := normalizeValues(in.Values)
+	values, err := normalizeValues(in.Values)
+	if err != nil {
+		return nil, err
+	}
 	report, err := s.validateModelValues(ctx, projectID, ex.EntityID, values)
 	if err != nil {
 		return nil, err
@@ -517,20 +523,49 @@ func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, iss
 	return out
 }
 
-func normalizeValues(values []domain.ExampleValue) []domain.ExampleValue {
+// normalizeValues copies values, fixes their kinds and columns, and settles
+// the slot path: filled from override+occurrence when absent, or the leaf
+// override+occurrence derived from it when only the path was sent. A
+// malformed path is an input error.
+func normalizeValues(values []domain.ExampleValue) ([]domain.ExampleValue, error) {
 	out := make([]domain.ExampleValue, len(values))
 	copy(out, values)
 	for i := range out {
+		if err := settleSlot(&out[i]); err != nil {
+			return nil, err
+		}
 		out[i].ValueKind = normalizePayload(&out[i].ValuePayload, out[i].ValueKind)
 		projectPayloadColumns(&out[i])
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].OverrideID == out[j].OverrideID {
+		if out[i].OverrideID != out[j].OverrideID {
+			return out[i].OverrideID < out[j].OverrideID
+		}
+		if out[i].OccurrenceIndex != out[j].OccurrenceIndex {
 			return out[i].OccurrenceIndex < out[j].OccurrenceIndex
 		}
-		return out[i].OverrideID < out[j].OverrideID
+		return out[i].SlotPath < out[j].SlotPath
 	})
-	return out
+	return out, nil
+}
+
+// settleSlot reconciles SlotPath with OverrideID/OccurrenceIndex.
+func settleSlot(v *domain.ExampleValue) error {
+	if v.SlotPath == "" {
+		v.SlotPath = domain.ExampleSlot(v.OverrideID, v.OccurrenceIndex)
+		return nil
+	}
+	oid, occ, ok := domain.ParseExampleSlotLeaf(v.SlotPath)
+	if !ok {
+		return fmt.Errorf("value for field %s: malformed slot_path %q", v.FieldID, v.SlotPath)
+	}
+	if v.OverrideID == 0 {
+		v.OverrideID = oid
+		v.OccurrenceIndex = occ
+	} else if v.OverrideID != oid || v.OccurrenceIndex != occ {
+		return fmt.Errorf("value for field %s: slot_path %q disagrees with override_id %d / occurrence_index %d", v.FieldID, v.SlotPath, v.OverrideID, v.OccurrenceIndex)
+	}
+	return nil
 }
 
 func normalizePayload(payload *domain.ExampleValuePayload, fallback domain.ExampleValueKind) domain.ExampleValueKind {

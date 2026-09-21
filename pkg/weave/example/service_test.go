@@ -749,3 +749,64 @@ func TestBuildFormSchemaKeepsCollectionOrderIncludingDirectFields(t *testing.T) 
 		t.Fatalf("direct group = %+v", sec.Groups[1])
 	}
 }
+
+// TestServiceCreateFillsSlotPath: today's clients send override_id +
+// occurrence_index only; the service derives the depth-one slot path.
+func TestServiceCreateFillsSlotPath(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
+	record, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{
+			{OverrideID: 11, FieldID: "F1", OccurrenceIndex: 1, ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("b")}},
+			{OverrideID: 11, FieldID: "F1", OccurrenceIndex: 0, ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("a")}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if got := record.Values[0].SlotPath; got != "11:0" {
+		t.Fatalf("values[0].SlotPath = %q, want 11:0 (sorted first)", got)
+	}
+	if got := record.Values[1].SlotPath; got != "11:1" {
+		t.Fatalf("values[1].SlotPath = %q, want 11:1", got)
+	}
+	if got := store.values[record.Example.ID][0].SlotPath; got != "11:0" {
+		t.Fatalf("stored SlotPath = %q", got)
+	}
+}
+
+// TestServiceCreateDerivesLeafFromSlotPath: a value that arrives with only a
+// slot path gets override_id/occurrence_index derived, so validation and the
+// old columns keep working.
+func TestServiceCreateDerivesLeafFromSlotPath(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
+	record, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{
+			{SlotPath: "11:2", FieldID: "F1", ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("c")}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	v := record.Values[0]
+	if v.OverrideID != 11 || v.OccurrenceIndex != 2 {
+		t.Fatalf("derived override/occurrence = %d/%d, want 11/2", v.OverrideID, v.OccurrenceIndex)
+	}
+	if !record.Validation.Valid {
+		t.Fatalf("expected valid, issues = %+v", record.Validation.Issues)
+	}
+}
+
+func TestServiceCreateRejectsMalformedSlotPath(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
+	_, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{{SlotPath: "nope", FieldID: "F1", ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("c")}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "slot_path") {
+		t.Fatalf("err = %v, want a slot_path error", err)
+	}
+}
