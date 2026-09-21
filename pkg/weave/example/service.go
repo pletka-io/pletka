@@ -29,6 +29,27 @@ type conceptValidator interface {
 	ConceptURIAllowedForLists(ctx context.Context, uri string, conceptListIDs []string) (bool, error)
 }
 
+// modelNamer is satisfied by the real weave store; used to show the target
+// model's display name in the example form instead of its id.
+type modelNamer interface {
+	Models() domain.WeaveModelStore
+}
+
+// targetName returns the model's display name when the view reader can look
+// it up, else the id.
+func (s *Service) targetName(ctx context.Context, modelID string) domain.Translations {
+	fallback := domain.Translations{"en": modelID}
+	namer, ok := s.views.(modelNamer)
+	if !ok {
+		return fallback
+	}
+	m, err := namer.Models().GetByID(ctx, modelID)
+	if err != nil || m == nil || len(m.UIName) == 0 {
+		return fallback
+	}
+	return m.UIName
+}
+
 func NewService(store Store, views ViewReader) *Service {
 	return &Service{store: store, views: views}
 }
@@ -431,7 +452,7 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 		Target: ExampleFormTarget{
 			EntityType: string(domain.ExampleEntityTypeModel),
 			EntityID:   modelID,
-			Name:       domain.Translations{"en": modelID},
+			Name:       s.targetName(ctx, modelID),
 		},
 		Sections: sections,
 		Issues:   topIssues,

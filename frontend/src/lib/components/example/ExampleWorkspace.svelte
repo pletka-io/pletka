@@ -1113,7 +1113,10 @@
     <div class="flex items-center justify-between">
       <div>
         <h3 class="text-lg font-semibold text-gray-900">
-          {currentMode === 'create' ? 'New Example' : `Editing ${currentExampleId}`}
+          {currentMode === 'create' ? `New ${selectedModelLabel || ''} example`.replace('  ', ' ') : `Editing ${selectedModelLabel || 'example'}`}
+          {#if currentMode !== 'create'}
+            <span class="ml-2 align-middle font-mono text-xs font-normal text-gray-400">{currentExampleId}</span>
+          {/if}
         </h3>
         <p class="mt-1 text-sm text-gray-500">
           Fill in a worked example to verify that the model can actually be used as intended.

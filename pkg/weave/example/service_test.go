@@ -663,3 +663,55 @@ func TestServiceStubSameLabelTwiceCreatesOneDraft(t *testing.T) {
 		t.Fatalf("want 3 stored examples after adding Gauguin, got %d", len(store.examples))
 	}
 }
+
+// namingViews is fakeViews plus a Models() reader, mirroring the optional
+// interface the real store satisfies.
+type namingViews struct {
+	fakeViews
+	names map[string]domain.Translations
+}
+
+func (v namingViews) Models() domain.WeaveModelStore { return namingModels{names: v.names} }
+
+type namingModels struct {
+	domain.WeaveModelStore // nil; only GetByID is called
+	names                  map[string]domain.Translations
+}
+
+func (m namingModels) GetByID(_ context.Context, id string) (*domain.Model, error) {
+	name, ok := m.names[id]
+	if !ok {
+		return nil, nil
+	}
+	mod := &domain.Model{}
+	mod.ID = id
+	mod.UIName = name
+	return mod, nil
+}
+
+func TestBuildFormSchemaNamesTargetModel(t *testing.T) {
+	views := namingViews{
+		fakeViews: fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}},
+		names:     map[string]domain.Translations{"M1": {"en": "Physical Thing", "nl": "Fysiek object"}},
+	}
+	svc := NewService(newFakeStore(), views)
+	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	if got := schema.Target.Name["en"]; got != "Physical Thing" {
+		t.Fatalf("target name = %q, want Physical Thing", got)
+	}
+	if got := schema.Target.Name["nl"]; got != "Fysiek object" {
+		t.Fatalf("target name[nl] = %q", got)
+	}
+	// Without a namer the id stays the fallback.
+	plain := NewService(newFakeStore(), views.fakeViews)
+	schema, err = plain.BuildFormSchema(context.Background(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	if got := schema.Target.Name["en"]; got != "M1" {
+		t.Fatalf("fallback target name = %q, want M1", got)
+	}
+}
