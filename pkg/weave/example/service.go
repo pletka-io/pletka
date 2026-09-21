@@ -105,6 +105,7 @@ type ExampleFormSection struct {
 type ExampleFormGroup struct {
 	ID               string               `json:"id"`
 	Label            domain.Translations  `json:"label"`
+	Position         int                  `json:"position,omitempty"`
 	SharedPathPrefix []domain.PathElement `json:"shared_path_prefix,omitempty"`
 	Fields           []ExampleFormField   `json:"fields"`
 }
@@ -433,13 +434,12 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 			for _, f := range coll.Fields {
 				fields = append(fields, buildExampleField(f, occByOverride[f.OverrideID], issuesByKey))
 			}
-			if coll.ID == "__direct__" {
-				section.DirectFields = fields
-				continue
-			}
+			// The direct bucket is a group like any other so the form keeps
+			// the resolver's order; the frontend renders it by id.
 			section.Groups = append(section.Groups, ExampleFormGroup{
 				ID:               coll.ID,
 				Label:            coll.Name,
+				Position:         coll.Position,
 				SharedPathPrefix: coll.SharedPathPrefix,
 				Fields:           fields,
 			})

@@ -197,16 +197,17 @@ func TestServiceBuildFormSchemaGroupsFieldsAndValues(t *testing.T) {
 		t.Fatalf("sections = %d, want 1", len(schema.Sections))
 	}
 	section := schema.Sections[0]
-	if len(section.DirectFields) != 1 {
-		t.Fatalf("direct fields = %d, want 1", len(section.DirectFields))
+	if len(section.Groups) != 2 {
+		t.Fatalf("groups = %d, want 2", len(section.Groups))
 	}
-	if !hasIssue(section.DirectFields[0].Issues, "missing_required_value", domain.ExampleIssueError) {
-		t.Fatalf("direct field issues = %#v, want missing_required_value", section.DirectFields[0].Issues)
+	directGroup := section.Groups[0]
+	if directGroup.ID != "__direct__" || len(directGroup.Fields) != 1 {
+		t.Fatalf("direct group = %+v, want 1 field", directGroup)
 	}
-	if len(section.Groups) != 1 {
-		t.Fatalf("groups = %d, want 1", len(section.Groups))
+	if !hasIssue(directGroup.Fields[0].Issues, "missing_required_value", domain.ExampleIssueError) {
+		t.Fatalf("direct field issues = %#v, want missing_required_value", directGroup.Fields[0].Issues)
 	}
-	groupField := section.Groups[0].Fields[0]
+	groupField := section.Groups[1].Fields[0]
 	if len(groupField.Occurrences) != 1 {
 		t.Fatalf("occurrences = %d, want 1", len(groupField.Occurrences))
 	}
@@ -258,7 +259,7 @@ func TestServiceBuildFormSchemaExposesConceptSources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildFormSchema() error = %v", err)
 	}
-	got := schema.Sections[0].DirectFields[0]
+	got := schema.Sections[0].Groups[0].Fields[0]
 	if len(got.ConceptSources) != 1 {
 		t.Fatalf("ConceptSources = %#v, want one source", got.ConceptSources)
 	}
@@ -713,5 +714,38 @@ func TestBuildFormSchemaNamesTargetModel(t *testing.T) {
 	}
 	if got := schema.Target.Name["en"]; got != "M1" {
 		t.Fatalf("fallback target name = %q, want M1", got)
+	}
+}
+
+// TestBuildFormSchemaKeepsCollectionOrderIncludingDirectFields: the form
+// emits the direct-fields bucket as a group at its own position rather than
+// always first, matching the model page.
+func TestBuildFormSchemaKeepsCollectionOrderIncludingDirectFields(t *testing.T) {
+	view := &domain.ModelView{ModelID: "M1", ProjectID: "P1", Categories: []domain.CategoryGroup{{
+		ID: "CAT1", Name: domain.Translations{"en": "Names"}, Position: 1,
+		Collections: []domain.CollectionGroup{
+			{ID: "C1", Name: domain.Translations{"en": "Name"}, Position: 1, Fields: []domain.ResolvedField{resolvedField(11, "F1", "Name", "String", false, 0, nil)}},
+			{ID: "__direct__", Name: domain.Translations{"en": "Direct Fields"}, Position: 2, Fields: []domain.ResolvedField{resolvedField(12, "F2", "Equivalent", "URI", false, 0, nil)}},
+			{ID: "C2", Name: domain.Translations{"en": "Identifier"}, Position: 3, Fields: []domain.ResolvedField{resolvedField(13, "F3", "Identifier", "String", false, 0, nil)}},
+		},
+	}}}
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": view}})
+	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	sec := schema.Sections[0]
+	if len(sec.DirectFields) != 0 {
+		t.Fatalf("direct_fields must be empty now, got %d", len(sec.DirectFields))
+	}
+	var ids []string
+	for _, g := range sec.Groups {
+		ids = append(ids, g.ID)
+	}
+	if len(ids) != 3 || ids[0] != "C1" || ids[1] != "__direct__" || ids[2] != "C2" {
+		t.Fatalf("groups = %v, want [C1 __direct__ C2]", ids)
+	}
+	if sec.Groups[1].Label["en"] != "Direct Fields" || sec.Groups[1].Position != 2 {
+		t.Fatalf("direct group = %+v", sec.Groups[1])
 	}
 }
