@@ -117,12 +117,14 @@ type resolvedSlot struct {
 }
 
 // slotResolver resolves slot paths against one model view plus the
-// collection views it needs, cached for the request.
+// collection views it needs, cached for the request. One resolver serves a
+// whole request (Create/Update, Get plus its edit form).
 type slotResolver struct {
 	ctx         context.Context
 	projectID   string
 	views       ViewReader
 	maxDepth    int
+	view        *domain.ModelView
 	groups      map[int64]string
 	model       map[int64]domain.ResolvedField
 	collections map[string][]domain.ResolvedField
@@ -134,10 +136,21 @@ func (s *Service) newSlotResolver(ctx context.Context, projectID string, view *d
 		projectID:   projectID,
 		views:       s.views,
 		maxDepth:    s.maxDepth,
+		view:        view,
 		groups:      groupOfOverride(view),
 		model:       buildFieldByOverride(view),
 		collections: map[string][]domain.ResolvedField{},
 	}
+}
+
+// resolverFor reads modelID's view in projectID and returns the request's
+// slot resolver over it.
+func (s *Service) resolverFor(ctx context.Context, projectID, modelID string) (*slotResolver, error) {
+	view, err := s.views.ModelView(ctx, modelID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return s.newSlotResolver(ctx, projectID, view), nil
 }
 
 // resolve walks path from its anchor to its leaf. The error is only for a

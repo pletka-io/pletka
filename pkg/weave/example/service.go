@@ -217,14 +217,18 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 		Description: in.Description,
 		Status:      domain.ExampleStatusDraft,
 	}
-	if err := s.materializeStubs(ctx, projectID, in.EntityID, in.Lang, in.Values); err != nil {
+	resolver, err := s.resolverFor(ctx, projectID, in.EntityID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.materializeStubs(ctx, resolver, in.Lang, in.Values); err != nil {
 		return nil, err
 	}
 	values, err := normalizeValues(in.Values)
 	if err != nil {
 		return nil, err
 	}
-	report, err := s.validateValues(ctx, projectID, in.EntityID, values, true)
+	report, err := s.validateValues(ctx, resolver, values, true)
 	if err != nil {
 		return nil, err
 	}
@@ -253,14 +257,18 @@ func (s *Service) Update(ctx context.Context, projectID, exampleID string, in Up
 	if in.Description != nil {
 		ex.Description = *in.Description
 	}
-	if err := s.materializeStubs(ctx, projectID, ex.EntityID, in.Lang, in.Values); err != nil {
+	resolver, err := s.resolverFor(ctx, projectID, ex.EntityID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.materializeStubs(ctx, resolver, in.Lang, in.Values); err != nil {
 		return nil, err
 	}
 	values, err := normalizeValues(in.Values)
 	if err != nil {
 		return nil, err
 	}
-	report, err := s.validateValues(ctx, projectID, ex.EntityID, values, true)
+	report, err := s.validateValues(ctx, resolver, values, true)
 	if err != nil {
 		return nil, err
 	}
@@ -300,12 +308,11 @@ type stubCandidate struct {
 // draft — stubs are still created before the parent is saved and are not
 // rolled back if that save fails afterwards; they are drafts and harmless.
 // Wrap in one transaction if that ever bites.
-func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang string, values []domain.ExampleValue) error {
+func (s *Service) materializeStubs(ctx context.Context, resolver *slotResolver, lang string, values []domain.ExampleValue) error {
 	lang = strings.TrimSpace(lang)
 	if lang == "" {
 		lang = "en"
 	}
-	var resolver *slotResolver
 	var candidates []stubCandidate
 	for i := range values {
 		p := &values[i].ValuePayload
@@ -315,13 +322,6 @@ func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang
 		label := strings.TrimSpace(*p.TargetLabel)
 		if label == "" {
 			continue
-		}
-		if resolver == nil {
-			view, err := s.views.ModelView(ctx, modelID, projectID)
-			if err != nil {
-				return err
-			}
-			resolver = s.newSlotResolver(ctx, projectID, view)
 		}
 		rs, err := resolver.resolve(valueSlotPath(values[i]))
 		if err != nil {
@@ -345,7 +345,7 @@ func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang
 		if !ok {
 			stub := &domain.Example{
 				ID:         ids.GenerateULID(),
-				ProjectID:  projectID,
+				ProjectID:  resolver.projectID,
 				EntityType: domain.ExampleEntityTypeModel,
 				EntityID:   c.target,
 				Title:      domain.Translations{lang: c.label},
@@ -404,23 +404,34 @@ func resolveStubTarget(field domain.ResolvedField, p *domain.ExampleValuePayload
 }
 
 func (s *Service) Get(ctx context.Context, projectID, exampleID string) (*ExampleRecord, error) {
+	record, _, err := s.get(ctx, projectID, exampleID)
+	return record, err
+}
+
+// get is Get, also returning the slot resolver it validated with so the
+// edit form reuses its cached views.
+func (s *Service) get(ctx context.Context, projectID, exampleID string) (*ExampleRecord, *slotResolver, error) {
 	ex, err := s.store.GetByID(ctx, exampleID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if ex == nil || ex.ProjectID != projectID {
-		return nil, fmt.Errorf("example not found")
+		return nil, nil, fmt.Errorf("example not found")
 	}
 	values, err := s.store.ListValues(ctx, exampleID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	report, err := s.validateModelValues(ctx, projectID, ex.EntityID, values)
+	resolver, err := s.resolverFor(ctx, projectID, ex.EntityID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	report, err := s.validateValues(ctx, resolver, values, false)
+	if err != nil {
+		return nil, nil, err
 	}
 	report.ExampleID = ex.ID
-	return &ExampleRecord{Example: ex, Values: values, Validation: report}, nil
+	return &ExampleRecord{Example: ex, Values: values, Validation: report}, resolver, nil
 }
 
 func (s *Service) Delete(ctx context.Context, projectID, exampleID string) error {
@@ -448,32 +459,33 @@ func (s *Service) BuildFormSchema(ctx context.Context, projectID, mode, targetTy
 		if targetType != string(domain.ExampleEntityTypeModel) || strings.TrimSpace(targetID) == "" {
 			return nil, fmt.Errorf("target_type=model and target_id are required")
 		}
-		return s.buildModelFormSchema(ctx, projectID, "", targetID, nil, lang, languages)
-	case formschema.ModeEdit:
-		record, err := s.Get(ctx, projectID, exampleID)
+		resolver, err := s.resolverFor(ctx, projectID, targetID)
 		if err != nil {
 			return nil, err
 		}
-		return s.buildModelFormSchema(ctx, projectID, record.Example.ID, record.Example.EntityID, record, lang, languages)
+		return s.buildModelFormSchema(ctx, resolver, "", targetID, nil, lang, languages)
+	case formschema.ModeEdit:
+		record, resolver, err := s.get(ctx, projectID, exampleID)
+		if err != nil {
+			return nil, err
+		}
+		return s.buildModelFormSchema(ctx, resolver, record.Example.ID, record.Example.EntityID, record, lang, languages)
 	default:
 		return nil, fmt.Errorf("unsupported form mode: %s", mode)
 	}
 }
 
-func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID, modelID string, record *ExampleRecord, lang string, languages []formschema.LanguageInfo) (*ExampleFormSchema, error) {
-	view, err := s.views.ModelView(ctx, modelID, projectID)
-	if err != nil {
-		return nil, err
-	}
+// buildModelFormSchema builds the form with the request's slot resolver
+// (its model view and cached collection views).
+func (s *Service) buildModelFormSchema(ctx context.Context, resolver *slotResolver, exampleID, modelID string, record *ExampleRecord, lang string, languages []formschema.LanguageInfo) (*ExampleFormSchema, error) {
+	projectID, view := resolver.projectID, resolver.view
 	var values []domain.ExampleValue
 	var issues []domain.ExampleIssue
 	if record != nil {
 		values, issues = record.Values, record.Validation.Issues
 	}
-	// One resolver per request: collection views are cached in it. A value
-	// whose field moved to a different group since it was saved does not
-	// resolve and stays out of the form, as it stays out of Get's counts.
-	resolver := s.newSlotResolver(ctx, projectID, view)
+	// A value whose field moved to a different group since it was saved does
+	// not resolve and stays out of the form, as it stays out of Get's counts.
 	slots, err := resolver.resolveAll(values)
 	if err != nil {
 		return nil, err
@@ -767,11 +779,15 @@ func deriveStatus(values []domain.ExampleValue, report domain.ExampleValidationR
 	return domain.ExampleStatusHasIssues
 }
 
-// validateModelValues is the lenient wrapper Get (and reads generally) use:
-// a value whose stored group no longer matches its override's current group
-// is left in place rather than rejected. See validateValues.
+// validateModelValues validates leniently, as Get does, with a resolver of
+// its own: a value whose stored group no longer matches its override's
+// current group is left in place rather than rejected. See validateValues.
 func (s *Service) validateModelValues(ctx context.Context, projectID, modelID string, values []domain.ExampleValue) (domain.ExampleValidationReport, error) {
-	return s.validateValues(ctx, projectID, modelID, values, false)
+	resolver, err := s.resolverFor(ctx, projectID, modelID)
+	if err != nil {
+		return domain.ExampleValidationReport{}, err
+	}
+	return s.validateValues(ctx, resolver, values, false)
 }
 
 // validateValues validates values against modelID's current view. strict
@@ -781,14 +797,10 @@ func (s *Service) validateModelValues(ctx context.Context, projectID, modelID st
 // to/from direct) since the value was saved does not make the example
 // unreadable; such a value is left untouched, excluded from group/field
 // counts and compaction, and reported as a moved_group_value warning
-// instead. Every slot path is resolved through the slot resolver, nested
-// ones through their container's target collection (see checkValue).
-func (s *Service) validateValues(ctx context.Context, projectID, modelID string, values []domain.ExampleValue, strict bool) (domain.ExampleValidationReport, error) {
-	view, err := s.views.ModelView(ctx, modelID, projectID)
-	if err != nil {
-		return domain.ExampleValidationReport{}, err
-	}
-	resolver := s.newSlotResolver(ctx, projectID, view)
+// instead. Every slot path is resolved through the request's slot resolver
+// (the model's current view), nested ones through their container's target
+// collection (see checkValue).
+func (s *Service) validateValues(ctx context.Context, resolver *slotResolver, values []domain.ExampleValue, strict bool) (domain.ExampleValidationReport, error) {
 	if err := placeInGroups(values, resolver.groups, strict); err != nil {
 		return domain.ExampleValidationReport{}, err
 	}
@@ -822,7 +834,7 @@ func (s *Service) validateValues(ctx context.Context, projectID, modelID string,
 	if err != nil {
 		return domain.ExampleValidationReport{}, err
 	}
-	modelIssues, err := cardinalityIssues(resolver, view, counts, present)
+	modelIssues, err := cardinalityIssues(resolver, resolver.view, counts, present)
 	if err != nil {
 		return domain.ExampleValidationReport{}, err
 	}

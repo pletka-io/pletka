@@ -709,3 +709,31 @@ func TestServiceTargetWithoutFieldsNotExpandable(t *testing.T) {
 		}
 	}
 }
+
+// One slot resolver per request: a Create, and an edit-mode form build,
+// read the model view once and each collection view once.
+func TestServiceOneResolverPerRequest(t *testing.T) {
+	views := newOwnedViews(nil)
+	store := newFakeStore()
+	svc := NewService(store, views)
+	stub := stubValue("", "Rembrandt")
+	stub.OverrideID, stub.FieldID, stub.SlotPath = 0, "F604", "C1:0/302:0/604:0"
+	rec, err := createNested(svc,
+		stringValue("C1:0/302:0/602:0", "F602", "1660"),
+		stringValue("C1:0/302:0/603:0/701:0", "F701", "x"),
+		stub,
+	)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	check := func(what string) {
+		t.Helper()
+		if views.modelCalls != 1 || views.collections["LAC6"] != 1 || views.collections["LAC1"] != 1 {
+			t.Fatalf("%s: ModelView calls = %d, CollectionView calls = %v; want 1 each", what, views.modelCalls, views.collections)
+		}
+	}
+	check("Create")
+	views.modelCalls, views.collections = 0, map[string]int{}
+	nestedFormSchema(t, svc, formschema.ModeEdit, rec.Example.ID)
+	check("edit form")
+}
