@@ -854,11 +854,11 @@ func groupedModelView(placement *domain.CollectionPlacement, fields ...domain.Re
 }
 
 func stringValue(slotPath, fieldID, text string) domain.ExampleValue {
-	// Deviation from the task-3 brief: derive OverrideID/OccurrenceIndex from
-	// the slot path's leaf (same derivation settleSlot does in normalizeValues)
-	// so tests can call validateModelValues directly without going through
-	// Create/Update's normalization pass first. Without this every value here
-	// carries OverrideID 0 and validateModelValues reports it stale.
+	// stringValue derives OverrideID/OccurrenceIndex from the slot path's
+	// leaf, as settleSlot does, so tests can call validateModelValues
+	// directly without a Create/Update normalization pass. Without this
+	// every value here carries OverrideID 0 and validateModelValues reports
+	// it stale.
 	oid, occ, _ := domain.ParseExampleSlotLeaf(slotPath)
 	return domain.ExampleValue{SlotPath: slotPath, OverrideID: oid, OccurrenceIndex: occ, FieldID: fieldID, ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{Kind: domain.ExampleValueKindString, StringValue: ptr(text)}}
 }
@@ -1010,4 +1010,125 @@ func TestValidateValueIssueCarriesGroupPath(t *testing.T) {
 		}
 	}
 	t.Fatalf("want wrong_value_kind in C1:3, got %+v", report.Issues)
+}
+
+// TestServiceBuildFormSchemaGroupInstancesInIndexOrder: a collection group
+// with values in two instances appears once per instance, in index order,
+// each entry carrying only that instance's values under its slot_prefix.
+func TestServiceBuildFormSchemaGroupInstancesInIndexOrder(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{
+		"M1": groupedModelView(&domain.CollectionPlacement{MinOccurs: 0}, resolvedField(21, "F2", "Name", "String", false, 0, nil)),
+	}})
+	rec, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:2/21:0", "F2", "c")},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeEdit, "", "", rec.Example.ID, "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+
+	groups := schema.Sections[0].Groups
+	if len(groups) != 3 {
+		t.Fatalf("groups = %d, want 3: %+v", len(groups), groups)
+	}
+	direct := groups[0]
+	if direct.ID != directGroupID || direct.Instance != 0 || direct.SlotPrefix != "" || direct.Repeatable {
+		t.Fatalf("direct group = %+v", direct)
+	}
+	c1a := groups[1]
+	if c1a.ID != "C1" || c1a.Instance != 0 || c1a.SlotPrefix != "C1:0/" || !c1a.Repeatable {
+		t.Fatalf("C1 instance 0 = %+v", c1a)
+	}
+	if len(c1a.Fields) != 1 || len(c1a.Fields[0].Occurrences) != 1 {
+		t.Fatalf("C1 instance 0 fields = %+v", c1a.Fields)
+	}
+	if got := c1a.Fields[0].Occurrences[0].Value.StringValue; got == nil || *got != "a" {
+		t.Fatalf("C1 instance 0 value = %#v, want a", got)
+	}
+	if c1a.Fields[0].SlotPrefix != "C1:0/" {
+		t.Fatalf("C1 instance 0 field slot_prefix = %q, want C1:0/", c1a.Fields[0].SlotPrefix)
+	}
+	c1b := groups[2]
+	if c1b.ID != "C1" || c1b.Instance != 2 || c1b.SlotPrefix != "C1:2/" {
+		t.Fatalf("C1 instance 2 = %+v", c1b)
+	}
+	if len(c1b.Fields) != 1 || len(c1b.Fields[0].Occurrences) != 1 {
+		t.Fatalf("C1 instance 2 fields = %+v", c1b.Fields)
+	}
+	if got := c1b.Fields[0].Occurrences[0].Value.StringValue; got == nil || *got != "c" {
+		t.Fatalf("C1 instance 2 value = %#v, want c", got)
+	}
+}
+
+// TestServiceBuildFormSchemaPadsInstancesToPlacementMinOccurs: a create-mode
+// form for a group with no values still shows the placement's minimum
+// instance count, padded from the next free index.
+func TestServiceBuildFormSchemaPadsInstancesToPlacementMinOccurs(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{
+		"M1": groupedModelView(&domain.CollectionPlacement{MinOccurs: 2}, resolvedField(21, "F2", "Name", "String", false, 0, nil)),
+	}})
+	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeCreate, string(domain.ExampleEntityTypeModel), "M1", "", "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	var c1 []ExampleFormGroup
+	for _, g := range schema.Sections[0].Groups {
+		if g.ID == "C1" {
+			c1 = append(c1, g)
+		}
+	}
+	if len(c1) != 2 || c1[0].Instance != 0 || c1[1].Instance != 1 {
+		t.Fatalf("C1 instances = %+v, want [0 1]", c1)
+	}
+	if c1[0].SlotPrefix != "C1:0/" || c1[1].SlotPrefix != "C1:1/" {
+		t.Fatalf("C1 slot prefixes = %q, %q, want C1:0/, C1:1/", c1[0].SlotPrefix, c1[1].SlotPrefix)
+	}
+}
+
+// TestServiceBuildFormSchemaGroupMaxOccursIssueOnFirstInstance: a group-level
+// group_max_occurs issue attaches only to the first instance's entry, and a
+// max_occurs=1 placement makes the group non-repeatable regardless of how
+// many instances actually hold values.
+func TestServiceBuildFormSchemaGroupMaxOccursIssueOnFirstInstance(t *testing.T) {
+	one := 1
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{
+		"M1": groupedModelView(&domain.CollectionPlacement{MaxOccurs: &one}, resolvedField(21, "F2", "Name", "String", false, 0, nil)),
+	}})
+	rec, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:1/21:0", "F2", "b")},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeEdit, "", "", rec.Example.ID, "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	var c1 []ExampleFormGroup
+	for _, g := range schema.Sections[0].Groups {
+		if g.ID == "C1" {
+			c1 = append(c1, g)
+		}
+	}
+	if len(c1) != 2 {
+		t.Fatalf("C1 instances = %d, want 2: %+v", len(c1), c1)
+	}
+	if c1[0].Repeatable {
+		t.Fatalf("C1 instance 0 repeatable = true, want false (max_occurs=1)")
+	}
+	if !hasIssue(c1[0].Issues, "group_max_occurs", domain.ExampleIssueError) {
+		t.Fatalf("C1 instance 0 issues = %+v, want group_max_occurs", c1[0].Issues)
+	}
+	if len(c1[1].Issues) != 0 {
+		t.Fatalf("C1 instance 1 issues = %+v, want none, C1 max_occurs issue must attach only to the first instance", c1[1].Issues)
+	}
 }

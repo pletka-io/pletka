@@ -110,6 +110,16 @@ type ExampleFormGroup struct {
 	Position         int                  `json:"position,omitempty"`
 	SharedPathPrefix []domain.PathElement `json:"shared_path_prefix,omitempty"`
 	Fields           []ExampleFormField   `json:"fields"`
+	// Instance is this entry's group instance; a repeatable group appears
+	// once per instance, consecutively.
+	Instance int `json:"instance"`
+	// SlotPrefix is prepended to "<override>:<occurrence>" to form a value's
+	// slot_path: "LAC.1:1/" in a collection group, "" for direct fields.
+	SlotPrefix string                `json:"slot_prefix"`
+	Repeatable bool                  `json:"repeatable,omitempty"`
+	MinOccurs  int                   `json:"min_occurs,omitempty"`
+	MaxOccurs  *int                  `json:"max_occurs,omitempty"`
+	Issues     []domain.ExampleIssue `json:"issues,omitempty"`
 }
 
 type ExampleOccurrence struct {
@@ -139,6 +149,7 @@ type ExampleFormField struct {
 	ConceptSources    []ConceptListSource     `json:"concept_sources,omitempty"`
 	Issues            []domain.ExampleIssue   `json:"issues,omitempty"`
 	Occurrences       []ExampleOccurrence     `json:"occurrences,omitempty"`
+	SlotPrefix        string                  `json:"slot_prefix,omitempty"`
 }
 
 type ConceptListSource struct {
@@ -410,24 +421,36 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 	if err != nil {
 		return nil, err
 	}
-	occByOverride := map[int64][]domain.ExampleValue{}
+	byInstance := map[string][]domain.ExampleValue{}
 	issuesByKey := map[string][]domain.ExampleIssue{}
+	groupIssues := map[string][]domain.ExampleIssue{}
+	present := map[string]map[string]bool{}
 	var topIssues []domain.ExampleIssue
 	if record != nil {
 		for _, v := range record.Values {
-			occByOverride[v.OverrideID] = append(occByOverride[v.OverrideID], v)
+			gp := instancePath(v.SlotPath)
+			byInstance[slotCountKey(gp, v.OverrideID)] = append(byInstance[slotCountKey(gp, v.OverrideID)], v)
+			if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
+				if present[coll] == nil {
+					present[coll] = map[string]bool{}
+				}
+				present[coll][gp] = true
+			}
 		}
 		for _, issue := range record.Validation.Issues {
-			if issue.OverrideID == nil {
+			switch {
+			case issue.CollectionID != nil:
+				groupIssues[*issue.CollectionID] = append(groupIssues[*issue.CollectionID], issue)
+			case issue.OverrideID == nil:
 				topIssues = append(topIssues, issue)
-				continue
+			default:
+				idx := -1
+				if issue.OccurrenceIndex != nil {
+					idx = *issue.OccurrenceIndex
+				}
+				key := issueKey(issue.GroupPath, *issue.OverrideID, idx)
+				issuesByKey[key] = append(issuesByKey[key], issue)
 			}
-			idx := -1
-			if issue.OccurrenceIndex != nil {
-				idx = *issue.OccurrenceIndex
-			}
-			key := issueKey(*issue.OverrideID, idx)
-			issuesByKey[key] = append(issuesByKey[key], issue)
 		}
 	}
 	sections := make([]ExampleFormSection, 0, len(view.Categories))
@@ -438,19 +461,7 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 			CanonicalOrder: cat.Position,
 		}
 		for _, coll := range cat.Collections {
-			fields := make([]ExampleFormField, 0, len(coll.Fields))
-			for _, f := range coll.Fields {
-				fields = append(fields, buildExampleField(f, occByOverride[f.OverrideID], issuesByKey))
-			}
-			// The direct bucket is a group like any other so the form keeps
-			// the resolver's order; the frontend renders it by id.
-			section.Groups = append(section.Groups, ExampleFormGroup{
-				ID:               coll.ID,
-				Label:            coll.Name,
-				Position:         coll.Position,
-				SharedPathPrefix: coll.SharedPathPrefix,
-				Fields:           fields,
-			})
+			section.Groups = append(section.Groups, buildGroupEntries(coll, byInstance, issuesByKey, groupIssues, present[coll.ID])...)
 		}
 		sections = append(sections, section)
 	}
@@ -486,7 +497,7 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 	return schema, nil
 }
 
-func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, issuesByKey map[string][]domain.ExampleIssue) ExampleFormField {
+func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, issuesByKey map[string][]domain.ExampleIssue, groupPath string) ExampleFormField {
 	out := ExampleFormField{
 		OverrideID:        f.OverrideID,
 		FieldID:           f.ID,
@@ -506,7 +517,7 @@ func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, iss
 		CollectionModels:  f.CollectionModels,
 		ConceptLists:      f.ConceptLists,
 		ConceptSources:    conceptSources(f.ConceptLists),
-		Issues:            issuesByKey[issueKey(f.OverrideID, -1)],
+		Issues:            issuesByKey[issueKey(groupPath, f.OverrideID, -1)],
 	}
 	if len(values) == 0 {
 		out.Occurrences = []ExampleOccurrence{{OccurrenceIndex: 0}}
@@ -515,7 +526,7 @@ func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, iss
 	sort.Slice(values, func(i, j int) bool { return values[i].OccurrenceIndex < values[j].OccurrenceIndex })
 	out.Occurrences = make([]ExampleOccurrence, 0, len(values))
 	for _, value := range values {
-		key := issueKey(f.OverrideID, value.OccurrenceIndex)
+		key := issueKey(groupPath, f.OverrideID, value.OccurrenceIndex)
 		out.Occurrences = append(out.Occurrences, ExampleOccurrence{
 			OccurrenceIndex: value.OccurrenceIndex,
 			Value:           value.ValuePayload,
@@ -523,6 +534,93 @@ func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, iss
 		})
 	}
 	return out
+}
+
+// formInstances lists the group instances the form shows: "" for the direct
+// bucket; otherwise the validated instances padded to the placement minimum.
+func formInstances(coll domain.CollectionGroup, present map[string]bool) []string {
+	if coll.ID == directGroupID {
+		return []string{""}
+	}
+	out := groupInstances(coll.ID, present)
+	if coll.Placement == nil {
+		return out
+	}
+	_, next, _ := domain.ParseExampleGroupSegment(out[len(out)-1])
+	for len(out) < coll.Placement.MinOccurs {
+		next++
+		out = append(out, domain.ExampleGroupSegment(coll.ID, next))
+	}
+	return out
+}
+
+// buildGroupEntries returns one ExampleFormGroup per instance of coll: one
+// entry for the direct bucket, or one per validated/padded instance of a
+// collection group. Split out of buildModelFormSchema to keep it within the
+// gocyclo limit.
+func buildGroupEntries(coll domain.CollectionGroup, byInstance map[string][]domain.ExampleValue, issuesByKey map[string][]domain.ExampleIssue, groupIssues map[string][]domain.ExampleIssue, present map[string]bool) []ExampleFormGroup {
+	instances := formInstances(coll, present)
+	out := make([]ExampleFormGroup, 0, len(instances))
+	for i, gp := range instances {
+		prefix, instance := "", 0
+		if gp != "" {
+			prefix = gp + "/"
+			_, instance, _ = domain.ParseExampleGroupSegment(gp)
+		}
+		fields := make([]ExampleFormField, 0, len(coll.Fields))
+		for _, f := range coll.Fields {
+			field := buildExampleField(f, byInstance[slotCountKey(gp, f.OverrideID)], issuesByKey, gp)
+			field.SlotPrefix = prefix
+			fields = append(fields, field)
+		}
+		out = append(out, ExampleFormGroup{
+			ID:               coll.ID,
+			Label:            coll.Name,
+			Position:         coll.Position,
+			SharedPathPrefix: coll.SharedPathPrefix,
+			Fields:           fields,
+			Instance:         instance,
+			SlotPrefix:       prefix,
+			Repeatable:       groupRepeatable(coll),
+			MinOccurs:        placementMin(coll),
+			MaxOccurs:        placementMax(coll),
+			Issues:           issuesIf(i == 0, groupIssues[coll.ID]),
+		})
+	}
+	return out
+}
+
+// groupRepeatable reports whether a collection group's form entries allow
+// adding another instance: never for the direct bucket, otherwise unless a
+// placement caps it at exactly one instance.
+func groupRepeatable(coll domain.CollectionGroup) bool {
+	if coll.ID == directGroupID {
+		return false
+	}
+	return coll.Placement == nil || coll.Placement.MaxOccurs == nil || *coll.Placement.MaxOccurs > 1
+}
+
+func placementMin(coll domain.CollectionGroup) int {
+	if coll.Placement == nil {
+		return 0
+	}
+	return coll.Placement.MinOccurs
+}
+
+func placementMax(coll domain.CollectionGroup) *int {
+	if coll.Placement == nil {
+		return nil
+	}
+	return coll.Placement.MaxOccurs
+}
+
+// issuesIf returns issues only when first is true, so a group-level issue
+// attaches to a single instance's entry rather than repeating on every one.
+func issuesIf(first bool, issues []domain.ExampleIssue) []domain.ExampleIssue {
+	if !first {
+		return nil
+	}
+	return issues
 }
 
 // normalizeValues copies values, fixes their kinds and columns, and settles
@@ -973,8 +1071,8 @@ func placeValue(v *domain.ExampleValue, group string) error {
 	return nil
 }
 
-func issueKey(overrideID int64, occurrenceIndex int) string {
-	return fmt.Sprintf("%d:%d", overrideID, occurrenceIndex)
+func issueKey(groupPath string, overrideID int64, occurrenceIndex int) string {
+	return fmt.Sprintf("%s|%d:%d", groupPath, overrideID, occurrenceIndex)
 }
 
 func errorIssue(code string, fieldID *string, overrideID *int64, occurrenceIndex *int, msg string) domain.ExampleIssue {
