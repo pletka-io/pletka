@@ -350,6 +350,10 @@
   // Only compact header on the fields tab (long scrollable content).
   // Other tabs (stats, metadata, derivatives) are short — compaction just
   // flickers the header for no benefit.
+  // Min scroll overflow (px) required before the header may compact; must
+  // exceed the full→compact header height delta so compaction can't pull
+  // the sentinel back into view (#3586 jitter guard).
+  const COMPACT_MIN_OVERFLOW = 240;
   $effect(() => {
     if (!sentinelEl) return;
     if (viewState.activeTab !== 'fields') {
@@ -358,7 +362,17 @@
     }
     const observer = new IntersectionObserver(
       (entries) => {
-        viewState.headerCompacted = !entries[0].isIntersecting;
+        const wantCompact = !entries[0].isIntersecting;
+        // Jitter guard (#3586): compacting shrinks the header, so on a page
+        // with little scroll overflow the sentinel pops back into view and
+        // the header flip-flops. Only ENTER compaction when the overflow
+        // clearly exceeds what the header can remove; leaving compaction
+        // (scrolling back up) is always allowed.
+        if (wantCompact && !viewState.headerCompacted) {
+          const overflow = document.documentElement.scrollHeight - window.innerHeight;
+          if (overflow < COMPACT_MIN_OVERFLOW) return;
+        }
+        viewState.headerCompacted = wantCompact;
       },
       { rootMargin: '-80px 0px 0px 0px', threshold: 0 },
     );
