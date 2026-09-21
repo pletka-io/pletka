@@ -3,6 +3,9 @@ package example
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -235,35 +238,45 @@ func (r *slotResolver) expandTarget(field domain.ResolvedField, level int) (coll
 	return field.CollectionModels[0].ID, true, ""
 }
 
-// checkValue resolves one value's slot path and returns its issues, and
-// whether it is a resolved value that counts toward cardinality. strict
-// (Create/Update) turns an invalid path, or an unknown override on a nested
-// path, into an input error; reads report both as warnings. A depth-0 value
-// on a removed slot stays a stale_override warning in both modes, as before
-// B.3.
-func (s *Service) checkValue(ctx context.Context, r *slotResolver, value domain.ExampleValue, strict bool) ([]domain.ExampleIssue, bool, error) {
-	rs, err := r.resolve(valueSlotPath(value))
-	if err != nil {
-		return nil, false, err
+// resolveAll resolves every value's slot path, in values order. The error
+// is only for a failed collection view read.
+func (r *slotResolver) resolveAll(values []domain.ExampleValue) ([]resolvedSlot, error) {
+	out := make([]resolvedSlot, len(values))
+	for i, v := range values {
+		rs, err := r.resolve(valueSlotPath(v))
+		if err != nil {
+			return nil, err
+		}
+		out[i] = rs
 	}
+	return out, nil
+}
+
+// checkValue returns the issues of one value given its resolved slot.
+// strict (Create/Update) turns an invalid path, or an unknown override on a
+// nested path, into an input error; reads report both as warnings. A
+// depth-0 value on a removed slot stays a stale_override warning in both
+// modes, as before B.3.
+func (s *Service) checkValue(ctx context.Context, rs resolvedSlot, value domain.ExampleValue, strict bool) ([]domain.ExampleIssue, error) {
 	cp := containerPath(value.SlotPath)
 	var out []domain.ExampleIssue
 	switch rs.status {
 	case slotOK:
+		var err error
 		out, err = s.valueIssues(ctx, value, rs.field)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 	case slotMoved:
-		return []domain.ExampleIssue{movedGroupValueIssue(value, cp)}, false, nil
+		return []domain.ExampleIssue{movedGroupValueIssue(value, cp)}, nil
 	case slotUnknown:
 		if strict && rs.depth > 0 {
-			return nil, false, fmt.Errorf("value for field %s: slot_path %q does not resolve: %s", value.FieldID, value.SlotPath, rs.reason)
+			return nil, fmt.Errorf("value for field %s: slot_path %q does not resolve: %s", value.FieldID, value.SlotPath, rs.reason)
 		}
 		out = []domain.ExampleIssue{warningIssue("stale_override", nil, &value.OverrideID, &value.OccurrenceIndex, rs.reason)}
 	case slotInvalid:
 		if strict {
-			return nil, false, fmt.Errorf("value for field %s: slot_path %q does not resolve: %s", value.FieldID, value.SlotPath, rs.reason)
+			return nil, fmt.Errorf("value for field %s: slot_path %q does not resolve: %s", value.FieldID, value.SlotPath, rs.reason)
 		}
 		fieldID := value.FieldID
 		out = []domain.ExampleIssue{warningIssue("invalid_nesting", &fieldID, &value.OverrideID, &value.OccurrenceIndex, rs.reason)}
@@ -271,5 +284,150 @@ func (s *Service) checkValue(ctx context.Context, r *slotResolver, value domain.
 	for i := range out {
 		out[i].GroupPath = cp
 	}
-	return out, rs.status == slotOK, nil
+	return out, nil
+}
+
+// compactInstances renumbers instances to 0..n-1 in their existing order at
+// every non-leaf segment of a slot path, outermost first: the group segment
+// per collection (B.2), then each container segment per family (the path up
+// to the container plus the container's override, e.g. "C1:0/302" for
+// "C1:0/302:3/601:0"). The form always shows group instance 0, so a removed
+// first instance must not leave a gap; nested instance numbers are kept
+// dense the same way. Only values that resolved slotOK count and move: any
+// other value (removed field, moved group, stale inner override, invalid
+// nesting) is left exactly as stored and keeps no instance alive.
+// Renumbering never changes a path's overrides, so slots stays valid.
+func compactInstances(values []domain.ExampleValue, slots []resolvedSlot) {
+	for level := 0; compactLevel(values, slots, level); level++ {
+	}
+}
+
+// compactLevel compacts segment index level of every resolved path that has
+// a non-leaf segment there, and reports whether any did.
+func compactLevel(values []domain.ExampleValue, slots []resolvedSlot, level int) bool {
+	seen := map[string]map[int]bool{}
+	deeper := false
+	for i, v := range values {
+		segs := strings.Split(v.SlotPath, "/")
+		if slots[i].status != slotOK || level >= len(segs)-1 {
+			continue
+		}
+		deeper = true
+		if fam, n, ok := instanceFamily(segs, level); ok {
+			if seen[fam] == nil {
+				seen[fam] = map[int]bool{}
+			}
+			seen[fam][n] = true
+		}
+	}
+	renumber := make(map[string]map[int]int, len(seen))
+	for fam, set := range seen {
+		m := make(map[int]int, len(set))
+		for i, n := range slices.Sorted(maps.Keys(set)) {
+			m[n] = i
+		}
+		renumber[fam] = m
+	}
+	for i := range values {
+		segs := strings.Split(values[i].SlotPath, "/")
+		if slots[i].status != slotOK || level >= len(segs)-1 {
+			continue
+		}
+		fam, n, ok := instanceFamily(segs, level)
+		if !ok || renumber[fam][n] == n {
+			continue
+		}
+		segs[level] = withInstance(segs[level], renumber[fam][n])
+		values[i].SlotPath = strings.Join(segs, "/")
+	}
+	return deeper
+}
+
+// instanceFamily names the set of sibling instances segs[level] belongs to,
+// and its instance number. A group segment's family is its collection id; a
+// container segment's family is the path before it plus "/" and its
+// override. ok is false for a segment that parses as neither (a malformed
+// group segment is left alone, as in B.2).
+func instanceFamily(segs []string, level int) (family string, instance int, ok bool) {
+	seg := segs[level]
+	if oid, n, isField := domain.ParseExampleSlotLeaf(seg); isField {
+		return strings.Join(segs[:level], "/") + "/" + strconv.FormatInt(oid, 10), n, true
+	}
+	return domain.ParseExampleGroupSegment(seg)
+}
+
+// withInstance renders seg (a group or container segment) with instance n.
+func withInstance(seg string, n int) string {
+	if oid, _, isField := domain.ParseExampleSlotLeaf(seg); isField {
+		return domain.ExampleSlot(oid, n)
+	}
+	coll, _, _ := domain.ParseExampleGroupSegment(seg)
+	return domain.ExampleGroupSegment(coll, n)
+}
+
+// nestedInstance is one nested collection instance that holds resolved
+// values: the path of the instance it lives in and its container's override.
+type nestedInstance struct {
+	parent    string
+	container int64
+}
+
+// nestedInstances maps every nested instance path holding at least one
+// resolved value ("C1:0/302:1", and for depth 2 also "C1:0/302:1/603:0") to
+// its parent path and container. Nested instances are on demand: an
+// instance without values does not exist.
+func nestedInstances(values []domain.ExampleValue, slots []resolvedSlot) map[string]nestedInstance {
+	out := map[string]nestedInstance{}
+	for i, v := range values {
+		if slots[i].status != slotOK {
+			continue
+		}
+		p := containerPath(v.SlotPath)
+		for d := slots[i].depth; d > 0; d-- {
+			parent := containerPath(p)
+			oid, _, _ := domain.ParseExampleSlotLeaf(p)
+			out[p] = nestedInstance{parent: parent, container: oid}
+			p = parent
+		}
+	}
+	return out
+}
+
+// nestedCardinalityIssues adds each container field's count (the number of
+// its nested instances holding values) to counts under its parent instance,
+// then checks required/min/max of every field of the target collection in
+// each present nested instance. Callers check model-level fields with the
+// updated counts afterwards, so a container with no nested values counts 0.
+func (r *slotResolver) nestedCardinalityIssues(values []domain.ExampleValue, slots []resolvedSlot, counts map[string]int) ([]domain.ExampleIssue, error) {
+	instances := nestedInstances(values, slots)
+	for _, in := range instances {
+		counts[slotCountKey(in.parent, in.container)]++
+	}
+	var issues []domain.ExampleIssue
+	for _, path := range slices.Sorted(maps.Keys(instances)) {
+		fields, err := r.instanceFields(path)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range fields {
+			issues = append(issues, fieldCardinalityIssues(f, path, counts[slotCountKey(path, f.OverrideID)])...)
+		}
+	}
+	return issues, nil
+}
+
+// instanceFields returns the fields of the collection opened by the nested
+// instance at path (whose last segment is the container). A path that does
+// not resolve to an expandable container yields no fields; nestedInstances
+// only produces paths under resolved values, so that does not happen.
+func (r *slotResolver) instanceFields(path string) ([]domain.ResolvedField, error) {
+	rs, err := r.resolve(path)
+	if err != nil || rs.status != slotOK {
+		return nil, err
+	}
+	collectionID, ok, _ := r.expandTarget(rs.field, rs.depth+1)
+	if !ok {
+		return nil, nil
+	}
+	return r.collectionFields(collectionID)
 }

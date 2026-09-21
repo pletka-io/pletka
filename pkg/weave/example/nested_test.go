@@ -121,12 +121,14 @@ func TestSlotResolverResolvesNestedLeaf(t *testing.T) {
 func TestServiceCreateStoresNestedValue(t *testing.T) {
 	store := newFakeStore()
 	svc := NewService(store, nestedViews())
-	rec, err := createNested(svc, stringValue("C1:0/302:0/601:0", "F601", "1650"))
+	// 602 is required in every TimeSpan instance (B.3 task 3), so the
+	// instance carries it to stay valid.
+	rec, err := createNested(svc, stringValue("C1:0/302:0/601:0", "F601", "1650"), stringValue("C1:0/302:0/602:0", "F602", "1660"))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	stored := store.values[rec.Example.ID]
-	if len(stored) != 1 || stored[0].OverrideID != 601 || stored[0].FieldID != "F601" || stored[0].SlotPath != "C1:0/302:0/601:0" {
+	if len(stored) != 2 || stored[0].OverrideID != 601 || stored[0].FieldID != "F601" || stored[0].SlotPath != "C1:0/302:0/601:0" {
 		t.Fatalf("stored values = %+v", stored)
 	}
 	if !rec.Validation.Valid {
@@ -221,5 +223,168 @@ func TestServiceCreateMaterializesStubInNestedCollection(t *testing.T) {
 	}
 	if id := rec.Values[0].ValuePayload.ExampleID; id == nil || *id != stub.ID {
 		t.Fatalf("value not linked to stub: %+v", rec.Values[0].ValuePayload)
+	}
+}
+
+// nestedModelField returns a pointer to model M1's field slot overrideID in
+// the fixture, for tests that tweak its cardinality.
+func nestedModelField(views fakeViews, overrideID int64) *domain.ResolvedField {
+	for ci := range views.models["M1"].Categories[0].Collections {
+		coll := &views.models["M1"].Categories[0].Collections[ci]
+		for fi := range coll.Fields {
+			if coll.Fields[fi].OverrideID == overrideID {
+				return &coll.Fields[fi]
+			}
+		}
+	}
+	return nil
+}
+
+func slotPaths(values []domain.ExampleValue) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, v.SlotPath)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// issuesFor returns the issues with code on overrideID.
+func issuesFor(issues []domain.ExampleIssue, code string, overrideID int64) []domain.ExampleIssue {
+	var out []domain.ExampleIssue
+	for _, is := range issues {
+		if is.Code == code && is.OverrideID != nil && *is.OverrideID == overrideID {
+			out = append(out, is)
+		}
+	}
+	return out
+}
+
+// getStored stores values verbatim (no normalization) and reads them back
+// through Get, the lenient path.
+func getStored(t *testing.T, svc *Service, store *fakeStore, values ...domain.ExampleValue) *ExampleRecord {
+	t.Helper()
+	ex := &domain.Example{ID: "EX1", ProjectID: "P1", EntityType: domain.ExampleEntityTypeModel, EntityID: "M1"}
+	if err := store.CreateWithValues(context.Background(), ex, values); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := svc.Get(context.Background(), "P1", "EX1")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	return rec
+}
+
+func TestServiceCompactsNestedInstances(t *testing.T) {
+	rec, err := createNested(NewService(newFakeStore(), nestedViews()),
+		stringValue("C1:0/302:0/601:0", "F601", "1650"),
+		stringValue("C1:0/302:3/601:0", "F601", "1700"),
+	)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	want := []string{"C1:0/302:0/601:0", "C1:0/302:1/601:0"}
+	if got := slotPaths(rec.Values); !slices.Equal(got, want) {
+		t.Fatalf("slot paths = %v, want %v", got, want)
+	}
+}
+
+func TestServiceNestedRequiredPerInstance(t *testing.T) {
+	rec, err := createNested(NewService(newFakeStore(), nestedViews()),
+		stringValue("C1:0/302:0/601:0", "F601", "1650"),
+		stringValue("C1:0/302:0/602:0", "F602", "1660"),
+		stringValue("C1:0/302:1/601:0", "F601", "1700"),
+	)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	got := issuesFor(rec.Validation.Issues, "missing_required_value", 602)
+	if len(got) != 1 || got[0].GroupPath != "C1:0/302:1" || got[0].Severity != domain.ExampleIssueError {
+		t.Fatalf("missing_required_value on 602 = %+v, want one error at C1:0/302:1", got)
+	}
+
+	rec, err = createNested(NewService(newFakeStore(), nestedViews()), stringValue("C1:0/21:0", "F21", "x"))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	for _, is := range rec.Validation.Issues {
+		if is.OverrideID != nil && *is.OverrideID == 602 {
+			t.Fatalf("issue on 602 without a TimeSpan instance: %+v", is)
+		}
+	}
+}
+
+func TestServiceNestedContainerCardinality(t *testing.T) {
+	views := nestedViews()
+	one := 1
+	nestedModelField(views, 302).MaxOccurs = &one
+	rec, err := createNested(NewService(newFakeStore(), views),
+		stringValue("C1:0/302:0/602:0", "F602", "a"),
+		stringValue("C1:0/302:1/602:0", "F602", "b"),
+	)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	got := issuesFor(rec.Validation.Issues, "max_occurs", 302)
+	if len(got) != 1 || got[0].GroupPath != "C1:0" {
+		t.Fatalf("max_occurs on 302 = %+v, want one at C1:0", got)
+	}
+
+	views = nestedViews()
+	nestedModelField(views, 302).IsRequired = true
+	rec, err = createNested(NewService(newFakeStore(), views), stringValue("C1:0/21:0", "F21", "x"))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	got = issuesFor(rec.Validation.Issues, "missing_required_value", 302)
+	if len(got) != 1 || got[0].GroupPath != "C1:0" {
+		t.Fatalf("missing_required_value on 302 = %+v, want one at C1:0", got)
+	}
+
+	rec, err = createNested(NewService(newFakeStore(), views), stringValue("C1:0/302:0/602:0", "F602", "a"))
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if got := issuesFor(rec.Validation.Issues, "missing_required_value", 302); len(got) != 0 {
+		t.Fatalf("missing_required_value on 302 with one TimeSpan = %+v, want none", got)
+	}
+}
+
+func TestServiceCompactsGroupAndNestedLevels(t *testing.T) {
+	rec, err := createNested(NewService(newFakeStore(), nestedViews()),
+		stringValue("C1:1/302:2/601:0", "F601", "1650"),
+		stringValue("C1:1/302:2/603:4/701:0", "F701", "n"),
+	)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	want := []string{"C1:0/302:0/601:0", "C1:0/302:0/603:0/701:0"}
+	if got := slotPaths(rec.Values); !slices.Equal(got, want) {
+		t.Fatalf("slot paths = %v, want %v", got, want)
+	}
+}
+
+// A nested value whose inner override left the collection is not a resolved
+// value: it keeps neither a group instance nor a nested instance alive and
+// is left exactly where it is stored.
+func TestServiceStaleNestedValueDoesNotCountOrMove(t *testing.T) {
+	store := newFakeStore()
+	rec := getStored(t, NewService(store, nestedViews()), store,
+		stringValue("C1:1/21:0", "F21", "x"),
+		stringValue("C1:3/302:2/999:0", "F999", "stale"),
+	)
+	want := []string{"C1:0/21:0", "C1:3/302:2/999:0"}
+	if got := slotPaths(rec.Values); !slices.Equal(got, want) {
+		t.Fatalf("slot paths = %v, want %v", got, want)
+	}
+
+	store = newFakeStore()
+	rec = getStored(t, NewService(store, nestedViews()), store,
+		stringValue("C1:0/302:0/999:0", "F999", "stale"),
+		stringValue("C1:0/302:1/602:0", "F602", "1700"),
+	)
+	want = []string{"C1:0/302:0/602:0", "C1:0/302:0/999:0"}
+	if got := slotPaths(rec.Values); !slices.Equal(got, want) {
+		t.Fatalf("slot paths = %v, want %v", got, want)
 	}
 }

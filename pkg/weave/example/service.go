@@ -793,16 +793,21 @@ func (s *Service) validateValues(ctx context.Context, projectID, modelID string,
 	if err := placeInGroups(values, resolver.groups, strict); err != nil {
 		return domain.ExampleValidationReport{}, err
 	}
+	slots, err := resolver.resolveAll(values)
+	if err != nil {
+		return domain.ExampleValidationReport{}, err
+	}
+	compactInstances(values, slots)
 	issues := make([]domain.ExampleIssue, 0)
 	counts := map[string]int{}
 	present := map[string]map[string]bool{}
-	for _, value := range values {
-		vIssues, resolved, err := s.checkValue(ctx, resolver, value, strict)
+	for i, value := range values {
+		vIssues, err := s.checkValue(ctx, slots[i], value, strict)
 		if err != nil {
 			return domain.ExampleValidationReport{}, err
 		}
 		issues = append(issues, vIssues...)
-		if !resolved {
+		if slots[i].status != slotOK {
 			continue
 		}
 		counts[slotCountKey(containerPath(value.SlotPath), value.OverrideID)]++
@@ -814,7 +819,12 @@ func (s *Service) validateValues(ctx context.Context, projectID, modelID string,
 			present[coll][gp] = true
 		}
 	}
+	nested, err := resolver.nestedCardinalityIssues(values, slots, counts)
+	if err != nil {
+		return domain.ExampleValidationReport{}, err
+	}
 	issues = append(issues, cardinalityIssues(view, counts, present)...)
+	issues = append(issues, nested...)
 	return domain.ExampleValidationReport{
 		Valid:  len(issues) == 0,
 		Issues: issues,
@@ -1083,57 +1093,6 @@ func instancePath(slotPath string) string {
 	return ""
 }
 
-// compactGroupInstances renumbers each collection group's instances to
-// 0..n-1 in their existing order. The form always shows instance 0, so a
-// removed first instance must not leave a gap behind. Only values whose
-// override is known and whose stored group matches that override's current
-// group count toward the instance set and get renumbered: a value on a
-// removed field, or one whose field moved to a different group, is left
-// exactly where it is.
-func compactGroupInstances(values []domain.ExampleValue, groups map[int64]string) {
-	seen := map[string]map[int]bool{}
-	for _, v := range values {
-		if !countsTowardGroup(v, groups) {
-			continue
-		}
-		if coll, n, ok := domain.ParseExampleGroupSegment(groupPart(v.SlotPath)); ok {
-			if seen[coll] == nil {
-				seen[coll] = map[int]bool{}
-			}
-			seen[coll][n] = true
-		}
-	}
-	renumber := make(map[string]map[int]int, len(seen))
-	for coll, set := range seen {
-		m := make(map[int]int, len(set))
-		for i, n := range slices.Sorted(maps.Keys(set)) {
-			m[n] = i
-		}
-		renumber[coll] = m
-	}
-	for i := range values {
-		v := &values[i]
-		if !countsTowardGroup(*v, groups) {
-			continue
-		}
-		gp := groupPart(v.SlotPath)
-		coll, n, ok := domain.ParseExampleGroupSegment(gp)
-		if !ok || renumber[coll][n] == n {
-			continue
-		}
-		v.SlotPath = domain.ExampleGroupSegment(coll, renumber[coll][n]) + v.SlotPath[len(gp):]
-	}
-}
-
-// countsTowardGroup reports whether v should count as an instance of its
-// group for compaction and cardinality purposes: its anchor override must
-// still be on the model, and its stored group segment must still be where
-// that override lives.
-func countsTowardGroup(v domain.ExampleValue, groups map[int64]string) bool {
-	_, known := groups[anchorOverride(v)]
-	return known && groupMatches(v, groups)
-}
-
 // groupMatches reports whether v's stored group segment agrees with its
 // anchor override's current group (the anchor equals v.OverrideID for
 // depth-0 paths). An override no longer on the model is not this
@@ -1160,9 +1119,9 @@ func groupMatches(v domain.ExampleValue, groups map[int64]string) bool {
 // since it was saved does not make the example unreadable — validateValues
 // reports it as a moved_group_value warning instead. Values on slots the
 // model no longer has are left alone either way; validation reports them as
-// stale. Duplicate paths are an input error in both modes. Group instances
-// are then renumbered 0..n-1, skipping values that are not a current
-// instance of their group (see compactGroupInstances).
+// stale. Duplicate paths are an input error in both modes. Instance
+// numbers are compacted afterwards, once every path is resolved (see
+// compactInstances in validateValues).
 func placeInGroups(values []domain.ExampleValue, groups map[int64]string, strict bool) error {
 	seen := make(map[string]bool, len(values))
 	for i := range values {
@@ -1178,7 +1137,6 @@ func placeInGroups(values []domain.ExampleValue, groups map[int64]string, strict
 		}
 		seen[v.SlotPath] = true
 	}
-	compactGroupInstances(values, groups)
 	return nil
 }
 
