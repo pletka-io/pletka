@@ -810,3 +810,25 @@ func TestServiceCreateRejectsMalformedSlotPath(t *testing.T) {
 		t.Fatalf("err = %v, want a slot_path error", err)
 	}
 }
+
+func TestServiceCreateRejectsNestedSlotPathForNow(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
+	_, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{{SlotPath: "1:0/11:0", FieldID: "F1", ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("c")}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "nested slot_path") {
+		t.Fatalf("err = %v, want nested slot_path error", err)
+	}
+}
+
+func TestServiceCreateRejectsContradictorySlotPath(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
+	_, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{{SlotPath: "11:2", OverrideID: 11, OccurrenceIndex: 0, FieldID: "F1", ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("c")}}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "disagrees") {
+		t.Fatalf("err = %v, want disagreement error", err)
+	}
+}

@@ -559,6 +559,9 @@ func settleSlot(v *domain.ExampleValue) error {
 	if !ok {
 		return fmt.Errorf("value for field %s: malformed slot_path %q", v.FieldID, v.SlotPath)
 	}
+	if domain.ExampleSlotDepth(v.SlotPath) > 1 {
+		return fmt.Errorf("value for field %s: nested slot_path %q is not supported yet", v.FieldID, v.SlotPath)
+	}
 	if v.OverrideID == 0 {
 		v.OverrideID = oid
 		v.OccurrenceIndex = occ
