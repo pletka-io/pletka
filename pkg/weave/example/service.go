@@ -183,7 +183,7 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 	if err != nil {
 		return nil, err
 	}
-	report, err := s.validateModelValues(ctx, projectID, in.EntityID, values)
+	report, err := s.validateValues(ctx, projectID, in.EntityID, values, true)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +219,7 @@ func (s *Service) Update(ctx context.Context, projectID, exampleID string, in Up
 	if err != nil {
 		return nil, err
 	}
-	report, err := s.validateModelValues(ctx, projectID, ex.EntityID, values)
+	report, err := s.validateValues(ctx, projectID, ex.EntityID, values, true)
 	if err != nil {
 		return nil, err
 	}
@@ -421,6 +421,7 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 	if err != nil {
 		return nil, err
 	}
+	groups := groupOfOverride(view)
 	byInstance := map[string][]domain.ExampleValue{}
 	issuesByKey := map[string][]domain.ExampleIssue{}
 	groupIssues := map[string][]domain.ExampleIssue{}
@@ -429,12 +430,21 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 	if record != nil {
 		for _, v := range record.Values {
 			gp := instancePath(v.SlotPath)
+			_, known := groups[v.OverrideID]
+			if known && !groupMatches(v, groups) {
+				// The field moved to a different group (or to/from direct)
+				// since this value was saved: leave it out of the form
+				// entirely, same as Get leaves it out of validation counts.
+				continue
+			}
 			byInstance[slotCountKey(gp, v.OverrideID)] = append(byInstance[slotCountKey(gp, v.OverrideID)], v)
-			if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
-				if present[coll] == nil {
-					present[coll] = map[string]bool{}
+			if known {
+				if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
+					if present[coll] == nil {
+						present[coll] = map[string]bool{}
+					}
+					present[coll][gp] = true
 				}
-				present[coll][gp] = true
 			}
 		}
 		for _, issue := range record.Validation.Issues {
@@ -735,33 +745,49 @@ func deriveStatus(values []domain.ExampleValue, report domain.ExampleValidationR
 	return domain.ExampleStatusHasIssues
 }
 
+// validateModelValues is the lenient wrapper Get (and reads generally) use:
+// a value whose stored group no longer matches its override's current group
+// is left in place rather than rejected. See validateValues.
 func (s *Service) validateModelValues(ctx context.Context, projectID, modelID string, values []domain.ExampleValue) (domain.ExampleValidationReport, error) {
+	return s.validateValues(ctx, projectID, modelID, values, false)
+}
+
+// validateValues validates values against modelID's current view. strict
+// controls placeInGroups: Create/Update pass true and reject a value whose
+// slot_path names the wrong group for its field. Get and other reads pass
+// false (via validateModelValues) so a field moved to a different group (or
+// to/from direct) since the value was saved does not make the example
+// unreadable; such a value is left untouched, excluded from group/field
+// counts and compaction, and reported as a moved_group_value warning
+// instead.
+func (s *Service) validateValues(ctx context.Context, projectID, modelID string, values []domain.ExampleValue, strict bool) (domain.ExampleValidationReport, error) {
 	view, err := s.views.ModelView(ctx, modelID, projectID)
 	if err != nil {
 		return domain.ExampleValidationReport{}, err
 	}
-	if err := placeInGroups(values, groupOfOverride(view)); err != nil {
+	groups := groupOfOverride(view)
+	if err := placeInGroups(values, groups, strict); err != nil {
 		return domain.ExampleValidationReport{}, err
 	}
-	fieldByOverride := map[int64]domain.ResolvedField{}
-	for _, cat := range view.Categories {
-		for _, coll := range cat.Collections {
-			for _, f := range coll.Fields {
-				fieldByOverride[f.OverrideID] = f
-			}
-		}
-	}
+	fieldByOverride := buildFieldByOverride(view)
 	issues := make([]domain.ExampleIssue, 0)
 	counts := map[string]int{}
 	present := map[string]map[string]bool{}
 	for _, value := range values {
 		gp := instancePath(value.SlotPath)
+		_, known := fieldByOverride[value.OverrideID]
+		if known && !groupMatches(value, groups) {
+			issues = append(issues, movedGroupValueIssue(value, gp))
+			continue
+		}
 		counts[slotCountKey(gp, value.OverrideID)]++
-		if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
-			if present[coll] == nil {
-				present[coll] = map[string]bool{}
+		if known {
+			if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
+				if present[coll] == nil {
+					present[coll] = map[string]bool{}
+				}
+				present[coll][gp] = true
 			}
-			present[coll][gp] = true
 		}
 		vIssues, err := s.valueIssues(ctx, value, fieldByOverride)
 		if err != nil {
@@ -777,6 +803,19 @@ func (s *Service) validateModelValues(ctx context.Context, projectID, modelID st
 		Valid:  len(issues) == 0,
 		Issues: issues,
 	}, nil
+}
+
+// movedGroupValueIssue reports a value whose stored group segment no longer
+// matches its override's current group: left as is by validateValues, out
+// of group/field counts, and surfaced as a warning instead of dropped
+// silently.
+func movedGroupValueIssue(value domain.ExampleValue, groupPath string) domain.ExampleIssue {
+	fieldID := value.FieldID
+	overrideID := value.OverrideID
+	occurrenceIndex := value.OccurrenceIndex
+	issue := warningIssue("moved_group_value", &fieldID, &overrideID, &occurrenceIndex, "This value was saved in a group the field no longer belongs to.")
+	issue.GroupPath = groupPath
+	return issue
 }
 
 // valueIssues runs the per-value checks for one value.
@@ -1034,10 +1073,17 @@ func instancePath(slotPath string) string {
 
 // compactGroupInstances renumbers each collection group's instances to
 // 0..n-1 in their existing order. The form always shows instance 0, so a
-// removed first instance must not leave a gap behind.
-func compactGroupInstances(values []domain.ExampleValue) {
+// removed first instance must not leave a gap behind. Only values whose
+// override is known and whose stored group matches that override's current
+// group count toward the instance set and get renumbered: a value on a
+// removed field, or one whose field moved to a different group, is left
+// exactly where it is.
+func compactGroupInstances(values []domain.ExampleValue, groups map[int64]string) {
 	seen := map[string]map[int]bool{}
 	for _, v := range values {
+		if !countsTowardGroup(v, groups) {
+			continue
+		}
 		if coll, n, ok := domain.ParseExampleGroupSegment(instancePath(v.SlotPath)); ok {
 			if seen[coll] == nil {
 				seen[coll] = map[int]bool{}
@@ -1055,6 +1101,9 @@ func compactGroupInstances(values []domain.ExampleValue) {
 	}
 	for i := range values {
 		v := &values[i]
+		if !countsTowardGroup(*v, groups) {
+			continue
+		}
 		gp := instancePath(v.SlotPath)
 		coll, n, ok := domain.ParseExampleGroupSegment(gp)
 		if !ok || renumber[coll][n] == n {
@@ -1064,19 +1113,50 @@ func compactGroupInstances(values []domain.ExampleValue) {
 	}
 }
 
+// countsTowardGroup reports whether v should count as an instance of its
+// group for compaction and cardinality purposes: its override must still be
+// on the model, and its stored group segment must still be where that
+// override lives.
+func countsTowardGroup(v domain.ExampleValue, groups map[int64]string) bool {
+	_, known := groups[v.OverrideID]
+	return known && groupMatches(v, groups)
+}
+
+// groupMatches reports whether v's stored group segment agrees with its
+// override's current group. An override no longer on the model is not this
+// function's concern (the stale_override check handles it); it always
+// matches here.
+func groupMatches(v domain.ExampleValue, groups map[int64]string) bool {
+	group, known := groups[v.OverrideID]
+	if !known {
+		return true
+	}
+	coll, _, ok := domain.ParseExampleGroupSegment(instancePath(v.SlotPath))
+	if !ok {
+		coll = ""
+	}
+	return coll == group
+}
+
 // placeInGroups gives every value in a collection group its group segment.
-// A one-segment path on a grouped field is instance 0: rows saved before
-// step B.2 and clients that do not know about groups. A two-segment path
-// must name the group holding the field. Values on slots the model no
-// longer has are left alone; validation reports them as stale. Duplicate
-// paths are an input error. Group instances are then renumbered 0..n-1.
-func placeInGroups(values []domain.ExampleValue, groups map[int64]string) error {
+// A one-segment path on a grouped field is instance 0 in both modes: rows
+// saved before step B.2 and clients that do not know about groups. A
+// two-segment path must name the group currently holding the field: strict
+// (Create/Update) rejects a mismatch, lenient (Get, via validateModelValues)
+// leaves the value exactly as stored so a field moved to another group
+// since it was saved does not make the example unreadable — validateValues
+// reports it as a moved_group_value warning instead. Values on slots the
+// model no longer has are left alone either way; validation reports them as
+// stale. Duplicate paths are an input error in both modes. Group instances
+// are then renumbered 0..n-1, skipping values that are not a current
+// instance of their group (see compactGroupInstances).
+func placeInGroups(values []domain.ExampleValue, groups map[int64]string, strict bool) error {
 	seen := make(map[string]bool, len(values))
 	for i := range values {
 		v := &values[i]
 		group, known := groups[v.OverrideID]
 		if known {
-			if err := placeValue(v, group); err != nil {
+			if err := placeValue(v, group, strict); err != nil {
 				return err
 			}
 		}
@@ -1085,11 +1165,11 @@ func placeInGroups(values []domain.ExampleValue, groups map[int64]string) error 
 		}
 		seen[v.SlotPath] = true
 	}
-	compactGroupInstances(values)
+	compactGroupInstances(values, groups)
 	return nil
 }
 
-func placeValue(v *domain.ExampleValue, group string) error {
+func placeValue(v *domain.ExampleValue, group string, strict bool) error {
 	gp := instancePath(v.SlotPath)
 	if gp == "" {
 		if group != "" {
@@ -1098,10 +1178,13 @@ func placeValue(v *domain.ExampleValue, group string) error {
 		return nil
 	}
 	coll, _, ok := domain.ParseExampleGroupSegment(gp)
-	if !ok || coll != group {
-		return fmt.Errorf("value for field %s: slot_path %q does not match the group holding field slot %d", v.FieldID, v.SlotPath, v.OverrideID)
+	if ok && coll == group {
+		return nil
 	}
-	return nil
+	if !strict {
+		return nil
+	}
+	return fmt.Errorf("value for field %s: slot_path %q does not match the group holding field slot %d", v.FieldID, v.SlotPath, v.OverrideID)
 }
 
 func issueKey(groupPath string, overrideID int64, occurrenceIndex int) string {

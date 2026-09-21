@@ -1157,3 +1157,117 @@ func TestServiceBuildFormSchemaGroupMaxOccursIssueOnFirstInstance(t *testing.T) 
 		t.Fatalf("C1 instance 1 issues = %+v, want none, C1 max_occurs issue must attach only to the first instance", c1[1].Issues)
 	}
 }
+
+// TestServiceGetToleratesFieldMovedOutOfGroup: a curator can move an
+// override's collection after values were saved against the old group. Get
+// (unlike Create/Update) must stay readable: the stored group segment is
+// left as is, excluded from validation counts, and reported as a
+// moved_group_value warning instead of an error. The edit-mode form must
+// not show the value under either the old or the new location.
+func TestServiceGetToleratesFieldMovedOutOfGroup(t *testing.T) {
+	store := newFakeStore()
+	groupedView := groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": groupedView}})
+	rec, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:1/21:0", "F2", "b")},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	// Field 21 moved: it is now direct, and C1 holds a different field (22).
+	movedView := &domain.ModelView{
+		ModelID:   "M1",
+		ProjectID: "P1",
+		Categories: []domain.CategoryGroup{{
+			ID:       "CAT1",
+			Name:     domain.Translations{"en": "Main"},
+			Position: 1,
+			Collections: []domain.CollectionGroup{
+				{
+					ID:   "__direct__",
+					Name: domain.Translations{"en": "Direct Fields"},
+					Fields: []domain.ResolvedField{
+						resolvedField(11, "F1", "Field", "String", false, 0, nil),
+						resolvedField(21, "F2", "Name", "String", false, 0, nil),
+					},
+				},
+				{
+					ID:       "C1",
+					Name:     domain.Translations{"en": "Name"},
+					Position: 1,
+					Fields:   []domain.ResolvedField{resolvedField(22, "F3", "Type", "String", false, 0, nil)},
+				},
+			},
+		}},
+	}
+	svc2 := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": movedView}})
+
+	got, err := svc2.Get(context.Background(), "P1", rec.Example.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v, want no error (moved values must not make the example unreadable)", err)
+	}
+	moved := 0
+	for _, is := range got.Validation.Issues {
+		if is.Code == "moved_group_value" && is.Severity == domain.ExampleIssueWarning {
+			moved++
+		}
+	}
+	if moved != 2 {
+		t.Fatalf("moved_group_value warnings = %d, want 2: %+v", moved, got.Validation.Issues)
+	}
+
+	schema, err := svc2.BuildFormSchema(context.Background(), "P1", formschema.ModeEdit, "", "", rec.Example.ID, "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	var directF2 *ExampleFormField
+	for _, sec := range schema.Sections {
+		for _, g := range sec.Groups {
+			if g.ID != directGroupID {
+				continue
+			}
+			for i := range g.Fields {
+				if g.Fields[i].OverrideID == 21 {
+					directF2 = &g.Fields[i]
+				}
+			}
+		}
+	}
+	if directF2 == nil {
+		t.Fatal("direct field F2 (override 21) not found in edit-mode schema")
+	}
+	if len(directF2.Occurrences) != 1 || directF2.Occurrences[0].Value.StringValue != nil {
+		t.Fatalf("direct field F2 occurrences = %+v, want a single empty occurrence and no leaked moved value", directF2.Occurrences)
+	}
+}
+
+// TestValidateStaleValuesDoNotCountAsInstances: a value on an override the
+// model no longer has must not inflate its old group's instance count
+// (group_max_occurs/group_min_occurs) or create a phantom instance; it is
+// still reported as stale_override.
+func TestValidateStaleValuesDoNotCountAsInstances(t *testing.T) {
+	one := 1
+	view := groupedModelView(&domain.CollectionPlacement{MaxOccurs: &one}, resolvedField(21, "F2", "Name", "String", false, 0, nil))
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": view}})
+	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
+		stringValue("C1:0/21:0", "F2", "a"),
+		stringValue("C1:1/99:0", "F9", "stale"),
+	})
+	if err != nil {
+		t.Fatalf("validateModelValues() error = %v", err)
+	}
+	if hasIssue(report.Issues, "group_max_occurs", domain.ExampleIssueError) {
+		t.Fatalf("issues = %+v, want no group_max_occurs (the stale value must not count as a second C1 instance)", report.Issues)
+	}
+	stale := 0
+	for _, is := range report.Issues {
+		if is.Code == "stale_override" && is.Severity == domain.ExampleIssueWarning {
+			stale++
+		}
+	}
+	if stale != 1 {
+		t.Fatalf("stale_override warnings = %d, want 1: %+v", stale, report.Issues)
+	}
+}
