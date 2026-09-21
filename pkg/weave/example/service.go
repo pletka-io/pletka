@@ -20,11 +20,29 @@ const expectedValueTypeModel = "Model"
 
 type ViewReader interface {
 	ModelView(ctx context.Context, modelID, projectID string) (*domain.ModelView, error)
+	CollectionView(ctx context.Context, collectionID, projectID string) ([]domain.ResolvedField, error)
 }
 
+// defaultMaxNestingDepth is how many collection levels an example form opens
+// inside a Collection-typed field when examples.max_nesting_depth is unset.
+const defaultMaxNestingDepth = 2
+
 type Service struct {
-	store Store
-	views ViewReader
+	store    Store
+	views    ViewReader
+	maxDepth int
+}
+
+// ServiceOption configures a Service at construction.
+type ServiceOption func(*Service)
+
+// WithMaxNestingDepth sets the nesting cap; n <= 0 keeps the default.
+func WithMaxNestingDepth(n int) ServiceOption {
+	return func(s *Service) {
+		if n > 0 {
+			s.maxDepth = n
+		}
+	}
 }
 
 type conceptValidator interface {
@@ -52,8 +70,14 @@ func (s *Service) TargetName(ctx context.Context, modelID string) domain.Transla
 	return m.UIName
 }
 
-func NewService(store Store, views ViewReader) *Service {
-	return &Service{store: store, views: views}
+// NewService builds the example service; opts adjust defaults such as the
+// nesting depth cap.
+func NewService(store Store, views ViewReader, opts ...ServiceOption) *Service {
+	s := &Service{store: store, views: views, maxDepth: defaultMaxNestingDepth}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 type CreateInput struct {
@@ -150,6 +174,26 @@ type ExampleFormField struct {
 	Issues            []domain.ExampleIssue   `json:"issues,omitempty"`
 	Occurrences       []ExampleOccurrence     `json:"occurrences,omitempty"`
 	SlotPrefix        string                  `json:"slot_prefix,omitempty"`
+	// Nested describes a Collection-typed field's target collection. Present
+	// on every Collection-typed field; Expandable false carries a Note.
+	Nested *NestedCollection `json:"nested,omitempty"`
+	// NestedInstances are the collection instances holding values, in
+	// order, each a group entry whose SlotPrefix is
+	// "<field slot_prefix><override>:<k>/".
+	NestedInstances []ExampleFormGroup `json:"nested_instances,omitempty"`
+}
+
+// NestedCollection is the target collection a Collection-typed field
+// opens in place.
+type NestedCollection struct {
+	CollectionID string              `json:"collection_id,omitempty"`
+	Label        domain.Translations `json:"label,omitempty"`
+	Expandable   bool                `json:"expandable"`
+	Note         string              `json:"note,omitempty"`
+	// Fields is a blank template of the collection's fields (slot_prefix
+	// empty, no occurrences' values), recursively carrying their own Nested
+	// templates up to the depth cap. The workspace clones it for "+ Add".
+	Fields []ExampleFormField `json:"fields,omitempty"`
 }
 
 type ConceptListSource struct {
@@ -176,14 +220,18 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 		Description: in.Description,
 		Status:      domain.ExampleStatusDraft,
 	}
-	if err := s.materializeStubs(ctx, projectID, in.EntityID, in.Lang, in.Values); err != nil {
+	resolver, err := s.resolverFor(ctx, projectID, in.EntityID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.materializeStubs(ctx, resolver, in.Lang, in.Values); err != nil {
 		return nil, err
 	}
 	values, err := normalizeValues(in.Values)
 	if err != nil {
 		return nil, err
 	}
-	report, err := s.validateValues(ctx, projectID, in.EntityID, values, true)
+	report, err := s.validateValues(ctx, resolver, values, true)
 	if err != nil {
 		return nil, err
 	}
@@ -212,14 +260,18 @@ func (s *Service) Update(ctx context.Context, projectID, exampleID string, in Up
 	if in.Description != nil {
 		ex.Description = *in.Description
 	}
-	if err := s.materializeStubs(ctx, projectID, ex.EntityID, in.Lang, in.Values); err != nil {
+	resolver, err := s.resolverFor(ctx, projectID, ex.EntityID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.materializeStubs(ctx, resolver, in.Lang, in.Values); err != nil {
 		return nil, err
 	}
 	values, err := normalizeValues(in.Values)
 	if err != nil {
 		return nil, err
 	}
-	report, err := s.validateValues(ctx, projectID, ex.EntityID, values, true)
+	report, err := s.validateValues(ctx, resolver, values, true)
 	if err != nil {
 		return nil, err
 	}
@@ -253,18 +305,22 @@ type stubCandidate struct {
 //
 // Resolution and validation of every stub value happens first, so a guard
 // failure on a later value never leaves an earlier value's draft created;
-// only then does a second pass create the drafts and link them.
+// when there are drafts to create, every value's slot path is then checked
+// the way validateValues checks it on a write (checkStrictPaths), so a bad
+// nested path elsewhere in the request fails before any draft exists. Only
+// then does a second pass create the drafts and link them.
 //
-// ponytail: only a DB error on the parent save can now leave an unlinked
-// draft — stubs are still created before the parent is saved and are not
-// rolled back if that save fails afterwards; they are drafts and harmless.
-// Wrap in one transaction if that ever bites.
-func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang string, values []domain.ExampleValue) error {
+// ponytail: an unlinked draft can still be left by a DB error on the parent
+// save, or by a write rejected after this point for a reason other than an
+// unresolvable path (wrong or duplicate group segment, a slot_path that
+// contradicts override_id/occurrence_index): stubs are created before the
+// parent is saved and are not rolled back; they are drafts and harmless. Wrap in one transaction
+// if that ever bites.
+func (s *Service) materializeStubs(ctx context.Context, resolver *slotResolver, lang string, values []domain.ExampleValue) error {
 	lang = strings.TrimSpace(lang)
 	if lang == "" {
 		lang = "en"
 	}
-	var fieldByOverride map[int64]domain.ResolvedField
 	var candidates []stubCandidate
 	for i := range values {
 		p := &values[i].ValuePayload
@@ -275,22 +331,24 @@ func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang
 		if label == "" {
 			continue
 		}
-		if fieldByOverride == nil {
-			view, err := s.views.ModelView(ctx, modelID, projectID)
-			if err != nil {
-				return err
-			}
-			fieldByOverride = buildFieldByOverride(view)
+		rs, err := resolver.resolve(valueSlotPath(values[i]))
+		if err != nil {
+			return err
 		}
-		field, ok := fieldByOverride[values[i].OverrideID]
-		if !ok {
-			continue // validation reports stale_override
+		if rs.status != slotOK {
+			continue // validation reports the unresolvable path
 		}
-		target, err := resolveStubTarget(field, p)
+		target, err := resolveStubTarget(rs.field, p)
 		if err != nil {
 			return err
 		}
 		candidates = append(candidates, stubCandidate{index: i, target: target, label: label})
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	if err := resolver.checkStrictPaths(values); err != nil {
+		return err
 	}
 	// One draft per (target model, label) within this save: the same new
 	// entity typed into two fields links one record, not two.
@@ -301,7 +359,7 @@ func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang
 		if !ok {
 			stub := &domain.Example{
 				ID:         ids.GenerateULID(),
-				ProjectID:  projectID,
+				ProjectID:  resolver.projectID,
 				EntityType: domain.ExampleEntityTypeModel,
 				EntityID:   c.target,
 				Title:      domain.Translations{lang: c.label},
@@ -360,23 +418,34 @@ func resolveStubTarget(field domain.ResolvedField, p *domain.ExampleValuePayload
 }
 
 func (s *Service) Get(ctx context.Context, projectID, exampleID string) (*ExampleRecord, error) {
+	record, _, err := s.get(ctx, projectID, exampleID)
+	return record, err
+}
+
+// get is Get, also returning the slot resolver it validated with so the
+// edit form reuses its cached views.
+func (s *Service) get(ctx context.Context, projectID, exampleID string) (*ExampleRecord, *slotResolver, error) {
 	ex, err := s.store.GetByID(ctx, exampleID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if ex == nil || ex.ProjectID != projectID {
-		return nil, fmt.Errorf("example not found")
+		return nil, nil, fmt.Errorf("example not found")
 	}
 	values, err := s.store.ListValues(ctx, exampleID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	report, err := s.validateModelValues(ctx, projectID, ex.EntityID, values)
+	resolver, err := s.resolverFor(ctx, projectID, ex.EntityID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	report, err := s.validateValues(ctx, resolver, values, false)
+	if err != nil {
+		return nil, nil, err
 	}
 	report.ExampleID = ex.ID
-	return &ExampleRecord{Example: ex, Values: values, Validation: report}, nil
+	return &ExampleRecord{Example: ex, Values: values, Validation: report}, resolver, nil
 }
 
 func (s *Service) Delete(ctx context.Context, projectID, exampleID string) error {
@@ -404,65 +473,40 @@ func (s *Service) BuildFormSchema(ctx context.Context, projectID, mode, targetTy
 		if targetType != string(domain.ExampleEntityTypeModel) || strings.TrimSpace(targetID) == "" {
 			return nil, fmt.Errorf("target_type=model and target_id are required")
 		}
-		return s.buildModelFormSchema(ctx, projectID, "", targetID, nil, lang, languages)
-	case formschema.ModeEdit:
-		record, err := s.Get(ctx, projectID, exampleID)
+		resolver, err := s.resolverFor(ctx, projectID, targetID)
 		if err != nil {
 			return nil, err
 		}
-		return s.buildModelFormSchema(ctx, projectID, record.Example.ID, record.Example.EntityID, record, lang, languages)
+		return s.buildModelFormSchema(ctx, resolver, "", targetID, nil, lang, languages)
+	case formschema.ModeEdit:
+		record, resolver, err := s.get(ctx, projectID, exampleID)
+		if err != nil {
+			return nil, err
+		}
+		return s.buildModelFormSchema(ctx, resolver, record.Example.ID, record.Example.EntityID, record, lang, languages)
 	default:
 		return nil, fmt.Errorf("unsupported form mode: %s", mode)
 	}
 }
 
-func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID, modelID string, record *ExampleRecord, lang string, languages []formschema.LanguageInfo) (*ExampleFormSchema, error) {
-	view, err := s.views.ModelView(ctx, modelID, projectID)
+// buildModelFormSchema builds the form with the request's slot resolver
+// (its model view and cached collection views).
+func (s *Service) buildModelFormSchema(ctx context.Context, resolver *slotResolver, exampleID, modelID string, record *ExampleRecord, lang string, languages []formschema.LanguageInfo) (*ExampleFormSchema, error) {
+	projectID, view := resolver.projectID, resolver.view
+	var values []domain.ExampleValue
+	var issues []domain.ExampleIssue
+	if record != nil {
+		values, issues = record.Values, record.Validation.Issues
+	}
+	// A value whose field moved to a different group since it was saved does
+	// not resolve and stays out of the form, as it stays out of Get's counts.
+	slots, err := resolver.resolveAll(values)
 	if err != nil {
 		return nil, err
 	}
-	groups := groupOfOverride(view)
-	byInstance := map[string][]domain.ExampleValue{}
-	issuesByKey := map[string][]domain.ExampleIssue{}
-	groupIssues := map[string][]domain.ExampleIssue{}
-	present := map[string]map[string]bool{}
-	var topIssues []domain.ExampleIssue
-	if record != nil {
-		for _, v := range record.Values {
-			gp := instancePath(v.SlotPath)
-			_, known := groups[v.OverrideID]
-			if known && !groupMatches(v, groups) {
-				// The field moved to a different group (or to/from direct)
-				// since this value was saved: leave it out of the form
-				// entirely, same as Get leaves it out of validation counts.
-				continue
-			}
-			byInstance[slotCountKey(gp, v.OverrideID)] = append(byInstance[slotCountKey(gp, v.OverrideID)], v)
-			if known {
-				if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
-					if present[coll] == nil {
-						present[coll] = map[string]bool{}
-					}
-					present[coll][gp] = true
-				}
-			}
-		}
-		for _, issue := range record.Validation.Issues {
-			switch {
-			case issue.CollectionID != nil:
-				groupIssues[*issue.CollectionID] = append(groupIssues[*issue.CollectionID], issue)
-			case issue.OverrideID == nil:
-				topIssues = append(topIssues, issue)
-			default:
-				idx := -1
-				if issue.OccurrenceIndex != nil {
-					idx = *issue.OccurrenceIndex
-				}
-				key := issueKey(issue.GroupPath, *issue.OverrideID, idx)
-				issuesByKey[key] = append(issuesByKey[key], issue)
-			}
-		}
-	}
+	issuesByKey, groupIssues, topIssues := routeIssues(issues)
+	builder := newFormBuilder(resolver, values, slots, issuesByKey)
+	present := formGroupPresence(values, slots)
 	sections := make([]ExampleFormSection, 0, len(view.Categories))
 	for _, cat := range view.Categories {
 		section := ExampleFormSection{
@@ -471,10 +515,15 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 			CanonicalOrder: cat.Position,
 		}
 		for _, coll := range cat.Collections {
-			section.Groups = append(section.Groups, buildGroupEntries(coll, byInstance, issuesByKey, groupIssues, present[coll.ID])...)
+			entries, err := buildGroupEntries(builder, coll, groupIssues, present[coll.ID])
+			if err != nil {
+				return nil, err
+			}
+			section.Groups = append(section.Groups, entries...)
 		}
 		sections = append(sections, section)
 	}
+	topIssues = append(topIssues, builder.unplacedIssues(issues)...)
 	schema := &ExampleFormSchema{
 		Kind:      "example-form",
 		ExampleID: exampleID,
@@ -568,19 +617,20 @@ func formInstances(coll domain.CollectionGroup, present map[string]bool) []strin
 // entry for the direct bucket, or one per validated/padded instance of a
 // collection group. Split out of buildModelFormSchema to keep it within the
 // gocyclo limit.
-func buildGroupEntries(coll domain.CollectionGroup, byInstance map[string][]domain.ExampleValue, issuesByKey map[string][]domain.ExampleIssue, groupIssues map[string][]domain.ExampleIssue, present map[string]bool) []ExampleFormGroup {
+func buildGroupEntries(b *formBuilder, coll domain.CollectionGroup, groupIssues map[string][]domain.ExampleIssue, present map[string]bool) ([]ExampleFormGroup, error) {
 	instances := formInstances(coll, present)
 	out := make([]ExampleFormGroup, 0, len(instances))
 	for i, gp := range instances {
-		prefix, instance := "", 0
+		instance := 0
 		if gp != "" {
-			prefix = gp + "/"
 			_, instance, _ = domain.ParseExampleGroupSegment(gp)
 		}
 		fields := make([]ExampleFormField, 0, len(coll.Fields))
 		for _, f := range coll.Fields {
-			field := buildExampleField(f, byInstance[slotCountKey(gp, f.OverrideID)], issuesByKey, gp)
-			field.SlotPrefix = prefix
+			field, err := b.field(f, gp, 1)
+			if err != nil {
+				return nil, err
+			}
 			fields = append(fields, field)
 		}
 		out = append(out, ExampleFormGroup{
@@ -590,14 +640,14 @@ func buildGroupEntries(coll domain.CollectionGroup, byInstance map[string][]doma
 			SharedPathPrefix: coll.SharedPathPrefix,
 			Fields:           fields,
 			Instance:         instance,
-			SlotPrefix:       prefix,
+			SlotPrefix:       slotPrefix(gp),
 			Repeatable:       groupRepeatable(coll),
 			MinOccurs:        placementMin(coll),
 			MaxOccurs:        placementMax(coll),
 			Issues:           issuesIf(i == 0, groupIssues[coll.ID]),
 		})
 	}
-	return out
+	return out, nil
 }
 
 // groupRepeatable reports whether a collection group's form entries allow
@@ -659,18 +709,17 @@ func normalizeValues(values []domain.ExampleValue) ([]domain.ExampleValue, error
 	return out, nil
 }
 
-// settleSlot reconciles SlotPath with OverrideID/OccurrenceIndex.
+// settleSlot reconciles SlotPath with OverrideID/OccurrenceIndex. It checks
+// the path grammar only; whether the path resolves (including its nesting
+// depth) is the slot resolver's concern during validation.
 func settleSlot(v *domain.ExampleValue) error {
 	if v.SlotPath == "" {
 		v.SlotPath = domain.ExampleSlot(v.OverrideID, v.OccurrenceIndex)
 		return nil
 	}
 	oid, occ, ok := domain.ParseExampleSlotLeaf(v.SlotPath)
-	if !ok {
+	if _, _, grammar := slotSegments(v.SlotPath); !ok || !grammar {
 		return fmt.Errorf("value for field %s: malformed slot_path %q", v.FieldID, v.SlotPath)
-	}
-	if domain.ExampleSlotDepth(v.SlotPath) > 2 {
-		return fmt.Errorf("value for field %s: nested slot_path %q is not supported yet", v.FieldID, v.SlotPath)
 	}
 	if v.OverrideID == 0 {
 		v.OverrideID = oid
@@ -745,11 +794,15 @@ func deriveStatus(values []domain.ExampleValue, report domain.ExampleValidationR
 	return domain.ExampleStatusHasIssues
 }
 
-// validateModelValues is the lenient wrapper Get (and reads generally) use:
-// a value whose stored group no longer matches its override's current group
-// is left in place rather than rejected. See validateValues.
+// validateModelValues validates leniently, as Get does, with a resolver of
+// its own: a value whose stored group no longer matches its override's
+// current group is left in place rather than rejected. See validateValues.
 func (s *Service) validateModelValues(ctx context.Context, projectID, modelID string, values []domain.ExampleValue) (domain.ExampleValidationReport, error) {
-	return s.validateValues(ctx, projectID, modelID, values, false)
+	resolver, err := s.resolverFor(ctx, projectID, modelID)
+	if err != nil {
+		return domain.ExampleValidationReport{}, err
+	}
+	return s.validateValues(ctx, resolver, values, false)
 }
 
 // validateValues validates values against modelID's current view. strict
@@ -759,46 +812,49 @@ func (s *Service) validateModelValues(ctx context.Context, projectID, modelID st
 // to/from direct) since the value was saved does not make the example
 // unreadable; such a value is left untouched, excluded from group/field
 // counts and compaction, and reported as a moved_group_value warning
-// instead.
-func (s *Service) validateValues(ctx context.Context, projectID, modelID string, values []domain.ExampleValue, strict bool) (domain.ExampleValidationReport, error) {
-	view, err := s.views.ModelView(ctx, modelID, projectID)
+// instead. Every slot path is resolved through the request's slot resolver
+// (the model's current view), nested ones through their container's target
+// collection (see checkValue).
+func (s *Service) validateValues(ctx context.Context, resolver *slotResolver, values []domain.ExampleValue, strict bool) (domain.ExampleValidationReport, error) {
+	if err := placeInGroups(values, resolver.groups, strict); err != nil {
+		return domain.ExampleValidationReport{}, err
+	}
+	slots, err := resolver.resolveAll(values)
 	if err != nil {
 		return domain.ExampleValidationReport{}, err
 	}
-	groups := groupOfOverride(view)
-	if err := placeInGroups(values, groups, strict); err != nil {
-		return domain.ExampleValidationReport{}, err
-	}
-	fieldByOverride := buildFieldByOverride(view)
+	compactInstances(values, slots)
 	issues := make([]domain.ExampleIssue, 0)
 	counts := map[string]int{}
 	present := map[string]map[string]bool{}
-	for _, value := range values {
-		gp := instancePath(value.SlotPath)
-		_, known := fieldByOverride[value.OverrideID]
-		if known && !groupMatches(value, groups) {
-			issues = append(issues, movedGroupValueIssue(value, gp))
-			continue
-		}
-		counts[slotCountKey(gp, value.OverrideID)]++
-		if known {
-			if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
-				if present[coll] == nil {
-					present[coll] = map[string]bool{}
-				}
-				present[coll][gp] = true
-			}
-		}
-		vIssues, err := s.valueIssues(ctx, value, fieldByOverride)
+	for i, value := range values {
+		vIssues, err := s.checkValue(ctx, slots[i], value, strict)
 		if err != nil {
 			return domain.ExampleValidationReport{}, err
 		}
-		for i := range vIssues {
-			vIssues[i].GroupPath = gp
-		}
 		issues = append(issues, vIssues...)
+		if slots[i].status != slotOK {
+			continue
+		}
+		counts[slotCountKey(containerPath(value.SlotPath), value.OverrideID)]++
+		gp := groupPart(value.SlotPath)
+		if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
+			if present[coll] == nil {
+				present[coll] = map[string]bool{}
+			}
+			present[coll][gp] = true
+		}
 	}
-	issues = append(issues, cardinalityIssues(view, counts, present)...)
+	nested, err := resolver.nestedCardinalityIssues(values, slots, counts)
+	if err != nil {
+		return domain.ExampleValidationReport{}, err
+	}
+	modelIssues, err := cardinalityIssues(resolver, resolver.view, counts, present)
+	if err != nil {
+		return domain.ExampleValidationReport{}, err
+	}
+	issues = append(issues, modelIssues...)
+	issues = append(issues, nested...)
 	return domain.ExampleValidationReport{
 		Valid:  len(issues) == 0,
 		Issues: issues,
@@ -818,14 +874,10 @@ func movedGroupValueIssue(value domain.ExampleValue, groupPath string) domain.Ex
 	return issue
 }
 
-// valueIssues runs the per-value checks for one value.
-func (s *Service) valueIssues(ctx context.Context, value domain.ExampleValue, fieldByOverride map[int64]domain.ResolvedField) ([]domain.ExampleIssue, error) {
+// valueIssues runs the per-value checks for one value against its resolved
+// leaf field.
+func (s *Service) valueIssues(ctx context.Context, value domain.ExampleValue, field domain.ResolvedField) ([]domain.ExampleIssue, error) {
 	var out []domain.ExampleIssue
-	field, ok := fieldByOverride[value.OverrideID]
-	if !ok {
-		out = append(out, warningIssue("stale_override", nil, &value.OverrideID, &value.OccurrenceIndex, "This field slot no longer exists on the target model."))
-		return out, nil
-	}
 	if field.ID != value.FieldID {
 		fieldID := value.FieldID
 		out = append(out, errorIssue("field_override_mismatch", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "This value is attached to the wrong field slot."))
@@ -894,8 +946,10 @@ func groupInstances(collectionID string, present map[string]bool) []string {
 }
 
 // cardinalityIssues checks required/min/max of every field slot within each
-// instance of its group, and the instance count of each placed group.
-func cardinalityIssues(view *domain.ModelView, counts map[string]int, present map[string]map[string]bool) []domain.ExampleIssue {
+// instance of its group, and the instance count of each placed group. A
+// container that cannot open is never required (see cardinalityField). The
+// error is only for a failed collection view read.
+func cardinalityIssues(r *slotResolver, view *domain.ModelView, counts map[string]int, present map[string]map[string]bool) ([]domain.ExampleIssue, error) {
 	var issues []domain.ExampleIssue
 	for _, cat := range view.Categories {
 		for _, coll := range cat.Collections {
@@ -905,7 +959,11 @@ func cardinalityIssues(view *domain.ModelView, counts map[string]int, present ma
 			}
 			for _, gp := range instances {
 				for _, field := range coll.Fields {
-					issues = append(issues, fieldCardinalityIssues(field, gp, counts[slotCountKey(gp, field.OverrideID)])...)
+					cf, err := r.cardinalityField(field, 1)
+					if err != nil {
+						return nil, err
+					}
+					issues = append(issues, fieldCardinalityIssues(cf, gp, counts[slotCountKey(gp, field.OverrideID)])...)
 				}
 			}
 			if coll.Placement != nil {
@@ -913,20 +971,26 @@ func cardinalityIssues(view *domain.ModelView, counts map[string]int, present ma
 			}
 		}
 	}
-	return issues
+	return issues, nil
 }
 
+// fieldCardinalityIssues checks required/min/max of one field slot given
+// its count: values, or nested instances for a Collection container.
 func fieldCardinalityIssues(field domain.ResolvedField, groupPath string, count int) []domain.ExampleIssue {
 	fieldID, overrideID := field.ID, field.OverrideID
+	noun := "value(s)"
+	if strings.TrimSpace(field.ExpectedValueType) == expectedValueTypeCollection {
+		noun = "instance(s)"
+	}
 	var out []domain.ExampleIssue
 	if field.IsRequired && count == 0 {
 		out = append(out, errorIssue("missing_required_value", &fieldID, &overrideID, nil, "This required field has no value."))
 	}
 	if count < field.MinOccurs {
-		out = append(out, errorIssue("min_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At least %d value(s) are required.", field.MinOccurs)))
+		out = append(out, errorIssue("min_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At least %d %s are required.", field.MinOccurs, noun)))
 	}
 	if field.MaxOccurs != nil && count > *field.MaxOccurs {
-		out = append(out, errorIssue("max_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At most %d value(s) are allowed.", *field.MaxOccurs)))
+		out = append(out, errorIssue("max_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At most %d %s are allowed.", *field.MaxOccurs, noun)))
 	}
 	for i := range out {
 		out[i].GroupPath = groupPath
@@ -1062,76 +1126,17 @@ func groupOfOverride(view *domain.ModelView) map[int64]string {
 	return out
 }
 
-// instancePath is the group segment of a two-segment slot path ("C1:1" for
-// "C1:1/21:0"); "" for a one-segment path.
-func instancePath(slotPath string) string {
-	if i := strings.Index(slotPath, "/"); i >= 0 {
-		return slotPath[:i]
-	}
-	return ""
-}
-
-// compactGroupInstances renumbers each collection group's instances to
-// 0..n-1 in their existing order. The form always shows instance 0, so a
-// removed first instance must not leave a gap behind. Only values whose
-// override is known and whose stored group matches that override's current
-// group count toward the instance set and get renumbered: a value on a
-// removed field, or one whose field moved to a different group, is left
-// exactly where it is.
-func compactGroupInstances(values []domain.ExampleValue, groups map[int64]string) {
-	seen := map[string]map[int]bool{}
-	for _, v := range values {
-		if !countsTowardGroup(v, groups) {
-			continue
-		}
-		if coll, n, ok := domain.ParseExampleGroupSegment(instancePath(v.SlotPath)); ok {
-			if seen[coll] == nil {
-				seen[coll] = map[int]bool{}
-			}
-			seen[coll][n] = true
-		}
-	}
-	renumber := make(map[string]map[int]int, len(seen))
-	for coll, set := range seen {
-		m := make(map[int]int, len(set))
-		for i, n := range slices.Sorted(maps.Keys(set)) {
-			m[n] = i
-		}
-		renumber[coll] = m
-	}
-	for i := range values {
-		v := &values[i]
-		if !countsTowardGroup(*v, groups) {
-			continue
-		}
-		gp := instancePath(v.SlotPath)
-		coll, n, ok := domain.ParseExampleGroupSegment(gp)
-		if !ok || renumber[coll][n] == n {
-			continue
-		}
-		v.SlotPath = domain.ExampleGroupSegment(coll, renumber[coll][n]) + v.SlotPath[len(gp):]
-	}
-}
-
-// countsTowardGroup reports whether v should count as an instance of its
-// group for compaction and cardinality purposes: its override must still be
-// on the model, and its stored group segment must still be where that
-// override lives.
-func countsTowardGroup(v domain.ExampleValue, groups map[int64]string) bool {
-	_, known := groups[v.OverrideID]
-	return known && groupMatches(v, groups)
-}
-
 // groupMatches reports whether v's stored group segment agrees with its
-// override's current group. An override no longer on the model is not this
+// anchor override's current group (the anchor equals v.OverrideID for
+// depth-0 paths). An override no longer on the model is not this
 // function's concern (the stale_override check handles it); it always
 // matches here.
 func groupMatches(v domain.ExampleValue, groups map[int64]string) bool {
-	group, known := groups[v.OverrideID]
+	group, known := groups[anchorOverride(v)]
 	if !known {
 		return true
 	}
-	coll, _, ok := domain.ParseExampleGroupSegment(instancePath(v.SlotPath))
+	coll, _, ok := domain.ParseExampleGroupSegment(groupPart(v.SlotPath))
 	if !ok {
 		coll = ""
 	}
@@ -1147,14 +1152,14 @@ func groupMatches(v domain.ExampleValue, groups map[int64]string) bool {
 // since it was saved does not make the example unreadable — validateValues
 // reports it as a moved_group_value warning instead. Values on slots the
 // model no longer has are left alone either way; validation reports them as
-// stale. Duplicate paths are an input error in both modes. Group instances
-// are then renumbered 0..n-1, skipping values that are not a current
-// instance of their group (see compactGroupInstances).
+// stale. Duplicate paths are an input error in both modes. Instance
+// numbers are compacted afterwards, once every path is resolved (see
+// compactInstances in validateValues).
 func placeInGroups(values []domain.ExampleValue, groups map[int64]string, strict bool) error {
 	seen := make(map[string]bool, len(values))
 	for i := range values {
 		v := &values[i]
-		group, known := groups[v.OverrideID]
+		group, known := groups[anchorOverride(*v)]
 		if known {
 			if err := placeValue(v, group, strict); err != nil {
 				return err
@@ -1165,12 +1170,15 @@ func placeInGroups(values []domain.ExampleValue, groups map[int64]string, strict
 		}
 		seen[v.SlotPath] = true
 	}
-	compactGroupInstances(values, groups)
 	return nil
 }
 
 func placeValue(v *domain.ExampleValue, group string, strict bool) error {
-	gp := instancePath(v.SlotPath)
+	// A value without a slot path (never after migration 007, but possible
+	// for callers that skip normalization) is its depth-0 slot; placing it
+	// as is would leave the malformed path "<group>:0/".
+	v.SlotPath = valueSlotPath(*v)
+	gp := groupPart(v.SlotPath)
 	if gp == "" {
 		if group != "" {
 			v.SlotPath = domain.ExampleGroupSegment(group, 0) + "/" + v.SlotPath
@@ -1184,7 +1192,7 @@ func placeValue(v *domain.ExampleValue, group string, strict bool) error {
 	if !strict {
 		return nil
 	}
-	return fmt.Errorf("value for field %s: slot_path %q does not match the group holding field slot %d", v.FieldID, v.SlotPath, v.OverrideID)
+	return fmt.Errorf("value for field %s: slot_path %q does not match the group holding field slot %d", v.FieldID, v.SlotPath, anchorOverride(*v))
 }
 
 func issueKey(groupPath string, overrideID int64, occurrenceIndex int) string {
