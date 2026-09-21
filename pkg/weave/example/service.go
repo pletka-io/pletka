@@ -3,8 +3,10 @@ package example
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -652,76 +654,162 @@ func (s *Service) validateModelValues(ctx context.Context, projectID, modelID st
 		}
 	}
 	issues := make([]domain.ExampleIssue, 0)
-	byOverride := map[int64][]domain.ExampleValue{}
+	counts := map[string]int{}
+	present := map[string]map[string]bool{}
 	for _, value := range values {
-		byOverride[value.OverrideID] = append(byOverride[value.OverrideID], value)
-		field, ok := fieldByOverride[value.OverrideID]
-		if !ok {
-			issues = append(issues, warningIssue("stale_override", nil, &value.OverrideID, &value.OccurrenceIndex, "This field slot no longer exists on the target model."))
-			continue
-		}
-		if field.ID != value.FieldID {
-			fieldID := value.FieldID
-			issues = append(issues, errorIssue("field_override_mismatch", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "This value is attached to the wrong field slot."))
-		}
-		expected := valueKindForExpectedType(field.ExpectedValueType)
-		if expected != "" && value.ValuePayload.Kind != expected {
-			fieldID := value.FieldID
-			issues = append(issues, errorIssue("wrong_value_kind", &fieldID, &value.OverrideID, &value.OccurrenceIndex, fmt.Sprintf("Expected %s but got %s.", expected, value.ValuePayload.Kind)))
-		}
-		if field.IsHidden {
-			fieldID := value.FieldID
-			issues = append(issues, warningIssue("hidden_field_value", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "This field is hidden in the current model configuration."))
-		}
-		if field.SetValue != "" && value.ValuePayload.Kind == domain.ExampleValueKindConcept {
-			if value.ValuePayload.ConceptURI == nil || *value.ValuePayload.ConceptURI != field.SetValue {
-				fieldID := value.FieldID
-				issues = append(issues, errorIssue("set_value_mismatch", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The selected concept does not match the field's fixed value constraint."))
+		gp := instancePath(value.SlotPath)
+		counts[slotCountKey(gp, value.OverrideID)]++
+		if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
+			if present[coll] == nil {
+				present[coll] = map[string]bool{}
 			}
+			present[coll][gp] = true
 		}
-		if value.ValuePayload.Kind == domain.ExampleValueKindConcept && value.ValuePayload.ConceptURI != nil && len(field.ConceptLists) > 0 {
-			allowed, err := s.conceptURIAllowed(ctx, *value.ValuePayload.ConceptURI, field.ConceptLists)
-			if err != nil {
-				return domain.ExampleValidationReport{}, err
-			}
-			if !allowed {
-				fieldID := value.FieldID
-				issues = append(issues, errorIssue("concept_not_in_allowed_list", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The selected concept is not part of the allowed concept list."))
-			}
+		vIssues, err := s.valueIssues(ctx, value, fieldByOverride)
+		if err != nil {
+			return domain.ExampleValidationReport{}, err
 		}
-		if value.ValuePayload.Kind == domain.ExampleValueKindExampleRef && value.ValuePayload.ExampleID != nil {
-			linked, err := s.store.GetByID(ctx, *value.ValuePayload.ExampleID)
-			if err != nil {
-				return domain.ExampleValidationReport{}, err
-			}
-			if linked == nil {
-				fieldID := value.FieldID
-				issues = append(issues, errorIssue("missing_linked_example", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The referenced example no longer exists."))
-			} else if !linkedTargetAllowed(linked, field) {
-				fieldID := value.FieldID
-				issues = append(issues, errorIssue("linked_example_not_allowed", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The referenced example does not match the allowed target models or collections."))
-			}
+		for i := range vIssues {
+			vIssues[i].GroupPath = gp
 		}
+		issues = append(issues, vIssues...)
 	}
-	for overrideID, field := range fieldByOverride {
-		count := len(byOverride[overrideID])
-		if field.IsRequired && count == 0 {
-			fieldID := field.ID
-			issues = append(issues, errorIssue("missing_required_value", &fieldID, &overrideID, nil, "This required field has no value."))
-		}
-		if count < field.MinOccurs {
-			fieldID := field.ID
-			issues = append(issues, errorIssue("min_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At least %d value(s) are required.", field.MinOccurs)))
-		}
-		if field.MaxOccurs != nil && count > *field.MaxOccurs {
-			fieldID := field.ID
-			issues = append(issues, errorIssue("max_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At most %d value(s) are allowed.", *field.MaxOccurs)))
-		}
-	}
+	issues = append(issues, cardinalityIssues(view, counts, present)...)
 	return domain.ExampleValidationReport{
 		Valid:  len(issues) == 0,
 		Issues: issues,
 	}, nil
+}
+
+// valueIssues runs the per-value checks for one value.
+func (s *Service) valueIssues(ctx context.Context, value domain.ExampleValue, fieldByOverride map[int64]domain.ResolvedField) ([]domain.ExampleIssue, error) {
+	var out []domain.ExampleIssue
+	field, ok := fieldByOverride[value.OverrideID]
+	if !ok {
+		out = append(out, warningIssue("stale_override", nil, &value.OverrideID, &value.OccurrenceIndex, "This field slot no longer exists on the target model."))
+		return out, nil
+	}
+	if field.ID != value.FieldID {
+		fieldID := value.FieldID
+		out = append(out, errorIssue("field_override_mismatch", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "This value is attached to the wrong field slot."))
+	}
+	expected := valueKindForExpectedType(field.ExpectedValueType)
+	if expected != "" && value.ValuePayload.Kind != expected {
+		fieldID := value.FieldID
+		out = append(out, errorIssue("wrong_value_kind", &fieldID, &value.OverrideID, &value.OccurrenceIndex, fmt.Sprintf("Expected %s but got %s.", expected, value.ValuePayload.Kind)))
+	}
+	if field.IsHidden {
+		fieldID := value.FieldID
+		out = append(out, warningIssue("hidden_field_value", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "This field is hidden in the current model configuration."))
+	}
+	if field.SetValue != "" && value.ValuePayload.Kind == domain.ExampleValueKindConcept {
+		if value.ValuePayload.ConceptURI == nil || *value.ValuePayload.ConceptURI != field.SetValue {
+			fieldID := value.FieldID
+			out = append(out, errorIssue("set_value_mismatch", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The selected concept does not match the field's fixed value constraint."))
+		}
+	}
+	if value.ValuePayload.Kind == domain.ExampleValueKindConcept && value.ValuePayload.ConceptURI != nil && len(field.ConceptLists) > 0 {
+		allowed, err := s.conceptURIAllowed(ctx, *value.ValuePayload.ConceptURI, field.ConceptLists)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			fieldID := value.FieldID
+			out = append(out, errorIssue("concept_not_in_allowed_list", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The selected concept is not part of the allowed concept list."))
+		}
+	}
+	if value.ValuePayload.Kind == domain.ExampleValueKindExampleRef && value.ValuePayload.ExampleID != nil {
+		linked, err := s.store.GetByID(ctx, *value.ValuePayload.ExampleID)
+		if err != nil {
+			return nil, err
+		}
+		if linked == nil {
+			fieldID := value.FieldID
+			out = append(out, errorIssue("missing_linked_example", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The referenced example no longer exists."))
+		} else if !linkedTargetAllowed(linked, field) {
+			fieldID := value.FieldID
+			out = append(out, errorIssue("linked_example_not_allowed", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The referenced example does not match the allowed target models or collections."))
+		}
+	}
+	return out, nil
+}
+
+func slotCountKey(groupPath string, overrideID int64) string {
+	return groupPath + "|" + strconv.FormatInt(overrideID, 10)
+}
+
+// groupInstances lists the instance segments of a collection group that
+// validation and the form cover: every instance holding values plus
+// instance 0, by index.
+func groupInstances(collectionID string, present map[string]bool) []string {
+	idx := map[int]bool{0: true}
+	for seg := range present {
+		if _, n, ok := domain.ParseExampleGroupSegment(seg); ok {
+			idx[n] = true
+		}
+	}
+	keys := slices.Sorted(maps.Keys(idx))
+	out := make([]string, 0, len(keys))
+	for _, n := range keys {
+		out = append(out, domain.ExampleGroupSegment(collectionID, n))
+	}
+	return out
+}
+
+// cardinalityIssues checks required/min/max of every field slot within each
+// instance of its group, and the instance count of each placed group.
+func cardinalityIssues(view *domain.ModelView, counts map[string]int, present map[string]map[string]bool) []domain.ExampleIssue {
+	var issues []domain.ExampleIssue
+	for _, cat := range view.Categories {
+		for _, coll := range cat.Collections {
+			instances := []string{""}
+			if coll.ID != directGroupID {
+				instances = groupInstances(coll.ID, present[coll.ID])
+			}
+			for _, gp := range instances {
+				for _, field := range coll.Fields {
+					issues = append(issues, fieldCardinalityIssues(field, gp, counts[slotCountKey(gp, field.OverrideID)])...)
+				}
+			}
+			if coll.Placement != nil {
+				issues = append(issues, groupCardinalityIssues(coll.ID, coll.Placement, len(present[coll.ID]))...)
+			}
+		}
+	}
+	return issues
+}
+
+func fieldCardinalityIssues(field domain.ResolvedField, groupPath string, count int) []domain.ExampleIssue {
+	fieldID, overrideID := field.ID, field.OverrideID
+	var out []domain.ExampleIssue
+	if field.IsRequired && count == 0 {
+		out = append(out, errorIssue("missing_required_value", &fieldID, &overrideID, nil, "This required field has no value."))
+	}
+	if count < field.MinOccurs {
+		out = append(out, errorIssue("min_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At least %d value(s) are required.", field.MinOccurs)))
+	}
+	if field.MaxOccurs != nil && count > *field.MaxOccurs {
+		out = append(out, errorIssue("max_occurs", &fieldID, &overrideID, nil, fmt.Sprintf("At most %d value(s) are allowed.", *field.MaxOccurs)))
+	}
+	for i := range out {
+		out[i].GroupPath = groupPath
+	}
+	return out
+}
+
+func groupCardinalityIssues(collectionID string, pl *domain.CollectionPlacement, count int) []domain.ExampleIssue {
+	var out []domain.ExampleIssue
+	if pl.MinOccurs > 1 && count < pl.MinOccurs {
+		out = append(out, errorIssue("group_min_occurs", nil, nil, nil, fmt.Sprintf("At least %d instance(s) of this group are required.", pl.MinOccurs)))
+	}
+	if pl.MaxOccurs != nil && count > *pl.MaxOccurs {
+		out = append(out, errorIssue("group_max_occurs", nil, nil, nil, fmt.Sprintf("At most %d instance(s) of this group are allowed.", *pl.MaxOccurs)))
+	}
+	for i := range out {
+		id := collectionID
+		out[i].CollectionID = &id
+	}
+	return out
 }
 
 func (s *Service) conceptURIAllowed(ctx context.Context, uri string, refs []domain.EntityRef) (bool, error) {

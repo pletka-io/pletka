@@ -854,7 +854,13 @@ func groupedModelView(placement *domain.CollectionPlacement, fields ...domain.Re
 }
 
 func stringValue(slotPath, fieldID, text string) domain.ExampleValue {
-	return domain.ExampleValue{SlotPath: slotPath, FieldID: fieldID, ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr(text)}}
+	// Deviation from the task-3 brief: derive OverrideID/OccurrenceIndex from
+	// the slot path's leaf (same derivation settleSlot does in normalizeValues)
+	// so tests can call validateModelValues directly without going through
+	// Create/Update's normalization pass first. Without this every value here
+	// carries OverrideID 0 and validateModelValues reports it stale.
+	oid, occ, _ := domain.ParseExampleSlotLeaf(slotPath)
+	return domain.ExampleValue{SlotPath: slotPath, OverrideID: oid, OccurrenceIndex: occ, FieldID: fieldID, ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{Kind: domain.ExampleValueKindString, StringValue: ptr(text)}}
 }
 
 func TestServiceCreatePlacesGroupedDepthOneValueInInstanceZero(t *testing.T) {
@@ -920,4 +926,88 @@ func TestServiceCreateRejectsDuplicateSlotPath(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "duplicate slot_path") {
 		t.Fatalf("err = %v, want duplicate slot_path", err)
 	}
+}
+
+func TestValidateRequiredFieldPerGroupInstance(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil,
+		resolvedField(21, "F2", "Name", "String", true, 0, nil),
+		resolvedField(22, "F3", "Type", "String", false, 0, nil),
+	)}})
+	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
+		stringValue("C1:0/21:0", "F2", "a"),
+		stringValue("C1:1/22:0", "F3", "t"),
+	})
+	if err != nil {
+		t.Fatalf("validate error = %v", err)
+	}
+	var missing []string
+	for _, is := range report.Issues {
+		if is.Code == "missing_required_value" {
+			missing = append(missing, is.GroupPath)
+		}
+	}
+	if len(missing) != 1 || missing[0] != "C1:1" {
+		t.Fatalf("missing_required_value group paths = %v, want [C1:1]", missing)
+	}
+}
+
+func TestValidateUntouchedGroupStillReportsRequired(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", true, 0, nil))}})
+	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{stringValue("11:0", "F1", "x")})
+	if err != nil {
+		t.Fatalf("validate error = %v", err)
+	}
+	found := false
+	for _, is := range report.Issues {
+		if is.Code == "missing_required_value" && is.GroupPath == "C1:0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("issues = %+v, want missing_required_value in C1:0", report.Issues)
+	}
+}
+
+func TestValidateGroupPlacementCardinality(t *testing.T) {
+	one := 1
+	maxView := groupedModelView(&domain.CollectionPlacement{MaxOccurs: &one}, resolvedField(21, "F2", "Name", "String", false, 0, nil))
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": maxView}})
+	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
+		stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:1/21:0", "F2", "b"),
+	})
+	if err != nil {
+		t.Fatalf("validate error = %v", err)
+	}
+	if !hasIssue(report.Issues, "group_max_occurs", domain.ExampleIssueError) {
+		t.Fatalf("want group_max_occurs, got %+v", report.Issues)
+	}
+	for _, is := range report.Issues {
+		if is.Code == "group_max_occurs" && (is.CollectionID == nil || *is.CollectionID != "C1" || is.OverrideID != nil) {
+			t.Fatalf("group issue location wrong: %+v", is)
+		}
+	}
+
+	minView := groupedModelView(&domain.CollectionPlacement{MinOccurs: 2}, resolvedField(21, "F2", "Name", "String", false, 0, nil))
+	svc = NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": minView}})
+	report, err = svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a")})
+	if err != nil {
+		t.Fatalf("validate error = %v", err)
+	}
+	if !hasIssue(report.Issues, "group_min_occurs", domain.ExampleIssueError) {
+		t.Fatalf("want group_min_occurs, got %+v", report.Issues)
+	}
+}
+
+func TestValidateValueIssueCarriesGroupPath(t *testing.T) {
+	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "Integer", false, 0, nil))}})
+	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{stringValue("C1:3/21:0", "F2", "not a number")})
+	if err != nil {
+		t.Fatalf("validate error = %v", err)
+	}
+	for _, is := range report.Issues {
+		if is.Code == "wrong_value_kind" && is.GroupPath == "C1:3" {
+			return
+		}
+	}
+	t.Fatalf("want wrong_value_kind in C1:3, got %+v", report.Issues)
 }
