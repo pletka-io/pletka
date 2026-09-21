@@ -412,18 +412,55 @@
     return next;
   }
 
-  function addGroupInstance(section: ExampleFormSection, group: ExampleFormGroup) {
-    const groups = section.groups ?? [];
-    const siblings = groupSiblings(section, group);
+  function addGroupInstance(owner: GroupOwner, group: ExampleFormGroup) {
+    if (ownedByField(owner)) return; // nested instances are added from their container field
+    const groups = owner.groups ?? [];
+    const siblings = groupSiblings(owner, group);
     const next = Math.max(...siblings.map((g) => g.instance ?? 0)) + 1;
     const prefix = `${group.id}:${next}/`;
     const base = $state.snapshot(group) as ExampleFormGroup;
     const fields = base.fields.map((f) => blankField(f, prefix));
     const clone: ExampleFormGroup = { ...base, instance: next, slot_prefix: prefix, issues: [], fields };
     groups.splice(groups.indexOf(siblings[siblings.length - 1]) + 1, 0, clone);
-    section.groups = groups;
+    owner.groups = groups;
     valuesByOverride = withBlankValues(valuesByOverride, fields);
     expandedGroups = { ...expandedGroups, [groupKey(clone)]: true };
+  }
+
+  function nestedLabel(field: ExampleFormField): string {
+    return translated(field.nested?.label, field.nested?.collection_id || translated(field.label, field.field_id));
+  }
+
+  function canAddNestedInstance(field: ExampleFormField): boolean {
+    if (!field.nested?.expandable) return false;
+    const count = (field.nested_instances ?? []).length;
+    if (!field.repeatable && count > 0) return false;
+    return field.max_occurs == null || count < field.max_occurs;
+  }
+
+  /** Opens a new, empty instance of the container's collection, built from the blank template. */
+  function addNestedInstance(field: ExampleFormField) {
+    const nested = field.nested;
+    if (!nested?.expandable) return;
+    const instances = field.nested_instances ?? [];
+    const next = instances.length ? Math.max(...instances.map((g) => g.instance ?? 0)) + 1 : 0;
+    const prefix = `${field.slot_prefix ?? ''}${field.override_id}:${next}/`;
+    const template = $state.snapshot(nested.fields ?? []) as ExampleFormField[];
+    const fields = template.map((f) => blankField(f, prefix));
+    const instance: ExampleFormGroup = {
+      id: nested.collection_id ?? '',
+      label: nested.label ?? {},
+      instance: next,
+      slot_prefix: prefix,
+      repeatable: field.repeatable,
+      min_occurs: field.min_occurs,
+      max_occurs: field.max_occurs,
+      issues: [],
+      fields,
+    };
+    field.nested_instances = [...instances, instance];
+    valuesByOverride = withBlankValues(valuesByOverride, fields);
+    expandedGroups = { ...expandedGroups, [groupKey(instance)]: true };
   }
 
   function removeGroupInstance(owner: GroupOwner, group: ExampleFormGroup) {
@@ -1319,7 +1356,7 @@
     {/if}
 
     {#if schema}
-      {#snippet editGroup(section: ExampleFormSection, group: ExampleFormGroup, activeMatch: string | null, schema: ExampleFormSchema)}
+      {#snippet editGroup(owner: GroupOwner, group: ExampleFormGroup, activeMatch: string | null, schema: ExampleFormSchema)}
                           {#if groupVisible(group)}
                             {@const groupCounts = groupSummary(group)}
                             <div class="rounded-xl border border-gray-200 bg-gray-50/40">
@@ -1331,7 +1368,7 @@
                               >
                                 <div>
                                   <div class="flex flex-wrap items-center gap-2">
-                                    <h5 class="text-sm font-semibold uppercase tracking-wide text-gray-600">{groupTitle(section, group)}</h5>
+                                    <h5 class="text-sm font-semibold uppercase tracking-wide text-gray-600">{groupTitle(owner, group)}</h5>
                                     {#if groupCounts.required_total > 0}
                                       <span class="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-700">
                                         {groupCounts.required_filled}/{groupCounts.required_total} required
@@ -1353,13 +1390,13 @@
                                 </div>
                                 <span class="mt-1 text-sm text-gray-500">{expandedGroups[groupKey(group)] ? 'Hide' : 'Show'}</span>
                               </button>
-                              {#if canRemoveInstance(section, group)}
+                              {#if canRemoveInstance(owner, group)}
                                 <button
                                   type="button"
                                   class="mr-4 mt-5 text-xs font-medium text-red-600 hover:text-red-700"
                                   onclick={(e) => {
                                     e.stopPropagation();
-                                    removeGroupInstance(section, group);
+                                    removeGroupInstance(owner, group);
                                   }}
                                 >Remove</button>
                               {/if}
@@ -1375,7 +1412,7 @@
                               {#if expandedGroups[groupKey(group)]}
                                 <div class="space-y-4 border-t border-gray-200 px-4 py-4">
                                   {#each group.fields as field (field.override_id)}
-                                    {#if fieldVisibleInEdit(field)}
+                                    {#if fieldCardVisibleInEdit(field)}
                                       {@const fieldCounts = fieldIssueCounts(field)}
                                       <div id={`example-field-${fieldKey(field)}`} class={`rounded-lg border bg-white p-4 shadow-sm ${activeMatch === fieldKey(field) ? 'ring-2 ring-pletka-primary ring-offset-2' : ''} ${fieldCounts.errors > 0 ? 'border-rose-200 bg-rose-50/30' : fieldCounts.warnings > 0 ? 'border-amber-200 bg-amber-50/30' : 'border-white'}`}>
                                         <div class="mb-3 flex items-start justify-between gap-3">
@@ -1419,7 +1456,22 @@
                                             {/each}
                                           </ul>
                                         {/if}
-                                        {#if !isContainer(field)}
+                                        {#if isContainer(field)}
+                                          {@const instances = field.nested_instances ?? []}
+                                          {#if field.nested && !field.nested.expandable && field.nested.note}
+                                            <p class="text-sm text-gray-500">{field.nested.note}</p>
+                                          {/if}
+                                          {#if instances.length}
+                                            <div class="ml-4 space-y-4 border-l border-gray-200 pl-4">
+                                              {#each instances as instance (groupKey(instance))}
+                                                {@render editGroup(field, instance, activeMatch, schema)}
+                                              {/each}
+                                            </div>
+                                          {/if}
+                                          {#if canAddNestedInstance(field)}
+                                            <button type="button" class="mt-3 text-sm font-medium text-pletka-primary hover:text-pletka-secondary" onclick={() => addNestedInstance(field)}>+ Add {nestedLabel(field)}</button>
+                                          {/if}
+                                        {:else}
                                         <div class="space-y-3">
                                           {#each fieldOccurrences(field) as occurrence, occurrenceIdx (occurrence.occurrence_index)}
                                             {@const fieldDef = occurrenceFieldDef(field, occurrence.occurrence_index)}
@@ -1534,19 +1586,19 @@
                                 </div>
                               {/if}
                             </div>
-                            {#if canAddInstance(section, group)}
-                              <button type="button" class="text-sm font-medium text-pletka-primary hover:text-pletka-secondary" onclick={() => addGroupInstance(section, group)}>+ Add {translated(group.label, group.id)}</button>
+                            {#if canAddInstance(owner, group)}
+                              <button type="button" class="text-sm font-medium text-pletka-primary hover:text-pletka-secondary" onclick={() => addGroupInstance(owner, group)}>+ Add {translated(group.label, group.id)}</button>
                             {/if}
                           {/if}
       {/snippet}
 
-      {#snippet overviewGroup(section: ExampleFormSection, group: ExampleFormGroup)}
+      {#snippet overviewGroup(owner: GroupOwner, group: ExampleFormGroup)}
                             {#if groupVisibleInOverview(group)}
                               {@const groupCounts = groupSummary(group)}
                               <div class="rounded-xl border border-gray-200 bg-gray-50/40">
                                 <div class="border-b border-gray-200 px-4 py-4">
                                   <div class="flex flex-wrap items-center gap-2">
-                                    <h5 class="text-sm font-semibold uppercase tracking-wide text-gray-600">{groupTitle(section, group)}</h5>
+                                    <h5 class="text-sm font-semibold uppercase tracking-wide text-gray-600">{groupTitle(owner, group)}</h5>
                                     {#if groupCounts.required_total > 0}
                                       <span class="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-700">
                                         {groupCounts.required_filled}/{groupCounts.required_total} required
@@ -1561,10 +1613,17 @@
                                         <div class="flex flex-wrap items-center gap-2">
                                           <h6 class="text-sm font-semibold text-gray-900">{translated(field.label, field.field_id)}</h6>
                                           <span class="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-500">{field.field_semantic_id}</span>
-                                          {#if field.value_kind === 'example_ref'}
+                                          {#if field.value_kind === 'example_ref' && !isContainer(field)}
                                             <span class="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">Linked example</span>
                                           {/if}
                                         </div>
+                                        {#if isContainer(field)}
+                                          <div class="ml-4 mt-3 space-y-4 border-l border-gray-200 pl-4">
+                                            {#each field.nested_instances ?? [] as instance (groupKey(instance))}
+                                              {@render overviewGroup(field, instance)}
+                                            {/each}
+                                          </div>
+                                        {:else}
                                         <div class="mt-3 space-y-2">
                                           {#each fieldOccurrences(field) as occurrence (occurrence.occurrence_index)}
                                             {#if !occurrenceIsBlank(field, occurrence)}
@@ -1584,6 +1643,7 @@
                                             {/if}
                                           {/each}
                                         </div>
+                                        {/if}
                                       </div>
                                     {/if}
                                   {/each}
