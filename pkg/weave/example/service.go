@@ -285,7 +285,7 @@ func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang
 	if lang == "" {
 		lang = "en"
 	}
-	var fieldByOverride map[int64]domain.ResolvedField
+	var resolver *slotResolver
 	var candidates []stubCandidate
 	for i := range values {
 		p := &values[i].ValuePayload
@@ -296,18 +296,21 @@ func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang
 		if label == "" {
 			continue
 		}
-		if fieldByOverride == nil {
+		if resolver == nil {
 			view, err := s.views.ModelView(ctx, modelID, projectID)
 			if err != nil {
 				return err
 			}
-			fieldByOverride = buildFieldByOverride(view)
+			resolver = s.newSlotResolver(ctx, projectID, view)
 		}
-		field, ok := fieldByOverride[values[i].OverrideID]
-		if !ok {
-			continue // validation reports stale_override
+		rs, err := resolver.resolve(valueSlotPath(values[i]))
+		if err != nil {
+			return err
 		}
-		target, err := resolveStubTarget(field, p)
+		if rs.status != slotOK {
+			continue // validation reports the unresolvable path
+		}
+		target, err := resolveStubTarget(rs.field, p)
 		if err != nil {
 			return err
 		}
@@ -680,18 +683,17 @@ func normalizeValues(values []domain.ExampleValue) ([]domain.ExampleValue, error
 	return out, nil
 }
 
-// settleSlot reconciles SlotPath with OverrideID/OccurrenceIndex.
+// settleSlot reconciles SlotPath with OverrideID/OccurrenceIndex. It checks
+// the path grammar only; whether the path resolves (including its nesting
+// depth) is the slot resolver's concern during validation.
 func settleSlot(v *domain.ExampleValue) error {
 	if v.SlotPath == "" {
 		v.SlotPath = domain.ExampleSlot(v.OverrideID, v.OccurrenceIndex)
 		return nil
 	}
 	oid, occ, ok := domain.ParseExampleSlotLeaf(v.SlotPath)
-	if !ok {
+	if _, _, grammar := slotSegments(v.SlotPath); !ok || !grammar {
 		return fmt.Errorf("value for field %s: malformed slot_path %q", v.FieldID, v.SlotPath)
-	}
-	if domain.ExampleSlotDepth(v.SlotPath) > 2 {
-		return fmt.Errorf("value for field %s: nested slot_path %q is not supported yet", v.FieldID, v.SlotPath)
 	}
 	if v.OverrideID == 0 {
 		v.OverrideID = oid
@@ -780,44 +782,37 @@ func (s *Service) validateModelValues(ctx context.Context, projectID, modelID st
 // to/from direct) since the value was saved does not make the example
 // unreadable; such a value is left untouched, excluded from group/field
 // counts and compaction, and reported as a moved_group_value warning
-// instead.
+// instead. Every slot path is resolved through the slot resolver, nested
+// ones through their container's target collection (see checkValue).
 func (s *Service) validateValues(ctx context.Context, projectID, modelID string, values []domain.ExampleValue, strict bool) (domain.ExampleValidationReport, error) {
 	view, err := s.views.ModelView(ctx, modelID, projectID)
 	if err != nil {
 		return domain.ExampleValidationReport{}, err
 	}
-	groups := groupOfOverride(view)
-	if err := placeInGroups(values, groups, strict); err != nil {
+	resolver := s.newSlotResolver(ctx, projectID, view)
+	if err := placeInGroups(values, resolver.groups, strict); err != nil {
 		return domain.ExampleValidationReport{}, err
 	}
-	fieldByOverride := buildFieldByOverride(view)
 	issues := make([]domain.ExampleIssue, 0)
 	counts := map[string]int{}
 	present := map[string]map[string]bool{}
 	for _, value := range values {
-		gp := instancePath(value.SlotPath)
-		_, known := fieldByOverride[value.OverrideID]
-		if known && !groupMatches(value, groups) {
-			issues = append(issues, movedGroupValueIssue(value, gp))
-			continue
-		}
-		counts[slotCountKey(gp, value.OverrideID)]++
-		if known {
-			if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
-				if present[coll] == nil {
-					present[coll] = map[string]bool{}
-				}
-				present[coll][gp] = true
-			}
-		}
-		vIssues, err := s.valueIssues(ctx, value, fieldByOverride)
+		vIssues, resolved, err := s.checkValue(ctx, resolver, value, strict)
 		if err != nil {
 			return domain.ExampleValidationReport{}, err
 		}
-		for i := range vIssues {
-			vIssues[i].GroupPath = gp
-		}
 		issues = append(issues, vIssues...)
+		if !resolved {
+			continue
+		}
+		counts[slotCountKey(containerPath(value.SlotPath), value.OverrideID)]++
+		gp := groupPart(value.SlotPath)
+		if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
+			if present[coll] == nil {
+				present[coll] = map[string]bool{}
+			}
+			present[coll][gp] = true
+		}
 	}
 	issues = append(issues, cardinalityIssues(view, counts, present)...)
 	return domain.ExampleValidationReport{
@@ -839,14 +834,10 @@ func movedGroupValueIssue(value domain.ExampleValue, groupPath string) domain.Ex
 	return issue
 }
 
-// valueIssues runs the per-value checks for one value.
-func (s *Service) valueIssues(ctx context.Context, value domain.ExampleValue, fieldByOverride map[int64]domain.ResolvedField) ([]domain.ExampleIssue, error) {
+// valueIssues runs the per-value checks for one value against its resolved
+// leaf field.
+func (s *Service) valueIssues(ctx context.Context, value domain.ExampleValue, field domain.ResolvedField) ([]domain.ExampleIssue, error) {
 	var out []domain.ExampleIssue
-	field, ok := fieldByOverride[value.OverrideID]
-	if !ok {
-		out = append(out, warningIssue("stale_override", nil, &value.OverrideID, &value.OccurrenceIndex, "This field slot no longer exists on the target model."))
-		return out, nil
-	}
 	if field.ID != value.FieldID {
 		fieldID := value.FieldID
 		out = append(out, errorIssue("field_override_mismatch", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "This value is attached to the wrong field slot."))
@@ -1105,7 +1096,7 @@ func compactGroupInstances(values []domain.ExampleValue, groups map[int64]string
 		if !countsTowardGroup(v, groups) {
 			continue
 		}
-		if coll, n, ok := domain.ParseExampleGroupSegment(instancePath(v.SlotPath)); ok {
+		if coll, n, ok := domain.ParseExampleGroupSegment(groupPart(v.SlotPath)); ok {
 			if seen[coll] == nil {
 				seen[coll] = map[int]bool{}
 			}
@@ -1125,7 +1116,7 @@ func compactGroupInstances(values []domain.ExampleValue, groups map[int64]string
 		if !countsTowardGroup(*v, groups) {
 			continue
 		}
-		gp := instancePath(v.SlotPath)
+		gp := groupPart(v.SlotPath)
 		coll, n, ok := domain.ParseExampleGroupSegment(gp)
 		if !ok || renumber[coll][n] == n {
 			continue
@@ -1135,24 +1126,25 @@ func compactGroupInstances(values []domain.ExampleValue, groups map[int64]string
 }
 
 // countsTowardGroup reports whether v should count as an instance of its
-// group for compaction and cardinality purposes: its override must still be
-// on the model, and its stored group segment must still be where that
-// override lives.
+// group for compaction and cardinality purposes: its anchor override must
+// still be on the model, and its stored group segment must still be where
+// that override lives.
 func countsTowardGroup(v domain.ExampleValue, groups map[int64]string) bool {
-	_, known := groups[v.OverrideID]
+	_, known := groups[anchorOverride(v)]
 	return known && groupMatches(v, groups)
 }
 
 // groupMatches reports whether v's stored group segment agrees with its
-// override's current group. An override no longer on the model is not this
+// anchor override's current group (the anchor equals v.OverrideID for
+// depth-0 paths). An override no longer on the model is not this
 // function's concern (the stale_override check handles it); it always
 // matches here.
 func groupMatches(v domain.ExampleValue, groups map[int64]string) bool {
-	group, known := groups[v.OverrideID]
+	group, known := groups[anchorOverride(v)]
 	if !known {
 		return true
 	}
-	coll, _, ok := domain.ParseExampleGroupSegment(instancePath(v.SlotPath))
+	coll, _, ok := domain.ParseExampleGroupSegment(groupPart(v.SlotPath))
 	if !ok {
 		coll = ""
 	}
@@ -1175,7 +1167,7 @@ func placeInGroups(values []domain.ExampleValue, groups map[int64]string, strict
 	seen := make(map[string]bool, len(values))
 	for i := range values {
 		v := &values[i]
-		group, known := groups[v.OverrideID]
+		group, known := groups[anchorOverride(*v)]
 		if known {
 			if err := placeValue(v, group, strict); err != nil {
 				return err
@@ -1191,7 +1183,7 @@ func placeInGroups(values []domain.ExampleValue, groups map[int64]string, strict
 }
 
 func placeValue(v *domain.ExampleValue, group string, strict bool) error {
-	gp := instancePath(v.SlotPath)
+	gp := groupPart(v.SlotPath)
 	if gp == "" {
 		if group != "" {
 			v.SlotPath = domain.ExampleGroupSegment(group, 0) + "/" + v.SlotPath
@@ -1205,7 +1197,7 @@ func placeValue(v *domain.ExampleValue, group string, strict bool) error {
 	if !strict {
 		return nil
 	}
-	return fmt.Errorf("value for field %s: slot_path %q does not match the group holding field slot %d", v.FieldID, v.SlotPath, v.OverrideID)
+	return fmt.Errorf("value for field %s: slot_path %q does not match the group holding field slot %d", v.FieldID, v.SlotPath, anchorOverride(*v))
 }
 
 func issueKey(groupPath string, overrideID int64, occurrenceIndex int) string {

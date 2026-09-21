@@ -819,14 +819,17 @@ func TestServiceCreateRejectsMalformedSlotPath(t *testing.T) {
 	}
 }
 
-func TestServiceCreateRejectsNestedSlotPathForNow(t *testing.T) {
+// TestServiceCreateRejectsUnresolvableNestedPath: a nested slot path whose
+// container is not an expandable Collection field on the model (here field
+// slot 1 is unknown) is rejected on write.
+func TestServiceCreateRejectsUnresolvableNestedPath(t *testing.T) {
 	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
 	_, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 		Values: []domain.ExampleValue{{SlotPath: "C1:0/1:0/11:0", FieldID: "F1", ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("c")}}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "nested slot_path") {
-		t.Fatalf("err = %v, want nested slot_path error", err)
+	if err == nil || !strings.Contains(err.Error(), "slot_path") || strings.Contains(err.Error(), "not supported yet") {
+		t.Fatalf("err = %v, want an unresolvable slot_path error", err)
 	}
 }
 
