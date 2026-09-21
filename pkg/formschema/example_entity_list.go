@@ -80,6 +80,7 @@ func BuildExampleEntityListSchema(projectID, lang string, languages []LanguageIn
 			TitleField:    "title",
 			SubtitleField: "description",
 			IdentityFields: []IdentityField{
+				{Key: "entity_name"},
 				{Key: "entity_id", Style: "mono"},
 			},
 			SemanticBadges: []BadgeConfig{
