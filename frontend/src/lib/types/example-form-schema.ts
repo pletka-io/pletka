@@ -61,6 +61,7 @@ export interface ExampleFormField {
 export interface ExampleFormGroup {
   id: string;
   label: Translations;
+  position?: number;
   shared_path_prefix?: Array<{ predicate?: string; class?: string }>;
   fields: ExampleFormField[];
 }
