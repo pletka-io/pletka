@@ -630,3 +630,36 @@ func TestServiceStubIgnoresBlankLabelAndExplicitLink(t *testing.T) {
 		t.Fatalf("explicit link overwritten: %s", got)
 	}
 }
+
+// TestServiceStubSameLabelTwiceCreatesOneDraft locks George's case: the same
+// new draft typed in two fields of one unsaved example becomes one draft,
+// linked from both occurrences.
+func TestServiceStubSameLabelTwiceCreatesOneDraft(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+	first := stubValue("", "Van Gogh")
+	second := stubValue("M2", "  Van Gogh ") // same target after inference, same label after trimming
+	second.OccurrenceIndex = 1
+	record, err := svc.Create(context.Background(), "P1", CreateInput{
+		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
+		Values: []domain.ExampleValue{first, second},
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if len(store.examples) != 2 { // parent + ONE draft
+		t.Fatalf("want 2 stored examples, got %d", len(store.examples))
+	}
+	a, b := record.Values[0].ValuePayload.ExampleID, record.Values[1].ValuePayload.ExampleID
+	if a == nil || b == nil || *a != *b {
+		t.Fatalf("both occurrences must link the same draft, got %v and %v", a, b)
+	}
+	other := stubValue("", "Gauguin")
+	other.OccurrenceIndex = 2
+	if _, err := svc.Update(context.Background(), "P1", record.Example.ID, UpdateInput{Values: append(record.Values, other)}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(store.examples) != 3 { // a different label still creates its own draft
+		t.Fatalf("want 3 stored examples after adding Gauguin, got %d", len(store.examples))
+	}
+}

@@ -1478,7 +1478,7 @@
                                               {/if}
                                             </div>
                                             {#if occurrenceIsStub(field, occurrence)}
-                                              <p class="mt-1 text-xs text-gray-500">Saving creates a <span class="font-medium">draft</span> example with this title and links it here. Finish it from the Examples tab.</p>
+                                              <p class="mt-1 text-xs text-gray-500">Saving creates a <span class="font-medium">draft</span> example with this title and links it here. Type the same name in another field to link the same draft. Finish it from the Examples tab.</p>
                                             {/if}
                                           </div>
                                         {/if}
@@ -1674,7 +1674,7 @@
                                                         {/if}
                                                       </div>
                                                       {#if occurrenceIsStub(field, occurrence)}
-                                                        <p class="mt-1 text-xs text-gray-500">Saving creates a <span class="font-medium">draft</span> example with this title and links it here. Finish it from the Examples tab.</p>
+                                                        <p class="mt-1 text-xs text-gray-500">Saving creates a <span class="font-medium">draft</span> example with this title and links it here. Type the same name in another field to link the same draft. Finish it from the Examples tab.</p>
                                                       {/if}
                                                     </div>
                                                   {/if}

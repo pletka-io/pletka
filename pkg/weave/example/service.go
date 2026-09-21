@@ -251,21 +251,31 @@ func (s *Service) materializeStubs(ctx context.Context, projectID, modelID, lang
 		}
 		candidates = append(candidates, stubCandidate{index: i, target: target, label: label})
 	}
+	// One draft per (target model, label) within this save: the same new
+	// entity typed into two fields links one record, not two.
+	created := map[string]string{}
 	for _, c := range candidates {
-		stub := &domain.Example{
-			ID:         ids.GenerateULID(),
-			ProjectID:  projectID,
-			EntityType: domain.ExampleEntityTypeModel,
-			EntityID:   c.target,
-			Title:      domain.Translations{lang: c.label},
-			Status:     domain.ExampleStatusDraft,
-		}
-		if err := s.store.CreateWithValues(ctx, stub, nil); err != nil {
-			return fmt.Errorf("create draft example for %s: %w", c.target, err)
+		key := c.target + "\x00" + c.label
+		id, ok := created[key]
+		if !ok {
+			stub := &domain.Example{
+				ID:         ids.GenerateULID(),
+				ProjectID:  projectID,
+				EntityType: domain.ExampleEntityTypeModel,
+				EntityID:   c.target,
+				Title:      domain.Translations{lang: c.label},
+				Status:     domain.ExampleStatusDraft,
+			}
+			if err := s.store.CreateWithValues(ctx, stub, nil); err != nil {
+				return fmt.Errorf("create draft example for %s: %w", c.target, err)
+			}
+			id = stub.ID
+			created[key] = id
 		}
 		p := &values[c.index].ValuePayload
-		p.ExampleID = &stub.ID
-		p.TargetEntityID = &c.target
+		p.ExampleID = &id
+		target := c.target
+		p.TargetEntityID = &target
 	}
 	return nil
 }
