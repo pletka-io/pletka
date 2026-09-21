@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/formschema"
 )
 
 func TestNewServiceMaxNestingDepthDefault(t *testing.T) {
@@ -428,5 +429,185 @@ func TestServiceRequiredContainerPastCapNotMissing(t *testing.T) {
 	}
 	if got := issuesFor(rec.Validation.Issues, "missing_required_value", 603); len(got) != 0 {
 		t.Fatalf("cap 1: missing_required_value on 603 = %+v, want none", got)
+	}
+}
+
+func nestedFormSchema(t *testing.T, svc *Service, mode, exampleID string) *ExampleFormSchema {
+	t.Helper()
+	schema, err := svc.BuildFormSchema(context.Background(), "P1", mode, string(domain.ExampleEntityTypeModel), "M1", exampleID, "en", nil)
+	if err != nil {
+		t.Fatalf("BuildFormSchema() error = %v", err)
+	}
+	return schema
+}
+
+// formField returns field overrideID of the entry for group groupID
+// instance instance in schema, or fails.
+func formField(t *testing.T, schema *ExampleFormSchema, groupID string, instance int, overrideID int64) ExampleFormField {
+	t.Helper()
+	for _, sec := range schema.Sections {
+		for _, g := range sec.Groups {
+			if g.ID != groupID || g.Instance != instance {
+				continue
+			}
+			for _, f := range g.Fields {
+				if f.OverrideID == overrideID {
+					return f
+				}
+			}
+		}
+	}
+	t.Fatalf("field %d not found in %s instance %d", overrideID, groupID, instance)
+	return ExampleFormField{}
+}
+
+func overrideIDs(fields []ExampleFormField) []int64 {
+	out := make([]int64, 0, len(fields))
+	for _, f := range fields {
+		out = append(out, f.OverrideID)
+	}
+	return out
+}
+
+func TestBuildFormSchemaNestedTemplate(t *testing.T) {
+	schema := nestedFormSchema(t, NewService(newFakeStore(), nestedViews()), formschema.ModeCreate, "")
+	f := formField(t, schema, "C1", 0, 302)
+	if f.Widget != widgetNestedCollection || f.Occurrences != nil || f.NestedInstances != nil {
+		t.Fatalf("302 = widget %q occurrences %+v instances %+v, want nested-collection without either", f.Widget, f.Occurrences, f.NestedInstances)
+	}
+	n := f.Nested
+	if n == nil || !n.Expandable || n.CollectionID != "LAC6" || n.Note != "" {
+		t.Fatalf("302 nested = %+v, want expandable LAC6", n)
+	}
+	if got := overrideIDs(n.Fields); !slices.Equal(got, []int64{601, 602, 603, 604}) {
+		t.Fatalf("302 template fields = %v", got)
+	}
+	for _, tf := range n.Fields {
+		if tf.SlotPrefix != "" {
+			t.Fatalf("template field %d slot_prefix = %q, want empty", tf.OverrideID, tf.SlotPrefix)
+		}
+	}
+	inner := n.Fields[2].Nested
+	if n.Fields[2].Widget != "nested-collection" || inner == nil || !inner.Expandable || inner.CollectionID != "LAC1" {
+		t.Fatalf("603 nested = %+v, want expandable LAC1", inner)
+	}
+	if got := overrideIDs(inner.Fields); !slices.Equal(got, []int64{701}) {
+		t.Fatalf("603 template fields = %v", got)
+	}
+	if n.Fields[0].Nested != nil {
+		t.Fatalf("601 nested = %+v, want none", n.Fields[0].Nested)
+	}
+
+	capped := nestedFormSchema(t, NewService(newFakeStore(), nestedViews(), WithMaxNestingDepth(1)), formschema.ModeCreate, "")
+	inner = formField(t, capped, "C1", 0, 302).Nested.Fields[2].Nested
+	if inner == nil || inner.Expandable || inner.Note != noteNestingLimit || len(inner.Fields) != 0 {
+		t.Fatalf("capped 603 nested = %+v, want not expandable with nesting limit note", inner)
+	}
+}
+
+func TestBuildFormSchemaNestedInstances(t *testing.T) {
+	store := newFakeStore()
+	svc := NewService(store, nestedViews())
+	rec, err := createNested(svc,
+		stringValue("C1:0/302:0/601:0", "F601", "1650"),
+		stringValue("C1:0/302:0/602:0", "F602", "1660"),
+		stringValue("C1:0/302:1/601:0", "F601", "1700"),
+	)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	f := formField(t, nestedFormSchema(t, svc, formschema.ModeEdit, rec.Example.ID), "C1", 0, 302)
+	if len(f.NestedInstances) != 2 {
+		t.Fatalf("302 nested_instances = %+v, want 2", f.NestedInstances)
+	}
+	for k, want := range []string{"1650", "1700"} {
+		in := f.NestedInstances[k]
+		prefix := "C1:0/302:" + string(rune('0'+k)) + "/"
+		if in.ID != "LAC6" || in.Instance != k || in.SlotPrefix != prefix || !in.Repeatable {
+			t.Fatalf("instance %d = %+v, want LAC6 prefix %s", k, in, prefix)
+		}
+		if got := overrideIDs(in.Fields); !slices.Equal(got, []int64{601, 602, 603, 604}) {
+			t.Fatalf("instance %d fields = %v", k, got)
+		}
+		v := in.Fields[0]
+		if v.SlotPrefix != prefix || len(v.Occurrences) != 1 || v.Occurrences[0].Value.StringValue == nil || *v.Occurrences[0].Value.StringValue != want {
+			t.Fatalf("instance %d field 601 = %+v, want %s at %s", k, v, want, prefix)
+		}
+	}
+	// 602 is required per instance: the issue lands in instance 1 only.
+	if got := f.NestedInstances[0].Fields[1].Issues; len(got) != 0 {
+		t.Fatalf("instance 0 field 602 issues = %+v, want none", got)
+	}
+	if got := f.NestedInstances[1].Fields[1].Issues; len(got) != 1 || got[0].Code != "missing_required_value" {
+		t.Fatalf("instance 1 field 602 issues = %+v, want missing_required_value", got)
+	}
+	if f.NestedInstances[1].Fields[2].Nested == nil || f.NestedInstances[1].Fields[2].NestedInstances != nil {
+		t.Fatalf("instance 1 field 603 = %+v, want template and no instances", f.NestedInstances[1].Fields[2])
+	}
+}
+
+func TestBuildFormSchemaNestedDepthTwoAndContainerIssues(t *testing.T) {
+	views := nestedViews()
+	one := 1
+	nestedModelField(views, 302).MaxOccurs = &one
+	store := newFakeStore()
+	svc := NewService(store, views)
+	rec, err := createNested(svc,
+		stringValue("C1:0/302:0/602:0", "F602", "a"),
+		stringValue("C1:0/302:1/602:0", "F602", "b"),
+		stringValue("C1:0/302:1/603:0/701:0", "F701", "deep"),
+	)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	f := formField(t, nestedFormSchema(t, svc, formschema.ModeEdit, rec.Example.ID), "C1", 0, 302)
+	if len(f.Issues) != 1 || f.Issues[0].Code != "max_occurs" {
+		t.Fatalf("302 issues = %+v, want max_occurs", f.Issues)
+	}
+	if len(f.NestedInstances) != 2 {
+		t.Fatalf("302 nested_instances = %d, want 2", len(f.NestedInstances))
+	}
+	c603 := f.NestedInstances[1].Fields[2]
+	if len(c603.NestedInstances) != 1 || c603.NestedInstances[0].ID != "LAC1" || c603.NestedInstances[0].SlotPrefix != "C1:0/302:1/603:0/" {
+		t.Fatalf("603 nested_instances = %+v", c603.NestedInstances)
+	}
+	leaf := c603.NestedInstances[0].Fields[0]
+	if leaf.SlotPrefix != "C1:0/302:1/603:0/" || leaf.Occurrences[0].Value.StringValue == nil || *leaf.Occurrences[0].Value.StringValue != "deep" {
+		t.Fatalf("701 = %+v, want deep", leaf)
+	}
+	if got := f.NestedInstances[0].Fields[2].NestedInstances; got != nil {
+		t.Fatalf("instance 0 field 603 nested_instances = %+v, want none", got)
+	}
+}
+
+func TestBuildFormSchemaContainerWithoutTarget(t *testing.T) {
+	views := nestedViews()
+	nestedModelField(views, 303).IsRequired = true
+	nestedModelField(views, 303).MinOccurs = 1
+	schema := nestedFormSchema(t, NewService(newFakeStore(), views), formschema.ModeCreate, "")
+	f := formField(t, schema, "C1", 0, 303)
+	if f.Widget != widgetNestedCollection || f.Nested == nil || f.Nested.Expandable || f.Nested.Note != noteNoTarget || f.Nested.Fields != nil {
+		t.Fatalf("303 = widget %q nested %+v, want not expandable with note", f.Widget, f.Nested)
+	}
+	if f.Required || f.MinOccurs != 0 {
+		t.Fatalf("303 required=%v min_occurs=%d, want false/0 (a container that cannot open is never required)", f.Required, f.MinOccurs)
+	}
+	if f := formField(t, schema, "C1", 0, 304); f.Nested == nil || f.Nested.Expandable || f.Nested.Note != noteSeveralTargets {
+		t.Fatalf("304 nested = %+v, want several targets note", f.Nested)
+	}
+}
+
+// A stored value without a slot path reads as its depth-0 slot placed in
+// its group, not as the malformed path "C1:0/".
+func TestServiceGetPlacesValueWithoutSlotPath(t *testing.T) {
+	store := newFakeStore()
+	v := stringValue("", "F21", "x")
+	v.OverrideID = 21
+	rec := getStored(t, NewService(store, nestedViews()), store, v)
+	if got := rec.Values[0].SlotPath; got != "C1:0/21:0" {
+		t.Fatalf("slot path = %q, want C1:0/21:0", got)
+	}
+	if hasIssue(rec.Validation.Issues, "invalid_nesting", domain.ExampleIssueWarning) {
+		t.Fatalf("issues = %+v, want no invalid_nesting", rec.Validation.Issues)
 	}
 }

@@ -221,19 +221,26 @@ func (r *slotResolver) collectionFields(collectionID string) ([]domain.ResolvedF
 	return fields, nil
 }
 
+// Notes expandTarget gives for a container that cannot open.
+const (
+	noteNoTarget       = "No target collection set"
+	noteSeveralTargets = "Several target collections"
+	noteNestingLimit   = "Nesting limit reached"
+)
+
 // expandTarget returns the single target collection of a container field and
 // whether it may expand at the given nesting level (1-based). note explains a
 // refusal ("No target collection set", "Several target collections", "Nesting limit reached").
 func (r *slotResolver) expandTarget(field domain.ResolvedField, level int) (collectionID string, ok bool, note string) {
 	switch len(field.CollectionModels) {
 	case 0:
-		return "", false, "No target collection set"
+		return "", false, noteNoTarget
 	case 1:
 	default:
-		return "", false, "Several target collections"
+		return "", false, noteSeveralTargets
 	}
 	if level > r.maxDepth {
-		return "", false, "Nesting limit reached"
+		return "", false, noteNestingLimit
 	}
 	return field.CollectionModels[0].ID, true, ""
 }
@@ -450,4 +457,226 @@ func (r *slotResolver) cardinalityField(field domain.ResolvedField, level int) d
 	}
 	field.IsRequired, field.MinOccurs = false, 0
 	return field
+}
+
+// widgetNestedCollection is the form widget of a Collection-typed field: its
+// target collection's fields open in place instead of a value picker.
+const widgetNestedCollection = "nested-collection"
+
+// formBuilder builds the example form's fields for one BuildFormSchema
+// request: values and issues bucketed by the instance they live in, the
+// nested instances holding values, and the blank nested templates (built
+// once per collection and level, cloned into every place they are used).
+type formBuilder struct {
+	r           *slotResolver
+	byInstance  map[string][]domain.ExampleValue // slotCountKey(containerPath, leaf override)
+	issuesByKey map[string][]domain.ExampleIssue // issueKey(GroupPath, override, occurrence)
+	nested      map[string][]string              // slotCountKey(parent path, container) -> nested instance paths, by instance
+	templates   map[string][]ExampleFormField    // collectionID|level -> blank fields
+}
+
+// newFormBuilder buckets the resolved values. Values that did not resolve
+// (removed field, moved group, stale inner override, invalid nesting) are
+// left out of the form, as they are out of validation counts.
+func newFormBuilder(r *slotResolver, values []domain.ExampleValue, slots []resolvedSlot, issuesByKey map[string][]domain.ExampleIssue) *formBuilder {
+	b := &formBuilder{
+		r:           r,
+		byInstance:  map[string][]domain.ExampleValue{},
+		issuesByKey: issuesByKey,
+		nested:      map[string][]string{},
+		templates:   map[string][]ExampleFormField{},
+	}
+	for i, v := range values {
+		if slots[i].status == slotOK {
+			key := slotCountKey(containerPath(v.SlotPath), v.OverrideID)
+			b.byInstance[key] = append(b.byInstance[key], v)
+		}
+	}
+	for path, in := range nestedInstances(values, slots) {
+		key := slotCountKey(in.parent, in.container)
+		b.nested[key] = append(b.nested[key], path)
+	}
+	for _, paths := range b.nested {
+		slices.SortFunc(paths, func(a, c string) int { return lastInstance(a) - lastInstance(c) })
+	}
+	return b
+}
+
+// blank is a builder sharing b's resolver and template cache but holding no
+// values, issues or nested instances: it builds templates.
+func (b *formBuilder) blank() *formBuilder {
+	return &formBuilder{r: b.r, templates: b.templates}
+}
+
+// field builds f in the instance at path ("" for direct fields, "C1:0" in a
+// group, "C1:0/302:1" in a nested instance). level is the nesting level at
+// which f opens if it is a container (1 for model-level fields). A
+// Collection-typed field gets the nested-collection widget, no occurrences,
+// its target's template and its nested instances holding values.
+func (b *formBuilder) field(f domain.ResolvedField, path string, level int) (ExampleFormField, error) {
+	f = b.r.cardinalityField(f, level)
+	out := buildExampleField(f, b.byInstance[slotCountKey(path, f.OverrideID)], b.issuesByKey, path)
+	out.SlotPrefix = slotPrefix(path)
+	if strings.TrimSpace(f.ExpectedValueType) != expectedValueTypeCollection {
+		return out, nil
+	}
+	out.Widget, out.Occurrences = widgetNestedCollection, nil
+	nested, err := b.template(f, level)
+	if err != nil {
+		return ExampleFormField{}, err
+	}
+	out.Nested = nested
+	if !nested.Expandable {
+		return out, nil
+	}
+	for _, p := range b.nested[slotCountKey(path, f.OverrideID)] {
+		entry, err := b.instanceEntry(out, p, level+1)
+		if err != nil {
+			return ExampleFormField{}, err
+		}
+		out.NestedInstances = append(out.NestedInstances, entry)
+	}
+	return out, nil
+}
+
+// instanceEntry is the group entry of container's nested instance at path;
+// its fields open containers at level.
+func (b *formBuilder) instanceEntry(container ExampleFormField, path string, level int) (ExampleFormGroup, error) {
+	cfs, err := b.r.collectionFields(container.Nested.CollectionID)
+	if err != nil {
+		return ExampleFormGroup{}, err
+	}
+	fields := make([]ExampleFormField, 0, len(cfs))
+	for _, cf := range cfs {
+		field, err := b.field(cf, path, level)
+		if err != nil {
+			return ExampleFormGroup{}, err
+		}
+		fields = append(fields, field)
+	}
+	return ExampleFormGroup{
+		ID:         container.Nested.CollectionID,
+		Label:      container.Nested.Label,
+		Instance:   lastInstance(path),
+		SlotPrefix: slotPrefix(path),
+		Repeatable: container.Repeatable,
+		MinOccurs:  container.MinOccurs,
+		MaxOccurs:  container.MaxOccurs,
+		Fields:     fields,
+	}, nil
+}
+
+// template describes container f's target collection at nesting level, with
+// a blank copy of its fields when it can open there.
+func (b *formBuilder) template(f domain.ResolvedField, level int) (*ExampleNestedCollection, error) {
+	collectionID, ok, note := b.r.expandTarget(f, level)
+	out := &ExampleNestedCollection{Expandable: ok, Note: note}
+	if len(f.CollectionModels) == 1 {
+		ref := f.CollectionModels[0]
+		out.CollectionID, out.Label = ref.ID, ref.Name
+		if len(out.Label) == 0 {
+			out.Label = domain.Translations{"en": ref.ID}
+		}
+	}
+	if !ok {
+		return out, nil
+	}
+	key := collectionID + "|" + strconv.Itoa(level)
+	fields, cached := b.templates[key]
+	if !cached {
+		cfs, err := b.r.collectionFields(collectionID)
+		if err != nil {
+			return nil, err
+		}
+		blank := b.blank()
+		fields = make([]ExampleFormField, 0, len(cfs))
+		for _, cf := range cfs {
+			field, err := blank.field(cf, "", level+1)
+			if err != nil {
+				return nil, err
+			}
+			fields = append(fields, field)
+		}
+		b.templates[key] = fields
+	}
+	out.Fields = cloneFormFields(fields)
+	return out, nil
+}
+
+// cloneFormFields deep-copies template fields so no two places in a form
+// share a template's slices.
+func cloneFormFields(fields []ExampleFormField) []ExampleFormField {
+	out := slices.Clone(fields)
+	for i := range out {
+		out[i].Occurrences = slices.Clone(out[i].Occurrences)
+		if n := out[i].Nested; n != nil {
+			c := *n
+			c.Fields = cloneFormFields(n.Fields)
+			out[i].Nested = &c
+		}
+	}
+	return out
+}
+
+// slotPrefix is the slot_prefix of the fields in the instance at path.
+func slotPrefix(path string) string {
+	if path == "" {
+		return ""
+	}
+	return path + "/"
+}
+
+// lastInstance is the instance number of path's last segment (a group or
+// container segment); 0 when it parses as neither.
+func lastInstance(path string) int {
+	seg := path[strings.LastIndex(path, "/")+1:]
+	if _, n, ok := domain.ParseExampleSlotLeaf(seg); ok {
+		return n
+	}
+	_, n, _ := domain.ParseExampleGroupSegment(seg)
+	return n
+}
+
+// formGroupPresence lists, per collection group, the group instances
+// holding resolved values (nested ones included), as validateValues counts
+// them.
+func formGroupPresence(values []domain.ExampleValue, slots []resolvedSlot) map[string]map[string]bool {
+	present := map[string]map[string]bool{}
+	for i, v := range values {
+		if slots[i].status != slotOK {
+			continue
+		}
+		gp := groupPart(v.SlotPath)
+		if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
+			if present[coll] == nil {
+				present[coll] = map[string]bool{}
+			}
+			present[coll][gp] = true
+		}
+	}
+	return present
+}
+
+// routeIssues sorts a validation report's issues for the form: group-level
+// issues by collection, field issues by issueKey(GroupPath, override,
+// occurrence) (GroupPath is the instance the field lives in, nested
+// instances included), and the rest to the top.
+func routeIssues(issues []domain.ExampleIssue) (byKey, byGroup map[string][]domain.ExampleIssue, top []domain.ExampleIssue) {
+	byKey, byGroup = map[string][]domain.ExampleIssue{}, map[string][]domain.ExampleIssue{}
+	for _, issue := range issues {
+		switch {
+		case issue.CollectionID != nil:
+			byGroup[*issue.CollectionID] = append(byGroup[*issue.CollectionID], issue)
+		case issue.OverrideID == nil:
+			top = append(top, issue)
+		default:
+			idx := -1
+			if issue.OccurrenceIndex != nil {
+				idx = *issue.OccurrenceIndex
+			}
+			key := issueKey(issue.GroupPath, *issue.OverrideID, idx)
+			byKey[key] = append(byKey[key], issue)
+		}
+	}
+	return byKey, byGroup, top
 }

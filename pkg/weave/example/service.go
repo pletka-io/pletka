@@ -171,6 +171,26 @@ type ExampleFormField struct {
 	Issues            []domain.ExampleIssue   `json:"issues,omitempty"`
 	Occurrences       []ExampleOccurrence     `json:"occurrences,omitempty"`
 	SlotPrefix        string                  `json:"slot_prefix,omitempty"`
+	// Nested describes a Collection-typed field's target collection. Present
+	// on every Collection-typed field; Expandable false carries a Note.
+	Nested *ExampleNestedCollection `json:"nested,omitempty"`
+	// NestedInstances are the collection instances holding values, in
+	// order, each a group entry whose SlotPrefix is
+	// "<field slot_prefix><override>:<k>/".
+	NestedInstances []ExampleFormGroup `json:"nested_instances,omitempty"`
+}
+
+// ExampleNestedCollection is the target collection a Collection-typed field
+// opens in place.
+type ExampleNestedCollection struct {
+	CollectionID string              `json:"collection_id,omitempty"`
+	Label        domain.Translations `json:"label,omitempty"`
+	Expandable   bool                `json:"expandable"`
+	Note         string              `json:"note,omitempty"`
+	// Fields is a blank template of the collection's fields (slot_prefix
+	// empty, no occurrences' values), recursively carrying their own Nested
+	// templates up to the depth cap. The workspace clones it for "+ Add".
+	Fields []ExampleFormField `json:"fields,omitempty"`
 }
 
 type ConceptListSource struct {
@@ -445,48 +465,22 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 	if err != nil {
 		return nil, err
 	}
-	groups := groupOfOverride(view)
-	byInstance := map[string][]domain.ExampleValue{}
-	issuesByKey := map[string][]domain.ExampleIssue{}
-	groupIssues := map[string][]domain.ExampleIssue{}
-	present := map[string]map[string]bool{}
-	var topIssues []domain.ExampleIssue
+	var values []domain.ExampleValue
+	var issues []domain.ExampleIssue
 	if record != nil {
-		for _, v := range record.Values {
-			gp := instancePath(v.SlotPath)
-			_, known := groups[v.OverrideID]
-			if known && !groupMatches(v, groups) {
-				// The field moved to a different group (or to/from direct)
-				// since this value was saved: leave it out of the form
-				// entirely, same as Get leaves it out of validation counts.
-				continue
-			}
-			byInstance[slotCountKey(gp, v.OverrideID)] = append(byInstance[slotCountKey(gp, v.OverrideID)], v)
-			if known {
-				if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
-					if present[coll] == nil {
-						present[coll] = map[string]bool{}
-					}
-					present[coll][gp] = true
-				}
-			}
-		}
-		for _, issue := range record.Validation.Issues {
-			switch {
-			case issue.CollectionID != nil:
-				groupIssues[*issue.CollectionID] = append(groupIssues[*issue.CollectionID], issue)
-			case issue.OverrideID == nil:
-				topIssues = append(topIssues, issue)
-			default:
-				idx := -1
-				if issue.OccurrenceIndex != nil {
-					idx = *issue.OccurrenceIndex
-				}
-				key := issueKey(issue.GroupPath, *issue.OverrideID, idx)
-				issuesByKey[key] = append(issuesByKey[key], issue)
-			}
-		}
+		values, issues = record.Values, record.Validation.Issues
 	}
+	// One resolver per request: collection views are cached in it. A value
+	// whose field moved to a different group since it was saved does not
+	// resolve and stays out of the form, as it stays out of Get's counts.
+	resolver := s.newSlotResolver(ctx, projectID, view)
+	slots, err := resolver.resolveAll(values)
+	if err != nil {
+		return nil, err
+	}
+	issuesByKey, groupIssues, topIssues := routeIssues(issues)
+	builder := newFormBuilder(resolver, values, slots, issuesByKey)
+	present := formGroupPresence(values, slots)
 	sections := make([]ExampleFormSection, 0, len(view.Categories))
 	for _, cat := range view.Categories {
 		section := ExampleFormSection{
@@ -495,7 +489,11 @@ func (s *Service) buildModelFormSchema(ctx context.Context, projectID, exampleID
 			CanonicalOrder: cat.Position,
 		}
 		for _, coll := range cat.Collections {
-			section.Groups = append(section.Groups, buildGroupEntries(coll, byInstance, issuesByKey, groupIssues, present[coll.ID])...)
+			entries, err := buildGroupEntries(builder, coll, groupIssues, present[coll.ID])
+			if err != nil {
+				return nil, err
+			}
+			section.Groups = append(section.Groups, entries...)
 		}
 		sections = append(sections, section)
 	}
@@ -592,19 +590,20 @@ func formInstances(coll domain.CollectionGroup, present map[string]bool) []strin
 // entry for the direct bucket, or one per validated/padded instance of a
 // collection group. Split out of buildModelFormSchema to keep it within the
 // gocyclo limit.
-func buildGroupEntries(coll domain.CollectionGroup, byInstance map[string][]domain.ExampleValue, issuesByKey map[string][]domain.ExampleIssue, groupIssues map[string][]domain.ExampleIssue, present map[string]bool) []ExampleFormGroup {
+func buildGroupEntries(b *formBuilder, coll domain.CollectionGroup, groupIssues map[string][]domain.ExampleIssue, present map[string]bool) ([]ExampleFormGroup, error) {
 	instances := formInstances(coll, present)
 	out := make([]ExampleFormGroup, 0, len(instances))
 	for i, gp := range instances {
-		prefix, instance := "", 0
+		instance := 0
 		if gp != "" {
-			prefix = gp + "/"
 			_, instance, _ = domain.ParseExampleGroupSegment(gp)
 		}
 		fields := make([]ExampleFormField, 0, len(coll.Fields))
 		for _, f := range coll.Fields {
-			field := buildExampleField(f, byInstance[slotCountKey(gp, f.OverrideID)], issuesByKey, gp)
-			field.SlotPrefix = prefix
+			field, err := b.field(f, gp, 1)
+			if err != nil {
+				return nil, err
+			}
 			fields = append(fields, field)
 		}
 		out = append(out, ExampleFormGroup{
@@ -614,14 +613,14 @@ func buildGroupEntries(coll domain.CollectionGroup, byInstance map[string][]doma
 			SharedPathPrefix: coll.SharedPathPrefix,
 			Fields:           fields,
 			Instance:         instance,
-			SlotPrefix:       prefix,
+			SlotPrefix:       slotPrefix(gp),
 			Repeatable:       groupRepeatable(coll),
 			MinOccurs:        placementMin(coll),
 			MaxOccurs:        placementMax(coll),
 			Issues:           issuesIf(i == 0, groupIssues[coll.ID]),
 		})
 	}
-	return out
+	return out, nil
 }
 
 // groupRepeatable reports whether a collection group's form entries allow
@@ -1085,15 +1084,6 @@ func groupOfOverride(view *domain.ModelView) map[int64]string {
 	return out
 }
 
-// instancePath is the group segment of a two-segment slot path ("C1:1" for
-// "C1:1/21:0"); "" for a one-segment path.
-func instancePath(slotPath string) string {
-	if i := strings.Index(slotPath, "/"); i >= 0 {
-		return slotPath[:i]
-	}
-	return ""
-}
-
 // groupMatches reports whether v's stored group segment agrees with its
 // anchor override's current group (the anchor equals v.OverrideID for
 // depth-0 paths). An override no longer on the model is not this
@@ -1142,6 +1132,10 @@ func placeInGroups(values []domain.ExampleValue, groups map[int64]string, strict
 }
 
 func placeValue(v *domain.ExampleValue, group string, strict bool) error {
+	// A value without a slot path (never after migration 007, but possible
+	// for callers that skip normalization) is its depth-0 slot; placing it
+	// as is would leave the malformed path "<group>:0/".
+	v.SlotPath = valueSlotPath(*v)
 	gp := groupPart(v.SlotPath)
 	if gp == "" {
 		if group != "" {
