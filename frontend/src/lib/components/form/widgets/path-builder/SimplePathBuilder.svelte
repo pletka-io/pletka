@@ -175,7 +175,8 @@
     if (a === b) return true;
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
-      if (a[i].prefix !== b[i].prefix || a[i].local_name !== b[i].local_name || a[i].type !== b[i].type) {
+      if (a[i].prefix !== b[i].prefix || a[i].local_name !== b[i].local_name || a[i].type !== b[i].type
+        || !!a[i].complete !== !!b[i].complete) {
         return false;
       }
     }
@@ -216,6 +217,15 @@
   );
 
   const scopeSelected = $derived(isScopeMode && pathElements.length > 0);
+
+  // A path chain is complete when its last element carries the editor-only
+  // `complete` flag (set by typing "done" / ".") or is a literal terminus.
+  // Mirrors RichPathBuilder so both modes finish a path the same way.
+  const isComplete = $derived(
+    !isScopeMode && pathElements.length > 0 &&
+    (pathElements[pathElements.length - 1].complete === true ||
+     pathElements[pathElements.length - 1].type === 'literal')
+  );
 
   $effect(() => {
     if (isScopeMode) {
@@ -303,13 +313,48 @@
       selectedIndex = Math.max(selectedIndex - 1, -1);
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (selectedIndex >= 0 && suggestions[selectedIndex]) addElement(suggestions[selectedIndex]);
+      // Typing "done" or "." finishes the path; otherwise take the highlighted suggestion.
+      if (isCompleteCommand(query)) {
+        markComplete();
+      } else if (selectedIndex >= 0 && suggestions[selectedIndex]) {
+        addElement(suggestions[selectedIndex]);
+      }
     } else if (e.key === 'Escape') {
       showDropdown = false;
       selectedIndex = -1;
     } else if (e.key === 'Backspace' && query === '') {
       undoLast();
     }
+  }
+
+  /** Whether the current input is the manual-completion command. */
+  function isCompleteCommand(q: string): boolean {
+    const trimmed = q.trim().toLowerCase();
+    return trimmed === '.' || trimmed === 'done';
+  }
+
+  // Mark the path finished by flagging the final element. Only a real
+  // terminal (class or literal) can be completed; a dangling property is
+  // ignored. Mirrors RichPathBuilder.markComplete.
+  function markComplete() {
+    if (pathElements.length === 0 || isScopeMode) return;
+    const last = pathElements[pathElements.length - 1];
+    if (last.type !== 'class' && last.type !== 'literal') return;
+    if (last.complete) return;
+    pathElements = [...pathElements.slice(0, -1), { ...last, complete: true }];
+    query = '';
+    suggestions = [];
+    showDropdown = false;
+  }
+
+  // Clear the completion flag so the path can be extended again.
+  function unmarkComplete() {
+    if (pathElements.length === 0) return;
+    const last = pathElements[pathElements.length - 1];
+    if (!last.complete) return;
+    const { complete, ...rest } = last;
+    pathElements = [...pathElements.slice(0, -1), rest];
+    setTimeout(() => inputEl?.focus(), 0);
   }
 
   function addElement(s: PathSuggestion) {
@@ -513,9 +558,17 @@
             >&times;</button>
           {/if}
         </span>
+        {#if el.complete}
+          <span class="inline-flex items-center gap-0.5 ml-1 pl-1 border-l border-emerald-300 text-emerald-700 text-xs font-medium" title="Path marked complete">
+            &check; complete
+            {#if !field.readonly}
+              <button type="button" class="opacity-60 hover:opacity-100 leading-none" aria-label="Remove completion marker and continue" onclick={() => unmarkComplete()}>&times;</button>
+            {/if}
+          </span>
+        {/if}
       {/each}
 
-      {#if !field.readonly && !scopeSelected}
+      {#if !field.readonly && !scopeSelected && !isComplete}
         <input
           bind:this={inputEl}
           type="text"
@@ -526,7 +579,7 @@
           onblur={handleBlur}
           placeholder={pathElements.length === 0
             ? (isScopeMode ? 'Search for a class…' : 'Search…')
-            : ''}
+            : (isScopeMode ? '' : 'Search, or type “done” to finish…')}
           class="flex-1 min-w-[6rem] bg-transparent outline-none text-sm text-gray-900 placeholder-gray-400"
           autocomplete="off"
           spellcheck={false}
