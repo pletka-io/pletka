@@ -128,7 +128,7 @@
 
     const targetCategoryID = formValues.category_id ? String(formValues.category_id) : '';
     const nextCategoryID = targetCategoryID || UNCATEGORIZED_ID;
-    if (!inCollectionGroup && entityType !== 'collection' && nextCategoryID !== categoryId) {
+    if (!inCollectionGroup && nextCategoryID !== categoryId) {
       lastCommitted = signature;
       editor.moveFieldToCategory(categoryId, itemId, field.override_id, nextCategoryID);
       onclose();
