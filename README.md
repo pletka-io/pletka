@@ -102,7 +102,7 @@ to understand how the schema-driven system works.
 ## License
 
 Licensed under the **Apache License, Version 2.0** — see [`LICENSE`](LICENSE) and
-[`NOTICE`](NOTICE). Copyright 2026 The Pletka Project.
+[`NOTICE`](NOTICE). Copyright 2026 Takin.solutions.
 
 ```
 SPDX-License-Identifier: Apache-2.0
