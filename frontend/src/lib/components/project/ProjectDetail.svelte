@@ -122,6 +122,7 @@
             onmutate={() => state.refreshCounts()}
             initialItemId={state.readHashItem() ?? ''}
             onitemchange={(id) => state.writeHashItem(id)}
+            urlPrefix={`${activeTab.id}.`}
           />
         {/key}
       {:else if state.tabLoading.get(state.activeTabId)}

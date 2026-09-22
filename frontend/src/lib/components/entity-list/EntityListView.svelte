@@ -20,6 +20,7 @@
     onmutate,
     initialItemId = '',
     onitemchange,
+    urlPrefix = '',
   }: {
     schemaUrl: string;
     /** Fired after a successful create / delete / row-action so a
@@ -30,7 +31,15 @@
     initialItemId?: string;
     /** Fired when an item is opened (id) or the editor is closed (null). */
     onitemchange?: (id: string | null) => void;
+    /** Prefix for this list's page-URL params (e.g. "examples.") so lists
+     *  sharing one page, like the project tabs, keep separate filters. */
+    urlPrefix?: string;
   } = $props();
+
+  // Name of one of this list's params in the page URL.
+  function urlKey(name: string): string {
+    return urlPrefix + name;
+  }
 
   let schema = $state<EntityListSchema | null>(null);
   let items = $state<any[]>([]);
@@ -126,13 +135,13 @@
     if (!schema) return;
     const params = new URLSearchParams(window.location.search);
 
-    const sortParam = params.get('sort_by');
+    const sortParam = params.get(urlKey('sort_by'));
     if (sortParam && schema.sort_options.some((o) => o.value === sortParam)) {
       currentSort = sortParam;
     }
 
     if (schema.search) {
-      const s = params.get(schema.search.param_name);
+      const s = params.get(urlKey(schema.search.param_name));
       if (s !== null) currentSearch = s;
     }
 
@@ -141,19 +150,19 @@
     // selection (e.g. Origin = Owned + Adapted).
     const nextFilters = defaultFilters();
     for (const f of schema.filters ?? []) {
-      const v = params.get(f.param_name);
+      const v = params.get(urlKey(f.param_name));
       if (v !== null && v !== '') nextFilters[f.param_name] = v;
     }
     currentFilters = nextFilters;
 
     if (schema.pagination) {
-      const p = Number(params.get(schema.pagination.param_name));
+      const p = Number(params.get(urlKey(schema.pagination.param_name)));
       if (Number.isFinite(p) && p >= 1) currentPage = p;
-      const pp = Number(params.get(schema.pagination.per_page_name));
+      const pp = Number(params.get(urlKey(schema.pagination.per_page_name)));
       if (Number.isFinite(pp) && pp > 0) perPage = pp;
     }
 
-    const viewParam = params.get('view');
+    const viewParam = params.get(urlKey('view'));
     if (viewParam && schema.view_modes?.some((m) => m.id === viewParam)) {
       currentViewMode = viewParam;
     }
@@ -174,46 +183,46 @@
     const params = url.searchParams;
 
     if (currentSort && currentSort !== schema.default_sort) {
-      params.set('sort_by', currentSort);
+      params.set(urlKey('sort_by'), currentSort);
     } else {
-      params.delete('sort_by');
+      params.delete(urlKey('sort_by'));
     }
 
     if (schema.search) {
       if (currentSearch) {
-        params.set(schema.search.param_name, currentSearch);
+        params.set(urlKey(schema.search.param_name), currentSearch);
       } else {
-        params.delete(schema.search.param_name);
+        params.delete(urlKey(schema.search.param_name));
       }
     }
 
     for (const f of schema.filters ?? []) {
       const v = currentFilters[f.param_name];
       if (v) {
-        params.set(f.param_name, v);
+        params.set(urlKey(f.param_name), v);
       } else {
-        params.delete(f.param_name);
+        params.delete(urlKey(f.param_name));
       }
     }
 
     if (schema.pagination) {
       if (currentPage > 1) {
-        params.set(schema.pagination.param_name, String(currentPage));
+        params.set(urlKey(schema.pagination.param_name), String(currentPage));
       } else {
-        params.delete(schema.pagination.param_name);
+        params.delete(urlKey(schema.pagination.param_name));
       }
       if (perPage !== schema.pagination.page_size) {
-        params.set(schema.pagination.per_page_name, String(perPage));
+        params.set(urlKey(schema.pagination.per_page_name), String(perPage));
       } else {
-        params.delete(schema.pagination.per_page_name);
+        params.delete(urlKey(schema.pagination.per_page_name));
       }
     }
 
     const defaultMode = schema.view_modes?.find((m) => m.default)?.id ?? schema.view_modes?.[0]?.id ?? '';
     if (currentViewMode && currentViewMode !== defaultMode) {
-      params.set('view', currentViewMode);
+      params.set(urlKey('view'), currentViewMode);
     } else {
-      params.delete('view');
+      params.delete(urlKey('view'));
     }
 
     history.replaceState(null, '', url.toString());

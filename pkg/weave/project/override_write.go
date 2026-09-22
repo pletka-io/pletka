@@ -60,13 +60,15 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 	switch entityType {
 	case "model":
 		model, err := h.weave.Models().GetByID(ctx, entityID)
-		if err != nil || model == nil {
+		// A project may only save the patterns it owns; another project's
+		// model is "not found" here, as in model.Service.requireOwn.
+		if err != nil || model == nil || model.ProjectID != projectID {
 			writeError(w, http.StatusNotFound, "model not found")
 			return
 		}
 	case "collection":
 		collection, err := h.weave.Collections().GetByID(ctx, entityID)
-		if err != nil || collection == nil {
+		if err != nil || collection == nil || collection.ProjectID != projectID {
 			writeError(w, http.StatusNotFound, "collection not found")
 			return
 		}

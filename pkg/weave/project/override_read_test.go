@@ -46,7 +46,7 @@ func TestOverrideCapabilitiesCanHideFieldsMirrorsEditPermission(t *testing.T) {
 			ctx := weaveauth.WithSnapshot(context.Background(), tc.snap)
 			canEdit := h.svc.CanEdit(ctx, p)
 
-			caps := h.overrideCapabilities(ctx, p, tc.supportsAddCollection)
+			caps := h.overrideCapabilities(ctx, p, true, tc.supportsAddCollection)
 
 			if caps.CanHideFields != canEdit {
 				t.Fatalf("CanHideFields = %v, want %v (mirrors CanEdit)", caps.CanHideFields, canEdit)
@@ -59,6 +59,19 @@ func TestOverrideCapabilitiesCanHideFieldsMirrorsEditPermission(t *testing.T) {
 				t.Fatalf("CanAddCollection = %v, want %v", caps.CanAddCollection, wantCanAddCollection)
 			}
 		})
+	}
+}
+
+// An entity owned by another project (e.g. an adopted collection opened under
+// the adopting project) is read-only even for someone who can edit the URL
+// project: saveOverrides only accepts the owner.
+func TestOverrideCapabilitiesReadOnlyWhenNotOwned(t *testing.T) {
+	h := &Handler{}
+	p := &domain.Project{Entity: domain.Entity{ID: "P1"}, Visibility: "private"}
+	ctx := weaveauth.WithSnapshot(context.Background(), &weaveauth.AuthSnapshot{IsSuperAdmin: true})
+	caps := h.overrideCapabilities(ctx, p, false, true)
+	if caps.CanEditOverrides || caps.CanAddField || caps.CanAddCollection || caps.CanReorder || caps.CanHideFields {
+		t.Fatalf("caps = %+v, want all false for a non-owned entity", caps)
 	}
 }
 
