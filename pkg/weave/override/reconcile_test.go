@@ -57,3 +57,12 @@ func TestMatchOverridesDuplicateIDClaimsOnce(t *testing.T) {
 		t.Fatalf("plan = %+v", p)
 	}
 }
+
+func TestMatchOverridesKnownIDWithOtherFieldIsNotClaimed(t *testing.T) {
+	existing := []domain.FieldOverride{ov(10, "F1", "C", "", 1)}
+	desired := []domain.FieldOverride{ov(10, "F2", "C", "", 1)}
+	p := matchOverrides(existing, desired)
+	if !slices.Equal(p.update, []int64{0}) || !slices.Equal(p.remove, []int64{10}) {
+		t.Fatalf("plan = %+v", p)
+	}
+}

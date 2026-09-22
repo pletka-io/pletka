@@ -17,17 +17,19 @@ type overridePlan struct {
 
 // matchOverrides pairs desired rows with existing rows so a save keeps
 // placement ids stable (example values anchor to them). Rows carrying a
-// known id claim it; id-less rows reuse an unclaimed row with the same
+// known id of the same field claim it; id-less rows reuse an unclaimed row with the same
 // (field, category, collection) key, pairing duplicates by position.
 func matchOverrides(existing, desired []domain.FieldOverride) overridePlan {
 	plan := overridePlan{update: make([]int64, len(desired))}
-	known := make(map[int64]bool, len(existing))
+	// fieldOf maps each existing row to its field: an id claims its row only
+	// for the same field, since updates never change field_id.
+	fieldOf := make(map[int64]string, len(existing))
 	for _, e := range existing {
-		known[e.ID] = true
+		fieldOf[e.ID] = e.FieldID
 	}
 	claimed := make(map[int64]bool, len(existing))
 	for i, d := range desired {
-		if d.ID > 0 && known[d.ID] && !claimed[d.ID] {
+		if f, known := fieldOf[d.ID]; d.ID > 0 && known && f == d.FieldID && !claimed[d.ID] {
 			plan.update[i] = d.ID
 			claimed[d.ID] = true
 		}
