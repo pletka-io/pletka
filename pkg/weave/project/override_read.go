@@ -164,7 +164,7 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 			FieldSidebarSchemaURL:           fmt.Sprintf("/projects/%s/composition/sidebar-schema/field", projectID),
 			CollectionGroupSidebarSchemaURL: fmt.Sprintf("/projects/%s/composition/sidebar-schema/collection-group", projectID),
 		},
-		Capabilities: h.overrideCapabilities(ctx, project, true),
+		Capabilities: h.overrideCapabilities(ctx, project, model.ProjectID == projectID, true),
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -183,8 +183,12 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 //
 // Takes the loaded project (not projectID/visibility) so CanEdit can build
 // an auth.ProjectResource that carries OrgID and org-inherited roles resolve.
-func (h *Handler) overrideCapabilities(ctx context.Context, p *domain.Project, supportsAddCollection bool) overrideEditorCapabilities {
-	canEdit := h.svc.CanEdit(ctx, p)
+//
+// owned is false when the model or collection belongs to another project
+// (e.g. an adopted one opened under the adopting project): the editor is
+// then read-only, matching saveOverrides, which only accepts the owner.
+func (h *Handler) overrideCapabilities(ctx context.Context, p *domain.Project, owned, supportsAddCollection bool) overrideEditorCapabilities {
+	canEdit := owned && h.svc.CanEdit(ctx, p)
 	canAddCollection := false
 	if supportsAddCollection {
 		canAddCollection = canEdit
@@ -265,7 +269,7 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 			FieldSidebarSchemaURL:           fmt.Sprintf("/projects/%s/composition/sidebar-schema/field", projectID),
 			CollectionGroupSidebarSchemaURL: fmt.Sprintf("/projects/%s/composition/sidebar-schema/collection-group", projectID),
 		},
-		Capabilities: h.overrideCapabilities(ctx, project, false),
+		Capabilities: h.overrideCapabilities(ctx, project, collection.ProjectID == projectID, false),
 	}
 
 	writeJSON(w, http.StatusOK, resp)
