@@ -186,6 +186,9 @@ func flattenOverrideDraft(projectID, entityType, entityID string, categories []o
 					row.PartOfCollectionID = item.ID
 					row.CollectionName = item.Name
 				}
+				if field.OverrideID > 0 {
+					row.ID = field.OverrideID
+				}
 				rows = append(rows, overrideDraftRow{
 					override: row,
 					refs:     buildOverrideRefs(field),
