@@ -5,6 +5,7 @@
   import type { ExampleFormField, ExampleFormGroup, ExampleFormSchema, ExampleFormSection, ExampleIssue } from '$lib/types/example-form-schema';
   import { tr } from '$lib/types/form-schema';
   import { addToast } from '$lib/stores/toast';
+  import { tick } from 'svelte';
 
   /** Schema-provided API endpoints (from EntityListSchema.editor.endpoints).
    *  The workspace fills {id} into url templates client-side; it never
@@ -1179,22 +1180,52 @@
     return out;
   }
 
-  function firstStubWithoutTarget(): string | null {
+  // A new draft on a field that allows several models needs its model
+  // picked; nothing else tells the server which model to create it in.
+  function stubNeedsModel(field: ExampleFormField, occurrence: OccurrenceState): boolean {
+    return occurrenceIsStub(field, occurrence) && (field.resource_models ?? []).length > 1 && !occurrence.stub_model;
+  }
+
+  type StubMiss = { section: ExampleFormSection; groups: ExampleFormGroup[]; field: ExampleFormField; label: string };
+
+  // findStubWithoutModel returns the first draft still missing its model,
+  // with the section and the chain of (nested) groups that contain it, so
+  // submit can open them and scroll to the field.
+  function findStubWithoutModel(): StubMiss | null {
     if (!schema) return null;
-    for (const section of schema.sections ?? []) {
-      for (const field of allSectionFields(section)) {
+    const visit = (section: ExampleFormSection, group: ExampleFormGroup, chain: ExampleFormGroup[]): StubMiss | null => {
+      const groups = [...chain, group];
+      for (const field of group.fields ?? []) {
+        for (const instance of field.nested_instances ?? []) {
+          const hit = visit(section, instance, groups);
+          if (hit) return hit;
+        }
         if (isContainer(field)) continue;
         for (const occurrence of fieldOccurrences(field)) {
-          if (!occurrenceIsStub(field, occurrence)) continue;
-          const models = field.resource_models ?? [];
-          const missingTarget = models.length > 1 && !occurrence.stub_model;
-          if (missingTarget) {
-            return `Choose a model for the new draft "${occurrence.stub_label!.trim()}".`;
-          }
+          if (stubNeedsModel(field, occurrence)) return { section, groups, field, label: occurrence.stub_label!.trim() };
         }
+      }
+      return null;
+    };
+    for (const section of schema.sections ?? []) {
+      for (const group of section.groups ?? []) {
+        const hit = visit(section, group, []);
+        if (hit) return hit;
       }
     }
     return null;
+  }
+
+  async function revealField(miss: StubMiss) {
+    workspaceMode = 'edit';
+    if (!fieldVisibleInEdit(miss.field)) {
+      activeFilter = 'all';
+      searchQuery = '';
+    }
+    expandedSections = { ...expandedSections, [miss.section.id]: true };
+    expandedGroups = { ...expandedGroups, ...Object.fromEntries(miss.groups.map((g) => [groupKey(g), true])) };
+    await tick();
+    document.getElementById(`example-field-${fieldKey(miss.field)}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   async function submit() {
@@ -1203,9 +1234,10 @@
       error = 'Select a model first.';
       return;
     }
-    const stubIssue = firstStubWithoutTarget();
-    if (stubIssue) {
-      error = stubIssue;
+    const stubMiss = findStubWithoutModel();
+    if (stubMiss) {
+      error = `Choose a model for the new draft "${stubMiss.label}".`;
+      await revealField(stubMiss);
       return;
     }
     saving = true;
@@ -1543,11 +1575,25 @@
                                                   {/if}
                                                   {#if !linkedSelection && (field.expected_value_type || '').trim() === 'Model' && (field.resource_models ?? []).length > 0}
                                                     {@const models = field.resource_models ?? []}
+                                                    {@const needsModel = stubNeedsModel(field, occurrence)}
                                                     <div class="rounded-md border border-dashed border-gray-300 bg-white px-3 py-2">
                                                       <label class="block text-xs font-medium text-gray-600" for={`stub-${fieldKey(field)}-${occurrence.occurrence_index}`}>
-                                                        Or create a new draft {models.length === 1 ? translated(models[0].name, models[0].semantic_id || models[0].id) : 'example'} named
+                                                        Or create a new draft{models.length === 1 ? ` ${translated(models[0].name, models[0].semantic_id || models[0].id)} named` : ''}
                                                       </label>
                                                       <div class="mt-1 flex flex-wrap items-center gap-2">
+                                                        {#if models.length > 1}
+                                                          <select
+                                                            class={`rounded-md border px-2 py-1 text-sm ${needsModel ? 'border-rose-400 ring-1 ring-rose-300' : 'border-gray-300'}`}
+                                                            aria-invalid={needsModel}
+                                                            bind:value={valuesByOverride[key][occurrenceIdx].stub_model}
+                                                          >
+                                                            <option value="">Choose model…</option>
+                                                            {#each models as model (model.id)}
+                                                              <option value={model.id}>{translated(model.name, model.semantic_id || model.id)}</option>
+                                                            {/each}
+                                                          </select>
+                                                          <span class="text-xs text-gray-600">named</span>
+                                                        {/if}
                                                         <input
                                                           id={`stub-${fieldKey(field)}-${occurrence.occurrence_index}`}
                                                           type="text"
@@ -1555,15 +1601,10 @@
                                                           placeholder="e.g. Van Gogh"
                                                           bind:value={valuesByOverride[key][occurrenceIdx].stub_label}
                                                         />
-                                                        {#if models.length > 1}
-                                                          <select class="rounded-md border border-gray-300 px-2 py-1 text-sm" bind:value={valuesByOverride[key][occurrenceIdx].stub_model}>
-                                                            <option value="">Choose model…</option>
-                                                            {#each models as model (model.id)}
-                                                              <option value={model.id}>{translated(model.name, model.semantic_id || model.id)}</option>
-                                                            {/each}
-                                                          </select>
-                                                        {/if}
                                                       </div>
+                                                      {#if needsModel}
+                                                        <p class="mt-1 text-xs font-medium text-rose-700">Choose which model this draft belongs to.</p>
+                                                      {/if}
                                                       {#if occurrenceIsStub(field, occurrence)}
                                                         <p class="mt-1 text-xs text-gray-500">Saving creates a <span class="font-medium">draft</span> example with this title and links it here. Type the same name in another field to link the same draft. Finish it from the Examples tab.</p>
                                                       {/if}
