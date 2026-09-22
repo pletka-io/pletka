@@ -82,9 +82,11 @@ type Store interface {
 
 	// --- Atomic bulk mutations ---
 
-	// ReplaceForEntity atomically deletes all overrides on (entityType,
-	// entityID) and re-inserts the supplied set. Each input override has
-	// its ID/CreatedAt/UpdatedAt populated on success.
+	// ReplaceForEntity atomically makes the overrides on (entityType,
+	// entityID) equal to the supplied set, keeping the ids of rows it can
+	// match (by id of the same field, else by field/category/collection) so
+	// example values anchored to them survive. Each input override has its
+	// ID/CreatedAt/UpdatedAt populated on success.
 	ReplaceForEntity(ctx context.Context, entityType, entityID string, overrides []domain.FieldOverride) error
 
 	// SetRefs atomically replaces an override's expected-value-target
