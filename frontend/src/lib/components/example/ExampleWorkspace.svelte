@@ -1157,25 +1157,61 @@
     return notes;
   }
 
+  // A prefilled fixed value (a field's set_value, e.g. a metatype) is not
+  // something the user entered.
+  function occurrenceIsFixedOnly(field: ExampleFormField, occurrence: OccurrenceState): boolean {
+    return !!field.set_value && text(occurrence.value).trim() === field.set_value;
+  }
+
+  // groupHasEnteredValue reports whether an instance, or any nested instance
+  // below it, holds a value the user entered. An instance holding only
+  // prefilled fixed values is not saved, so it does not create an instance
+  // of the collection out of nothing (#3575).
+  function groupHasEnteredValue(group: ExampleFormGroup): boolean {
+    for (const field of group.fields ?? []) {
+      if (isContainer(field)) {
+        if ((field.nested_instances ?? []).some(groupHasEnteredValue)) return true;
+        continue;
+      }
+      for (const occurrence of fieldOccurrences(field)) {
+        if (!occurrenceIsBlank(field, occurrence) && !occurrenceIsFixedOnly(field, occurrence)) return true;
+      }
+    }
+    return false;
+  }
+
   function serializeValues(): Array<Record<string, any>> {
     if (!schema) return [];
     const out: Array<Record<string, any>> = [];
-    for (const section of schema.sections ?? []) {
-      for (const field of allSectionFields(section)) {
-        if (isContainer(field)) continue;
-        for (const occurrence of fieldOccurrences(field)) {
-          if (occurrenceIsBlank(field, occurrence)) continue;
-          out.push({
-            override_id: field.override_id,
-            field_id: field.field_id,
-            occurrence_index: occurrence.occurrence_index,
-            slot_path: `${field.slot_prefix ?? ''}${field.override_id}:${occurrence.occurrence_index}`,
-            value_kind: field.value_kind,
-            value_payload:
-              field.value_kind === 'example_ref' ? refPayload(field, occurrence) : inputToPayload(field, text(occurrence.value)),
-          });
-        }
+    const emitField = (field: ExampleFormField) => {
+      for (const occurrence of fieldOccurrences(field)) {
+        if (occurrenceIsBlank(field, occurrence)) continue;
+        out.push({
+          override_id: field.override_id,
+          field_id: field.field_id,
+          occurrence_index: occurrence.occurrence_index,
+          slot_path: `${field.slot_prefix ?? ''}${field.override_id}:${occurrence.occurrence_index}`,
+          value_kind: field.value_kind,
+          value_payload:
+            field.value_kind === 'example_ref' ? refPayload(field, occurrence) : inputToPayload(field, text(occurrence.value)),
+        });
       }
+    };
+    // Direct fields (no slot prefix) are not instances and are saved as
+    // entered; collection and nested instances need an entered value.
+    const emitGroup = (group: ExampleFormGroup) => {
+      if (group.slot_prefix && !groupHasEnteredValue(group)) return;
+      for (const field of group.fields ?? []) {
+        if (isContainer(field)) {
+          (field.nested_instances ?? []).forEach(emitGroup);
+          continue;
+        }
+        emitField(field);
+      }
+    };
+    for (const section of schema.sections ?? []) {
+      (section.direct_fields ?? []).filter((f) => !isContainer(f)).forEach(emitField);
+      (section.groups ?? []).forEach(emitGroup);
     }
     return out;
   }
