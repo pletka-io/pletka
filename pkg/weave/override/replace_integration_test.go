@@ -218,3 +218,69 @@ func TestReplaceForEntityKeepsExampleValues(t *testing.T) {
 		t.Fatalf("example value anchored to wrong override: got %d want %d", gotOverrideID, overrideID)
 	}
 }
+
+// TestDeletingOverrideKeepsExampleValues covers the migration 010 contract:
+// removing a placement (override row) must not cascade-delete the example
+// values anchored to it. Before the migration, weave_example_values has an
+// ON DELETE CASCADE fkey on override_id, so this is RED until the fkey is
+// dropped.
+func TestDeletingOverrideKeepsExampleValues(t *testing.T) {
+	pool := testdb.Pool(t)
+	store := NewPostgresStore(pool)
+	ctx := context.Background()
+	cleanupReplaceEntity(t, pool)
+
+	f5 := laFieldID(t, pool, "LAF.5")
+	overrides := []domain.FieldOverride{
+		{FieldID: f5, ProjectID: replaceTestProjectID, Position: 1},
+	}
+	if err := store.ReplaceForEntity(ctx, replaceTestEntityType, replaceTestEntityID, overrides); err != nil {
+		t.Fatalf("first save: %v", err)
+	}
+	overrideID := overrides[0].ID
+
+	const exampleID = "01TSTSTABLE000000000000002"
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM weave_example_values WHERE example_id = $1`, exampleID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM weave_examples WHERE id = $1`, exampleID)
+	})
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_examples (id, project_id, entity_type, entity_id) VALUES ($1, $2, $3, $4)`,
+		exampleID, replaceTestProjectID, replaceTestEntityType, replaceTestEntityID,
+	); err != nil {
+		t.Fatalf("insert example: %v", err)
+	}
+
+	slotPath := fmt.Sprintf("%d:0", overrideID)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_example_values (example_id, override_id, field_id, value_kind, value_payload, slot_path)
+		 VALUES ($1, $2, $3, 'string', $4::jsonb, $5)`,
+		exampleID, overrideID, f5, `{"kind":"string","string_value":"x"}`, slotPath,
+	); err != nil {
+		t.Fatalf("insert example value: %v", err)
+	}
+
+	// Save without the anchored row: ReplaceForEntity drops the placement.
+	if err := store.ReplaceForEntity(ctx, replaceTestEntityType, replaceTestEntityID, nil); err != nil {
+		t.Fatalf("second save: %v", err)
+	}
+
+	got, err := store.GetByID(ctx, overrideID)
+	if err != nil {
+		t.Fatalf("get dropped override: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("expected override %d to be removed", overrideID)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM weave_example_values WHERE example_id = $1 AND slot_path = $2`,
+		exampleID, slotPath,
+	).Scan(&count); err != nil {
+		t.Fatalf("query example value: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected example value to survive placement removal, got count=%d", count)
+	}
+}

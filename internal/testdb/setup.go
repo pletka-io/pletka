@@ -41,7 +41,7 @@ import (
 // old name, forcing a rebuild; the old, now-orphaned "fixture_template"
 // database is harmless and can be dropped manually or left for the container
 // to be recycled.
-const templateDBName = "fixture_template_v2"
+const templateDBName = "fixture_template_v3"
 
 // templateBuildingDBName is the fixed temp name the template is built under
 // before it is atomically promoted (renamed) to templateDBName. A crash before
@@ -49,7 +49,7 @@ const templateDBName = "fixture_template_v2"
 // rebuilds — templateDBName is never observed in a half-built state. Kept in
 // sync with templateDBName's version suffix so a stale building-db from an
 // older generation cannot collide with (or be mistaken for) the current one.
-const templateBuildingDBName = "fixture_template_v2_building"
+const templateBuildingDBName = "fixture_template_v3_building"
 
 // sentinelTable is the schema table whose presence proves a template is fully
 // migrated (not an empty, poisoned shell). ensureTemplate reuses a template
