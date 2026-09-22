@@ -213,9 +213,9 @@ func (s *Service) SaveForEntity(
 	// Force the scope onto every desired row so caller payloads can't
 	// smuggle a row into another (entityType, entityID, projectID).
 	// IDs are preserved — they're the diff key (existing rows match by
-	// bigserial ID, new rows arrive with ID==0). After ReplaceForEntity
-	// runs, the store assigns fresh IDs and writes them back onto the
-	// desired slice; the diff was computed before that, against the
+	// bigserial ID, new rows arrive with ID==0). ReplaceForEntity keeps the
+	// ids of matched rows, assigns ids to inserted ones and writes them back
+	// onto the desired slice; the diff was computed before that, against the
 	// pre-replace state.
 	for i := range desired {
 		desired[i].EntityType = entityType

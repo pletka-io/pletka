@@ -169,7 +169,9 @@ func (s *postgresStore) ListByProjectAndType(ctx context.Context, projectID, ent
 // Atomic bulk mutations
 // ---------------------------------------------------------------------------
 
-// ReplaceForEntity wraps delete + bulk insert in a single tx.
+// ReplaceForEntity makes the entity's override rows equal to overrides in
+// one transaction, keeping the ids of rows it can match (see matchOverrides)
+// so example values anchored to them survive the save.
 func (s *postgresStore) ReplaceForEntity(ctx context.Context, entityType, entityID string, overrides []domain.FieldOverride) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -179,11 +181,23 @@ func (s *postgresStore) ReplaceForEntity(ctx context.Context, entityType, entity
 
 	q := s.queries.WithTx(tx)
 
-	if err := q.WeaveDeleteOverridesForEntity(ctx, sqlcgen.WeaveDeleteOverridesForEntityParams{
+	existingRows, err := q.WeaveListOverridesForEntity(ctx, sqlcgen.WeaveListOverridesForEntityParams{
 		EntityType: entityType,
 		EntityID:   entityID,
-	}); err != nil {
-		return fmt.Errorf("delete existing overrides: %w", err)
+	})
+	if err != nil {
+		return fmt.Errorf("load existing overrides: %w", err)
+	}
+	existing := make([]domain.FieldOverride, 0, len(existingRows))
+	for _, row := range existingRows {
+		existing = append(existing, *rowToOverride(row))
+	}
+
+	plan := matchOverrides(existing, overrides)
+	for _, id := range plan.remove {
+		if err := q.WeaveDeleteOverride(ctx, id); err != nil {
+			return fmt.Errorf("delete override %d: %w", id, err)
+		}
 	}
 
 	for i := range overrides {
@@ -191,13 +205,21 @@ func (s *postgresStore) ReplaceForEntity(ctx context.Context, entityType, entity
 		o.EntityType = entityType
 		o.EntityID = entityID
 
+		if id := plan.update[i]; id != 0 {
+			o.ID = id
+			row, err := q.WeaveUpdateOverride(ctx, toUpdateParams(o))
+			if err != nil {
+				return fmt.Errorf("update override %d: %w", id, err)
+			}
+			o.CreatedAt, o.UpdatedAt = row.CreatedAt, row.UpdatedAt
+			continue
+		}
+
 		row, err := q.WeaveCreateOverride(ctx, toCreateParams(o))
 		if err != nil {
 			return fmt.Errorf("create override %d: %w", i, err)
 		}
-		o.ID = row.ID
-		o.CreatedAt = row.CreatedAt
-		o.UpdatedAt = row.UpdatedAt
+		o.ID, o.CreatedAt, o.UpdatedAt = row.ID, row.CreatedAt, row.UpdatedAt
 	}
 
 	if err := tx.Commit(ctx); err != nil {

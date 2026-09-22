@@ -14,11 +14,10 @@ import (
 // "replaced N rows" event.
 //
 // Identity is keyed on the bigserial ID. Existing rows arrive with
-// non-zero IDs (assigned by Store.Create on first insert and preserved
-// through subsequent edits via ReplaceForEntity which does
-// delete-then-insert; that strategy means Diff is computed BEFORE the
-// replace and IDs in the desired slice come from the client's last
-// known view of the row).
+// non-zero IDs (assigned by Store.Create on first insert and kept by
+// ReplaceForEntity, which updates matched rows in place). Diff is computed
+// BEFORE the replace, and IDs in the desired slice come from the client's
+// last known view of the row.
 //
 // Rows with ID==0 in the desired slice are treated as Added — these
 // are new draft rows the user just created (e.g., dropped a field via
@@ -77,8 +76,8 @@ func ComputeDiff(existing, desired []domain.FieldOverride) Diff {
 		o, ok := oldByID[n.ID]
 		if !ok {
 			// Caller sent an ID that doesn't exist in the existing set.
-			// Treat as Added — the eventual ReplaceForEntity wipes and
-			// reinserts, so the stale ID is harmless.
+			// Treat as Added — ReplaceForEntity ignores ids it does not
+			// know, so the stale ID is harmless.
 			diff.Added = append(diff.Added, n)
 			continue
 		}
