@@ -19,7 +19,11 @@ import (
 // per-entity lock. Set as a session GUC on the lock's own connection before
 // taking the lock, so a caller with a background ctx (ops tooling, MCP, a
 // future API writer) cannot queue forever behind someone else's save.
-const lockTimeout = 10 * time.Second
+//
+// A var, not a const, solely so an integration test can shorten it to
+// exercise a real lock-busy wait in well under 10 seconds — see
+// lock_busy_integration_test.go. Production code never assigns to it.
+var lockTimeout = 10 * time.Second //nolint:gochecknoglobals // test-only override hook, see comment above
 
 // unlockGraceTimeout bounds the deferred pg_advisory_unlock call. It
 // deliberately does not inherit the caller's ctx cancellation (see

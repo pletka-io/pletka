@@ -114,9 +114,23 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 	// failed to tear down cleanly must not be reported as a save failure
 	// — the overrides, placements, refs and adoptions are already
 	// committed at that point.
+	//
+	// callbackRan additionally distinguishes "the callback ran and
+	// returned nil" from "the callback never ran at all": WithAdvisoryLock
+	// has three failure paths before it ever calls the callback (the pool
+	// acquire for the lock's own connection, setting lock_timeout on it,
+	// and a lock-acquisition error that isn't SQLSTATE 55P03) — none of
+	// them are ErrLockBusy, and none of them touch callbackErr, which
+	// would otherwise stay at its nil zero value and be misread as "ran
+	// and succeeded". Without this flag that misread reports 200 with an
+	// empty fingerprint for a save that wrote nothing — and the empty
+	// fingerprint then makes the client's NEXT save skip the staleness
+	// check entirely (round 1 fix round 2, finding 1).
 	var newFingerprint string
 	var callbackErr error
+	var callbackRan bool
 	lockErr := h.overrides.WithEntityLock(ctx, entityType, entityID, func(ctx context.Context) error {
+		callbackRan = true
 		callbackErr = func() error {
 			if req.Fingerprint != "" {
 				current, err := h.overrides.EntityFingerprint(ctx, entityType, entityID)
@@ -201,15 +215,12 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 		return callbackErr
 	})
 
-	if callbackErr != nil {
-		// The callback itself failed: classify and respond exactly as
-		// before. lockErr still carries callbackErr (possibly joined with
-		// a teardown failure on top) — writeOverrideError logs that extra
-		// half instead of silently dropping it.
-		h.writeOverrideError(w, entityType, entityID, lockErr)
-		return
-	}
-	if lockErr != nil {
+	if !callbackRan {
+		// The callback never ran at all — nothing was written. Distinct
+		// from "lock busy" (someone else holds it, a normal, expected
+		// 409) vs. any other acquisition failure (pool exhaustion, a
+		// lock_timeout setup failure, a connection error): both must be
+		// reported as a failed save, never as success.
 		if errors.Is(lockErr, overridepkg.ErrLockBusy) {
 			h.log.Warn("override save: lock busy", "entity_type", entityType, "entity_id", entityID, "err", lockErr)
 			apierror.Write(w, &apierror.Error{
@@ -220,11 +231,24 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 			})
 			return
 		}
-		// The callback committed everything successfully; only the lock's
-		// own teardown afterwards (RESET lock_timeout or the unlock)
-		// failed. That is an operational problem with the connection, not
-		// a save failure — proceed to the 200 the client earned, and let
-		// an operator correlate any connection churn from this log.
+		h.writeOverrideError(w, entityType, entityID, lockErr)
+		return
+	}
+	if callbackErr != nil {
+		// The callback ran and failed: classify and respond exactly as
+		// before. lockErr still carries callbackErr (possibly joined with
+		// a teardown failure on top) — writeOverrideError logs that extra
+		// half instead of silently dropping it.
+		h.writeOverrideError(w, entityType, entityID, lockErr)
+		return
+	}
+	if lockErr != nil {
+		// The callback ran and committed everything successfully; only
+		// the lock's own teardown afterwards (RESET lock_timeout or the
+		// unlock) failed. That is an operational problem with the
+		// connection, not a save failure — proceed to the 200 the client
+		// earned, and let an operator correlate any connection churn from
+		// this log.
 		h.log.Warn("override save: lock teardown failed after a successful save",
 			"entity_type", entityType, "entity_id", entityID, "err", lockErr)
 	}
