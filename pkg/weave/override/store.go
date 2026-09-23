@@ -16,6 +16,7 @@ package override
 
 import (
 	"context"
+	"errors"
 
 	"github.com/pletka-io/pletka/pkg/domain"
 )
@@ -124,6 +125,21 @@ type Store interface {
 	// WithAdvisoryLock runs fn while holding a session-level Postgres
 	// advisory lock on key, so two saves of the same entity queue instead
 	// of racing. The lock lives on its own pooled connection (not inside a
-	// transaction) because a save spans several service calls.
+	// transaction) because a save spans several service calls. The wait to
+	// acquire the lock is bounded; a caller that times out gets ErrLockBusy.
+	// An implementation that cannot serialise callers must return an error,
+	// never a silent no-op.
+	//
+	// The lock is NOT re-entrant: a call must never be nested inside
+	// another call for the same key (directly, or by the callback reaching
+	// code that locks the same entity again) — the nested call acquires a
+	// different session and queues behind the lock its own goroutine holds,
+	// deadlocking forever while pinning two pooled connections.
 	WithAdvisoryLock(ctx context.Context, key string, fn func(context.Context) error) error
 }
+
+// ErrLockBusy is returned by WithAdvisoryLock (and its Service wrapper,
+// WithEntityLock) when the per-entity lock could not be acquired within its
+// bounded wait — someone else is already saving this entity. Callers use
+// errors.Is(err, ErrLockBusy). Task 3 maps this to a 409.
+var ErrLockBusy = errors.New("override: entity is locked by another save")

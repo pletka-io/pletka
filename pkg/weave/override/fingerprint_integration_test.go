@@ -4,10 +4,10 @@ package override
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/internal/testdb"
@@ -128,12 +128,10 @@ func TestWithEntityLockSerialises(t *testing.T) {
 	svc := NewService(store, nil, nil)
 	ctx := context.Background()
 
-	var wg sync.WaitGroup
-	wg.Add(1)
+	holderErr := make(chan error, 1)
 	started := make(chan struct{})
 	go func() {
-		defer wg.Done()
-		_ = svc.WithEntityLock(ctx, "model", "TSTFPLOCK.1", func(ctx context.Context) error {
+		holderErr <- svc.WithEntityLock(ctx, "model", "TSTFPLOCK.1", func(ctx context.Context) error {
 			close(started)
 			time.Sleep(300 * time.Millisecond)
 			return nil
@@ -146,12 +144,64 @@ func TestWithEntityLockSerialises(t *testing.T) {
 		return nil
 	})
 	waited := time.Since(waitStart)
-	wg.Wait()
 
 	if err != nil {
-		t.Fatalf("WithEntityLock: %v", err)
+		t.Fatalf("WithEntityLock (waiter): %v", err)
+	}
+	if hErr := <-holderErr; hErr != nil {
+		t.Fatalf("WithEntityLock (holder): %v", hErr)
 	}
 	if waited < 200*time.Millisecond {
 		t.Fatalf("expected to wait at least 200ms for the held lock, waited %s", waited)
+	}
+}
+
+// TestWithAdvisoryLockReleasesOnCancelledContext proves the fix for the
+// leaked session-level lock: when the caller's ctx is already done by the
+// time WithAdvisoryLock's deferred unlock runs, the unlock must still reach
+// Postgres (on a context that ignores that cancellation) instead of being
+// silently skipped and leaving the lock held by the connection sitting back
+// in the pool. RED before the fix: pg_try_advisory_lock below returns false
+// because the "unlock" never touched the wire.
+//
+// Verification deliberately opens its own connection OUTSIDE the pool
+// (pgx.Connect, not pool.Acquire): pg_advisory_lock is re-entrant within one
+// session, so if verification happened to reuse the very pooled connection
+// that held the lock, pg_try_advisory_lock would trivially "succeed" against
+// its own still-held lock and mask the leak instead of detecting it.
+func TestWithAdvisoryLockReleasesOnCancelledContext(t *testing.T) {
+	pool := testdb.Pool(t)
+	store := NewPostgresStore(pool)
+
+	const key = "model:TSTFPCANCEL.1"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	err := store.WithAdvisoryLock(ctx, key, func(cbCtx context.Context) error {
+		// Cancel the ctx WithAdvisoryLock was called with before its
+		// deferred unlock runs, so that unlock sees an already-done ctx —
+		// the exact scenario a curator closing a tab mid-save produces.
+		cancel()
+		return cbCtx.Err()
+	})
+	if err == nil {
+		t.Fatal("expected the callback's ctx.Err() to propagate")
+	}
+
+	verifyCtx := context.Background()
+	rawConn, connErr := pgx.Connect(verifyCtx, pool.Config().ConnString())
+	if connErr != nil {
+		t.Fatalf("open dedicated verification conn: %v", connErr)
+	}
+	defer rawConn.Close(verifyCtx) //nolint:errcheck
+
+	var acquired bool
+	if scanErr := rawConn.QueryRow(verifyCtx, `SELECT pg_try_advisory_lock(hashtext($1))`, key).Scan(&acquired); scanErr != nil {
+		t.Fatalf("try lock: %v", scanErr)
+	}
+	if acquired {
+		_, _ = rawConn.Exec(verifyCtx, `SELECT pg_advisory_unlock(hashtext($1))`, key)
+	}
+	if !acquired {
+		t.Fatal("advisory lock still held after WithAdvisoryLock returned on a cancelled ctx — it leaked back into the pool")
 	}
 }

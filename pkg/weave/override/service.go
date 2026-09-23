@@ -405,7 +405,7 @@ func (s *Service) EntityFingerprint(ctx context.Context, entityType, entityID st
 	}
 	refs, err := s.store.RefsForOverrides(ctx, ids)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("load refs: %w", err)
 	}
 	var placements []domain.CollectionPlacement
 	if entityType == "model" {
@@ -421,6 +421,11 @@ func (s *Service) EntityFingerprint(ctx context.Context, entityType, entityID st
 // session-level Postgres advisory lock, so two saves of the same model or
 // collection queue instead of racing. A save spans several service calls,
 // not one transaction, which is why this isn't a plain DB transaction lock.
+// The wait to acquire the lock is bounded; a caller that could not acquire
+// it in time gets ErrLockBusy back — "someone else is already saving this
+// entity", not a real failure. Not re-entrant: a call must not be nested
+// inside another call (directly, or via the callback) for the same
+// (entityType, entityID) — it would deadlock against its own goroutine.
 func (s *Service) WithEntityLock(ctx context.Context, entityType, entityID string, fn func(context.Context) error) error {
 	return s.store.WithAdvisoryLock(ctx, entityType+":"+entityID, fn)
 }
