@@ -3,6 +3,7 @@
     AdoptCollectionResponse,
     OverrideCategoryOption,
     OverrideEditorItem,
+    OverrideEditorPresence,
     OverridePathSuggestion,
     OverridePathSuggestionsResponse,
     OverrideSearchResponse,
@@ -13,6 +14,7 @@
   import { tr, type OriginInfo } from '$lib/types/weave-types';
   import { getUILang } from '$lib/utils/locale';
   import { pathElementsToDisplay } from '$lib/utils/ontology-path';
+  import { onDestroy, onMount } from 'svelte';
   import {
     collectionIDForGroup,
     groupWidgetForCollectionState,
@@ -64,6 +66,17 @@
   let suggestionRequestId = 0;
   let saving = $state(false);
   let saveError = $state<string | null>(null);
+  // saveConflictKind mirrors the two distinct 409s the save endpoint can
+  // return (see override_write.go): a real conflict (someone else's save
+  // already landed) vs. a transient lock contention (someone else is
+  // mid-save right now). Different copy, different actions — branch on
+  // this, never on HTTP status alone.
+  let saveConflictKind = $state<'pattern_changed' | 'save_in_progress' | null>(null);
+  // dismissedStaleDraft hides the stale-draft banner once the curator
+  // has explicitly chosen "Keep mine" for it. Never implies the draft
+  // stopped being stale — editorState.staleDraft is untouched.
+  let dismissedStaleDraft = $state(false);
+  let othersEditing = $state<OverrideEditorPresence[]>([]);
   let viewMode = $state<'compact' | 'detailed'>('compact');
   let expandedCategories = $state<Set<string>>(new Set());
   let collapsedItems = $state<Set<string>>(new Set());
@@ -144,6 +157,147 @@
     }, 250);
     return () => window.clearTimeout(timeout);
   });
+
+  // --- Presence heartbeat -------------------------------------------------
+  // A notice only — never a lock. Beats every 20s while the editor is in
+  // edit mode, plus once as soon as the payload loads, and tells the
+  // server it left on unmount/pagehide. presenceSessionId is per-tab so a
+  // curator with two tabs open counts as one editor with two sessions,
+  // never two editors (see override.Presence).
+  let presenceSessionId = '';
+  let presenceTimer: ReturnType<typeof setInterval> | null = null;
+  // presenceArmed is a plain (non-reactive) flag, not $state: it only
+  // guards the one-time "fire the first beat" effect below against
+  // re-running (the effect reads editorState.response, which is
+  // reassigned on every edit) and against ever sending a "left" beacon
+  // for a viewer who never actually beat "editing" in the first place.
+  let presenceArmed = false;
+
+  function newPresenceSessionId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  function presenceUrl(): string | null {
+    return editorState.response?.available.presence_url ?? null;
+  }
+
+  async function beatPresence() {
+    const url = presenceUrl();
+    if (!url || !canEditOverrides()) return;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: 'editing', session_id: presenceSessionId }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { editors?: OverrideEditorPresence[] };
+      othersEditing = data.editors ?? [];
+    } catch {
+      // Best-effort — a missed heartbeat only makes the presence line
+      // stale, never the draft.
+    }
+  }
+
+  function sendLeaveBeacon() {
+    const url = presenceUrl();
+    if (!url) return;
+    const body = JSON.stringify({ state: 'left', session_id: presenceSessionId });
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+      return;
+    }
+    void fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    }).catch(() => {});
+  }
+
+  function handlePageHide() {
+    if (presenceArmed) sendLeaveBeacon();
+  }
+
+  onMount(() => {
+    presenceSessionId = newPresenceSessionId();
+    presenceTimer = setInterval(() => { void beatPresence(); }, 20000);
+    window.addEventListener('pagehide', handlePageHide);
+  });
+
+  onDestroy(() => {
+    if (presenceTimer !== null) clearInterval(presenceTimer);
+    window.removeEventListener('pagehide', handlePageHide);
+    if (presenceArmed) sendLeaveBeacon();
+  });
+
+  // Fire the first heartbeat the moment the payload (and its
+  // presence_url) is ready, rather than waiting up to 20s for the first
+  // interval tick. Never rearms once presenceArmed flips true, and never
+  // returns a cleanup, so the later reruns this effect gets from every
+  // edit (it reads editorState.response) are harmless no-ops.
+  $effect(() => {
+    if (presenceArmed) return;
+    if (!editorState.response || !canEditOverrides()) return;
+    presenceArmed = true;
+    void beatPresence();
+  });
+
+  function presenceTimeLabel(since: string): string {
+    return new Date(since).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function presenceLineText(): string {
+    if (othersEditing.length === 0) return '';
+    if (othersEditing.length === 1) {
+      const editor = othersEditing[0];
+      return `${editor.name} is also editing this pattern (since ${presenceTimeLabel(editor.since)})`;
+    }
+    return `${othersEditing.map((editor) => editor.name).join(', ')} are also editing this pattern`;
+  }
+
+  // --- Conflict bar --------------------------------------------------------
+  // Two independent triggers can show this bar: a 409 on save (pattern
+  // changed, or someone else's save is in progress right now) and a
+  // restored draft whose stored fingerprint no longer matches what was
+  // live at load time. Never merges, never auto-overwrites — "Load their
+  // version" is the only action that discards the draft.
+  function conflictBannerVisible(): boolean {
+    return saveConflictKind !== null || (editorState.staleDraft && !dismissedStaleDraft);
+  }
+
+  function conflictBannerText(): string {
+    if (saveConflictKind === 'save_in_progress') {
+      return 'Someone else is saving this pattern right now. Try again in a moment.';
+    }
+    if (saveConflictKind === 'pattern_changed') {
+      return 'Someone saved this pattern while you were editing.';
+    }
+    return 'Your unsaved draft is based on an older version of this pattern.';
+  }
+
+  // save_in_progress is transient and offers no choice: nothing has
+  // changed yet, the draft is untouched, and retrying shortly will work.
+  function conflictBannerHasActions(): boolean {
+    return saveConflictKind !== 'save_in_progress';
+  }
+
+  function loadTheirVersion() {
+    saveConflictKind = null;
+    dismissedStaleDraft = false;
+    editorState.discardDraft();
+  }
+
+  function keepMine() {
+    if (saveConflictKind === 'pattern_changed') {
+      saveConflictKind = null;
+      return;
+    }
+    dismissedStaleDraft = true;
+  }
 
   function activeCategoryName(): string {
     if (!editorState.response) return '';
@@ -704,6 +858,7 @@
     if (!payload) return;
     saving = true;
     saveError = null;
+    saveConflictKind = null;
     try {
       const res = await fetch(saveUrl, {
         method: 'PUT',
@@ -712,13 +867,29 @@
         },
         body: JSON.stringify({
           commit_message: 'Update overrides',
+          fingerprint: editorState.fingerprint ?? '',
           ...payload,
         }),
       });
+      const body = await res.json().catch(() => null);
       if (!res.ok) {
-        const body = await res.json().catch(() => null);
+        // The two 409s are different situations: branch on the `message`
+        // field (apierror.Error.Details), never on the status code alone.
+        if (res.status === 409 && body?.code === 'conflict' && body?.message === 'save_in_progress') {
+          saveConflictKind = 'save_in_progress';
+          return;
+        }
+        if (res.status === 409 && body?.code === 'conflict' && body?.message === 'pattern_changed') {
+          saveConflictKind = 'pattern_changed';
+          return;
+        }
         throw new Error(body?.error || `Save failed: ${res.status}`);
       }
+      // Only a 2xx response carries a real fingerprint — adopt it as the
+      // new baseline (in state, then in the draft via markSaved clearing
+      // it) before anything else can trigger another save.
+      editorState.fingerprint = body?.fingerprint ?? editorState.fingerprint;
+      dismissedStaleDraft = false;
       editorState.markSaved();
       await onsuccess?.();
     } catch (err) {
@@ -745,6 +916,36 @@
   </div>
 {:else if editorState.response}
   <div class="space-y-6 rounded-xl border border-blue-200 bg-blue-50/30 p-4 md:p-6">
+    {#if conflictBannerVisible()}
+      <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-4">
+        <div class="text-sm text-amber-800">{conflictBannerText()}</div>
+        {#if conflictBannerHasActions()}
+          <div class="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-amber-300 bg-white text-amber-800 hover:bg-amber-100"
+              onclick={loadTheirVersion}
+            >
+              Load their version
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
+              onclick={keepMine}
+            >
+              Keep mine
+            </button>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    {#if othersEditing.length > 0}
+      <div class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        {presenceLineText()}
+      </div>
+    {/if}
+
     <div class="flex items-center justify-between">
       <div>
         <div class="flex items-center gap-2">

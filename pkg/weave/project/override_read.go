@@ -57,6 +57,10 @@ type overrideEditorAvailable struct {
 	AdoptCollectionURL              string `json:"adopt_collection_url,omitempty"`
 	FieldSidebarSchemaURL           string `json:"field_sidebar_schema_url,omitempty"`
 	CollectionGroupSidebarSchemaURL string `json:"collection_group_sidebar_schema_url,omitempty"`
+	// PresenceURL is the heartbeat endpoint the editor posts to while
+	// open (see project.Handler.overridesPresence). The frontend never
+	// builds this URL itself.
+	PresenceURL string `json:"presence_url"`
 }
 
 type overrideEditorCapabilities struct {
@@ -186,6 +190,7 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 			AdoptCollectionURL:              fmt.Sprintf("/projects/%s/models/%s/composition/adopt-collection", projectID, modelID),
 			FieldSidebarSchemaURL:           fmt.Sprintf("/projects/%s/composition/sidebar-schema/field", projectID),
 			CollectionGroupSidebarSchemaURL: fmt.Sprintf("/projects/%s/composition/sidebar-schema/collection-group", projectID),
+			PresenceURL:                     fmt.Sprintf("/projects/%s/models/%s/overrides/presence", projectID, modelID),
 		},
 		Capabilities: h.overrideCapabilities(ctx, project, model.ProjectID == projectID, true),
 		Fingerprint:  fingerprint,
@@ -303,6 +308,7 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 			PathSuggestionsURL:              fmt.Sprintf("/api/v1/projects/%s/path-suggestions", projectID),
 			FieldSidebarSchemaURL:           fmt.Sprintf("/projects/%s/composition/sidebar-schema/field", projectID),
 			CollectionGroupSidebarSchemaURL: fmt.Sprintf("/projects/%s/composition/sidebar-schema/collection-group", projectID),
+			PresenceURL:                     fmt.Sprintf("/projects/%s/collections/%s/overrides/presence", projectID, collectionID),
 		},
 		Capabilities: h.overrideCapabilities(ctx, project, collection.ProjectID == projectID, false),
 		Fingerprint:  fingerprint,

@@ -39,6 +39,19 @@ export class OverrideEditorState {
   searchMode: OverrideSearchMode = $state('text');
   dirty = $state(false);
   restoredDraft = $state(false);
+  // fingerprint is the content hash this editor's in-memory state is
+  // known to match — the baseline the next save round-trips back to the
+  // server. Starts from the load payload; a restored draft overrides it
+  // with the draft's OWN stored fingerprint (the version it actually
+  // diverged from), never the freshly-loaded live one — substituting the
+  // live fingerprint here would make a genuinely stale draft's save look
+  // clean and silently overwrite newer work.
+  fingerprint: string | null = $state(null);
+  // staleDraft is true when a restored draft's stored fingerprint is
+  // missing or no longer matches what was live at load time — someone
+  // else saved between when this draft was captured and now. The draft
+  // is still restored either way; this only flags it.
+  staleDraft = $state(false);
 
   constructor(public readonly url: string) {}
 
@@ -71,9 +84,16 @@ export class OverrideEditorState {
       // duplicates from a pre-guard editor session; without this, the
       // page crashes with each_key_duplicate before the curator can hit
       // "Discard draft".
-      this.response = this.dedupe(draft ?? live);
+      this.response = this.dedupe(draft?.response ?? live);
       this.dirty = draft !== null;
       this.restoredDraft = draft !== null;
+      if (draft) {
+        this.fingerprint = draft.fingerprint;
+        this.staleDraft = !draft.fingerprint || draft.fingerprint !== live.fingerprint;
+      } else {
+        this.fingerprint = live.fingerprint;
+        this.staleDraft = false;
+      }
     } catch (err) {
       this.error = err instanceof Error ? err.message : String(err);
     } finally {
@@ -578,6 +598,7 @@ export class OverrideEditorState {
     this.clearDraft();
     this.dirty = false;
     this.restoredDraft = false;
+    this.staleDraft = false;
     void this.init();
   }
 
@@ -585,6 +606,7 @@ export class OverrideEditorState {
     this.clearDraft();
     this.dirty = false;
     this.restoredDraft = false;
+    this.staleDraft = false;
   }
 
   serializePayload(): { categories: OverrideEditorResponse['categories'] } | null {
@@ -730,12 +752,14 @@ export class OverrideEditorState {
     return { ...response, categories };
   }
 
-  private loadDraft(response: OverrideEditorResponse): OverrideEditorResponse | null {
+  private loadDraft(
+    response: OverrideEditorResponse,
+  ): { response: OverrideEditorResponse; fingerprint: string | null } | null {
     if (typeof window === 'undefined') return null;
     try {
       const raw = window.localStorage.getItem(this.draftKey(response));
       if (!raw) return null;
-      const parsed = JSON.parse(raw) as { response?: OverrideEditorResponse };
+      const parsed = JSON.parse(raw) as { response?: OverrideEditorResponse; fingerprint?: string };
       if (!parsed.response) return null;
       if (
         parsed.response.project_id !== response.project_id ||
@@ -744,7 +768,7 @@ export class OverrideEditorState {
       ) {
         return null;
       }
-      return parsed.response;
+      return { response: parsed.response, fingerprint: parsed.fingerprint ?? null };
     } catch {
       return null;
     }
@@ -758,6 +782,7 @@ export class OverrideEditorState {
         JSON.stringify({
           saved_at: new Date().toISOString(),
           response,
+          fingerprint: this.fingerprint,
         }),
       );
     } catch {

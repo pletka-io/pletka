@@ -11,6 +11,10 @@ export interface OverrideEditorResponse {
   available_categories: OverrideEditorCategoryRef[];
   available: OverrideEditorAvailable;
   capabilities: OverrideEditorCapabilities;
+  /** Content hash of the pattern as loaded — round-tripped on save so a
+   *  stale save can be refused with a 409 instead of silently overwriting
+   *  newer work. See override.Service.EntityFingerprint. */
+  fingerprint: string;
 }
 
 export interface OverrideEditorCategoryRef {
@@ -33,6 +37,15 @@ export interface OverrideEditorAvailable {
   adopt_collection_url?: string;
   field_sidebar_schema_url?: string;
   collection_group_sidebar_schema_url?: string;
+  /** Heartbeat endpoint for "who else is editing this pattern". */
+  presence_url: string;
+}
+
+/** One other actor currently editing this pattern (see PresenceResponse). */
+export interface OverrideEditorPresence {
+  actor_id: string;
+  name: string;
+  since: string;
 }
 
 export interface OverrideEditorCapabilities {
