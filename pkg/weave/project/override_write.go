@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,12 +11,18 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 	overridepkg "github.com/pletka-io/pletka/pkg/weave/override"
 )
 
 type overrideSaveRequest struct {
 	CommitMessage string                   `json:"commit_message"`
 	Categories    []overrideEditorCategory `json:"categories"`
+	// Fingerprint is the content hash the editor loaded its draft from
+	// (see overrideEditorResponse.Fingerprint). Empty skips the staleness
+	// check entirely — ops tooling, git restore, and forks all save
+	// without ever having loaded an editor payload.
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 type overrideSaveResponse struct {
@@ -24,6 +31,10 @@ type overrideSaveResponse struct {
 	EntityID   string                   `json:"entity_id"`
 	ProjectID  string                   `json:"project_id"`
 	Categories []overrideEditorCategory `json:"categories"`
+	// Fingerprint is the entity's new content hash after this save —
+	// the caller's next save round-trips it back to detect the next
+	// conflict.
+	Fingerprint string `json:"fingerprint"`
 }
 
 type overrideDraftRow struct {
@@ -86,52 +97,89 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 		desired[i] = draftRows[i].override
 	}
 
-	// Collection placements: model-scoped only. Validate
-	// and diff BEFORE the override save so an invalid payload rejects the
-	// whole request.
-	var placementUpserts []domain.CollectionPlacement
-	var placementDeletes []placementKey
-	if entityType == "model" {
-		existing, err := h.overrides.ListPlacements(ctx, entityID)
-		if err != nil {
-			h.writeOverrideError(w, err)
-			return
+	// Everything from the fingerprint check through the last SetRefs runs
+	// under the entity's advisory lock, so two saves of the same pattern
+	// queue instead of racing. Ownership/edit checks already happened
+	// above the lock — WithEntityLock and EntityFingerprint perform no
+	// permission check of their own by design.
+	var newFingerprint string
+	lockErr := h.overrides.WithEntityLock(ctx, entityType, entityID, func(ctx context.Context) error {
+		if req.Fingerprint != "" {
+			current, err := h.overrides.EntityFingerprint(ctx, entityType, entityID)
+			if err != nil {
+				return err
+			}
+			if current != req.Fingerprint {
+				return &apierror.Error{
+					Status:  http.StatusConflict,
+					Code:    apierror.CodeConflict,
+					Message: "Someone saved this pattern while you were editing.",
+					Details: "pattern_changed",
+				}
+			}
 		}
-		placementUpserts, placementDeletes, err = reconcilePlacements(existing, req.Categories, projectID, entityID)
-		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, err.Error())
-			return
-		}
-	}
 
-	saved, _, err := h.overrides.SaveForEntity(ctx, projectID, entityType, entityID, desired, req.CommitMessage)
-	if err != nil {
-		h.writeOverrideError(w, err)
+		// Collection placements: model-scoped only. Validate
+		// and diff BEFORE the override save so an invalid payload rejects the
+		// whole request.
+		var placementUpserts []domain.CollectionPlacement
+		var placementDeletes []placementKey
+		if entityType == "model" {
+			existing, err := h.overrides.ListPlacements(ctx, entityID)
+			if err != nil {
+				return err
+			}
+			placementUpserts, placementDeletes, err = reconcilePlacements(existing, req.Categories, projectID, entityID)
+			if err != nil {
+				return &apierror.Error{Status: http.StatusUnprocessableEntity, Message: err.Error()}
+			}
+		}
+
+		saved, _, err := h.overrides.SaveForEntity(ctx, projectID, entityType, entityID, desired, req.CommitMessage)
+		if err != nil {
+			return err
+		}
+
+		for i := range placementUpserts {
+			if err := h.overrides.UpsertPlacement(ctx, &placementUpserts[i]); err != nil {
+				return err
+			}
+		}
+		for _, key := range placementDeletes {
+			if err := h.overrides.DeletePlacement(ctx, entityID, key.CategoryID, key.CollectionID); err != nil {
+				return err
+			}
+		}
+
+		// Always call SetRefs — including with an empty slice — so that clearing
+		// every expected-ref in the drawer actually deletes the existing refs.
+		// The previous "skip when len == 0" path silently left stale refs alive
+		// when a curator removed the last expected resource/collection model.
+		for i := range saved {
+			if err := h.overrides.SetRefs(ctx, projectID, saved[i].ID, draftRows[i].refs); err != nil {
+				return err
+			}
+		}
+
+		fp, err := h.overrides.EntityFingerprint(ctx, entityType, entityID)
+		if err != nil {
+			return err
+		}
+		newFingerprint = fp
+		return nil
+	})
+	if lockErr != nil {
+		if errors.Is(lockErr, overridepkg.ErrLockBusy) {
+			apierror.Write(w, &apierror.Error{
+				Status:  http.StatusConflict,
+				Code:    apierror.CodeConflict,
+				Message: "Someone else is saving this pattern right now. Try again in a moment.",
+				Details: "save_in_progress",
+			})
+			return
+		}
+		h.writeOverrideError(w, lockErr)
 		return
-	}
-
-	for i := range placementUpserts {
-		if err := h.overrides.UpsertPlacement(ctx, &placementUpserts[i]); err != nil {
-			h.writeOverrideError(w, err)
-			return
-		}
-	}
-	for _, key := range placementDeletes {
-		if err := h.overrides.DeletePlacement(ctx, entityID, key.CategoryID, key.CollectionID); err != nil {
-			h.writeOverrideError(w, err)
-			return
-		}
-	}
-
-	// Always call SetRefs — including with an empty slice — so that clearing
-	// every expected-ref in the drawer actually deletes the existing refs.
-	// The previous "skip when len == 0" path silently left stale refs alive
-	// when a curator removed the last expected resource/collection model.
-	for i := range saved {
-		if err := h.overrides.SetRefs(ctx, projectID, saved[i].ID, draftRows[i].refs); err != nil {
-			h.writeOverrideError(w, err)
-			return
-		}
 	}
 
 	var createdByID *string
@@ -152,11 +200,12 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 	}
 
 	writeJSON(w, http.StatusOK, overrideSaveResponse{
-		Success:    true,
-		EntityType: entityType,
-		EntityID:   entityID,
-		ProjectID:  projectID,
-		Categories: req.Categories,
+		Success:     true,
+		EntityType:  entityType,
+		EntityID:    entityID,
+		ProjectID:   projectID,
+		Categories:  req.Categories,
+		Fingerprint: newFingerprint,
 	})
 }
 
@@ -231,6 +280,11 @@ func buildOverrideRefs(field overrideEditorField) []domain.OverrideRef {
 }
 
 func (h *Handler) writeOverrideError(w http.ResponseWriter, err error) {
+	var apiErr *apierror.Error
+	if errors.As(err, &apiErr) {
+		apierror.Write(w, apiErr)
+		return
+	}
 	var forbiddenErr *overridepkg.ErrForbidden
 	if errors.As(err, &forbiddenErr) {
 		writeError(w, http.StatusForbidden, forbiddenErr.Error())

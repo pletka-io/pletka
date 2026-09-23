@@ -27,6 +27,11 @@ type overrideEditorResponse struct {
 	AvailableCategories []overrideEditorCategoryRef `json:"available_categories"`
 	Available           overrideEditorAvailable     `json:"available"`
 	Capabilities        overrideEditorCapabilities  `json:"capabilities"`
+	// Fingerprint is the content hash of the entity's pattern as loaded
+	// (see override.Service.EntityFingerprint). The editor carries it
+	// with its draft and round-trips it on save so a stale save can be
+	// refused with a 409 instead of silently overwriting newer work.
+	Fingerprint string `json:"fingerprint"`
 }
 
 // overrideEditorCategoryRef is the lightweight category descriptor used
@@ -149,6 +154,13 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 	catSemIDs, collSemIDs := h.semIDMaps(ctx, projectID)
 	availableCats := h.availableCategories(ctx, projectID)
 
+	fingerprint, err := h.overrides.EntityFingerprint(ctx, "model", modelID)
+	if err != nil {
+		h.log.Error("compute model override fingerprint", "project_id", projectID, "model_id", modelID, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
+		return
+	}
+
 	resp := overrideEditorResponse{
 		EntityType:          "model",
 		EntityID:            modelID,
@@ -165,6 +177,7 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 			CollectionGroupSidebarSchemaURL: fmt.Sprintf("/projects/%s/composition/sidebar-schema/collection-group", projectID),
 		},
 		Capabilities: h.overrideCapabilities(ctx, project, model.ProjectID == projectID, true),
+		Fingerprint:  fingerprint,
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -255,6 +268,13 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fingerprint, err := h.overrides.EntityFingerprint(ctx, "collection", collectionID)
+	if err != nil {
+		h.log.Error("compute collection override fingerprint", "project_id", projectID, "collection_id", collectionID, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
+		return
+	}
+
 	resp := overrideEditorResponse{
 		EntityType:          "collection",
 		EntityID:            collectionID,
@@ -270,6 +290,7 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 			CollectionGroupSidebarSchemaURL: fmt.Sprintf("/projects/%s/composition/sidebar-schema/collection-group", projectID),
 		},
 		Capabilities: h.overrideCapabilities(ctx, project, collection.ProjectID == projectID, false),
+		Fingerprint:  fingerprint,
 	}
 
 	writeJSON(w, http.StatusOK, resp)
