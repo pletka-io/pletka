@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -43,24 +44,39 @@ func rowLine(r domain.FieldOverride, refs []domain.OverrideRef) string {
 	})
 	refParts := make([]string, 0, len(refCopy))
 	for _, ref := range refCopy {
-		refParts = append(refParts, fmt.Sprintf("%s=%s@%d", ref.RefType, ref.TargetID, ref.Position))
+		refParts = append(refParts, joinFields(ref.RefType, ref.TargetID, fmt.Sprint(ref.Position)))
 	}
-	return strings.Join([]string{
-		r.FieldID, r.CategoryID, r.PartOfCollectionID,
+	// The leading segments are category, collection, field, position, so
+	// sorting the rendered lines sorts rows in the order the design fixes.
+	return joinFields(
+		r.CategoryID, r.PartOfCollectionID, r.FieldID,
 		fmt.Sprint(r.Position), fmt.Sprint(r.CollectionOrder),
 		translationsKey(r.DisplayName), translationsKey(r.Description), translationsKey(r.CollectionName),
 		r.SetValue,
 		fmt.Sprint(r.IsRequired), fmt.Sprint(r.MinOccurs), maxKey(r.MaxOccurs),
 		fmt.Sprint(r.IsHidden), r.Visibility,
-		strings.Join(refParts, ","),
-	}, "|")
+		joinFields(refParts...),
+	)
 }
 
 func placementLine(p domain.CollectionPlacement) string {
-	return strings.Join([]string{
+	return joinFields(
 		p.CategoryID, p.CollectionID,
 		fmt.Sprint(p.IsRequired), fmt.Sprint(p.MinOccurs), maxKey(p.MaxOccurs), fmt.Sprint(p.IsHidden),
-	}, "|")
+	)
+}
+
+// joinFields renders parts as one unambiguous line. Every part is quoted
+// first, so a separator, a quote or a newline inside an id, a set value or a
+// translation cannot fake a field or row boundary: without quoting, a row
+// whose collection id is "a|b" hashes the same as one whose category id ends
+// in "|a" and whose collection id is "b".
+func joinFields(parts ...string) string {
+	quoted := make([]string, 0, len(parts))
+	for _, p := range parts {
+		quoted = append(quoted, strconv.Quote(p))
+	}
+	return strings.Join(quoted, "|")
 }
 
 // translationsKey renders a Translations map deterministically (Go's JSON

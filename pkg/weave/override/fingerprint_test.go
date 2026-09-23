@@ -22,24 +22,82 @@ func TestFingerprintIgnoresIDsAndOrder(t *testing.T) {
 }
 
 func TestFingerprintChangesWithContent(t *testing.T) {
-	base := []domain.FieldOverride{fpRow(1, "F1", "C", "", 1)}
-	want := Fingerprint(base, nil, nil)
-
-	renamed := []domain.FieldOverride{fpRow(1, "F1", "C", "", 1)}
-	renamed[0].DisplayName = domain.Translations{"en": "other"}
-	moved := []domain.FieldOverride{fpRow(1, "F1", "OTHER", "", 1)}
-	repositioned := []domain.FieldOverride{fpRow(1, "F1", "C", "", 7)}
-	required := []domain.FieldOverride{fpRow(1, "F1", "C", "", 1)}
-	required[0].IsRequired = true
+	want := Fingerprint([]domain.FieldOverride{fpRow(1, "F1", "C", "", 1)}, nil, nil)
 	max := 2
-	bounded := []domain.FieldOverride{fpRow(1, "F1", "C", "", 1)}
-	bounded[0].MaxOccurs = &max
 
-	for name, rows := range map[string][]domain.FieldOverride{
-		"renamed": renamed, "moved": moved, "repositioned": repositioned,
-		"required": required, "bounded": bounded,
+	for name, mutate := range map[string]func(*domain.FieldOverride){
+		"field":            func(r *domain.FieldOverride) { r.FieldID = "F2" },
+		"category":         func(r *domain.FieldOverride) { r.CategoryID = "OTHER" },
+		"collection":       func(r *domain.FieldOverride) { r.PartOfCollectionID = "COL" },
+		"position":         func(r *domain.FieldOverride) { r.Position = 7 },
+		"collection_order": func(r *domain.FieldOverride) { r.CollectionOrder = 3 },
+		"display_name":     func(r *domain.FieldOverride) { r.DisplayName = domain.Translations{"en": "other"} },
+		"description":      func(r *domain.FieldOverride) { r.Description = domain.Translations{"en": "note"} },
+		"collection_name":  func(r *domain.FieldOverride) { r.CollectionName = domain.Translations{"en": "Birth"} },
+		"set_value":        func(r *domain.FieldOverride) { r.SetValue = "fixed" },
+		"is_required":      func(r *domain.FieldOverride) { r.IsRequired = true },
+		"min_occurs":       func(r *domain.FieldOverride) { r.MinOccurs = 1 },
+		"max_occurs":       func(r *domain.FieldOverride) { r.MaxOccurs = &max },
+		"is_hidden":        func(r *domain.FieldOverride) { r.IsHidden = true },
+		"visibility":       func(r *domain.FieldOverride) { r.Visibility = "internal" },
 	} {
-		if Fingerprint(rows, nil, nil) == want {
+		row := fpRow(1, "F1", "C", "", 1)
+		mutate(&row)
+		if Fingerprint([]domain.FieldOverride{row}, nil, nil) == want {
+			t.Errorf("%s: fingerprint unchanged", name)
+		}
+	}
+}
+
+func TestFingerprintSeparatorsCannotBeFaked(t *testing.T) {
+	split := []domain.FieldOverride{fpRow(1, "F1", "cat", "a|b", 1)}
+	shifted := []domain.FieldOverride{fpRow(1, "F1", "cat|a", "b", 1)}
+	if Fingerprint(split, nil, nil) == Fingerprint(shifted, nil, nil) {
+		t.Error("a pipe inside an id fakes a field boundary")
+	}
+
+	oneRow := []domain.FieldOverride{fpRow(1, "F1", "C", "", 1)}
+	oneRow[0].SetValue = "first\n\"F2\"|\"C\"|\"\"|1"
+	twoRows := []domain.FieldOverride{fpRow(1, "F1", "C", "", 1), fpRow(2, "F2", "C", "", 1)}
+	if Fingerprint(oneRow, nil, nil) == Fingerprint(twoRows, nil, nil) {
+		t.Error("a newline inside a set value fakes a row boundary")
+	}
+}
+
+func TestFingerprintChangesWithPlacementContent(t *testing.T) {
+	base := domain.CollectionPlacement{CategoryID: "C", CollectionID: "COL"}
+	want := Fingerprint(nil, nil, []domain.CollectionPlacement{base})
+	max := 2
+
+	for name, mutate := range map[string]func(*domain.CollectionPlacement){
+		"category":    func(p *domain.CollectionPlacement) { p.CategoryID = "OTHER" },
+		"collection":  func(p *domain.CollectionPlacement) { p.CollectionID = "COL2" },
+		"is_required": func(p *domain.CollectionPlacement) { p.IsRequired = true },
+		"min_occurs":  func(p *domain.CollectionPlacement) { p.MinOccurs = 1 },
+		"max_occurs":  func(p *domain.CollectionPlacement) { p.MaxOccurs = &max },
+		"is_hidden":   func(p *domain.CollectionPlacement) { p.IsHidden = true },
+	} {
+		placement := base
+		mutate(&placement)
+		if Fingerprint(nil, nil, []domain.CollectionPlacement{placement}) == want {
+			t.Errorf("%s: fingerprint unchanged", name)
+		}
+	}
+}
+
+func TestFingerprintChangesWithRefContent(t *testing.T) {
+	rows := []domain.FieldOverride{fpRow(1, "F1", "C", "", 1)}
+	ref := domain.OverrideRef{RefType: "resource_model", TargetID: "M1", Position: 1}
+	want := Fingerprint(rows, map[int64][]domain.OverrideRef{1: {ref}}, nil)
+
+	for name, mutate := range map[string]func(*domain.OverrideRef){
+		"ref_type":  func(r *domain.OverrideRef) { r.RefType = "collection_model" },
+		"target_id": func(r *domain.OverrideRef) { r.TargetID = "M2" },
+		"position":  func(r *domain.OverrideRef) { r.Position = 2 },
+	} {
+		changed := ref
+		mutate(&changed)
+		if Fingerprint(rows, map[int64][]domain.OverrideRef{1: {changed}}, nil) == want {
 			t.Errorf("%s: fingerprint unchanged", name)
 		}
 	}
