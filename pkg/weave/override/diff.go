@@ -115,6 +115,17 @@ func ComputeDiff(existing, desired []domain.FieldOverride) Diff {
 			diff.AddedIdx = append(diff.AddedIdx, i)
 			continue
 		}
+		if _, alreadyClaimed := seenNew[n.ID]; alreadyClaimed {
+			// A second row carrying an id an earlier row already took.
+			// matchOverrides claims each existing row at most once, so
+			// the database updates the row for the first claimant and
+			// inserts a new one for this row. Report the insert, rather
+			// than a second update that would describe a move the
+			// database never made and leave the real insert unlogged.
+			diff.Added = append(diff.Added, n)
+			diff.AddedIdx = append(diff.AddedIdx, i)
+			continue
+		}
 		seenNew[n.ID] = struct{}{}
 		if !semanticallyEqual(o, n) {
 			diff.Changed = append(diff.Changed, DiffPair{Before: o, After: n})

@@ -85,3 +85,32 @@ func TestComputeDiffUnknownIDIsAdded(t *testing.T) {
 		t.Fatalf("removed = %+v", diff.Removed)
 	}
 }
+
+// TestComputeDiffDuplicateIDIsAdded covers two desired rows carrying the same
+// id. matchOverrides claims each existing row at most once, so the database
+// updates the row for the first claimant and inserts a new one for the second.
+// Before this fix the diff paired both by id and reported two updates of one
+// row: it described a move the database never made and left the real insert
+// unlogged, so a restore replaying that change set built a state that never
+// existed.
+func TestComputeDiffDuplicateIDIsAdded(t *testing.T) {
+	existing := []domain.FieldOverride{ov(10, "F1", "C", "", 1)}
+	first := ov(10, "F1", "C", "", 1)
+	second := ov(10, "F1", "C2", "", 2)
+	diff := ComputeDiff(existing, []domain.FieldOverride{first, second})
+
+	if len(diff.Added) != 1 || diff.Added[0].CategoryID != "C2" {
+		t.Fatalf("added = %+v, want the second row only", diff.Added)
+	}
+	if len(diff.AddedIdx) != 1 || diff.AddedIdx[0] != 1 {
+		t.Fatalf("addedIdx = %v, want [1]", diff.AddedIdx)
+	}
+	if len(diff.Removed) != 0 {
+		t.Fatalf("removed = %+v, want none: the claimed row is updated, not deleted", diff.Removed)
+	}
+	for _, pair := range diff.Changed {
+		if pair.After.CategoryID == "C2" {
+			t.Fatalf("the duplicate row was paired into an update: %+v", pair)
+		}
+	}
+}

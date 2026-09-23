@@ -238,6 +238,7 @@ func TestSaveForEntityLogsKeptRowAsChangedAndNewRowWithRealID(t *testing.T) {
 
 	var updates, deletes int
 	createdIDs := map[string]bool{}
+	createdPayloads := map[string]json.RawMessage{}
 	var updateEntry *sqlcgen.WeaveChangeLog
 	for i := range entries {
 		e := &entries[i]
@@ -247,6 +248,7 @@ func TestSaveForEntityLogsKeptRowAsChangedAndNewRowWithRealID(t *testing.T) {
 			updateEntry = e
 		case "create":
 			createdIDs[e.EntityID] = true
+			createdPayloads[e.EntityID] = e.Payload
 		case "delete":
 			deletes++
 		}
@@ -274,6 +276,30 @@ func TestSaveForEntityLogsKeptRowAsChangedAndNewRowWithRealID(t *testing.T) {
 	for id := range createdIDs {
 		if !wantCreated[id] {
 			t.Errorf("create entry logged for unexpected id %s (want the two new rows' own ids, not a placeholder)", id)
+		}
+	}
+
+	// Matching the two ids as a SET cannot tell an entry carrying its own
+	// row's content from one carrying the other's: swapping them is a
+	// symmetry of that set. The two new rows sit in different categories,
+	// so pair each logged id with the content it claims to describe.
+	for id, wantCategory := range map[string]string{
+		fmt.Sprintf("%d", newRowIDA): "TSTCHANGELOGCATA",
+		fmt.Sprintf("%d", newRowIDB): "TSTCHANGELOGCATB",
+	} {
+		payload, ok := createdPayloads[id]
+		if !ok {
+			continue // already reported above
+		}
+		var logged struct {
+			CategoryID string `json:"category_id"`
+		}
+		if err := json.Unmarshal(payload, &logged); err != nil {
+			t.Fatalf("decode create payload for id %s: %v", id, err)
+		}
+		if logged.CategoryID != wantCategory {
+			t.Errorf("create entry for id %s carries category %q, want %q — the two new rows' ids were paired with each other's content",
+				id, logged.CategoryID, wantCategory)
 		}
 	}
 
