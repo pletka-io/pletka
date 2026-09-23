@@ -75,8 +75,8 @@ func TestStampMatchedIDsFillsIDLessKeptRow(t *testing.T) {
 	if desired[0].ID != 10 {
 		t.Fatalf("desired[0].ID = %d, want 10", desired[0].ID)
 	}
-	if len(addedIndices(existing, desired)) != 0 {
-		t.Fatalf("stamped row still classified as added: %+v", addedIndices(existing, desired))
+	if diff := ComputeDiff(existing, desired); len(diff.Added) != 0 {
+		t.Fatalf("stamped row still classified as added: %+v", diff.Added)
 	}
 }
 
@@ -93,11 +93,16 @@ func TestStampMatchedIDsLeavesUnclaimedRowsAlone(t *testing.T) {
 	}
 }
 
-func TestAddedIndicesMatchesComputeDiffAdded(t *testing.T) {
+// TestStampThenDiffAddedIdxLinesUpWithDesired exercises the full
+// SaveForEntity sequence (matchOverrides -> stampMatchedIDs -> ComputeDiff)
+// with more than one Added row, so a permutation bug in the correspondence
+// between diff.AddedIdx and diff.Added — the riskiest part of this change,
+// per fix round 1 finding 3 — would show up here even without a database.
+func TestStampThenDiffAddedIdxLinesUpWithDesired(t *testing.T) {
 	existing := []domain.FieldOverride{ov(10, "F1", "C", "COL", 1), ov(11, "F2", "C", "", 2)}
-	// idx0: id-less resend of the kept F1 row (matched by key, not counted).
+	// idx0: id-less resend of the kept F1 row (matched by key, not Added).
 	// idx1: genuinely new row (ID==0, no key match).
-	// idx2: stale/unknown id (not present in existing).
+	// idx2: unknown non-zero id (not present in existing at all).
 	desired := []domain.FieldOverride{
 		ov(0, "F1", "C", "COL", 1),
 		ov(0, "F3", "C", "", 3),
@@ -107,16 +112,15 @@ func TestAddedIndicesMatchesComputeDiffAdded(t *testing.T) {
 	stampMatchedIDs(desired, plan)
 
 	diff := ComputeDiff(existing, desired)
-	idx := addedIndices(existing, desired)
-	if len(idx) != len(diff.Added) {
-		t.Fatalf("addedIndices len = %d, ComputeDiff Added len = %d", len(idx), len(diff.Added))
+	if !slices.Equal(diff.AddedIdx, []int{1, 2}) {
+		t.Fatalf("AddedIdx = %v, want [1 2]", diff.AddedIdx)
 	}
-	if !slices.Equal(idx, []int{1, 2}) {
-		t.Fatalf("addedIndices = %v, want [1 2]", idx)
+	if len(diff.AddedIdx) != len(diff.Added) {
+		t.Fatalf("AddedIdx len = %d, Added len = %d", len(diff.AddedIdx), len(diff.Added))
 	}
-	for j, i := range idx {
+	for j, i := range diff.AddedIdx {
 		if diff.Added[j].FieldID != desired[i].FieldID {
-			t.Fatalf("addedIndices[%d]=%d does not line up with diff.Added[%d] (field %s vs %s)",
+			t.Fatalf("AddedIdx[%d]=%d does not line up with Added[%d] (field %s vs %s)",
 				j, i, j, desired[i].FieldID, diff.Added[j].FieldID)
 		}
 	}

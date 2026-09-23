@@ -13,11 +13,20 @@ import (
 // record per-row Create/Update/Delete entries instead of one opaque
 // "replaced N rows" event.
 //
-// Identity is keyed on the bigserial ID. Existing rows arrive with
-// non-zero IDs (assigned by Store.Create on first insert and kept by
-// ReplaceForEntity, which updates matched rows in place). Diff is computed
-// BEFORE the replace, and IDs in the desired slice come from the client's
-// last known view of the row.
+// Identity is keyed on the bigserial ID, with one exception: an id that
+// names an existing row of a DIFFERENT field is not a match (see
+// matchOverrides' same rule in reconcile.go — an id only claims a row when
+// the field agrees). ReplaceForEntity deletes and re-inserts in that case,
+// so ComputeDiff reports Removed+Added, never an Update naming a row that
+// no longer exists.
+//
+// Existing rows arrive with non-zero IDs (assigned by Store.Create on
+// first insert and kept by ReplaceForEntity, which updates matched rows in
+// place). Diff is computed BEFORE the replace. IDs in the desired slice
+// usually come from the client's last known view of the row, but can also
+// be filled in by the service's own key-based match (SaveForEntity calls
+// matchOverrides and stamps its result onto desired before diffing) —
+// either way, ComputeDiff just reads whatever id ended up on the row.
 //
 // Rows with ID==0 in the desired slice are treated as Added — these
 // are new draft rows the user just created (e.g., dropped a field via
@@ -31,6 +40,16 @@ type Diff struct {
 	Added   []domain.FieldOverride
 	Removed []domain.FieldOverride
 	Changed []DiffPair
+
+	// AddedIdx holds, for each entry in Added at the same position, the
+	// index into the desired slice ComputeDiff was given that produced it.
+	// SaveForEntity uses this to patch the row's real post-insert id onto
+	// Added[i] once ReplaceForEntity assigns one — reading the same
+	// classification ComputeDiff already made, rather than a second,
+	// hand-duplicated predicate that could drift from this one (fix round
+	// 1, finding 6: two independently-maintained predicates agreeing only
+	// by construction is exactly the kind of thing that stops agreeing).
+	AddedIdx []int
 }
 
 // DiffPair holds the before/after state for a single Changed override.
@@ -46,9 +65,10 @@ func (d Diff) Empty() bool {
 
 // ComputeDiff returns the Diff between the existing override set
 // (loaded from Store.ListForEntity) and the desired set submitted by
-// the caller. Existing rows match by bigserial ID; desired rows with
-// ID==0 are always Added; existing rows whose ID is missing from the
-// desired slice are Removed.
+// the caller. Existing rows match by bigserial ID, provided the field
+// agrees too (see the doc comment above); desired rows with ID==0, or
+// with an id that doesn't match on those terms, are Added; existing rows
+// no desired row claimed are Removed.
 //
 // Timestamps and StagingID are ignored when comparing rows for
 // equality — see semanticallyEqual.
@@ -70,17 +90,32 @@ func ComputeDiff(existing, desired []domain.FieldOverride) Diff {
 		n := desired[i]
 		if n.ID == 0 {
 			diff.Added = append(diff.Added, n)
+			diff.AddedIdx = append(diff.AddedIdx, i)
 			continue
 		}
-		seenNew[n.ID] = struct{}{}
 		o, ok := oldByID[n.ID]
 		if !ok {
 			// Caller sent an ID that doesn't exist in the existing set.
 			// Treat as Added — ReplaceForEntity ignores ids it does not
 			// know, so the stale ID is harmless.
 			diff.Added = append(diff.Added, n)
+			diff.AddedIdx = append(diff.AddedIdx, i)
 			continue
 		}
+		if o.FieldID != n.FieldID {
+			// Same id, different field: matchOverrides never lets this id
+			// claim that row (an id only claims a row when the field
+			// agrees — see reconcile.go), so ReplaceForEntity deletes the
+			// old row and inserts a new one instead of updating it in
+			// place. Report the same thing: leave the existing row
+			// unclaimed (it falls through to Removed below) and treat n
+			// as Added, rather than pairing them into a false Update that
+			// would name a row the database no longer has.
+			diff.Added = append(diff.Added, n)
+			diff.AddedIdx = append(diff.AddedIdx, i)
+			continue
+		}
+		seenNew[n.ID] = struct{}{}
 		if !semanticallyEqual(o, n) {
 			diff.Changed = append(diff.Changed, DiffPair{Before: o, After: n})
 		}

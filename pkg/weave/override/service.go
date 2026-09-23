@@ -123,7 +123,11 @@ func (s *Service) GetRefs(ctx context.Context, projectID string, overrideID int6
 // collectionID, and produces copies retargeted to (targetEntityType,
 // targetEntityID). The copies are NOT persisted — caller merges them
 // into the desired list and submits via SaveForEntity. Each cloned row
-// has ID=0 so SaveForEntity treats them as Added.
+// has ID=0, so SaveForEntity's diff reports it as Added — unless the
+// target already has a row with the same (field, category, collection)
+// key, in which case matchOverrides reuses that row's id and it's
+// reported as Changed instead. Either way the clone lands somewhere;
+// which changelog bucket it lands in depends on what's already there.
 //
 // fallbackCategoryID is used when a source row's category_id is empty.
 // Pass the collection's default_category_id (read from
@@ -225,19 +229,17 @@ func (s *Service) SaveForEntity(
 
 	// Match desired rows against existing ones the same way ReplaceForEntity
 	// will, and stamp the matched ids onto desired before diffing. Without
-	// this, an id-less client resending a kept row (the common case: the
-	// editor's own payload shape) would diff as a Removed+Added pair instead
-	// of a Changed — matchOverrides is the only place that knows a row with
-	// ID==0 can still be the same placement as an existing row with the same
-	// (field, category, collection) key.
+	// this, a caller that resends a kept row without its id — the raw PUT
+	// …/overrides routes decoding straight from client JSON, or an ops/MCP/
+	// CLI writer — would diff as a Removed+Added pair instead of a Changed:
+	// matchOverrides is the only place that knows a row with ID==0 can
+	// still be the same placement as an existing row with the same (field,
+	// category, collection) key. See stampMatchedIDs' doc comment for the
+	// concurrency note on `existing` being a pre-transaction snapshot.
 	plan := matchOverrides(existing, desired)
 	stampMatchedIDs(desired, plan)
 
 	diff := ComputeDiff(existing, desired)
-	// addedIndices is computed against the same (existing, desired) pair
-	// ComputeDiff just used, so it lines up 1:1, in order, with diff.Added —
-	// see addedIndices' doc comment.
-	addedIdx := addedIndices(existing, desired)
 
 	if err := s.runner.Run(ctx, func(ctx context.Context, rec domain.ChangeLogRecorder) error {
 		if err := s.store.ReplaceForEntity(ctx, entityType, entityID, desired); err != nil {
@@ -245,10 +247,12 @@ func (s *Service) SaveForEntity(
 		}
 		// ReplaceForEntity just assigned real ids to the rows it inserted.
 		// diff.Added was built before that ran, from copies of desired that
-		// still carried ID==0 (or a stale id) — patch those copies now, so
-		// the changelog's "create" entries carry the row's actual id
-		// instead of a placeholder.
-		for j, i := range addedIdx {
+		// still carried ID==0 (or an id ComputeDiff didn't accept as a
+		// match) — patch those copies now, using diff.AddedIdx (the
+		// desired-slice index ComputeDiff itself recorded for each Added
+		// entry) so the changelog's "create" entries carry the row's
+		// actual id instead of a placeholder.
+		for j, i := range diff.AddedIdx {
 			diff.Added[j].ID = desired[i].ID
 		}
 		return s.recordDiff(ctx, rec, projectID, diff)

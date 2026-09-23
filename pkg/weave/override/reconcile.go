@@ -75,38 +75,34 @@ func overrideKey(o domain.FieldOverride) string {
 }
 
 // stampMatchedIDs writes plan.update[i] onto desired[i].ID wherever
-// matchOverrides claimed an existing row for it, so a caller that resent a
-// kept row without its id (the naive id-less editor payload) carries the
+// matchOverrides claimed an existing row for it, so a kept row carries its
 // real id by the time ComputeDiff runs — reported as Changed, not
-// Removed+Added. Desired rows matchOverrides left unclaimed
-// (plan.update[i]==0) are untouched: a genuinely new row keeps ID==0, and a
-// row whose sent id doesn't match anything keeps that stale id, which
-// ComputeDiff already treats as Added (see its doc comment).
+// Removed+Added. This matters for callers that don't already round-trip
+// ids on every row: the raw PUT …/models/{id}/overrides and
+// …/collections/{id}/overrides routes, which decode straight from client
+// JSON, and the ops/MCP/CLI writers. (The editor itself is not one of
+// these — it mints negative temporary ids for new rows and round-trips the
+// real positive id for every persisted row it edits, so it never sent
+// ID==0 for a kept row; only the second bug this task fixed, the "0"
+// entity id on create entries, affected it.) Desired rows matchOverrides
+// left unclaimed (plan.update[i]==0) are untouched: a genuinely new row
+// keeps ID==0, and a row whose sent id doesn't match anything (wrong
+// field, or unknown entirely) keeps that id, which ComputeDiff already
+// treats as Added (see its doc comment).
+//
+// existing is a pre-transaction snapshot (SaveForEntity loads it before
+// ReplaceForEntity opens its own tx): under concurrent saves of the same
+// entity, matching against a snapshot that's gone stale by write time
+// means a row that would previously have been deleted and reinserted is
+// now updated in place instead — the placement id and its example values
+// survive a race that used to lose them. That's a deliberate improvement,
+// not a regression, but it is a lost-update semantics change on the
+// unlocked PUT …/overrides routes; tracked in the platform backlog, not
+// addressed here.
 func stampMatchedIDs(desired []domain.FieldOverride, plan overridePlan) {
 	for i, id := range plan.update {
 		if id != 0 {
 			desired[i].ID = id
 		}
 	}
-}
-
-// addedIndices returns, in order, the indices into desired that
-// ComputeDiff(existing, desired) classifies as Added — mirroring its rule
-// exactly: no id, or an id that names no row in existing. SaveForEntity
-// uses this to splice the ids ReplaceForEntity assigns back onto
-// diff.Added, since diff.Added holds copies taken before the insert ran.
-func addedIndices(existing, desired []domain.FieldOverride) []int {
-	known := make(map[int64]bool, len(existing))
-	for _, e := range existing {
-		if e.ID != 0 {
-			known[e.ID] = true
-		}
-	}
-	var idx []int
-	for i, d := range desired {
-		if d.ID == 0 || !known[d.ID] {
-			idx = append(idx, i)
-		}
-	}
-	return idx
 }
