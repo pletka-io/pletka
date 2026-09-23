@@ -1109,8 +1109,7 @@
       "empty_title": "Δεν υπάρχουν κατηγορίες",
       "empty_message": "Ξεκινήστε δημιουργώντας την πρώτη σας κατηγορία.",
       "add": "Προσθήκη κατηγορίας",
-      "reassign_entity_label": "πεδία",
-      "overrides": "Παρακάμψεις"
+      "reassign_entity_label": "πεδία"
     },
     "uncategorized": "Χωρίς κατηγορία"
   }

@@ -346,6 +346,14 @@ func (s *postgresStore) WithAdvisoryLock(ctx context.Context, key string, fn fun
 		return fmt.Errorf("set advisory lock_timeout: %w", execErr)
 	}
 
+	// connClosed is set by the unlock defer below when it closes conn
+	// itself. This defer is registered before the unlock defer, so it runs
+	// after it (LIFO) — checking connClosed here lets it skip the reset
+	// instead of running RESET lock_timeout on a connection the unlock
+	// defer already closed, which would only fail again and join a second,
+	// redundant error onto err describing the same underlying failure.
+	var connClosed bool
+
 	// lock_timeout is session state and the pool does not scrub a connection
 	// on release, so leaving it set would arm a 10s timeout on whatever
 	// unrelated work draws this connection next: a release tag or a git
@@ -354,6 +362,9 @@ func (s *postgresStore) WithAdvisoryLock(ctx context.Context, key string, fn fun
 	// caller's cancellation cannot cut short. This defer is registered
 	// before the unlock defer, so it runs after it.
 	defer func() {
+		if connClosed {
+			return
+		}
 		resetCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unlockGraceTimeout)
 		defer cancel()
 		if _, resetErr := conn.Exec(resetCtx, `RESET lock_timeout`); resetErr != nil {
@@ -395,6 +406,7 @@ func (s *postgresStore) WithAdvisoryLock(ctx context.Context, key string, fn fun
 			unlockErr = fmt.Errorf("advisory lock %q was not held by this session at unlock", key)
 		}
 		_ = conn.Conn().Close(unlockCtx) //nolint:errcheck // best-effort; Release below destroys the resource regardless
+		connClosed = true
 		err = errors.Join(err, fmt.Errorf("release advisory lock: %w", unlockErr))
 	}()
 
