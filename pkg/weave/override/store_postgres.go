@@ -339,8 +339,8 @@ func (s *postgresStore) WithAdvisoryLock(ctx context.Context, key string, fn fun
 	defer conn.Release()
 
 	// SET does not accept a bind parameter, so the bound duration is
-	// formatted into the statement text (lockTimeout is a package constant,
-	// never caller input).
+	// formatted into the statement text. lockTimeout is a package variable
+	// only so a test can shorten the wait; it is never caller input.
 	setLockTimeout := fmt.Sprintf(`SET lock_timeout = '%dms'`, lockTimeout.Milliseconds())
 	if _, execErr := conn.Exec(ctx, setLockTimeout); execErr != nil {
 		return fmt.Errorf("set advisory lock_timeout: %w", execErr)
