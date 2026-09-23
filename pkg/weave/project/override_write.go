@@ -97,79 +97,121 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 		desired[i] = draftRows[i].override
 	}
 
-	// Everything from the fingerprint check through the last SetRefs runs
-	// under the entity's advisory lock, so two saves of the same pattern
-	// queue instead of racing. Ownership/edit checks already happened
-	// above the lock — WithEntityLock and EntityFingerprint perform no
-	// permission check of their own by design.
+	// Everything from the fingerprint check through the adoption sync runs
+	// under the entity's advisory lock, so two saves of the same pattern —
+	// including the adoption receipts they leave behind — queue instead
+	// of racing (see design doc, Task 3 fix round 1, finding 3:
+	// ReplaceForContext is delete-all-then-reinsert with no lock of its
+	// own, so it must serialise with the override write it derives from,
+	// not run after the lock is released). Ownership/edit checks already
+	// happened above the lock — WithEntityLock and EntityFingerprint
+	// perform no permission check of their own by design.
+	//
+	// callbackErr, not the WithEntityLock return value, is what decides
+	// success vs. failure below: WithAdvisoryLock joins its own teardown
+	// errors (RESET lock_timeout, the unlock) onto whatever the callback
+	// returned, so a callback that succeeded but whose connection then
+	// failed to tear down cleanly must not be reported as a save failure
+	// — the overrides, placements, refs and adoptions are already
+	// committed at that point.
 	var newFingerprint string
+	var callbackErr error
 	lockErr := h.overrides.WithEntityLock(ctx, entityType, entityID, func(ctx context.Context) error {
-		if req.Fingerprint != "" {
-			current, err := h.overrides.EntityFingerprint(ctx, entityType, entityID)
-			if err != nil {
-				return err
-			}
-			if current != req.Fingerprint {
-				return &apierror.Error{
-					Status:  http.StatusConflict,
-					Code:    apierror.CodeConflict,
-					Message: "Someone saved this pattern while you were editing.",
-					Details: "pattern_changed",
+		callbackErr = func() error {
+			if req.Fingerprint != "" {
+				current, err := h.overrides.EntityFingerprint(ctx, entityType, entityID)
+				if err != nil {
+					return err
+				}
+				if current != req.Fingerprint {
+					return &apierror.Error{
+						Status:  http.StatusConflict,
+						Code:    apierror.CodeConflict,
+						Message: "Someone saved this pattern while you were editing.",
+						Details: "pattern_changed",
+					}
 				}
 			}
-		}
 
-		// Collection placements: model-scoped only. Validate
-		// and diff BEFORE the override save so an invalid payload rejects the
-		// whole request.
-		var placementUpserts []domain.CollectionPlacement
-		var placementDeletes []placementKey
-		if entityType == "model" {
-			existing, err := h.overrides.ListPlacements(ctx, entityID)
+			// Collection placements: model-scoped only. Validate
+			// and diff BEFORE the override save so an invalid payload rejects the
+			// whole request.
+			var placementUpserts []domain.CollectionPlacement
+			var placementDeletes []placementKey
+			if entityType == "model" {
+				existing, err := h.overrides.ListPlacements(ctx, entityID)
+				if err != nil {
+					return err
+				}
+				placementUpserts, placementDeletes, err = reconcilePlacements(existing, req.Categories, projectID, entityID)
+				if err != nil {
+					return &apierror.Error{Status: http.StatusUnprocessableEntity, Message: err.Error()}
+				}
+			}
+
+			saved, _, err := h.overrides.SaveForEntity(ctx, projectID, entityType, entityID, desired, req.CommitMessage)
 			if err != nil {
 				return err
 			}
-			placementUpserts, placementDeletes, err = reconcilePlacements(existing, req.Categories, projectID, entityID)
+
+			for i := range placementUpserts {
+				if err := h.overrides.UpsertPlacement(ctx, &placementUpserts[i]); err != nil {
+					return err
+				}
+			}
+			for _, key := range placementDeletes {
+				if err := h.overrides.DeletePlacement(ctx, entityID, key.CategoryID, key.CollectionID); err != nil {
+					return err
+				}
+			}
+
+			// Always call SetRefs — including with an empty slice — so that clearing
+			// every expected-ref in the drawer actually deletes the existing refs.
+			// The previous "skip when len == 0" path silently left stale refs alive
+			// when a curator removed the last expected resource/collection model.
+			for i := range saved {
+				if err := h.overrides.SetRefs(ctx, projectID, saved[i].ID, draftRows[i].refs); err != nil {
+					return err
+				}
+			}
+
+			var createdByID *string
+			if principal := authPrincipalFromContext(r); principal != nil && strings.TrimSpace(principal.ActorID) != "" {
+				createdByID = &principal.ActorID
+			}
+			adoptions := buildAdoptionsFromOverrideCategories(projectID, entityType, entityID, req.Categories, createdByID)
+			if err := h.weave.Adoptions().ReplaceForContext(ctx, projectID, entityType, entityID, adoptions); err != nil {
+				h.log.Error(
+					"sync adoptions failed",
+					"project_id", projectID,
+					"entity_type", entityType,
+					"entity_id", entityID,
+					"err", err,
+				)
+				return err
+			}
+
+			fp, err := h.overrides.EntityFingerprint(ctx, entityType, entityID)
 			if err != nil {
-				return &apierror.Error{Status: http.StatusUnprocessableEntity, Message: err.Error()}
-			}
-		}
-
-		saved, _, err := h.overrides.SaveForEntity(ctx, projectID, entityType, entityID, desired, req.CommitMessage)
-		if err != nil {
-			return err
-		}
-
-		for i := range placementUpserts {
-			if err := h.overrides.UpsertPlacement(ctx, &placementUpserts[i]); err != nil {
 				return err
 			}
-		}
-		for _, key := range placementDeletes {
-			if err := h.overrides.DeletePlacement(ctx, entityID, key.CategoryID, key.CollectionID); err != nil {
-				return err
-			}
-		}
-
-		// Always call SetRefs — including with an empty slice — so that clearing
-		// every expected-ref in the drawer actually deletes the existing refs.
-		// The previous "skip when len == 0" path silently left stale refs alive
-		// when a curator removed the last expected resource/collection model.
-		for i := range saved {
-			if err := h.overrides.SetRefs(ctx, projectID, saved[i].ID, draftRows[i].refs); err != nil {
-				return err
-			}
-		}
-
-		fp, err := h.overrides.EntityFingerprint(ctx, entityType, entityID)
-		if err != nil {
-			return err
-		}
-		newFingerprint = fp
-		return nil
+			newFingerprint = fp
+			return nil
+		}()
+		return callbackErr
 	})
+
+	if callbackErr != nil {
+		// The callback itself failed: classify and respond exactly as
+		// before. lockErr still carries callbackErr (possibly joined with
+		// a teardown failure on top) — writeOverrideError logs that extra
+		// half instead of silently dropping it.
+		h.writeOverrideError(w, entityType, entityID, lockErr)
+		return
+	}
 	if lockErr != nil {
 		if errors.Is(lockErr, overridepkg.ErrLockBusy) {
+			h.log.Warn("override save: lock busy", "entity_type", entityType, "entity_id", entityID, "err", lockErr)
 			apierror.Write(w, &apierror.Error{
 				Status:  http.StatusConflict,
 				Code:    apierror.CodeConflict,
@@ -178,25 +220,13 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 			})
 			return
 		}
-		h.writeOverrideError(w, lockErr)
-		return
-	}
-
-	var createdByID *string
-	if principal := authPrincipalFromContext(r); principal != nil && strings.TrimSpace(principal.ActorID) != "" {
-		createdByID = &principal.ActorID
-	}
-	adoptions := buildAdoptionsFromOverrideCategories(projectID, entityType, entityID, req.Categories, createdByID)
-	if err := h.weave.Adoptions().ReplaceForContext(ctx, projectID, entityType, entityID, adoptions); err != nil {
-		h.log.Error(
-			"sync adoptions failed",
-			"project_id", projectID,
-			"entity_type", entityType,
-			"entity_id", entityID,
-			"err", err,
-		)
-		writeError(w, http.StatusInternalServerError, "failed to sync adoption receipts")
-		return
+		// The callback committed everything successfully; only the lock's
+		// own teardown afterwards (RESET lock_timeout or the unlock)
+		// failed. That is an operational problem with the connection, not
+		// a save failure — proceed to the 200 the client earned, and let
+		// an operator correlate any connection churn from this log.
+		h.log.Warn("override save: lock teardown failed after a successful save",
+			"entity_type", entityType, "entity_id", entityID, "err", lockErr)
 	}
 
 	writeJSON(w, http.StatusOK, overrideSaveResponse{
@@ -279,9 +309,17 @@ func buildOverrideRefs(field overrideEditorField) []domain.OverrideRef {
 	return refs
 }
 
-func (h *Handler) writeOverrideError(w http.ResponseWriter, err error) {
+func (h *Handler) writeOverrideError(w http.ResponseWriter, entityType, entityID string, err error) {
 	var apiErr *apierror.Error
 	if errors.As(err, &apiErr) {
+		// err is more than just apiErr when something else (a lock
+		// teardown failure) got errors.Join'd onto the callback's own
+		// error — log the whole thing so that half isn't silently
+		// dropped, since only apiErr itself reaches the client below.
+		if err != error(apiErr) {
+			h.log.Warn("override save: additional error joined onto the typed API response",
+				"entity_type", entityType, "entity_id", entityID, "err", err)
+		}
 		apierror.Write(w, apiErr)
 		return
 	}

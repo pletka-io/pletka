@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,20 +16,23 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/ids"
 	"github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/override"
 	"github.com/pletka-io/pletka/pkg/weave/project"
 )
 
-// Scratch coordinates for the save-conflict tests: a scratch model on the
-// real LA fixture project, holding real LA fixture fields (LAF.5) — mirrors
-// the scratch-entity convention used by
-// pkg/weave/override/fingerprint_integration_test.go and
+// Scratch coordinates for the save-conflict tests: a scratch model and a
+// scratch collection on the real LA fixture project, holding real LA
+// fixture fields (LAF.5, LAF.6) — mirrors the scratch-entity convention
+// used by pkg/weave/override/fingerprint_integration_test.go and
 // replace_integration_test.go, one level up at the HTTP handler.
 const (
-	scProjectID = "LA"
-	scModelID   = "TSTSC.1"
-	scURL       = "/projects/LA/models/TSTSC.1/overrides"
+	scProjectID    = "LA"
+	scModelID      = "TSTSC.1"
+	scURL          = "/projects/LA/models/TSTSC.1/overrides"
+	scCollectionID = "TSTSC.2"
+	scCollURL      = "/projects/LA/collections/TSTSC.2/overrides"
 )
 
 // scLAFieldID resolves the real weave_fields.id backing a LA fixture field's
@@ -69,26 +73,51 @@ func seedScratchModel(t *testing.T, pool *pgxpool.Pool) {
 	})
 }
 
-// newSaveConflictRouter wires the real Handler over the real
-// SaveModelOverrides/ModelOverrides HTTP routes against pool, including the
-// auth.WithProjectResource middleware routes.go applies at the slice mount
-// boundary — override.Service.requireProjectWrite reads the project
-// Resource it attaches, not a hand-built one.
+// seedScratchCollection is seedScratchModel's collection counterpart —
+// weave_collections has the same "only id + project_id are NOT NULL
+// without a default" shape.
+func seedScratchCollection(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_collections (id, project_id) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
+		scCollectionID, scProjectID); err != nil {
+		t.Fatalf("seed scratch collection: %v", err)
+	}
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM weave_override_refs WHERE override_id IN (
+			SELECT id FROM weave_field_overrides WHERE entity_type = 'collection' AND entity_id = $1)`, scCollectionID)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_field_overrides WHERE entity_type = 'collection' AND entity_id = $1`, scCollectionID)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_collections WHERE id = $1`, scCollectionID)
+	})
+}
+
+// newSaveConflictRouter wires the real Handler over the REAL production
+// routes via project.Mount — the exact Host/Mount wiring pkg/app uses, not
+// a hand-rolled subset. That matters: routes.go's mountAt applies
+// auth.WithProjectVersionContext + auth.WithProjectResource, and the
+// overrides route groups additionally require auth.RequireProjectRead.
+// Reusing Mount (instead of re-declaring a slimmer middleware stack) is
+// what makes TestSaveOverridesDeniesOutsiderBeforeReachingTheLock a
+// meaningful guard: if the ownership/edit checks in saveOverrides ever
+// moved below the lock, this router would still enforce the same gates
+// production does, so a regression there has nowhere to hide behind a
+// weaker test router. See Task 3 fix round 1, finding 6.
 func newSaveConflictRouter(pool *pgxpool.Pool) http.Handler {
 	weaveStore := weave.NewPostgresStore(pool)
 	overrideStore := override.NewPostgresStore(pool)
 	overrideSvc := override.NewService(overrideStore, nil, nil)
 	projectStore := project.NewPostgresStore(pool)
 	projectSvc := project.NewService(projectStore, nil, nil, nil)
-	h := project.NewHandler(projectSvc, overrideSvc, weaveStore, nil, nil, nil)
 
-	r := chi.NewRouter()
-	r.Route("/projects/{projectID}/models/{modelID}/overrides", func(r chi.Router) {
-		r.Use(weaveauth.WithProjectResource(weaveStore))
-		r.Get("/", h.ModelOverrides)
-		r.Put("/", h.SaveModelOverrides)
+	router := chi.NewRouter()
+	project.Mount(router, project.Host{
+		Service:   projectSvc,
+		Overrides: overrideSvc,
+		Weave:     weaveStore,
 	})
-	return r
+	return router
 }
 
 // editorAuthContext is the "editor" auth context: a caller authorized to
@@ -129,9 +158,11 @@ type scSaveRequest struct {
 }
 
 // scOneFieldRequest builds a save payload placing one direct (not
-// collection-grouped) field on the scratch model, using displayName as its
-// override display_name.en — the one property whose value scLAFieldID's
-// caller varies between saves so the fingerprint changes.
+// collection-grouped) field on the scratch entity, using displayName as its
+// override display_name.en — the one property whose value the caller
+// varies between saves so the fingerprint changes. Works for both the
+// model and the collection editor: the placements-diff path it exercises
+// on a model is entityType-gated and simply does not run for a collection.
 func scOneFieldRequest(fieldID, displayName, fingerprint string) scSaveRequest {
 	return scSaveRequest{
 		CommitMessage: "save-conflict test",
@@ -170,25 +201,57 @@ type scErrorBody struct {
 	Message string `json:"message"`
 }
 
-func scGet(t *testing.T, router http.Handler) *httptest.ResponseRecorder {
+func scGet(t *testing.T, router http.Handler, url string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequestWithContext(editorAuthContext(), http.MethodGet, scURL, nil)
+	req := httptest.NewRequestWithContext(editorAuthContext(), http.MethodGet, url, nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	return w
 }
 
-func scPut(t *testing.T, router http.Handler, body scSaveRequest) *httptest.ResponseRecorder {
+func scPut(t *testing.T, router http.Handler, url string, body scSaveRequest) *httptest.ResponseRecorder {
 	t.Helper()
 	b, err := json.Marshal(body)
 	if err != nil {
 		t.Fatalf("marshal save request: %v", err)
 	}
-	req := httptest.NewRequestWithContext(editorAuthContext(), http.MethodPut, scURL, bytes.NewReader(b))
+	req := httptest.NewRequestWithContext(editorAuthContext(), http.MethodPut, url, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	return w
+}
+
+// scRowState reads the override rows actually committed for (entityType,
+// entityID) directly from Postgres — the row count and the display_name.en
+// of the last one scanned. Used to prove "a rejected save touched nothing"
+// against the real rows, not against the fingerprint the feature under
+// test itself computes (Task 3 fix round 1, finding 4).
+func scRowState(t *testing.T, pool *pgxpool.Pool, entityType, entityID string) (count int, displayNameEn string) {
+	t.Helper()
+	rows, err := pool.Query(context.Background(),
+		`SELECT display_name FROM weave_field_overrides WHERE entity_type = $1 AND entity_id = $2`,
+		entityType, entityID)
+	if err != nil {
+		t.Fatalf("query override rows for %s %s: %v", entityType, entityID, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		count++
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			t.Fatalf("scan override row: %v", err)
+		}
+		var dn map[string]string
+		if err := json.Unmarshal(raw, &dn); err != nil {
+			t.Fatalf("unmarshal display_name: %v", err)
+		}
+		displayNameEn = dn["en"]
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate override rows: %v", err)
+	}
+	return count, displayNameEn
 }
 
 // TestSaveRejectsStaleFingerprint is the RED case: an editor loads the
@@ -202,7 +265,7 @@ func TestSaveRejectsStaleFingerprint(t *testing.T) {
 	router := newSaveConflictRouter(pool)
 	fieldID := scLAFieldID(t, pool, "LAF.5")
 
-	getResp := scGet(t, router)
+	getResp := scGet(t, router, scURL)
 	if getResp.Code != http.StatusOK {
 		t.Fatalf("initial GET status = %d, body = %s", getResp.Code, getResp.Body.String())
 	}
@@ -216,7 +279,7 @@ func TestSaveRejectsStaleFingerprint(t *testing.T) {
 	staleFingerprint := initial.Fingerprint
 
 	// First save: succeeds, using the fingerprint the editor loaded.
-	firstSave := scPut(t, router, scOneFieldRequest(fieldID, "Name Type", staleFingerprint))
+	firstSave := scPut(t, router, scURL, scOneFieldRequest(fieldID, "Name Type", staleFingerprint))
 	if firstSave.Code != http.StatusOK {
 		t.Fatalf("first save status = %d, body = %s", firstSave.Code, firstSave.Body.String())
 	}
@@ -230,7 +293,7 @@ func TestSaveRejectsStaleFingerprint(t *testing.T) {
 
 	// Second save: still carries the now-stale fingerprint from the
 	// original GET — must be refused, not applied.
-	secondSave := scPut(t, router, scOneFieldRequest(fieldID, "Name Type STALE ATTEMPT", staleFingerprint))
+	secondSave := scPut(t, router, scURL, scOneFieldRequest(fieldID, "Name Type STALE ATTEMPT", staleFingerprint))
 	if secondSave.Code != http.StatusConflict {
 		t.Fatalf("second (stale) save status = %d, want 409, body = %s", secondSave.Code, secondSave.Body.String())
 	}
@@ -245,9 +308,21 @@ func TestSaveRejectsStaleFingerprint(t *testing.T) {
 		t.Fatalf("conflict body message = %q, want %q (body: %s)", conflictBody.Message, "pattern_changed", secondSave.Body.String())
 	}
 
-	// The rejected save must not have touched the rows: a fresh GET still
-	// reports the fingerprint (and content) the first save produced.
-	afterResp := scGet(t, router)
+	// The rejected save must not have touched the rows. Prove it two
+	// ways: directly against Postgres (the actual claim), and via a
+	// fresh GET's fingerprint (what the feature itself reports) — belt
+	// and suspenders, per finding 4: the fingerprint alone would only
+	// prove the absence of a change in what the fingerprint happens to
+	// cover, using the very mechanism under test.
+	count, displayName := scRowState(t, pool, "model", scModelID)
+	if count != 1 {
+		t.Fatalf("override row count after rejected save = %d, want 1", count)
+	}
+	if displayName != "Name Type" {
+		t.Fatalf("override display_name after rejected save = %q, want %q (the stale save mutated rows)", displayName, "Name Type")
+	}
+
+	afterResp := scGet(t, router, scURL)
 	if afterResp.Code != http.StatusOK {
 		t.Fatalf("post-conflict GET status = %d, body = %s", afterResp.Code, afterResp.Body.String())
 	}
@@ -260,6 +335,56 @@ func TestSaveRejectsStaleFingerprint(t *testing.T) {
 	}
 }
 
+// TestSaveCollectionRejectsStaleFingerprint is TestSaveRejectsStaleFingerprint's
+// collection counterpart (Task 3 fix round 1, finding 5): the collection
+// editor's GET fingerprint and the collection branch of saveOverrides —
+// which skips the model-only placements diff entirely — had no coverage.
+func TestSaveCollectionRejectsStaleFingerprint(t *testing.T) {
+	pool := testdb.Pool(t)
+	seedScratchCollection(t, pool)
+	router := newSaveConflictRouter(pool)
+	fieldID := scLAFieldID(t, pool, "LAF.6")
+
+	getResp := scGet(t, router, scCollURL)
+	if getResp.Code != http.StatusOK {
+		t.Fatalf("initial GET status = %d, body = %s", getResp.Code, getResp.Body.String())
+	}
+	var initial scEditorResponse
+	if err := json.Unmarshal(getResp.Body.Bytes(), &initial); err != nil {
+		t.Fatalf("decode initial GET body: %v", err)
+	}
+	if initial.Fingerprint == "" {
+		t.Fatal("expected a non-empty initial fingerprint")
+	}
+	staleFingerprint := initial.Fingerprint
+
+	firstSave := scPut(t, router, scCollURL, scOneFieldRequest(fieldID, "Collection Field", staleFingerprint))
+	if firstSave.Code != http.StatusOK {
+		t.Fatalf("first save status = %d, body = %s", firstSave.Code, firstSave.Body.String())
+	}
+	var firstSaveResp scSaveResponse
+	if err := json.Unmarshal(firstSave.Body.Bytes(), &firstSaveResp); err != nil {
+		t.Fatalf("decode first save body: %v", err)
+	}
+
+	secondSave := scPut(t, router, scCollURL, scOneFieldRequest(fieldID, "Collection Field STALE ATTEMPT", staleFingerprint))
+	if secondSave.Code != http.StatusConflict {
+		t.Fatalf("second (stale) save status = %d, want 409, body = %s", secondSave.Code, secondSave.Body.String())
+	}
+	var conflictBody scErrorBody
+	if err := json.Unmarshal(secondSave.Body.Bytes(), &conflictBody); err != nil {
+		t.Fatalf("decode conflict body: %v", err)
+	}
+	if conflictBody.Code != "conflict" || conflictBody.Message != "pattern_changed" {
+		t.Fatalf("conflict body = %+v, want code=conflict message=pattern_changed (body: %s)", conflictBody, secondSave.Body.String())
+	}
+
+	count, displayName := scRowState(t, pool, "collection", scCollectionID)
+	if count != 1 || displayName != "Collection Field" {
+		t.Fatalf("override rows after rejected save: count=%d displayName=%q, want count=1 displayName=%q", count, displayName, "Collection Field")
+	}
+}
+
 // TestSaveAcceptsFreshFingerprint proves the fingerprint returned by a save
 // is exactly what the next save needs to succeed — the normal edit/save/
 // edit/save loop.
@@ -269,13 +394,13 @@ func TestSaveAcceptsFreshFingerprint(t *testing.T) {
 	router := newSaveConflictRouter(pool)
 	fieldID := scLAFieldID(t, pool, "LAF.5")
 
-	getResp := scGet(t, router)
+	getResp := scGet(t, router, scURL)
 	var initial scEditorResponse
 	if err := json.Unmarshal(getResp.Body.Bytes(), &initial); err != nil {
 		t.Fatalf("decode initial GET body: %v", err)
 	}
 
-	firstSave := scPut(t, router, scOneFieldRequest(fieldID, "Name Type", initial.Fingerprint))
+	firstSave := scPut(t, router, scURL, scOneFieldRequest(fieldID, "Name Type", initial.Fingerprint))
 	if firstSave.Code != http.StatusOK {
 		t.Fatalf("first save status = %d, body = %s", firstSave.Code, firstSave.Body.String())
 	}
@@ -286,7 +411,7 @@ func TestSaveAcceptsFreshFingerprint(t *testing.T) {
 
 	// A second save using the fingerprint the FIRST save just returned
 	// must succeed — that's the fresh, round-tripped case.
-	secondSave := scPut(t, router, scOneFieldRequest(fieldID, "Name Type Updated", firstSaveResp.Fingerprint))
+	secondSave := scPut(t, router, scURL, scOneFieldRequest(fieldID, "Name Type Updated", firstSaveResp.Fingerprint))
 	if secondSave.Code != http.StatusOK {
 		t.Fatalf("second (fresh) save status = %d, want 200, body = %s", secondSave.Code, secondSave.Body.String())
 	}
@@ -311,17 +436,17 @@ func TestSaveWithoutFingerprintStillWorks(t *testing.T) {
 
 	// Establish some content first, so the no-fingerprint save is
 	// genuinely overwriting an existing, different pattern.
-	getResp := scGet(t, router)
+	getResp := scGet(t, router, scURL)
 	var initial scEditorResponse
 	if err := json.Unmarshal(getResp.Body.Bytes(), &initial); err != nil {
 		t.Fatalf("decode initial GET body: %v", err)
 	}
-	firstSave := scPut(t, router, scOneFieldRequest(fieldID, "Name Type", initial.Fingerprint))
+	firstSave := scPut(t, router, scURL, scOneFieldRequest(fieldID, "Name Type", initial.Fingerprint))
 	if firstSave.Code != http.StatusOK {
 		t.Fatalf("first save status = %d, body = %s", firstSave.Code, firstSave.Body.String())
 	}
 
-	noFingerprintSave := scPut(t, router, scOneFieldRequest(fieldID, "Name Type No Fingerprint", ""))
+	noFingerprintSave := scPut(t, router, scURL, scOneFieldRequest(fieldID, "Name Type No Fingerprint", ""))
 	if noFingerprintSave.Code != http.StatusOK {
 		t.Fatalf("no-fingerprint save status = %d, want 200, body = %s", noFingerprintSave.Code, noFingerprintSave.Body.String())
 	}
@@ -331,5 +456,59 @@ func TestSaveWithoutFingerprintStillWorks(t *testing.T) {
 	}
 	if noFingerprintResp.Fingerprint == "" {
 		t.Fatal("expected a non-empty fingerprint in the response even though the request carried none")
+	}
+}
+
+// TestSaveOverridesDeniesOutsiderBeforeReachingTheLock is Task 3 fix round
+// 1, finding 6: the previous test router mounted only
+// auth.WithProjectResource and always ran as a superadmin, so no test
+// would have failed if the ownership/edit checks in saveOverrides were
+// ever moved below the lock — exactly the property this task most needs
+// to keep. newSaveConflictRouter now mounts the real production routes
+// (project.Mount), including auth.RequireProjectRead; a caller with no
+// role on a private project must be turned back by that middleware, with
+// a 404 that carries no fingerprint — proving the gate still runs, and
+// runs first.
+func TestSaveOverridesDeniesOutsiderBeforeReachingTheLock(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := context.Background()
+
+	// A dedicated private project + model, rather than reusing LA:
+	// LA's own visibility is fixture data this test shouldn't have to
+	// assume, and a private project with no membership grants for the
+	// outsider guarantees RequireProjectRead denies regardless.
+	projectID := ids.GenerateULID()
+	modelID := ids.GenerateULID()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_projects (id, owner_id, visibility, ui_name) VALUES ($1, 'unite', 'private', $2)`,
+		projectID, []byte(`{"en":"Save Conflict Outsider Probe"}`)); err != nil {
+		t.Fatalf("seed private project: %v", err)
+	}
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM weave_models WHERE id = $1`, modelID)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_projects WHERE id = $1`, projectID)
+	})
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_models (id, project_id) VALUES ($1, $2)`, modelID, projectID); err != nil {
+		t.Fatalf("seed model under private project: %v", err)
+	}
+
+	router := newSaveConflictRouter(pool)
+	url := fmt.Sprintf("/projects/%s/models/%s/overrides", projectID, modelID)
+
+	outsider := weaveauth.WithSnapshot(context.Background(), &weaveauth.AuthSnapshot{ActorID: "outsider-no-roles"})
+	body, err := json.Marshal(scOneFieldRequest("irrelevant-field-id", "Outsider Attempt", ""))
+	if err != nil {
+		t.Fatalf("marshal outsider save body: %v", err)
+	}
+	req := httptest.NewRequestWithContext(outsider, http.MethodPut, url, bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("outsider save status = %d, want 404, body = %s", w.Code, w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("fingerprint")) {
+		t.Fatalf("outsider save response unexpectedly carries a fingerprint: %s", w.Body.String())
 	}
 }

@@ -144,6 +144,24 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fingerprint MUST be read before the content it describes. A save can
+	// commit between two reads on separate connections; whichever comes
+	// second sees the post-save state. Fingerprint-then-content pairs an
+	// OLD hash with NEW content: the next save's staleness check then
+	// compares against content that has already moved on, so it 409s —
+	// a false conflict, harmless, the curator just reloads. The reverse
+	// order (content-then-fingerprint) pairs OLD content with a NEW hash:
+	// the next save's check compares equal against content that already
+	// changed underneath it, and the save proceeds — a silent overwrite,
+	// which is exactly the failure this task exists to close. Do not
+	// "tidy" this back to reading content first.
+	fingerprint, err := h.overrides.EntityFingerprint(ctx, "model", modelID)
+	if err != nil {
+		h.log.Error("compute model override fingerprint", "project_id", projectID, "model_id", modelID, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
+		return
+	}
+
 	view, err := h.weave.ModelView(ctx, modelID, projectID)
 	if err != nil {
 		h.log.Error("build model override editor payload", "project_id", projectID, "model_id", modelID, "err", err)
@@ -153,13 +171,6 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 
 	catSemIDs, collSemIDs := h.semIDMaps(ctx, projectID)
 	availableCats := h.availableCategories(ctx, projectID)
-
-	fingerprint, err := h.overrides.EntityFingerprint(ctx, "model", modelID)
-	if err != nil {
-		h.log.Error("compute model override fingerprint", "project_id", projectID, "model_id", modelID, "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
-		return
-	}
 
 	resp := overrideEditorResponse{
 		EntityType:          "model",
@@ -243,6 +254,17 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 		sourceProjectID = collection.ProjectID
 	}
 
+	// Fingerprint MUST be read before the content it describes — see the
+	// matching comment in ModelOverrides for why the order is asymmetric
+	// (fingerprint-then-content fails safe into a false 409; the reverse
+	// silently loses a concurrent save).
+	fingerprint, err := h.overrides.EntityFingerprint(ctx, "collection", collectionID)
+	if err != nil {
+		h.log.Error("compute collection override fingerprint", "project_id", projectID, "collection_id", collectionID, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
+		return
+	}
+
 	fields, err := h.weave.CollectionView(ctx, collectionID, sourceProjectID)
 	if err != nil {
 		h.log.Error(
@@ -264,13 +286,6 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 			"source_project_id", sourceProjectID,
 			"err", err,
 		)
-		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
-		return
-	}
-
-	fingerprint, err := h.overrides.EntityFingerprint(ctx, "collection", collectionID)
-	if err != nil {
-		h.log.Error("compute collection override fingerprint", "project_id", projectID, "collection_id", collectionID, "err", err)
 		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
 		return
 	}
