@@ -174,3 +174,33 @@ func TestPresenceNilReceiverIsSafe(t *testing.T) {
 		t.Fatalf("Others on nil Presence = %+v, want nil", got)
 	}
 }
+
+// TestPresenceCapsSessionsPerActor pins the bound on the registry. A
+// session id is whatever the client sends, so a client minting a fresh one
+// on every heartbeat would otherwise hold one entry per beat until it
+// expired — and because the sweep walks the whole registry under the one
+// lock, that bloat becomes lock-hold time for every other curator in the
+// process. Requires edit rights, so it is a buggy or noisy client, not an
+// anonymous flood, but the registry should not depend on clients behaving.
+func TestPresenceCapsSessionsPerActor(t *testing.T) {
+	p := NewPresence(time.Minute)
+	start := time.Date(2026, 9, 23, 10, 0, 0, 0, time.UTC)
+
+	for i := 0; i < 50; i++ {
+		p.Beat("model", "M1", "actor-1", fmt.Sprintf("session-%d", i), start.Add(time.Duration(i)*time.Second))
+	}
+
+	if got := p.sessionCount(); got > maxSessionsPerActor {
+		t.Fatalf("session count = %d, want at most %d — a fresh session id per heartbeat grows the registry unbounded", got, maxSessionsPerActor)
+	}
+
+	// The survivors must be the most recent ones: evicting the newest
+	// would drop the tab that is actually open.
+	others := p.Others("model", "M1", "someone-else", start.Add(49*time.Second))
+	if len(others) != 1 {
+		t.Fatalf("others = %+v, want the one actor", others)
+	}
+	if want := start.Add(42 * time.Second); !others[0].Since.Equal(want) {
+		t.Errorf("earliest live session = %s, want %s — the oldest sessions should be the evicted ones", others[0].Since, want)
+	}
+}

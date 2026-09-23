@@ -138,13 +138,23 @@ func TestPresenceViewerGetsEmptyListAndRecordsNothing(t *testing.T) {
 	router := newSaveConflictRouter(pool)
 	url := fmt.Sprintf("/projects/%s/models/%s/overrides/presence", projectID, modelID)
 
+	// A curator must already be editing when the viewer reads, or the
+	// empty list below proves nothing: an empty registry returns an empty
+	// list however broken the gate is. This is the disclosure that matters
+	// — who is editing, under what name, since when.
+	present := editorAuthContextAs("presence-editor-already-here")
+	wPresent := presencePost(t, router, present, url, presenceBody{State: "editing", SessionID: "present-tab"})
+	if wPresent.Code != http.StatusOK {
+		t.Fatalf("seeding editor presence status = %d, want 200, body = %s", wPresent.Code, wPresent.Body.String())
+	}
+
 	viewer := viewerAuthContext("presence-viewer-only")
 	w := presencePost(t, router, viewer, url, presenceBody{State: "editing", SessionID: "viewer-tab"})
 	if w.Code != http.StatusOK {
 		t.Fatalf("viewer presence status = %d, want 200, body = %s", w.Code, w.Body.String())
 	}
 	if got := decodePresenceBody(t, w).Editors; len(got) != 0 {
-		t.Fatalf("viewer presence editors = %+v, want none", got)
+		t.Fatalf("viewer was told who is editing: %+v — a non-editor must learn nothing about other curators", got)
 	}
 
 	editor := editorAuthContextAs("presence-editor-after-viewer")
@@ -152,8 +162,16 @@ func TestPresenceViewerGetsEmptyListAndRecordsNothing(t *testing.T) {
 	if w2.Code != http.StatusOK {
 		t.Fatalf("editor presence status = %d, want 200, body = %s", w2.Code, w2.Body.String())
 	}
-	if got := decodePresenceBody(t, w2).Editors; len(got) != 0 {
-		t.Fatalf("editor saw the viewer in the editors list: %+v — the viewer must not have been recorded", got)
+	// The seeded curator is expected here; the viewer is not, because a
+	// non-editor's heartbeat must never have been recorded.
+	got := decodePresenceBody(t, w2).Editors
+	for _, e := range got {
+		if e.ActorID == "presence-viewer-only" {
+			t.Fatalf("editor saw the viewer in the editors list: %+v — the viewer must not have been recorded", got)
+		}
+	}
+	if len(got) != 1 || got[0].ActorID != "presence-editor-already-here" {
+		t.Fatalf("editor presence editors = %+v, want only the curator seeded above", got)
 	}
 }
 

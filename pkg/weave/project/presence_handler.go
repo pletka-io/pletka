@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -140,7 +141,13 @@ func (h *Handler) overridesPresence(w http.ResponseWriter, r *http.Request, enti
 		return
 	}
 
-	now := h.clock()
+	// A Handler built as a bare struct literal, which several tests in this
+	// package do, has no clock. Fall back rather than panic, the same way
+	// the registry's methods tolerate a nil receiver.
+	now := time.Now()
+	if h.clock != nil {
+		now = h.clock()
+	}
 	h.presence.Beat(entityType, entityID, actorID, req.SessionID, now)
 	others := h.presence.Others(entityType, entityID, actorID, now)
 	editors := make([]overridepkg.Editor, len(others))

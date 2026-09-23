@@ -91,9 +91,32 @@ func (p *Presence) Beat(entityType, entityID, actorID, sessionID string, now tim
 	sess, ok := sessions[sessionID]
 	if !ok {
 		sess.since = now
+		evictOldestSession(sessions, maxSessionsPerActor-1)
 	}
 	sess.lastSeen = now
 	sessions[sessionID] = sess
+}
+
+// maxSessionsPerActor caps how many open sessions one actor keeps for one
+// entity. Nobody edits a pattern in nine tabs; the cap is there because a
+// session id is whatever the client sends, so a client minting a fresh one
+// per heartbeat would otherwise hold an entry per beat until it expired,
+// and the sweep walks the whole registry under the one lock.
+const maxSessionsPerActor = 8
+
+// evictOldestSession drops least-recently-seen sessions until at most keep
+// remain. The caller holds p.mu.
+func evictOldestSession(sessions map[string]presenceSession, keep int) {
+	for len(sessions) > keep {
+		var oldestID string
+		var oldestSeen time.Time
+		for id, sess := range sessions {
+			if oldestID == "" || sess.lastSeen.Before(oldestSeen) {
+				oldestID, oldestSeen = id, sess.lastSeen
+			}
+		}
+		delete(sessions, oldestID)
+	}
 }
 
 // Leave drops one of actorID's sessions for (entityType, entityID). A
