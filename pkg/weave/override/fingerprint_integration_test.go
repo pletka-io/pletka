@@ -138,7 +138,14 @@ func TestWithEntityLockSerialises(t *testing.T) {
 		})
 	}()
 
-	<-started
+	// The holder closes started from inside its callback, so a holder that
+	// fails before it ever runs would leave this blocked until the test
+	// binary's own panic. Take whichever arrives first.
+	select {
+	case <-started:
+	case hErr := <-holderErr:
+		t.Fatalf("holder failed before it took the lock: %v", hErr)
+	}
 	waitStart := time.Now()
 	err := svc.WithEntityLock(ctx, "model", "TSTFPLOCK.1", func(ctx context.Context) error {
 		return nil
@@ -203,5 +210,41 @@ func TestWithAdvisoryLockReleasesOnCancelledContext(t *testing.T) {
 	}
 	if !acquired {
 		t.Fatal("advisory lock still held after WithAdvisoryLock returned on a cancelled ctx — it leaked back into the pool")
+	}
+}
+
+// TestWithAdvisoryLockResetsLockTimeout proves the lock does not leave its
+// 10s lock_timeout on a connection the rest of the app then reuses: an
+// unrelated release tag or git restore drawing that connection would abort
+// on a row lock instead of waiting for it. A one-connection pool makes the
+// reused connection the same one every time.
+func TestWithAdvisoryLockResetsLockTimeout(t *testing.T) {
+	ctx := context.Background()
+	shared := testdb.Pool(t)
+
+	cfg, err := pgxpool.ParseConfig(shared.Config().ConnString())
+	if err != nil {
+		t.Fatalf("parse pool config: %v", err)
+	}
+	cfg.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("open single-conn pool: %v", err)
+	}
+	defer pool.Close()
+
+	store := NewPostgresStore(pool)
+	if lockErr := store.WithAdvisoryLock(ctx, "model:TSTFPRESET.1", func(context.Context) error {
+		return nil
+	}); lockErr != nil {
+		t.Fatalf("WithAdvisoryLock: %v", lockErr)
+	}
+
+	var timeout string
+	if scanErr := pool.QueryRow(ctx, `SHOW lock_timeout`).Scan(&timeout); scanErr != nil {
+		t.Fatalf("show lock_timeout: %v", scanErr)
+	}
+	if timeout != "0" {
+		t.Errorf("lock_timeout left at %q on the recycled connection, want the server default %q", timeout, "0")
 	}
 }

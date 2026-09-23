@@ -341,11 +341,31 @@ func (s *postgresStore) WithAdvisoryLock(ctx context.Context, key string, fn fun
 	if _, execErr := conn.Exec(ctx, setLockTimeout); execErr != nil {
 		return fmt.Errorf("set advisory lock_timeout: %w", execErr)
 	}
+
+	// lock_timeout is session state and the pool does not scrub a connection
+	// on release, so leaving it set would arm a 10s timeout on whatever
+	// unrelated work draws this connection next: a release tag or a git
+	// restore waiting on a row lock would abort instead of waiting. Reset it
+	// on every path out, including the lock-busy one, on a context the
+	// caller's cancellation cannot cut short. This defer is registered
+	// before the unlock defer, so it runs after it.
+	defer func() {
+		resetCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unlockGraceTimeout)
+		defer cancel()
+		if _, resetErr := conn.Exec(resetCtx, `RESET lock_timeout`); resetErr != nil {
+			// A session left with a stale lock_timeout must not be reused.
+			_ = conn.Conn().Close(resetCtx) //nolint:errcheck // best-effort; Release then destroys the resource
+			err = errors.Join(err, fmt.Errorf("reset lock_timeout: %w", resetErr))
+		}
+	}()
 	if _, lockErr := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, key); lockErr != nil {
 		if isLockNotAvailable(lockErr) {
-			return ErrLockBusy
+			// Join rather than wrap the sentinel alone: errors.Is still
+			// matches ErrLockBusy, and an operator staring at a 409 keeps
+			// the entity key and the server's own message.
+			return fmt.Errorf("take advisory lock %q: %w", key, errors.Join(ErrLockBusy, lockErr))
 		}
-		return fmt.Errorf("take advisory lock: %w", lockErr)
+		return fmt.Errorf("take advisory lock %q: %w", key, lockErr)
 	}
 
 	// The unlock must not run on ctx once ctx may already be done: pgx
