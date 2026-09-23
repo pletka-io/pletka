@@ -47,6 +47,12 @@ type Handler struct {
 	// instance, so it lives on the Handler rather than being threaded
 	// through Host — see pkg/weave/override.Presence.
 	presence *overridepkg.Presence
+	// clock resolves "now" for the presence heartbeat. A plain field
+	// rather than a parameter on Presence itself (which already takes
+	// now explicitly on every call) so a test can pin time without
+	// sleeping, without needing to fake anything below the handler.
+	// Defaults to time.Now; never nil after NewHandler.
+	clock func() time.Time
 }
 
 // NewHandler constructs a Handler. nil log → slog.Default; nil lang → "en".
@@ -65,6 +71,7 @@ func NewHandler(svc *Service, overrides *overridepkg.Service, weave domain.Weave
 		languages: languages,
 		lang:      lang,
 		presence:  overridepkg.NewPresence(presenceTTL),
+		clock:     time.Now,
 	}
 }
 
