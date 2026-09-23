@@ -16,6 +16,7 @@
   import { pathElementsToDisplay } from '$lib/utils/ontology-path';
   import { onDestroy, onMount } from 'svelte';
   import { confirmAction } from '$lib/stores/confirm';
+  import { addToast } from '$lib/stores/toast';
   import {
     collectionIDForGroup,
     groupWidgetForCollectionState,
@@ -66,6 +67,15 @@
   let searchRequestId = 0;
   let suggestionRequestId = 0;
   let saving = $state(false);
+  // discarding tracks a "discard my draft and reload" round trip the
+  // same way `saving` tracks a save — Save stays clickable while dirty
+  // is still true during that refetch, and the two can otherwise cross:
+  // a save can land, adopt its new fingerprint, and then an
+  // already-in-flight discard's earlier GET can overwrite the tree with
+  // the pre-save payload while the state still holds the post-save
+  // fingerprint — silently losing what the save just wrote the next time
+  // the curator saves again (fix round 2, item 5).
+  let discarding = $state(false);
   let saveError = $state<string | null>(null);
   // saveConflictKind mirrors the two distinct 409s the save endpoint can
   // return (see override_write.go): a real conflict (someone else's save
@@ -323,10 +333,34 @@
     if (saveConflictKind === 'pattern_changed') {
       return 'Someone saved this pattern while you were editing. Your changes are still here, but saving is blocked until you reload or discard them.';
     }
-    return 'You have unsaved changes from an earlier session, and this pattern may have changed since then. Your changes are still here.';
+    // Deliberately as certain as the pattern_changed copy above, not
+    // softened to "may have changed": staleDraft is only ever set when
+    // the draft's stored fingerprint is missing or differs from what was
+    // live at load time, which means the next save is guaranteed to hit
+    // the same 409 — not merely possible. Keeping the two messages
+    // equally definite also means dismissing a live pattern_changed
+    // conflict (keepEditingMine, below) and falling back to this text
+    // never downgrades what the curator is told: both say saving stays
+    // blocked until they reload or discard.
+    return 'This pattern has changed since your unsaved changes were made. Your changes are still here, but saving is blocked until you reload or discard them.';
   }
 
-  async function discardMineAndReload() {
+  // discardDraftAndReload is the one path that throws a curator's local
+  // draft away — shared by the conflict bar's "Discard my changes and
+  // reload" and the unrelated unsaved-changes banner's "Discard Draft"
+  // (same destruction, same confirmation; see fix round 2, item 2). Both
+  // always ask first via confirmAction, since this is a one-click,
+  // irreversible loss of everything typed.
+  //
+  // editorState.discardDraft() swallows its own fetch failure into
+  // `error` rather than throwing (round 1 fix — so a failed refetch never
+  // clears the draft), but `error` only ever renders in the "failed to
+  // load" screen, which is unreachable once a response already exists —
+  // exactly the state a discard is invoked from. Without surfacing it
+  // here too, a curator on flaky wifi confirms the dialog and sees
+  // nothing at all happen (fix round 2, item 1) — toast it instead, since
+  // toasts outlive this component if the parent unmounts it.
+  async function discardDraftAndReload() {
     const ok = await confirmAction({
       title: 'Discard my changes and reload',
       message: 'This throws away every change you have made since you started editing, and cannot be undone.',
@@ -339,7 +373,15 @@
     clearSaveInProgressTimer();
     dismissedStaleDraft = false;
     saveError = null;
-    await editorState.discardDraft();
+    discarding = true;
+    try {
+      await editorState.discardDraft();
+      if (editorState.error) {
+        addToast('error', `Could not reload: ${editorState.error}. Your changes are still here.`);
+      }
+    } finally {
+      discarding = false;
+    }
   }
 
   function keepEditingMine() {
@@ -957,7 +999,19 @@
         // the new baseline before anything else can trigger another save.
         editorState.fingerprint = fingerprint;
         dismissedStaleDraft = false;
+        const editedWhileSaving = sinceVersion !== editorState.version;
         editorState.markSaved(sinceVersion);
+        if (editedWhileSaving) {
+          // onsuccess() below leaves edit mode and unmounts this whole
+          // component in the same tick, so a component-local flag or
+          // banner saying "your in-flight edit is still unsaved" would
+          // be torn down before it ever painted. A toast survives that
+          // unmount (fix round 2, item 3) — the save went through, but
+          // the draft markSaved just kept dirty above still needs to be
+          // said out loud, or the curator has no reason to reopen the
+          // editor and finish sending it.
+          addToast('info', 'Saved. The changes you made while it was saving are still unsaved.');
+        }
       } else {
         // The write went through (2xx) but the response carried no
         // usable fingerprint — this editor's copy of "what version this
@@ -971,7 +1025,12 @@
         // correctly show as a stale draft once the reload lands).
         editorState.markSaved(sinceVersion);
         await editorState.init();
-        saveError = "Saved, but the server didn't confirm the new version — reloaded to stay in sync.";
+        // Same unmount-before-paint problem as above (fix round 2, item
+        // 4) — a saveError here would flash at best. Toasting it costs
+        // one line; this branch stays otherwise exactly as cheap as
+        // before, since it is unreachable against today's server
+        // (override_write.go always sets a fingerprint on a 2xx).
+        addToast('warning', "Saved, but the server didn't confirm the new version — reloaded to stay in sync.");
       }
       await onsuccess?.();
     } catch (err) {
@@ -991,7 +1050,7 @@
     <button
       type="button"
       class="mt-4 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700"
-      onclick={() => editorState.init()}
+      onclick={() => { saveError = null; void editorState.init(); }}
     >
       Retry
     </button>
@@ -1011,7 +1070,7 @@
           <button
             type="button"
             class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-amber-300 bg-white text-amber-800 hover:bg-amber-100"
-            onclick={discardMineAndReload}
+            onclick={discardDraftAndReload}
           >
             Discard my changes and reload
           </button>
@@ -1098,7 +1157,7 @@
             type="button"
             class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-blue-600 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
             onclick={saveDraft}
-            disabled={!editorState.dirty || saving}
+            disabled={!editorState.dirty || saving || discarding}
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -1125,7 +1184,7 @@
           <button
             type="button"
             class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-amber-300 bg-white text-amber-800 hover:bg-amber-100"
-            onclick={() => void editorState.discardDraft()}
+            onclick={discardDraftAndReload}
           >
             Discard Draft
           </button>
