@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -17,6 +18,12 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	overridepkg "github.com/pletka-io/pletka/pkg/weave/override"
 )
+
+// presenceTTL is how long a heartbeat's Beat is trusted before Presence
+// drops it as stale. The editor beats every 20s (see design doc §4), so
+// 60s tolerates several missed beats before an editor disappears from
+// others' presence line.
+const presenceTTL = 60 * time.Second
 
 // authPrincipalFromContext is a thin wrapper so tests can stub the
 // auth lookup if needed. Today it just calls auth.PrincipalFromContext.
@@ -35,6 +42,11 @@ type Handler struct {
 	log       *slog.Logger
 	languages []formschema.LanguageInfo
 	lang      LangResolver
+	// presence is the in-memory "who else is editing this pattern"
+	// registry backing the overrides presence endpoint. One process per
+	// instance, so it lives on the Handler rather than being threaded
+	// through Host — see pkg/weave/override.Presence.
+	presence *overridepkg.Presence
 }
 
 // NewHandler constructs a Handler. nil log → slog.Default; nil lang → "en".
@@ -45,7 +57,15 @@ func NewHandler(svc *Service, overrides *overridepkg.Service, weave domain.Weave
 	if lang == nil {
 		lang = func(*http.Request) string { return "en" }
 	}
-	return &Handler{svc: svc, overrides: overrides, weave: weave, log: log, languages: languages, lang: lang}
+	return &Handler{
+		svc:       svc,
+		overrides: overrides,
+		weave:     weave,
+		log:       log,
+		languages: languages,
+		lang:      lang,
+		presence:  overridepkg.NewPresence(presenceTTL),
+	}
 }
 
 // ---------------------------------------------------------------------------
