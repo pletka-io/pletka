@@ -73,3 +73,40 @@ func matchOverrides(existing, desired []domain.FieldOverride) overridePlan {
 func overrideKey(o domain.FieldOverride) string {
 	return o.FieldID + "\x00" + o.CategoryID + "\x00" + o.PartOfCollectionID
 }
+
+// stampMatchedIDs writes plan.update[i] onto desired[i].ID wherever
+// matchOverrides claimed an existing row for it, so a caller that resent a
+// kept row without its id (the naive id-less editor payload) carries the
+// real id by the time ComputeDiff runs — reported as Changed, not
+// Removed+Added. Desired rows matchOverrides left unclaimed
+// (plan.update[i]==0) are untouched: a genuinely new row keeps ID==0, and a
+// row whose sent id doesn't match anything keeps that stale id, which
+// ComputeDiff already treats as Added (see its doc comment).
+func stampMatchedIDs(desired []domain.FieldOverride, plan overridePlan) {
+	for i, id := range plan.update {
+		if id != 0 {
+			desired[i].ID = id
+		}
+	}
+}
+
+// addedIndices returns, in order, the indices into desired that
+// ComputeDiff(existing, desired) classifies as Added — mirroring its rule
+// exactly: no id, or an id that names no row in existing. SaveForEntity
+// uses this to splice the ids ReplaceForEntity assigns back onto
+// diff.Added, since diff.Added holds copies taken before the insert ran.
+func addedIndices(existing, desired []domain.FieldOverride) []int {
+	known := make(map[int64]bool, len(existing))
+	for _, e := range existing {
+		if e.ID != 0 {
+			known[e.ID] = true
+		}
+	}
+	var idx []int
+	for i, d := range desired {
+		if d.ID == 0 || !known[d.ID] {
+			idx = append(idx, i)
+		}
+	}
+	return idx
+}
