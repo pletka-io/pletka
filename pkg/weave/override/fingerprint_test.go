@@ -66,7 +66,9 @@ func TestFingerprintCoversRefsAndPlacements(t *testing.T) {
 func TestFingerprintStableAcrossCalls(t *testing.T) {
 	rows := []domain.FieldOverride{fpRow(1, "F1", "C", "", 1), fpRow(2, "F2", "C", "COL", 2)}
 	refs := map[int64][]domain.OverrideRef{2: {{RefType: "collection_model", TargetID: "COL2", Position: 1}}}
-	if Fingerprint(rows, refs, nil) != Fingerprint(rows, refs, nil) {
-		t.Fatal("not deterministic")
+	first := Fingerprint(rows, refs, nil)
+	second := Fingerprint(rows, refs, nil)
+	if first != second {
+		t.Fatalf("not deterministic: %s != %s", first, second)
 	}
 }
