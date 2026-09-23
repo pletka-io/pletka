@@ -386,6 +386,46 @@ func (s *Service) requireProjectWrite(ctx context.Context, projectID string) err
 }
 
 // ---------------------------------------------------------------------------
+// Fingerprint + locking
+// ---------------------------------------------------------------------------
+
+// EntityFingerprint is the fingerprint of the entity's current pattern: its
+// override rows, their value-target refs, and (for a model) its collection
+// placements. A later API/MCP writer calls this directly, so it takes no
+// projectID and performs no permission check — the caller has already
+// authorized the read.
+func (s *Service) EntityFingerprint(ctx context.Context, entityType, entityID string) (string, error) {
+	rows, err := s.store.ListForEntity(ctx, entityType, entityID)
+	if err != nil {
+		return "", fmt.Errorf("load overrides: %w", err)
+	}
+	ids := make([]int64, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+	refs, err := s.store.RefsForOverrides(ctx, ids)
+	if err != nil {
+		return "", err
+	}
+	var placements []domain.CollectionPlacement
+	if entityType == "model" {
+		placements, err = s.store.ListPlacements(ctx, entityID)
+		if err != nil {
+			return "", fmt.Errorf("load placements: %w", err)
+		}
+	}
+	return Fingerprint(rows, refs, placements), nil
+}
+
+// WithEntityLock serialises work on one entity's pattern behind a
+// session-level Postgres advisory lock, so two saves of the same model or
+// collection queue instead of racing. A save spans several service calls,
+// not one transaction, which is why this isn't a plain DB transaction lock.
+func (s *Service) WithEntityLock(ctx context.Context, entityType, entityID string, fn func(context.Context) error) error {
+	return s.store.WithAdvisoryLock(ctx, entityType+":"+entityID, fn)
+}
+
+// ---------------------------------------------------------------------------
 // Collection placements
 // ---------------------------------------------------------------------------
 

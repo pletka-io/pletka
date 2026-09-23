@@ -113,4 +113,17 @@ type Store interface {
 
 	// DeletePlacement removes one placement; missing rows are a no-op.
 	DeletePlacement(ctx context.Context, modelID, categoryID, collectionID string) error
+
+	// --- Fingerprint + locking support ---
+
+	// RefsForOverrides bulk-loads the value-target refs for a set of
+	// override ids, grouped by override id. Used by EntityFingerprint to
+	// hash a whole entity's ref-set in one round trip.
+	RefsForOverrides(ctx context.Context, ids []int64) (map[int64][]domain.OverrideRef, error)
+
+	// WithAdvisoryLock runs fn while holding a session-level Postgres
+	// advisory lock on key, so two saves of the same entity queue instead
+	// of racing. The lock lives on its own pooled connection (not inside a
+	// transaction) because a save spans several service calls.
+	WithAdvisoryLock(ctx context.Context, key string, fn func(context.Context) error) error
 }

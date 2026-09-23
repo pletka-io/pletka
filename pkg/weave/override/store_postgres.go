@@ -274,6 +274,49 @@ func (s *postgresStore) GetRefs(ctx context.Context, overrideID int64) ([]domain
 }
 
 // ---------------------------------------------------------------------------
+// Fingerprint + locking support
+// ---------------------------------------------------------------------------
+
+// RefsForOverrides bulk-loads refs for a set of override ids, grouped by
+// override id. An empty ids returns an empty map without a round trip.
+func (s *postgresStore) RefsForOverrides(ctx context.Context, ids []int64) (map[int64][]domain.OverrideRef, error) {
+	out := map[int64][]domain.OverrideRef{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.queries.WeaveListRefsForOverrides(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list refs for overrides: %w", err)
+	}
+	for _, row := range rows {
+		out[row.OverrideID] = append(out[row.OverrideID], rowToRef(row))
+	}
+	return out, nil
+}
+
+// WithAdvisoryLock runs fn while holding a session-level Postgres advisory
+// lock on key, so two saves of one entity queue instead of racing. The save
+// spans several service calls, so the lock lives on its own pooled
+// connection rather than inside a transaction.
+func (s *postgresStore) WithAdvisoryLock(ctx context.Context, key string, fn func(context.Context) error) error {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire lock conn: %w", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, key); err != nil {
+		return fmt.Errorf("take advisory lock: %w", err)
+	}
+	// The connection is released back to the pool right after, which ends
+	// the session and therefore the lock even if the unlock call itself
+	// fails — there is no logger on this store to report that error to.
+	defer func() {
+		_, _ = conn.Exec(ctx, `SELECT pg_advisory_unlock(hashtext($1))`, key)
+	}()
+	return fn(ctx)
+}
+
+// ---------------------------------------------------------------------------
 // Row converters + sqlc param builders
 // ---------------------------------------------------------------------------
 
