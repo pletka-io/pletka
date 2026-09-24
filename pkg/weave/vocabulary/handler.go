@@ -269,6 +269,57 @@ func (h *Handler) CreateProjectConceptListTerm(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusCreated, item)
 }
 
+type conceptBroaderBody struct {
+	BroaderID string `json:"broader_id"`
+	// Global true = a cross-scheme edge (scheme_id NULL); otherwise the edge is
+	// scoped to the list in the route.
+	Global   bool `json:"global,omitempty"`
+	Position int  `json:"position,omitempty"`
+}
+
+// AddConceptBroader records a broader/narrower edge for a term.
+func (h *Handler) AddConceptBroader(w http.ResponseWriter, r *http.Request) {
+	listID := chi.URLParam(r, "listID")
+	conceptID := chi.URLParam(r, "conceptID")
+	var body conceptBroaderBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		return
+	}
+	edge := domain.ConceptBroaderEdge{ConceptID: conceptID, BroaderID: body.BroaderID, Position: body.Position}
+	if !body.Global {
+		lid := listID
+		edge.SchemeID = &lid
+	}
+	out, err := h.svc.AddBroader(r.Context(), edge)
+	if err != nil {
+		h.writeServiceError(w, "add broader edge failed", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, out)
+}
+
+// ListConceptBroader lists a term's broader concepts.
+func (h *Handler) ListConceptBroader(w http.ResponseWriter, r *http.Request) {
+	conceptID := chi.URLParam(r, "conceptID")
+	edges, err := h.svc.ListBroader(r.Context(), conceptID)
+	if err != nil {
+		h.writeServiceError(w, "list broader edges failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, edges)
+}
+
+// RemoveConceptBroader deletes a broader edge by id.
+func (h *Handler) RemoveConceptBroader(w http.ResponseWriter, r *http.Request) {
+	edgeID := chi.URLParam(r, "edgeID")
+	if err := h.svc.RemoveBroader(r.Context(), edgeID); err != nil {
+		h.writeServiceError(w, "remove broader edge failed", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) UpdateProjectConceptListEntry(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	listID := chi.URLParam(r, "listID")

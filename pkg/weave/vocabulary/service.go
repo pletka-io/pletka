@@ -716,6 +716,67 @@ ORDER BY created_at LIMIT 1
 	return newID, nil
 }
 
+// AddBroader records an editable skos:broader edge between two concepts. A nil
+// SchemeID makes it a global (cross-scheme) edge. Idempotent: a duplicate edge
+// is a no-op.
+func (s *Service) AddBroader(ctx context.Context, edge domain.ConceptBroaderEdge) (domain.ConceptBroaderEdge, error) {
+	if strings.TrimSpace(edge.ConceptID) == "" || strings.TrimSpace(edge.BroaderID) == "" {
+		return edge, &ErrConceptListValidation{Fields: map[string][]string{"broader": {"Concept and broader are required."}}}
+	}
+	if edge.ConceptID == edge.BroaderID {
+		return edge, &ErrConceptListValidation{Fields: map[string][]string{"broader": {"A concept cannot be broader than itself."}}}
+	}
+	if edge.ID == "" {
+		edge.ID = ids.GenerateULID()
+	}
+	if err := s.queries.WeaveAddConceptBroader(ctx, sqlcgen.WeaveAddConceptBroaderParams{
+		ID:        edge.ID,
+		ConceptID: edge.ConceptID,
+		BroaderID: edge.BroaderID,
+		SchemeID:  edge.SchemeID,
+		Position:  int32(edge.Position),
+	}); err != nil {
+		return edge, fmt.Errorf("add broader edge: %w", err)
+	}
+	return edge, nil
+}
+
+// RemoveBroader deletes a broader edge by id.
+func (s *Service) RemoveBroader(ctx context.Context, id string) error {
+	if err := s.queries.WeaveRemoveConceptBroader(ctx, id); err != nil {
+		return fmt.Errorf("remove broader edge: %w", err)
+	}
+	return nil
+}
+
+// ListBroader returns the edges where conceptID is the narrower concept
+// (i.e. its broader concepts).
+func (s *Service) ListBroader(ctx context.Context, conceptID string) ([]domain.ConceptBroaderEdge, error) {
+	rows, err := s.queries.WeaveListConceptBroader(ctx, conceptID)
+	if err != nil {
+		return nil, fmt.Errorf("list broader edges: %w", err)
+	}
+	out := make([]domain.ConceptBroaderEdge, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, domain.ConceptBroaderEdge{ID: r.ID, ConceptID: r.ConceptID, BroaderID: r.BroaderID, SchemeID: r.SchemeID, Position: int(r.Position)})
+	}
+	return out, nil
+}
+
+// ListNarrower returns the edges where conceptID is the broader concept
+// (i.e. its narrower concepts).
+func (s *Service) ListNarrower(ctx context.Context, conceptID string) ([]domain.ConceptBroaderEdge, error) {
+	rows, err := s.queries.WeaveListConceptNarrower(ctx, conceptID)
+	if err != nil {
+		return nil, fmt.Errorf("list narrower edges: %w", err)
+	}
+	out := make([]domain.ConceptBroaderEdge, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, domain.ConceptBroaderEdge{ID: r.ID, ConceptID: r.ConceptID, BroaderID: r.BroaderID, SchemeID: r.SchemeID, Position: int(r.Position)})
+	}
+	return out, nil
+}
+
 func (s *Service) persistSelectedVocabularyEntry(ctx context.Context, list *ConceptListView, uri string) (*VocabularyEntryView, error) {
 	if strings.TrimSpace(uri) == "" {
 		return nil, &ErrConceptListValidation{Fields: map[string][]string{"vocabulary_entry_uri": {"Choose a vocabulary entry."}}}

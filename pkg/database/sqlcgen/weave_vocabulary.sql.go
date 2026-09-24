@@ -18,7 +18,7 @@ INSERT INTO weave_concept_lists (
     list_type, vocabulary_id
 ) VALUES (
     $1, NOW(), NOW(), $2, $3, $4, $5, $6, $7, $8, $9
-) RETURNING id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id
+) RETURNING id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id, is_closed
 `
 
 type WeaveCreateConceptListParams struct {
@@ -58,6 +58,7 @@ func (q *Queries) WeaveCreateConceptList(ctx context.Context, arg WeaveCreateCon
 		&i.ProjectID,
 		&i.ListType,
 		&i.VocabularyID,
+		&i.IsClosed,
 	)
 	return i, err
 }
@@ -227,7 +228,7 @@ func (q *Queries) WeaveDeleteConceptListEntry(ctx context.Context, id string) er
 }
 
 const weaveFindConceptListsByListType = `-- name: WeaveFindConceptListsByListType :many
-SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id FROM weave_concept_lists
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id, is_closed FROM weave_concept_lists
 WHERE list_type = $1
 ORDER BY system_name ASC
 `
@@ -253,6 +254,7 @@ func (q *Queries) WeaveFindConceptListsByListType(ctx context.Context, listType 
 			&i.ProjectID,
 			&i.ListType,
 			&i.VocabularyID,
+			&i.IsClosed,
 		); err != nil {
 			return nil, err
 		}
@@ -295,7 +297,7 @@ func (q *Queries) WeaveFindVocabularyForURI(ctx context.Context, uri string) (We
 }
 
 const weaveGetConceptList = `-- name: WeaveGetConceptList :one
-SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id FROM weave_concept_lists WHERE id = $1
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id, is_closed FROM weave_concept_lists WHERE id = $1
 `
 
 func (q *Queries) WeaveGetConceptList(ctx context.Context, id string) (WeaveConceptList, error) {
@@ -313,12 +315,13 @@ func (q *Queries) WeaveGetConceptList(ctx context.Context, id string) (WeaveConc
 		&i.ProjectID,
 		&i.ListType,
 		&i.VocabularyID,
+		&i.IsClosed,
 	)
 	return i, err
 }
 
 const weaveGetConceptListByIDOrSemanticID = `-- name: WeaveGetConceptListByIDOrSemanticID :one
-SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id FROM weave_concept_lists
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id, is_closed FROM weave_concept_lists
 WHERE id = $1::text
    OR semantic_id = $1::text
 LIMIT 1
@@ -339,6 +342,7 @@ func (q *Queries) WeaveGetConceptListByIDOrSemanticID(ctx context.Context, id st
 		&i.ProjectID,
 		&i.ListType,
 		&i.VocabularyID,
+		&i.IsClosed,
 	)
 	return i, err
 }
@@ -383,7 +387,7 @@ func (q *Queries) WeaveGetConceptListNamesByIDs(ctx context.Context, ids []strin
 }
 
 const weaveGetProjectConceptList = `-- name: WeaveGetProjectConceptList :one
-SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id FROM weave_concept_lists
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id, is_closed FROM weave_concept_lists
 WHERE project_id = $1::text
   AND (id = $2::text OR semantic_id = $2::text)
 `
@@ -408,6 +412,7 @@ func (q *Queries) WeaveGetProjectConceptList(ctx context.Context, arg WeaveGetPr
 		&i.ProjectID,
 		&i.ListType,
 		&i.VocabularyID,
+		&i.IsClosed,
 	)
 	return i, err
 }
@@ -638,7 +643,7 @@ func (q *Queries) WeaveListConceptListEntriesWithVocabulary(ctx context.Context,
 }
 
 const weaveListConceptLists = `-- name: WeaveListConceptLists :many
-SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id FROM weave_concept_lists
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id, is_closed FROM weave_concept_lists
 WHERE project_id = $1
 ORDER BY system_name ASC
 `
@@ -664,6 +669,7 @@ func (q *Queries) WeaveListConceptLists(ctx context.Context, projectID string) (
 			&i.ProjectID,
 			&i.ListType,
 			&i.VocabularyID,
+			&i.IsClosed,
 		); err != nil {
 			return nil, err
 		}

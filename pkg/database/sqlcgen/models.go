@@ -272,6 +272,24 @@ type WeaveCollectionsArchive struct {
 	VersionNumber            string    `json:"version_number"`
 }
 
+type WeaveConceptBroader struct {
+	ID        string    `json:"id"`
+	ConceptID string    `json:"concept_id"`
+	BroaderID string    `json:"broader_id"`
+	SchemeID  *string   `json:"scheme_id"`
+	Position  int32     `json:"position"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type WeaveConceptBroaderArchive struct {
+	ID            string `json:"id"`
+	ConceptID     string `json:"concept_id"`
+	BroaderID     string `json:"broader_id"`
+	SchemeID      string `json:"scheme_id"`
+	Position      int32  `json:"position"`
+	VersionNumber string `json:"version_number"`
+}
+
 type WeaveConceptList struct {
 	ID           string    `json:"id"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -284,6 +302,7 @@ type WeaveConceptList struct {
 	ProjectID    string    `json:"project_id"`
 	ListType     *string   `json:"list_type"`
 	VocabularyID *string   `json:"vocabulary_id"`
+	IsClosed     bool      `json:"is_closed"`
 }
 
 type WeaveConceptListEntriesArchive struct {
@@ -401,6 +420,7 @@ type WeaveExampleValue struct {
 	CreatedAt          time.Time       `json:"created_at"`
 	UpdatedAt          time.Time       `json:"updated_at"`
 	VersionNumber      string          `json:"version_number"`
+	SlotPath           string          `json:"slot_path"`
 }
 
 type WeaveField struct {
