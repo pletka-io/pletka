@@ -55,6 +55,21 @@ type ConceptList struct {
 	Entity
 	ListType     *string `json:"list_type,omitempty"`
 	VocabularyID *string `json:"vocabulary_id,omitempty"`
+	// IsClosed seals the list: its membership is declared complete, so no
+	// terms may be added until it is reopened, and a field bound to it treats
+	// the list as an exhaustive set (validate values, export as an enum).
+	IsClosed bool `json:"is_closed"`
+}
+
+// ConceptBroaderEdge is an editable skos:broader relation between two concepts.
+// SchemeID scopes the edge to one concept list; a nil SchemeID is a global
+// (cross-scheme) edge. Concept and broader are VocabularyEntry IDs.
+type ConceptBroaderEdge struct {
+	ID        string  `json:"id"`
+	ConceptID string  `json:"concept_id"`
+	BroaderID string  `json:"broader_id"`
+	SchemeID  *string `json:"scheme_id,omitempty"`
+	Position  int     `json:"position"`
 }
 
 // ConceptListEntry is the junction between ConceptList and VocabularyEntry.
