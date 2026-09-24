@@ -2,7 +2,7 @@
   import WidgetDispatcher from '$lib/components/form/WidgetDispatcher.svelte';
   import ConceptPicker from '$lib/components/example/ConceptPicker.svelte';
   import type { FieldDef, SelectOption, Translations } from '$lib/types/form-schema';
-  import type { ExampleFormField, ExampleFormGroup, ExampleFormSchema, ExampleFormSection, ExampleIssue } from '$lib/types/example-form-schema';
+  import type { ExampleFormField, ExampleFormGroup, ExampleFormSchema, ExampleFormSection, ExampleIssue, ExampleOccurrence } from '$lib/types/example-form-schema';
   import { tr } from '$lib/types/form-schema';
   import { addToast } from '$lib/stores/toast';
   import { tick } from 'svelte';
@@ -543,9 +543,33 @@
   //
   // Deliberately not shared with fieldFilledCount, which drives the required
   // progress counts in Edit and must keep counting what is in the form.
+  // The server sends an occurrence for every slot the pattern defines, with
+  // an empty payload ({kind: ""}) where nothing is stored — so "the value is
+  // not null" is true even for a slot nobody filled. Stored means the payload
+  // names a kind AND carries content.
+  function occurrenceIsStored(occ: ExampleOccurrence): boolean {
+    const v = occ.value;
+    if (!v || !v.kind) return false;
+    return Boolean(
+      v.string_value?.trim() ||
+        v.date_value?.trim() ||
+        v.uri_value?.trim() ||
+        v.concept_uri?.trim() ||
+        v.example_id?.trim() ||
+        v.target_entity_id?.trim() ||
+        v.target_label?.trim() ||
+        v.number_value != null ||
+        v.bool_value != null,
+    );
+  }
+
+  function fieldStoredCount(field: ExampleFormField): number {
+    if (isContainer(field)) return (field.nested_instances ?? []).filter(groupVisibleInOverview).length;
+    return (field.occurrences ?? []).filter(occurrenceIsStored).length;
+  }
+
   function fieldHasStoredValue(field: ExampleFormField): boolean {
-    if (isContainer(field)) return (field.nested_instances ?? []).some(groupVisibleInOverview);
-    return (field.occurrences ?? []).some((occ) => occ.value != null);
+    return fieldStoredCount(field) > 0;
   }
 
   function fieldHasOverviewContent(field: ExampleFormField): boolean {
@@ -603,6 +627,14 @@
     return order[safeIndex] ?? null;
   }
 
+  // Overview counts what the server stored; Edit counts what is in the form,
+  // where a pre-filled metatype genuinely sits in the box and the required
+  // progress must account for it. Counting editor state in Overview is what
+  // made a section with nothing stored report "4 fields filled" (#3575).
+  function summaryFilledCount(field: ExampleFormField): number {
+    return workspaceMode === 'overview' ? fieldStoredCount(field) : fieldFilledCount(field);
+  }
+
   function sectionSummary(section: ExampleFormSection): SummaryCounts {
     const counts: SummaryCounts = {
       required_total: 0,
@@ -616,7 +648,7 @@
     for (const field of allSectionFields(section)) {
       if (!renderableField(field)) continue;
       const requiredCount = requiredMinimum(field);
-      const filledCount = fieldFilledCount(field);
+      const filledCount = summaryFilledCount(field);
       const fieldIssues = fieldIssueCounts(field);
       if (requiredCount > 0) {
         counts.required_total += 1;
@@ -654,7 +686,7 @@
     for (const field of groupFields(group)) {
       if (!renderableField(field)) continue;
       const requiredCount = requiredMinimum(field);
-      const filledCount = fieldFilledCount(field);
+      const filledCount = summaryFilledCount(field);
       const fieldIssues = fieldIssueCounts(field);
       if (requiredCount > 0) {
         counts.required_total += 1;
