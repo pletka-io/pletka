@@ -24,10 +24,10 @@ import (
 func TestDelete_RemovesOwnPlacementsAndRefs(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	deletePlacementsSeed(t, pool, ctx)
+	seedActAndAssertPlacementDelete(t, pool, ctx)
 }
 
-func deletePlacementsSeed(t *testing.T, pool *pgxpool.Pool, ctx context.Context) {
+func seedActAndAssertPlacementDelete(t *testing.T, pool *pgxpool.Pool, ctx context.Context) {
 	t.Helper()
 	const (
 		actorID   = "TSTDELP_ACTOR"

@@ -94,9 +94,12 @@ func TestUsageZeroAfterOwningModelDeleted(t *testing.T) {
 		t.Fatalf("model_field_count (after) = %d, want 0", afterCount)
 	}
 
-	// The delete preflight now unblocks: the category can be deleted.
+	// The store's Delete is unguarded — the in-use preflight lives in
+	// category.Service.Delete, which this test does not exercise. The
+	// load-bearing assertions above are the guard query and the count the
+	// service consults; this only confirms the row itself goes.
 	if err := catStore.Delete(ctx, projectID, catID); err != nil {
-		t.Fatalf("category Delete: %v (category should now be deletable — usage count is zero)", err)
+		t.Fatalf("category Delete: %v", err)
 	}
 
 	var remaining int
