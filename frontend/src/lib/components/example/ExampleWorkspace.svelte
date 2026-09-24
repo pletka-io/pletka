@@ -534,9 +534,22 @@
     return true;
   }
 
-  function fieldHasOverviewContent(field: ExampleFormField): boolean {
+  // What Overview shows must come from what the server actually stored, not
+  // from the editor state: initValueState seeds a concept field's input with
+  // the placement's set_value so the metatype is pre-filled while you type,
+  // and judging "is this filled?" from that state makes every group with a
+  // fixed value look filled in. A curator who enters only a name then sees
+  // cards under Classification and Event that hold nothing (#3575).
+  //
+  // Deliberately not shared with fieldFilledCount, which drives the required
+  // progress counts in Edit and must keep counting what is in the form.
+  function fieldHasStoredValue(field: ExampleFormField): boolean {
     if (isContainer(field)) return (field.nested_instances ?? []).some(groupVisibleInOverview);
-    return fieldHasAnyValue(field);
+    return (field.occurrences ?? []).some((occ) => occ.value != null);
+  }
+
+  function fieldHasOverviewContent(field: ExampleFormField): boolean {
+    return fieldHasStoredValue(field);
   }
 
   function fieldMatchesSearch(field: ExampleFormField): boolean {
