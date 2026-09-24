@@ -34,14 +34,38 @@ func (q *Queries) WeaveAddConceptBroader(ctx context.Context, arg WeaveAddConcep
 	return err
 }
 
-const weaveListConceptBroader = `-- name: WeaveListConceptBroader :many
+const weaveConceptListEntryExists = `-- name: WeaveConceptListEntryExists :one
+SELECT EXISTS(
+    SELECT 1 FROM weave_concept_list_entries
+    WHERE concept_list_id = $1 AND vocabulary_entry_id = $2
+) AS present
+`
+
+type WeaveConceptListEntryExistsParams struct {
+	ConceptListID     string `json:"concept_list_id"`
+	VocabularyEntryID string `json:"vocabulary_entry_id"`
+}
+
+func (q *Queries) WeaveConceptListEntryExists(ctx context.Context, arg WeaveConceptListEntryExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, weaveConceptListEntryExists, arg.ConceptListID, arg.VocabularyEntryID)
+	var present bool
+	err := row.Scan(&present)
+	return present, err
+}
+
+const weaveListConceptBroaderInScheme = `-- name: WeaveListConceptBroaderInScheme :many
 SELECT id, concept_id, broader_id, scheme_id, position
 FROM weave_concept_broader
-WHERE concept_id = $1
+WHERE concept_id = $1 AND scheme_id = $2
 ORDER BY position, id
 `
 
-type WeaveListConceptBroaderRow struct {
+type WeaveListConceptBroaderInSchemeParams struct {
+	ConceptID string  `json:"concept_id"`
+	SchemeID  *string `json:"scheme_id"`
+}
+
+type WeaveListConceptBroaderInSchemeRow struct {
 	ID        string  `json:"id"`
 	ConceptID string  `json:"concept_id"`
 	BroaderID string  `json:"broader_id"`
@@ -49,15 +73,15 @@ type WeaveListConceptBroaderRow struct {
 	Position  int32   `json:"position"`
 }
 
-func (q *Queries) WeaveListConceptBroader(ctx context.Context, conceptID string) ([]WeaveListConceptBroaderRow, error) {
-	rows, err := q.db.Query(ctx, weaveListConceptBroader, conceptID)
+func (q *Queries) WeaveListConceptBroaderInScheme(ctx context.Context, arg WeaveListConceptBroaderInSchemeParams) ([]WeaveListConceptBroaderInSchemeRow, error) {
+	rows, err := q.db.Query(ctx, weaveListConceptBroaderInScheme, arg.ConceptID, arg.SchemeID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []WeaveListConceptBroaderRow{}
+	items := []WeaveListConceptBroaderInSchemeRow{}
 	for rows.Next() {
-		var i WeaveListConceptBroaderRow
+		var i WeaveListConceptBroaderInSchemeRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ConceptID,
@@ -116,11 +140,35 @@ func (q *Queries) WeaveListConceptNarrower(ctx context.Context, broaderID string
 	return items, nil
 }
 
-const weaveRemoveConceptBroader = `-- name: WeaveRemoveConceptBroader :exec
-DELETE FROM weave_concept_broader WHERE id = $1
+const weaveRemoveConceptBroaderScoped = `-- name: WeaveRemoveConceptBroaderScoped :execrows
+DELETE FROM weave_concept_broader WHERE id = $1 AND concept_id = $2 AND scheme_id = $3
 `
 
-func (q *Queries) WeaveRemoveConceptBroader(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, weaveRemoveConceptBroader, id)
-	return err
+type WeaveRemoveConceptBroaderScopedParams struct {
+	ID        string  `json:"id"`
+	ConceptID string  `json:"concept_id"`
+	SchemeID  *string `json:"scheme_id"`
+}
+
+// Delete is scoped to the concept + scheme (list) so an edge id alone cannot
+// reach across tenants; RowsAffected drives a NotFound response.
+func (q *Queries) WeaveRemoveConceptBroaderScoped(ctx context.Context, arg WeaveRemoveConceptBroaderScopedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, weaveRemoveConceptBroaderScoped, arg.ID, arg.ConceptID, arg.SchemeID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const weaveVocabularyEntryExists = `-- name: WeaveVocabularyEntryExists :one
+SELECT EXISTS(
+    SELECT 1 FROM weave_vocabulary_entries WHERE id = $1
+) AS present
+`
+
+func (q *Queries) WeaveVocabularyEntryExists(ctx context.Context, id string) (bool, error) {
+	row := q.db.QueryRow(ctx, weaveVocabularyEntryExists, id)
+	var present bool
+	err := row.Scan(&present)
+	return present, err
 }

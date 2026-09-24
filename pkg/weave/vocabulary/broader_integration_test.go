@@ -56,13 +56,12 @@ func TestConceptBroader_Integration(t *testing.T) {
 	}
 	child, parent := ids[0], ids[1]
 
-	scheme := "CLH1"
-	edge, err := svc.AddBroader(ctx, domain.ConceptBroaderEdge{ConceptID: child, BroaderID: parent, SchemeID: &scheme})
+	edge, err := svc.AddBroader(ctx, "HIER", "CLH1", domain.ConceptBroaderEdge{ConceptID: child, BroaderID: parent})
 	if err != nil {
 		t.Fatalf("AddBroader: %v", err)
 	}
 
-	broader, err := svc.ListBroader(ctx, child)
+	broader, err := svc.ListBroader(ctx, "HIER", "CLH1", child)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,24 +77,33 @@ func TestConceptBroader_Integration(t *testing.T) {
 	}
 
 	// A self edge is rejected.
-	if _, err := svc.AddBroader(ctx, domain.ConceptBroaderEdge{ConceptID: child, BroaderID: child}); err == nil {
+	if _, err := svc.AddBroader(ctx, "HIER", "CLH1", domain.ConceptBroaderEdge{ConceptID: child, BroaderID: child}); err == nil {
 		t.Fatal("expected self-broader to be rejected")
 	}
 
+	// Cross-tenant / out-of-list is rejected (IDOR guard): the list is not in
+	// project OTHER, and a concept not in the list cannot be targeted.
+	if _, err := svc.ListBroader(ctx, "OTHER", "CLH1", child); err == nil {
+		t.Fatal("expected cross-project ListBroader to be rejected")
+	}
+	if _, err := svc.AddBroader(ctx, "HIER", "CLH1", domain.ConceptBroaderEdge{ConceptID: "NOT-IN-LIST", BroaderID: parent}); err == nil {
+		t.Fatal("expected AddBroader for a term not in the list to be rejected")
+	}
+
 	// Duplicate is a no-op (idempotent).
-	if _, err := svc.AddBroader(ctx, domain.ConceptBroaderEdge{ConceptID: child, BroaderID: parent, SchemeID: &scheme}); err != nil {
+	if _, err := svc.AddBroader(ctx, "HIER", "CLH1", domain.ConceptBroaderEdge{ConceptID: child, BroaderID: parent}); err != nil {
 		t.Fatalf("duplicate AddBroader: %v", err)
 	}
-	again, _ := svc.ListBroader(ctx, child)
+	again, _ := svc.ListBroader(ctx, "HIER", "CLH1", child)
 	if len(again) != 1 {
 		t.Fatalf("duplicate edge created a second row: %d", len(again))
 	}
 
-	// Remove.
-	if err := svc.RemoveBroader(ctx, edge.ID); err != nil {
+	// Remove is scoped; a bogus edge id for this term is a not-found no-op.
+	if err := svc.RemoveBroader(ctx, "HIER", "CLH1", child, edge.ID); err != nil {
 		t.Fatal(err)
 	}
-	empty, _ := svc.ListBroader(ctx, child)
+	empty, _ := svc.ListBroader(ctx, "HIER", "CLH1", child)
 	if len(empty) != 0 {
 		t.Fatalf("edge not removed: %+v", empty)
 	}

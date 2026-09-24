@@ -271,14 +271,13 @@ func (h *Handler) CreateProjectConceptListTerm(w http.ResponseWriter, r *http.Re
 
 type conceptBroaderBody struct {
 	BroaderID string `json:"broader_id"`
-	// Global true = a cross-scheme edge (scheme_id NULL); otherwise the edge is
-	// scoped to the list in the route.
-	Global   bool `json:"global,omitempty"`
-	Position int  `json:"position,omitempty"`
+	Position  int    `json:"position,omitempty"`
 }
 
-// AddConceptBroader records a broader/narrower edge for a term.
+// AddConceptBroader records a broader/narrower edge for a term, scoped to the
+// list in the route (the service enforces project/list ownership).
 func (h *Handler) AddConceptBroader(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
 	listID := chi.URLParam(r, "listID")
 	conceptID := chi.URLParam(r, "conceptID")
 	var body conceptBroaderBody
@@ -287,11 +286,7 @@ func (h *Handler) AddConceptBroader(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	edge := domain.ConceptBroaderEdge{ConceptID: conceptID, BroaderID: body.BroaderID, Position: body.Position}
-	if !body.Global {
-		lid := listID
-		edge.SchemeID = &lid
-	}
-	out, err := h.svc.AddBroader(r.Context(), edge)
+	out, err := h.svc.AddBroader(r.Context(), projectID, listID, edge)
 	if err != nil {
 		h.writeServiceError(w, "add broader edge failed", err)
 		return
@@ -299,10 +294,12 @@ func (h *Handler) AddConceptBroader(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, out)
 }
 
-// ListConceptBroader lists a term's broader concepts.
+// ListConceptBroader lists a term's broader concepts within the list.
 func (h *Handler) ListConceptBroader(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+	listID := chi.URLParam(r, "listID")
 	conceptID := chi.URLParam(r, "conceptID")
-	edges, err := h.svc.ListBroader(r.Context(), conceptID)
+	edges, err := h.svc.ListBroader(r.Context(), projectID, listID, conceptID)
 	if err != nil {
 		h.writeServiceError(w, "list broader edges failed", err)
 		return
@@ -310,10 +307,13 @@ func (h *Handler) ListConceptBroader(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, edges)
 }
 
-// RemoveConceptBroader deletes a broader edge by id.
+// RemoveConceptBroader deletes a broader edge, scoped to project/list/term.
 func (h *Handler) RemoveConceptBroader(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+	listID := chi.URLParam(r, "listID")
+	conceptID := chi.URLParam(r, "conceptID")
 	edgeID := chi.URLParam(r, "edgeID")
-	if err := h.svc.RemoveBroader(r.Context(), edgeID); err != nil {
+	if err := h.svc.RemoveBroader(r.Context(), projectID, listID, conceptID, edgeID); err != nil {
 		h.writeServiceError(w, "remove broader edge failed", err)
 		return
 	}

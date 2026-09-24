@@ -716,16 +716,57 @@ ORDER BY created_at LIMIT 1
 	return newID, nil
 }
 
-// AddBroader records an editable skos:broader edge between two concepts. A nil
-// SchemeID makes it a global (cross-scheme) edge. Idempotent: a duplicate edge
-// is a no-op.
-func (s *Service) AddBroader(ctx context.Context, edge domain.ConceptBroaderEdge) (domain.ConceptBroaderEdge, error) {
+// scopeTerm enforces tenant isolation for hierarchy operations: the list must
+// belong to projectID and conceptID must be an entry of it. Returns the
+// resolved list (its real id) or a not-found error — the same response whether
+// the list/term is missing or belongs to another project, so cross-tenant
+// probing reveals nothing.
+func (s *Service) scopeTerm(ctx context.Context, projectID, listID, conceptID string) (*ConceptListView, error) {
+	list, err := s.GetProjectConceptList(ctx, projectID, listID)
+	if err != nil {
+		return nil, err
+	}
+	if list == nil {
+		return nil, &ErrConceptListNotFound{ID: listID}
+	}
+	present, err := s.queries.WeaveConceptListEntryExists(ctx, sqlcgen.WeaveConceptListEntryExistsParams{
+		ConceptListID:     list.ID,
+		VocabularyEntryID: conceptID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scope term: %w", err)
+	}
+	if !present {
+		return nil, &ErrConceptListNotFound{ID: conceptID}
+	}
+	return list, nil
+}
+
+// AddBroader records an editable skos:broader edge, scoped to the list. The
+// narrower concept must be a term in (projectID, listID); the broader concept
+// must exist (it may be a global/remote term). The edge is always scheme-scoped
+// to the list — cross-scheme global edges are a privileged operation not
+// exposed here. Idempotent: a duplicate edge is a no-op.
+func (s *Service) AddBroader(ctx context.Context, projectID, listID string, edge domain.ConceptBroaderEdge) (domain.ConceptBroaderEdge, error) {
 	if strings.TrimSpace(edge.ConceptID) == "" || strings.TrimSpace(edge.BroaderID) == "" {
 		return edge, &ErrConceptListValidation{Fields: map[string][]string{"broader": {"Concept and broader are required."}}}
 	}
 	if edge.ConceptID == edge.BroaderID {
 		return edge, &ErrConceptListValidation{Fields: map[string][]string{"broader": {"A concept cannot be broader than itself."}}}
 	}
+	list, err := s.scopeTerm(ctx, projectID, listID, edge.ConceptID)
+	if err != nil {
+		return edge, err
+	}
+	broaderExists, err := s.queries.WeaveVocabularyEntryExists(ctx, edge.BroaderID)
+	if err != nil {
+		return edge, fmt.Errorf("check broader concept: %w", err)
+	}
+	if !broaderExists {
+		return edge, &ErrConceptListValidation{Fields: map[string][]string{"broader": {"Broader concept not found."}}}
+	}
+	scheme := list.ID
+	edge.SchemeID = &scheme
 	if edge.ID == "" {
 		edge.ID = ids.GenerateULID()
 	}
@@ -741,18 +782,40 @@ func (s *Service) AddBroader(ctx context.Context, edge domain.ConceptBroaderEdge
 	return edge, nil
 }
 
-// RemoveBroader deletes a broader edge by id.
-func (s *Service) RemoveBroader(ctx context.Context, id string) error {
-	if err := s.queries.WeaveRemoveConceptBroader(ctx, id); err != nil {
+// RemoveBroader deletes a broader edge, scoped to (projectID, listID, conceptID).
+// Returns not-found when nothing matched so an edge id alone cannot delete
+// across tenants, and probing does not confirm edge ids.
+func (s *Service) RemoveBroader(ctx context.Context, projectID, listID, conceptID, edgeID string) error {
+	list, err := s.scopeTerm(ctx, projectID, listID, conceptID)
+	if err != nil {
+		return err
+	}
+	scheme := list.ID
+	n, err := s.queries.WeaveRemoveConceptBroaderScoped(ctx, sqlcgen.WeaveRemoveConceptBroaderScopedParams{
+		ID:        edgeID,
+		ConceptID: conceptID,
+		SchemeID:  &scheme,
+	})
+	if err != nil {
 		return fmt.Errorf("remove broader edge: %w", err)
+	}
+	if n == 0 {
+		return &ErrConceptListNotFound{ID: edgeID}
 	}
 	return nil
 }
 
-// ListBroader returns the edges where conceptID is the narrower concept
-// (i.e. its broader concepts).
-func (s *Service) ListBroader(ctx context.Context, conceptID string) ([]domain.ConceptBroaderEdge, error) {
-	rows, err := s.queries.WeaveListConceptBroader(ctx, conceptID)
+// ListBroader returns a term's broader concepts within (projectID, listID).
+func (s *Service) ListBroader(ctx context.Context, projectID, listID, conceptID string) ([]domain.ConceptBroaderEdge, error) {
+	list, err := s.scopeTerm(ctx, projectID, listID, conceptID)
+	if err != nil {
+		return nil, err
+	}
+	scheme := list.ID
+	rows, err := s.queries.WeaveListConceptBroaderInScheme(ctx, sqlcgen.WeaveListConceptBroaderInSchemeParams{
+		ConceptID: conceptID,
+		SchemeID:  &scheme,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list broader edges: %w", err)
 	}
