@@ -100,8 +100,11 @@ func overrideKey(o domain.FieldOverride) string {
 // unlocked PUT …/overrides routes; tracked in the platform backlog, not
 // addressed here.
 func stampMatchedIDs(desired []domain.FieldOverride, plan overridePlan) {
-	for i, id := range plan.update {
-		if id != 0 {
+	// plan.update is built one entry per desired row, so the lengths agree;
+	// the explicit bound keeps that a local fact rather than a caller's
+	// promise, and lets a static analyzer see it.
+	for i := 0; i < len(plan.update) && i < len(desired); i++ {
+		if id := plan.update[i]; id != 0 {
 			desired[i].ID = id
 		}
 	}

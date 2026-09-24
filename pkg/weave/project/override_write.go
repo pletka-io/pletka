@@ -102,7 +102,7 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 	// including the adoption receipts they leave behind — queue instead
 	// of racing (see design doc, Task 3 fix round 1, finding 3:
 	// ReplaceForContext is delete-all-then-reinsert with no lock of its
-	// own, so it must serialise with the override write it derives from,
+	// own, so it must serialize with the override write it derives from,
 	// not run after the lock is released). Ownership/edit checks already
 	// happened above the lock — WithEntityLock and EntityFingerprint
 	// perform no permission check of their own by design.
@@ -340,7 +340,8 @@ func (h *Handler) writeOverrideError(w http.ResponseWriter, entityType, entityID
 		// teardown failure) got errors.Join'd onto the callback's own
 		// error — log the whole thing so that half isn't silently
 		// dropped, since only apiErr itself reaches the client below.
-		if err != error(apiErr) {
+		var joined interface{ Unwrap() []error }
+		if errors.As(err, &joined) {
 			h.log.Warn("override save: additional error joined onto the typed API response",
 				"entity_type", entityType, "entity_id", entityID, "err", err)
 		}

@@ -127,7 +127,7 @@ type Store interface {
 	// of racing. The lock lives on its own pooled connection (not inside a
 	// transaction) because a save spans several service calls. The wait to
 	// acquire the lock is bounded; a caller that times out gets ErrLockBusy.
-	// An implementation that cannot serialise callers must return an error,
+	// An implementation that cannot serialize callers must return an error,
 	// never a silent no-op.
 	//
 	// The lock is NOT re-entrant: a call must never be nested inside

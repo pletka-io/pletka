@@ -438,7 +438,7 @@ func (s *Service) EntityFingerprint(ctx context.Context, entityType, entityID st
 	return Fingerprint(rows, refs, placements), nil
 }
 
-// WithEntityLock serialises work on one entity's pattern behind a
+// WithEntityLock serializes work on one entity's pattern behind a
 // session-level Postgres advisory lock, so two saves of the same model or
 // collection queue instead of racing. A save spans several service calls,
 // not one transaction, which is why this isn't a plain DB transaction lock.

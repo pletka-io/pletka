@@ -327,7 +327,7 @@ func (s *postgresStore) RefsForOverrides(ctx context.Context, ids []int64) (map[
 // function returning int4: the keyspace is only 2^32, so an unrelated pair
 // of saves can in principle collide and queue behind each other — a
 // slowdown, never a correctness bug, since the lock is only ever a
-// serialisation aid, not an identity check. Session-level advisory locks
+// serialization aid, not an identity check. Session-level advisory locks
 // also require a direct, session-pinned connection: they do not work behind
 // a transaction-pooling pgbouncer, which would hand the "session" to a
 // different backend between statements.
@@ -384,7 +384,7 @@ func (s *postgresStore) WithAdvisoryLock(ctx context.Context, key string, fn fun
 	}
 
 	// The unlock must not run on ctx once ctx may already be done: pgx
-	// short-circuits an already-cancelled ctx (newContextAlreadyDoneError)
+	// short-circuits an already-canceled ctx (newContextAlreadyDoneError)
 	// without ever touching the wire, so the UNLOCK never reaches Postgres,
 	// the session survives, and Release below would hand a connection that
 	// is still holding this lock straight back to the pool. Run the unlock

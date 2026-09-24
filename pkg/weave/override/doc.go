@@ -19,7 +19,7 @@
 //
 // Save flow (driven by pkg/weave/project's saveOverrides):
 //
-//  1. The handler authorises the actor and decodes the payload, the
+//  1. The handler authorizes the actor and decodes the payload, the
 //     commit message, and the fingerprint the editor's last load or save
 //     returned.
 //  2. Everything from the fingerprint check through the adoption sync
@@ -49,7 +49,7 @@
 // no lock on the entity. A client heartbeats while the editor stays open,
 // and the UI surfaces "Alice is also editing this" as information, not
 // enforcement — the owner declined a soft edit-lock (locked-by banner,
-// heartbeat takeover, 409 on lock expiry) in favour of this notify-only
+// heartbeat takeover, 409 on lock expiry) in favor of this notify-only
 // design. The save path's correctness comes entirely from the advisory
 // lock and the fingerprint check above; presence plays no part in it.
 package override

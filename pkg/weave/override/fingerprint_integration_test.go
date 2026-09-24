@@ -209,7 +209,7 @@ func TestWithAdvisoryLockReleasesOnCancelledContext(t *testing.T) {
 		_, _ = rawConn.Exec(verifyCtx, `SELECT pg_advisory_unlock(hashtext($1))`, key)
 	}
 	if !acquired {
-		t.Fatal("advisory lock still held after WithAdvisoryLock returned on a cancelled ctx — it leaked back into the pool")
+		t.Fatal("advisory lock still held after WithAdvisoryLock returned on a canceled ctx — it leaked back into the pool")
 	}
 }
 
