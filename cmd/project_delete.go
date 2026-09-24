@@ -49,7 +49,7 @@ func runProjectDelete(cmd *cobra.Command, args []string) error {
 	defer pool.Close()
 
 	store := project.NewPostgresStore(pool)
-	svc := project.NewService(store, nil, nil, log)
+	svc := project.NewService(store, nil, nil, nil, log)
 
 	existing, err := store.GetByID(ctx, projectID)
 	if err != nil {

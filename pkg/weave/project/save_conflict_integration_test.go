@@ -120,7 +120,7 @@ func newSaveConflictRouterWithPools(pool, overridePool *pgxpool.Pool) http.Handl
 	overrideStore := override.NewPostgresStore(overridePool)
 	overrideSvc := override.NewService(overrideStore, nil, nil)
 	projectStore := project.NewPostgresStore(pool)
-	projectSvc := project.NewService(projectStore, nil, nil, nil)
+	projectSvc := project.NewService(projectStore, nil, nil, nil, nil)
 
 	router := chi.NewRouter()
 	project.Mount(router, project.Host{

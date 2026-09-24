@@ -55,7 +55,7 @@ func TestCanEdit_HonorsOrgInheritedRole(t *testing.T) {
 		t.Fatalf("auth.ProjectResource(project).OrgID = %q, want %q", got, ownerID)
 	}
 
-	svc := NewService(store, nil, nil, nil)
+	svc := NewService(store, nil, nil, nil, nil)
 
 	// A user whose ONLY route to this project is an org-level role — no
 	// "project:<id>" entry. Pre-fix, CanEdit's hand-built resource had an

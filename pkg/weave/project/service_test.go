@@ -48,7 +48,7 @@ func cleanupProject(t *testing.T, pool *pgxpool.Pool, id string) {
 // newService returns a project.Service wired to the given pool. The
 // hierarchy reader is nil — Create doesn't need it.
 func newService(pool *pgxpool.Pool) *project.Service {
-	return project.NewService(project.NewPostgresStore(pool), nil, nil, nil)
+	return project.NewService(project.NewPostgresStore(pool), nil, nil, nil, nil)
 }
 
 func TestService_Create_Success(t *testing.T) {

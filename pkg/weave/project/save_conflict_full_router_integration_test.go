@@ -62,7 +62,7 @@ func newFullSaveConflictRouter(pool *pgxpool.Pool) http.Handler {
 	overrideStore := override.NewPostgresStore(pool)
 	overrideSvc := override.NewService(overrideStore, nil, nil)
 	projectStore := project.NewPostgresStore(pool)
-	projectSvc := project.NewService(projectStore, nil, nil, nil)
+	projectSvc := project.NewService(projectStore, nil, nil, nil, nil)
 
 	projects := weaveStore.Projects()
 	categories := weaveStore.WeaveCategories()
