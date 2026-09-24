@@ -8,13 +8,21 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/vocabconnector"
 )
 
+// defaultTimeout bounds every AAT query. The remote Getty SPARQL endpoint is a
+// third-party service that can be slow or down; authoring must never block on
+// it (#3599), so a query that overruns this deadline is canceled.
+const defaultTimeout = 3 * time.Second
+
 type Config struct {
 	EndpointURL string `json:"endpoint_url,omitempty"`
+	// Timeout bounds a single query; <= 0 falls back to defaultTimeout.
+	Timeout time.Duration `json:"timeout,omitempty"`
 }
 
 type Connector struct {
@@ -26,18 +34,30 @@ func New(cfg Config, client *http.Client) *Connector {
 	if cfg.EndpointURL == "" {
 		cfg.EndpointURL = "https://vocab.getty.edu/sparql"
 	}
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = defaultTimeout
+	}
 	if client == nil {
 		client = http.DefaultClient
 	}
 	return &Connector{cfg: cfg, client: client}
 }
 
+// Search degrades gracefully: a transport error, timeout, or non-2xx status
+// from the remote authority returns empty results with a nil error so
+// autocomplete/authoring never blocks or fails when Getty is unreachable
+// (#3599). Use Fetch for explicit by-URI resolution where an error matters.
 func (c *Connector) Search(ctx context.Context, query string, opts vocabconnector.SearchOpts) ([]vocabconnector.Entry, error) {
 	query = strings.TrimSpace(query)
 	if query == "" && strings.TrimSpace(opts.ParentURI) == "" {
 		return nil, nil
 	}
-	return c.query(ctx, searchQuery(query, opts.Lang, opts.Limit, opts.ParentURI), opts.Lang)
+	entries, err := c.query(ctx, searchQuery(query, opts.Lang, opts.Limit, opts.ParentURI), opts.Lang)
+	if err != nil {
+		//nolint:nilerr // deliberate: a failed/slow remote authority yields no suggestions, never an error (#3599)
+		return nil, nil
+	}
+	return entries, nil
 }
 
 func (c *Connector) Fetch(ctx context.Context, uri string, opts vocabconnector.SearchOpts) (*vocabconnector.Entry, error) {
@@ -56,6 +76,9 @@ func (c *Connector) Fetch(ctx context.Context, uri string, opts vocabconnector.S
 }
 
 func (c *Connector) query(ctx context.Context, sparql, lang string) ([]vocabconnector.Entry, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
+	defer cancel()
+
 	endpoint, err := url.Parse(c.cfg.EndpointURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse AAT endpoint: %w", err)
