@@ -81,15 +81,39 @@ func (m *Materializer) LockProjectForRestore(ctx context.Context, projectID stri
 		return nil, fmt.Errorf("lock project %s for restore: acquire lock conn: %w", projectID, err)
 	}
 
+	// acquired is set true only once the advisory lock itself is actually
+	// held. Registered before the SET lock_timeout / acquisition attempt —
+	// the same ordering the save side's WithAdvisoryLock uses — so it
+	// covers every failure path out of this function, including the
+	// lock-busy one: a failed acquisition still leaves lock_timeout set on
+	// conn, and the pool does not scrub a connection on Release, so
+	// leaving it set would arm a 30s timeout on whatever unrelated work
+	// draws this connection next. Once acquired is true, responsibility
+	// for the reset (and the Release) passes to the returned `release`
+	// closure instead — this defer becomes a no-op, since the lock must
+	// stay held, and the timeout must stay bounded, until the CALLER
+	// releases it, not when this function returns.
+	var acquired bool
+	defer func() {
+		if acquired {
+			return
+		}
+		resetCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), advisorylock.GraceTimeout)
+		defer cancel()
+		if _, resetErr := conn.Exec(resetCtx, `RESET lock_timeout`); resetErr != nil {
+			// A session left with a stale lock_timeout must not be reused.
+			_ = conn.Conn().Close(resetCtx) //nolint:errcheck // best-effort; Release below destroys the resource regardless
+		}
+		conn.Release()
+	}()
+
 	setLockTimeout := fmt.Sprintf(`SET lock_timeout = '%dms'`, restoreProjectLockTimeout.Milliseconds())
 	if _, execErr := conn.Exec(ctx, setLockTimeout); execErr != nil {
-		conn.Release()
 		return nil, fmt.Errorf("lock project %s for restore: set lock_timeout: %w", projectID, execErr)
 	}
 
 	key := advisorylock.ProjectLockKey(projectID)
 	if lockErr := advisorylock.Acquire(ctx, conn, advisorylock.Exclusive, key); lockErr != nil {
-		conn.Release()
 		if errors.Is(lockErr, advisorylock.ErrLockBusy) {
 			// Joins advisorylock.ErrLockBusy (the same value
 			// pkg/weave/override.ErrLockBusy re-exports) onto an
@@ -104,6 +128,7 @@ func (m *Materializer) LockProjectForRestore(ctx context.Context, projectID stri
 		}
 		return nil, fmt.Errorf("lock project %s for restore: take advisory lock %q: %w", projectID, key, lockErr)
 	}
+	acquired = true
 
 	var released bool
 	release = func() error {

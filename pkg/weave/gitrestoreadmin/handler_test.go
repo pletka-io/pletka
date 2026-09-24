@@ -25,7 +25,7 @@ func TestHandlerPreview(t *testing.T) {
 			ModulePath:  "pletka.io/orgs/test-org/projects/TPC",
 			HasLockfile: true,
 		}, nil
-	}), stubRunner{}))
+	}), stubRunner{}, nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/git-restore/preview", bytes.NewBufferString(`{"snapshot_path":"/tmp/snapshot"}`))
 	rec := httptest.NewRecorder()
@@ -45,7 +45,7 @@ func TestHandlerPreview(t *testing.T) {
 }
 
 func TestHandlerPreviewValidation(t *testing.T) {
-	h := NewHandler(nil, NewService(&stubStore{}, nil, stubRunner{}))
+	h := NewHandler(nil, NewService(&stubStore{}, nil, stubRunner{}, nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/git-restore/preview", bytes.NewBufferString(`{"snapshot_path":"   "}`))
 	rec := httptest.NewRecorder()
@@ -60,7 +60,7 @@ func TestHandlerPreviewValidation(t *testing.T) {
 func TestHandlerPreviewError(t *testing.T) {
 	h := NewHandler(nil, NewService(&stubStore{}, previewerFunc(func(rootDir string) (*PreviewResult, error) {
 		return nil, errors.New("load project manifest: file not found")
-	}), stubRunner{}))
+	}), stubRunner{}, nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/git-restore/preview", bytes.NewBufferString(`{"snapshot_path":"/tmp/missing"}`))
 	rec := httptest.NewRecorder()
@@ -76,7 +76,7 @@ func TestHandlerCreateJob(t *testing.T) {
 	store := &stubStore{}
 	h := NewHandler(nil, NewService(store, previewerFunc(func(rootDir string) (*PreviewResult, error) {
 		return &PreviewResult{ProjectID: "TPC"}, nil
-	}), stubRunner{}))
+	}), stubRunner{}, nil))
 	req := httptest.NewRequest(http.MethodPost, "/admin/git-restore/jobs", bytes.NewBufferString(`{"snapshot_path":"/tmp/snapshot","target_project_id":"TPC"}`))
 	req = req.WithContext(weaveauth.WithPrincipal(req.Context(), &weaveauth.Principal{ActorID: "actor-1"}))
 	rec := httptest.NewRecorder()
@@ -95,7 +95,7 @@ func TestHandlerListJobs(t *testing.T) {
 	store := &stubStore{
 		list: []Job{{ID: "job-1", Status: JobStatusPending}},
 	}
-	h := NewHandler(nil, NewService(store, nil, stubRunner{}))
+	h := NewHandler(nil, NewService(store, nil, stubRunner{}, nil))
 	req := httptest.NewRequest(http.MethodGet, "/admin/git-restore/jobs?limit=10", nil)
 	rec := httptest.NewRecorder()
 
@@ -110,7 +110,7 @@ func TestHandlerGetJob(t *testing.T) {
 	store := &stubStore{
 		get: &Job{ID: "job-1", Status: JobStatusPending},
 	}
-	h := NewHandler(nil, NewService(store, nil, stubRunner{}))
+	h := NewHandler(nil, NewService(store, nil, stubRunner{}, nil))
 	req := httptest.NewRequest(http.MethodGet, "/admin/git-restore/jobs/job-1", nil)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("jobID", "job-1")
@@ -130,7 +130,7 @@ func TestHandlerRunJob(t *testing.T) {
 	}
 	h := NewHandler(nil, NewService(store, previewerFunc(func(rootDir string) (*PreviewResult, error) {
 		return &PreviewResult{ProjectID: "TPC"}, nil
-	}), stubRunner{}))
+	}), stubRunner{}, nil))
 	req := httptest.NewRequest(http.MethodPost, "/admin/git-restore/jobs/job-1/run", nil)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("jobID", "job-1")

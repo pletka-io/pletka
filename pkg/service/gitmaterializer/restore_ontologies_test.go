@@ -220,7 +220,15 @@ func TestHydrateRestorePlan(t *testing.T) {
 	t.Run("HydrateRestorePlan calls hydrateVendoredOntologies before other hydrators", func(t *testing.T) {
 		pool := hydrateTestPool(t)
 		snapshot, _ := buildOntologyImportFixture(t, "restore-plan-test-ontology")
-		plan := &RestorePlan{Snapshot: snapshot}
+		// ProjectID set explicitly: buildOntologyImportFixture never sets
+		// snapshot.Manifest.Project.ID (only the vendored ontology's own
+		// manifest), and HydrateRestorePlan now takes this project's
+		// restore lock as its first statement (fix round 2, item 2) — it
+		// needs SOME id to lock on before it ever reaches
+		// hydrateVendoredOntologies, let alone the HydrateProjectShell
+		// failure this test expects afterward. The lock itself is a no-op
+		// here (nothing else contends for this synthetic id).
+		plan := &RestorePlan{ProjectID: "RESTORE_PLAN_TEST_PROJECT", Snapshot: snapshot}
 
 		// Wire a fakeImporter that will record if/when it's called.
 		imp := &fakeImporter{}

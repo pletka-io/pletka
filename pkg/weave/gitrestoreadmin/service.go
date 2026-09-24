@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ type Service struct {
 	store     Store
 	previewer Previewer
 	runner    Runner
+	log       *slog.Logger
 }
 
 type CreateJobInput struct {
@@ -29,12 +31,22 @@ type Runner interface {
 	HydrateEntities(ctx context.Context, plan *gitmaterializer.RestorePlan) error
 	// AcquireProjectLock takes the project's exclusive restore advisory
 	// lock (gitmaterializer's Materializer.LockProjectForRestore) and
-	// returns a release func the caller must call exactly once. Must be
-	// called before HydrateOverrides and held across BOTH HydrateOverrides
-	// and HydrateProvenance — those two take no lock of their own (see
-	// gitmaterializer's restore_lock.go): a per-phase lock let a save
-	// queued behind the overrides phase slip in and run before the
-	// provenance phase started, losing whatever it had just written.
+	// returns a release func the caller must call exactly once (both real
+	// implementations and both test stubs always return a non-nil
+	// closure, but Service.Run nil-checks it anyway before deferring a
+	// call to it — this interface is the package's extension point, and
+	// that contract otherwise lives only in this comment). Must be called
+	// before HydrateVendored — the very first phase, not merely before
+	// HydrateOverrides — and held across every phase through
+	// HydrateProvenance: HydrateVendored/HydrateShell/HydrateEntities are
+	// safe to run unlocked in isolation today only because they're
+	// upsert-only and id-preserving, not because they avoid tables a save
+	// touches, so that safety is not durable enough to lock around only
+	// part of the pipeline. HydrateOverrides and HydrateProvenance take no
+	// lock of their own (see gitmaterializer's restore_lock.go): a
+	// per-phase lock let a save queued behind the overrides phase slip in
+	// and run before the provenance phase started, losing whatever it had
+	// just written.
 	AcquireProjectLock(ctx context.Context, projectID string) (release func() error, err error)
 	HydrateOverrides(ctx context.Context, plan *gitmaterializer.RestorePlan) error
 	HydrateProvenance(ctx context.Context, plan *gitmaterializer.RestorePlan) error
@@ -76,11 +88,17 @@ func (r materializerRunner) HydrateProvenance(ctx context.Context, plan *gitmate
 	return r.mat.HydrateProjectProvenance(ctx, plan)
 }
 
-func NewService(store Store, p Previewer, r Runner) *Service {
+// NewService constructs a Service. p defaults to PreviewSnapshot and log
+// defaults to slog.Default() when nil, matching NewHandler's own
+// nil-tolerant pattern for the same *slog.Logger.
+func NewService(store Store, p Previewer, r Runner, log *slog.Logger) *Service {
 	if p == nil {
 		p = previewerFunc(PreviewSnapshot)
 	}
-	return &Service{store: store, previewer: p, runner: r}
+	if log == nil {
+		log = slog.Default()
+	}
+	return &Service{store: store, previewer: p, runner: r, log: log}
 }
 
 func (s *Service) Create(ctx context.Context, in CreateJobInput) (*Job, error) {
@@ -174,6 +192,25 @@ func (s *Service) Run(ctx context.Context, id string) (*Job, error) {
 		return s.failJob(ctx, job.ID, RestorePhaseValidate, err)
 	}
 
+	// Acquired ONCE, as the very first thing after Prepare — before the
+	// vendored phase's first write, not merely before overrides — and held
+	// across every phase through provenance below (including every
+	// job-state bookkeeping write in between). See Runner.AcquireProjectLock's
+	// doc comment for why the lock now covers the whole pipeline instead
+	// of only overrides+provenance.
+	release, err := s.runner.AcquireProjectLock(ctx, job.TargetProjectID)
+	if err != nil {
+		return s.failJob(ctx, job.ID, RestorePhaseVendored, err)
+	}
+	defer func() {
+		if release == nil {
+			return
+		}
+		if unlockErr := release(); unlockErr != nil {
+			s.log.Warn("git restore: release project lock", "project_id", job.TargetProjectID, "err", unlockErr)
+		}
+	}()
+
 	if _, err := s.store.UpdateState(ctx, job.ID, JobStatusRunning, RestorePhaseVendored, "", nil, nil); err != nil {
 		return nil, err
 	}
@@ -194,16 +231,6 @@ func (s *Service) Run(ctx context.Context, id string) (*Job, error) {
 	if err := s.runner.HydrateEntities(ctx, plan); err != nil {
 		return s.failJob(ctx, job.ID, RestorePhaseEntities, err)
 	}
-
-	// Acquired ONCE, before the overrides phase's first write, and held
-	// across BOTH the overrides and provenance phases below (including the
-	// job-state bookkeeping write in between) — see Runner.AcquireProjectLock's
-	// doc comment for why a per-phase lock isn't safe here.
-	release, err := s.runner.AcquireProjectLock(ctx, job.TargetProjectID)
-	if err != nil {
-		return s.failJob(ctx, job.ID, RestorePhaseOverrides, err)
-	}
-	defer func() { _ = release() }()
 
 	if _, err := s.store.UpdateState(ctx, job.ID, JobStatusRunning, RestorePhaseOverrides, "", nil, nil); err != nil {
 		return nil, err

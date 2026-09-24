@@ -9,9 +9,39 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pletka-io/pletka/pkg/database/advisorylock"
 	"github.com/pletka-io/pletka/pkg/weave/override"
 )
+
+// waitForAdvisoryWaiter polls pg_locks until at least one advisory-lock
+// request is queued (granted = false), or fails the test after a bounded
+// wait. Used in place of a fixed sleep before an assertion that a queued
+// request has NOT been granted: if the sleep turned out shorter than the
+// time the other goroutine actually needed to issue its lock request, the
+// request would simply not exist yet when the assertion runs, and every
+// "still blocked" check after it would pass vacuously — a false pass,
+// which is exactly the direction that matters for a test whose entire
+// point is catching an unprotected seam. Polling for Postgres's own
+// confirmation that a request is queued cannot false-pass that way: it
+// only returns once a real waiter exists.
+func waitForAdvisoryWaiter(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var count int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`).Scan(&count); err != nil {
+			t.Fatalf("poll pg_locks for a waiting advisory lock: %v", err)
+		}
+		if count > 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for a queued advisory lock request to appear in pg_locks")
+}
 
 // minimalRestorePlan returns the smallest RestorePlan HydrateProjectOverrides
 // and HydrateProjectProvenance accept: a non-nil Snapshot with every entity
@@ -29,12 +59,18 @@ func minimalRestorePlan(projectID string) *RestorePlan {
 //
 // It drives LockProjectForRestore, HydrateProjectOverrides, and
 // HydrateProjectProvenance directly, in the exact sequence
-// HydrateProjectOverridesAndProvenance uses internally, so it can assert
+// hydrateProjectOverridesAndProvenanceLocked (and, before it,
+// HydrateProjectOverridesAndProvenance) uses internally, so it can assert
 // — deterministically, not by racing wall-clock timing against a
 // near-instant empty-snapshot restore — that a save queued before the
 // restore starts is still blocked immediately AFTER the overrides phase
 // commits and immediately after the provenance phase commits, and only
-// completes once the OUTER lock is released.
+// completes once the OUTER lock is released. Its precondition — the save's
+// lock request has actually been issued and queued before the first
+// "still blocked" assertion — is confirmed via pg_locks
+// (waitForAdvisoryWaiter), not a fixed sleep: fix round 2 found that a
+// sleep here can false-pass every assertion after it if the save simply
+// hadn't gotten around to requesting its lock yet.
 //
 // This is the property an earlier version of the fix broke: it took a
 // pg_advisory_xact_lock per hydration transaction, which released at that
@@ -76,8 +112,9 @@ func TestSeamNoSaveCanCommitBetweenOverridesAndProvenance(t *testing.T) {
 		})
 	}()
 
-	// Give the save time to actually issue its (now-blocked) lock request.
-	time.Sleep(100 * time.Millisecond)
+	// Wait for Postgres's own confirmation that the save's lock request is
+	// actually queued — not a fixed sleep (see waitForAdvisoryWaiter).
+	waitForAdvisoryWaiter(t, pool)
 	select {
 	case <-saveStarted:
 		t.Fatal("save's callback ran before the overrides phase even started — the restore lock did not block it at all")
@@ -219,6 +256,134 @@ func TestRestoreProjectLockTimesOutWhenSaveHeldTooLong(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "partially restored") {
 		t.Fatalf("error %q does not tell the operator the project may be partially restored", err.Error())
+	}
+
+	if err := <-saveErr; err != nil {
+		t.Fatalf("save: %v", err)
+	}
+}
+
+// TestLockProjectForRestoreResetsLockTimeoutOnBusyFailure proves fix round
+// 2's item 1: a FAILED acquisition (busy) must not leave lock_timeout set
+// on the connection it returns to the pool. An earlier version reset
+// lock_timeout only on the success path (inside the returned release
+// closure), so a busy restore left one connection in the pool carrying
+// restoreProjectLockTimeout (shortened here to 150ms) until it was
+// retired: any later statement drawn on that connection that legitimately
+// waits longer than that for a row lock would abort instead of waiting. A
+// one-connection pool for the Materializer under test makes the reused
+// connection the same one every time, so the leak (or its absence) is
+// directly observable via SHOW lock_timeout.
+func TestLockProjectForRestoreResetsLockTimeoutOnBusyFailure(t *testing.T) {
+	ctx := context.Background()
+	shared := hydrateTestPool(t)
+
+	cfg, err := pgxpool.ParseConfig(shared.Config().ConnString())
+	if err != nil {
+		t.Fatalf("parse pool config: %v", err)
+	}
+	cfg.MaxConns = 1
+	singleConnPool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("open single-conn pool: %v", err)
+	}
+	defer singleConnPool.Close()
+
+	m := NewMaterializer(singleConnPool, t.TempDir(), nil)
+
+	orig := restoreProjectLockTimeout
+	restoreProjectLockTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { restoreProjectLockTimeout = orig })
+
+	const projectID = "TSTLOCKLEAK"
+
+	// Holder: a connection from the SHARED pool (not the single-conn one
+	// under test) takes the project key exclusively for the whole test,
+	// so LockProjectForRestore below is guaranteed to time out busy.
+	holderConn, err := shared.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire holder conn: %v", err)
+	}
+	defer holderConn.Release()
+	key := advisorylock.ProjectLockKey(projectID)
+	if _, err := holderConn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, key); err != nil {
+		t.Fatalf("holder take project lock: %v", err)
+	}
+	defer func() {
+		_, _ = holderConn.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, key)
+	}()
+
+	_, lockErr := m.LockProjectForRestore(ctx, projectID)
+	if lockErr == nil {
+		t.Fatal("expected LockProjectForRestore to fail while the holder held the project lock")
+	}
+	if !errors.Is(lockErr, advisorylock.ErrLockBusy) {
+		t.Fatalf("errors.Is(err, advisorylock.ErrLockBusy) = false, want true; err = %v", lockErr)
+	}
+
+	var timeout string
+	if scanErr := singleConnPool.QueryRow(ctx, `SHOW lock_timeout`).Scan(&timeout); scanErr != nil {
+		t.Fatalf("show lock_timeout: %v", scanErr)
+	}
+	if timeout != "0" {
+		t.Errorf("lock_timeout left at %q on the recycled connection after a busy failure, want the server default %q", timeout, "0")
+	}
+}
+
+// TestHydrateRestorePlanAcquiresLockBeforeAnyPhase proves fix round 2's
+// item 2: the restore lock is acquired unconditionally at the top of the
+// WHOLE pipeline, before ANY phase writes anything — not merely before
+// overrides+provenance.
+//
+// It uses a plan with no Snapshot at all (`&RestorePlan{ProjectID:
+// projectID}`), so the moment any phase from HydrateVendored onward
+// actually runs against it, HydrateProjectShell returns a distinct,
+// unmistakable error: "hydrate project shell: missing snapshot"
+// (HydrateVendored itself tolerates a nil Snapshot as a no-op, so it's
+// HydrateProjectShell, the second phase, that would surface first). If the
+// lock is acquired only later — e.g. reverted to just before
+// overrides+provenance — this test sees THAT error instead of the
+// lock-busy one, because the vendored/shell phases would run to (this)
+// failure before the lock is ever requested.
+func TestHydrateRestorePlanAcquiresLockBeforeAnyPhase(t *testing.T) {
+	pool := hydrateTestPool(t)
+	m := NewMaterializer(pool, t.TempDir(), nil)
+	overrideSvc := override.NewService(override.NewPostgresStore(pool), nil, nil)
+	ctx := context.Background()
+
+	orig := restoreProjectLockTimeout
+	restoreProjectLockTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { restoreProjectLockTimeout = orig })
+
+	const projectID = "TSTTOPLOCK"
+
+	started := make(chan struct{})
+	saveErr := make(chan error, 1)
+	go func() {
+		saveErr <- overrideSvc.WithEntityLock(ctx, projectID, "model", "TSTTOPLOCK.1", func(ctx context.Context) error {
+			close(started)
+			// Held well past the shortened restoreProjectLockTimeout, so
+			// HydrateRestorePlan's own lock wait genuinely times out.
+			time.Sleep(500 * time.Millisecond)
+			return nil
+		})
+	}()
+
+	select {
+	case <-started:
+	case err := <-saveErr:
+		t.Fatalf("save failed before it took its lock: %v", err)
+	}
+
+	err := m.HydrateRestorePlan(ctx, &RestorePlan{ProjectID: projectID})
+	if err == nil {
+		t.Fatal("expected HydrateRestorePlan to fail while the save held the project lock")
+	}
+	if strings.Contains(err.Error(), "missing snapshot") {
+		t.Fatalf("error reached a downstream phase (HydrateProjectShell) before the lock was ever acquired: %v", err)
+	}
+	if !errors.Is(err, advisorylock.ErrLockBusy) {
+		t.Fatalf("errors.Is(err, advisorylock.ErrLockBusy) = false, want true; err = %v", err)
 	}
 
 	if err := <-saveErr; err != nil {
