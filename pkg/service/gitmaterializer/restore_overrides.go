@@ -53,6 +53,15 @@ func (m *Materializer) HydrateProjectOverrides(ctx context.Context, plan *Restor
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Must be the transaction's first statement: it takes the EXCLUSIVE
+	// project lock a save's SHARED lock contends with (see
+	// acquireProjectRestoreLock), so nothing below — starting with the
+	// whole-project clear this function is named for — can interleave
+	// with an in-flight save's writes.
+	if err := acquireProjectRestoreLock(ctx, tx, projectID); err != nil {
+		return fmt.Errorf("hydrate project overrides: %w", err)
+	}
+
 	q := m.queries.WithTx(tx)
 	if err := clearProjectOverrideState(ctx, tx, projectID); err != nil {
 		return err
@@ -86,6 +95,26 @@ func (m *Materializer) HydrateProjectProvenance(ctx context.Context, plan *Resto
 		return fmt.Errorf("hydrate provenance: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Same project lock as HydrateProjectOverrides, first statement of the
+	// transaction. Adoptions specifically need it: a save's adoption sync
+	// (h.weave.Adoptions().ReplaceForContext in
+	// pkg/weave/project/override_write.go) runs INSIDE the same
+	// project-shared/entity-exclusive lock scope as the rest of the save,
+	// scoped delete-then-reinsert per (entityType, entityID) context — the
+	// exact "delete-all-then-reinsert with no lock of its own" shape that
+	// motivated this whole change for overrides. Without this lock, this
+	// function's whole-project clearProjectAdoptionsAndForks could commit
+	// between a save's ReplaceForContext delete and its reinsert (or after
+	// it, undoing a just-written adoption), losing the same way overrides
+	// could. Forks are not written under any lock today — ForkFromSource
+	// (pkg/weave/model and pkg/weave/collection's Service) inserts a fork
+	// row with no advisory lock at all — so taking this lock does not
+	// close a fork race; it only prevents one that does not yet exist. See
+	// the restore-lock report for the full analysis.
+	if err := acquireProjectRestoreLock(ctx, tx, projectID); err != nil {
+		return fmt.Errorf("hydrate provenance: %w", err)
+	}
 
 	if err := clearProjectAdoptionsAndForks(ctx, tx, projectID); err != nil {
 		return err

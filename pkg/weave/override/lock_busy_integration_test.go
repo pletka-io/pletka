@@ -35,7 +35,7 @@ func TestWithEntityLockReturnsRealErrLockBusy(t *testing.T) {
 	holderErr := make(chan error, 1)
 	started := make(chan struct{})
 	go func() {
-		holderErr <- svc.WithEntityLock(ctx, "model", "TSTLOCKBUSY.1", func(ctx context.Context) error {
+		holderErr <- svc.WithEntityLock(ctx, "TSTLOCKBUSY", "model", "TSTLOCKBUSY.1", func(ctx context.Context) error {
 			close(started)
 			// Held well past the shortened lockTimeout, so the waiter
 			// below genuinely times out instead of merely queueing.
@@ -54,7 +54,7 @@ func TestWithEntityLockReturnsRealErrLockBusy(t *testing.T) {
 		t.Fatalf("holder failed before it took the lock: %v", hErr)
 	}
 
-	err := svc.WithEntityLock(ctx, "model", "TSTLOCKBUSY.1", func(ctx context.Context) error {
+	err := svc.WithEntityLock(ctx, "TSTLOCKBUSY", "model", "TSTLOCKBUSY.1", func(ctx context.Context) error {
 		t.Fatal("waiter's callback ran — the lock should still have been held")
 		return nil
 	})

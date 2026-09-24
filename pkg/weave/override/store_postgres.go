@@ -317,21 +317,40 @@ func (s *postgresStore) RefsForOverrides(ctx context.Context, ids []int64) (map[
 	return out, nil
 }
 
-// WithAdvisoryLock runs fn while holding a session-level Postgres advisory
-// lock on key, so two saves of one entity queue instead of racing. The save
-// spans several service calls, so the lock lives on its own pooled
-// connection rather than inside a transaction, not `pg_advisory_xact_lock`.
+// projectLockSQL, projectUnlockSQL, entityLockSQL, and entityUnlockSQL are
+// the advisory-lock statements WithAdvisoryLock takes in order (project
+// SHARED, then entity EXCLUSIVE) and releases in reverse order. All four
+// take hashtext($1) rather than $1 directly (see WithAdvisoryLock's doc
+// comment on the 2^32 keyspace), and all four share the same lock table
+// regardless of which pair a given key is taken with — the flavor
+// (shared/exclusive, session/xact) comes from which function is called, not
+// from a different keyspace.
+const (
+	projectLockSQL   = `SELECT pg_advisory_lock_shared(hashtext($1))`
+	projectUnlockSQL = `SELECT pg_advisory_unlock_shared(hashtext($1))`
+	entityLockSQL    = `SELECT pg_advisory_lock(hashtext($1))`
+	entityUnlockSQL  = `SELECT pg_advisory_unlock(hashtext($1))`
+)
+
+// WithAdvisoryLock runs fn while holding, on one pooled connection, a
+// session-level Postgres advisory lock SHARED on ProjectLockKey(projectID)
+// and then a session-level advisory lock EXCLUSIVE on key, in that order —
+// so two saves of one entity queue instead of racing, while two saves of
+// different entities in the same project still run concurrently (both only
+// take the project lock SHARED). The save spans several service calls, so
+// the locks live on their own pooled connection rather than inside a
+// transaction, not `pg_advisory_xact_lock`.
 //
-// key is hashed server-side with hashtext (so the same key hashes
+// Both keys are hashed server-side with hashtext (so the same key hashes
 // identically across processes and Go versions), an undocumented internal
 // function returning int4: the keyspace is only 2^32, so an unrelated pair
-// of saves can in principle collide and queue behind each other — a
-// slowdown, never a correctness bug, since the lock is only ever a
-// serialization aid, not an identity check. Session-level advisory locks
-// also require a direct, session-pinned connection: they do not work behind
-// a transaction-pooling pgbouncer, which would hand the "session" to a
-// different backend between statements.
-func (s *postgresStore) WithAdvisoryLock(ctx context.Context, key string, fn func(context.Context) error) (err error) {
+// of saves — or a save and an unrelated restore — can in principle collide
+// and queue behind each other — a slowdown, never a correctness bug, since
+// the lock is only ever a serialization aid, not an identity check.
+// Session-level advisory locks also require a direct, session-pinned
+// connection: they do not work behind a transaction-pooling pgbouncer,
+// which would hand the "session" to a different backend between statements.
+func (s *postgresStore) WithAdvisoryLock(ctx context.Context, projectID, key string, fn func(context.Context) error) (err error) {
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire lock conn: %w", err)
@@ -346,12 +365,12 @@ func (s *postgresStore) WithAdvisoryLock(ctx context.Context, key string, fn fun
 		return fmt.Errorf("set advisory lock_timeout: %w", execErr)
 	}
 
-	// connClosed is set by the unlock defer below when it closes conn
-	// itself. This defer is registered before the unlock defer, so it runs
-	// after it (LIFO) — checking connClosed here lets it skip the reset
-	// instead of running RESET lock_timeout on a connection the unlock
-	// defer already closed, which would only fail again and join a second,
-	// redundant error onto err describing the same underlying failure.
+	// connClosed is set by an unlock defer below when it closes conn
+	// itself. Every defer registered after this point checks connClosed
+	// first (LIFO means they run in reverse of this registration order),
+	// so once one teardown step has destroyed the connection, the rest
+	// skip their own guaranteed-to-fail-again attempt instead of piling a
+	// second copy of the same underlying failure onto err.
 	var connClosed bool
 
 	// lock_timeout is session state and the pool does not scrub a connection
@@ -360,7 +379,8 @@ func (s *postgresStore) WithAdvisoryLock(ctx context.Context, key string, fn fun
 	// restore waiting on a row lock would abort instead of waiting. Reset it
 	// on every path out, including the lock-busy one, on a context the
 	// caller's cancellation cannot cut short. This defer is registered
-	// before the unlock defer, so it runs after it.
+	// before either unlock defer, so it runs last (LIFO), after both locks
+	// have been released.
 	defer func() {
 		if connClosed {
 			return
@@ -373,44 +393,86 @@ func (s *postgresStore) WithAdvisoryLock(ctx context.Context, key string, fn fun
 			err = errors.Join(err, fmt.Errorf("reset lock_timeout: %w", resetErr))
 		}
 	}()
-	if _, lockErr := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, key); lockErr != nil {
-		if isLockNotAvailable(lockErr) {
-			// Join rather than wrap the sentinel alone: errors.Is still
-			// matches ErrLockBusy, and an operator staring at a 409 keeps
-			// the entity key and the server's own message.
-			return fmt.Errorf("take advisory lock %q: %w", key, errors.Join(ErrLockBusy, lockErr))
-		}
-		return fmt.Errorf("take advisory lock %q: %w", key, lockErr)
+
+	projectKey := ProjectLockKey(projectID)
+	if lockErr := acquireAdvisoryLock(ctx, conn, projectLockSQL, projectKey); lockErr != nil {
+		return fmt.Errorf("take project advisory lock %q: %w", projectKey, lockErr)
 	}
-
-	// The unlock must not run on ctx once ctx may already be done: pgx
-	// short-circuits an already-canceled ctx (newContextAlreadyDoneError)
-	// without ever touching the wire, so the UNLOCK never reaches Postgres,
-	// the session survives, and Release below would hand a connection that
-	// is still holding this lock straight back to the pool. Run the unlock
-	// on a context that ignores the caller's cancellation, bounded by its
-	// own short timeout instead, so it always gets a real chance to reach
-	// the server; if it still fails (or reports the lock wasn't held), the
-	// connection must not go back to the pool holding the lock, so close it
-	// — Release then destroys the resource instead of recycling it.
+	// Registered right after the project lock is taken, so on LIFO
+	// teardown it runs AFTER the entity-unlock defer below (registered
+	// later, once the entity lock is taken): the entity lock releases
+	// first, then the project lock — the mirror image of the
+	// project-then-entity acquisition order above.
 	defer func() {
-		unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unlockGraceTimeout)
-		defer cancel()
-
-		var released bool
-		unlockErr := conn.QueryRow(unlockCtx, `SELECT pg_advisory_unlock(hashtext($1))`, key).Scan(&released)
-		if unlockErr == nil && released {
+		if connClosed {
 			return
 		}
-		if unlockErr == nil {
-			unlockErr = fmt.Errorf("advisory lock %q was not held by this session at unlock", key)
+		if unlockErr := releaseAdvisoryLock(ctx, conn, projectUnlockSQL, projectKey); unlockErr != nil {
+			connClosed = true
+			err = errors.Join(err, fmt.Errorf("release project advisory lock: %w", unlockErr))
 		}
-		_ = conn.Conn().Close(unlockCtx) //nolint:errcheck // best-effort; Release below destroys the resource regardless
-		connClosed = true
-		err = errors.Join(err, fmt.Errorf("release advisory lock: %w", unlockErr))
+	}()
+
+	if lockErr := acquireAdvisoryLock(ctx, conn, entityLockSQL, key); lockErr != nil {
+		return fmt.Errorf("take advisory lock %q: %w", key, lockErr)
+	}
+	defer func() {
+		if connClosed {
+			return
+		}
+		if unlockErr := releaseAdvisoryLock(ctx, conn, entityUnlockSQL, key); unlockErr != nil {
+			connClosed = true
+			err = errors.Join(err, fmt.Errorf("release advisory lock: %w", unlockErr))
+		}
 	}()
 
 	return fn(ctx)
+}
+
+// acquireAdvisoryLock runs lockSQL (always a package constant, never caller
+// input — one of projectLockSQL/entityLockSQL) on conn with key, translating
+// a lock_timeout expiry (SQLSTATE 55P03) into ErrLockBusy.
+func acquireAdvisoryLock(ctx context.Context, conn *pgxpool.Conn, lockSQL, key string) error {
+	if _, lockErr := conn.Exec(ctx, lockSQL, key); lockErr != nil {
+		if isLockNotAvailable(lockErr) {
+			// Join rather than wrap the sentinel alone: errors.Is still
+			// matches ErrLockBusy, and an operator staring at a 409 keeps
+			// the key and the server's own message.
+			return errors.Join(ErrLockBusy, lockErr)
+		}
+		return lockErr
+	}
+	return nil
+}
+
+// releaseAdvisoryLock runs unlockSQL (always a package constant, never
+// caller input — one of projectUnlockSQL/entityUnlockSQL) on conn with key.
+//
+// The unlock must not run on ctx once ctx may already be done: pgx
+// short-circuits an already-canceled ctx (newContextAlreadyDoneError)
+// without ever touching the wire, so the UNLOCK never reaches Postgres,
+// the session survives, and Release below would hand a connection that
+// is still holding this lock straight back to the pool. Run the unlock
+// on a context that ignores the caller's cancellation, bounded by its
+// own short timeout instead, so it always gets a real chance to reach
+// the server; if it still fails (or reports the lock wasn't held), the
+// connection must not go back to the pool holding the lock, so close it
+// — the caller's Release then destroys the resource instead of recycling
+// it. A non-nil return means the caller must treat conn as already closed.
+func releaseAdvisoryLock(ctx context.Context, conn *pgxpool.Conn, unlockSQL, key string) error {
+	unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unlockGraceTimeout)
+	defer cancel()
+
+	var released bool
+	unlockErr := conn.QueryRow(unlockCtx, unlockSQL, key).Scan(&released)
+	if unlockErr == nil && released {
+		return nil
+	}
+	if unlockErr == nil {
+		unlockErr = fmt.Errorf("advisory lock %q was not held by this session at unlock", key)
+	}
+	_ = conn.Conn().Close(unlockCtx) //nolint:errcheck // best-effort; Release below destroys the resource regardless
+	return unlockErr
 }
 
 // isLockNotAvailable reports whether err is Postgres aborting a lock wait

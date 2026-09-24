@@ -23,9 +23,18 @@
 //     commit message, and the fingerprint the editor's last load or save
 //     returned.
 //  2. Everything from the fingerprint check through the adoption sync
-//     runs inside WithEntityLock — a session-level Postgres advisory
-//     lock keyed on (entityType, entityID) — so two saves of the same
-//     pattern queue instead of racing.
+//     runs inside WithEntityLock — session-level Postgres advisory locks,
+//     first SHARED on the project (keyed on projectID, see
+//     override.ProjectLockKey) and then EXCLUSIVE on the entity (keyed on
+//     entityType+":"+entityID), both on the same connection — so two
+//     saves of the same pattern queue instead of racing, while two saves
+//     of different entities in one project still run concurrently. git
+//     restore (pkg/service/gitmaterializer) takes the same project key
+//     EXCLUSIVE, transaction-scoped, for its whole-project
+//     clear-then-reinsert, so it cannot interleave with a save even
+//     though it never touches an entity lock — see
+//     Store.WithAdvisoryLock's doc comment for the full ordering rule and
+//     why the two lock users can't deadlock.
 //  3. A non-empty fingerprint is compared against EntityFingerprint's
 //     current value; a mismatch refuses the save with 409 before
 //     anything is written, so a stale draft loses cleanly instead of

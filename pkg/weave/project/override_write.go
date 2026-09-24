@@ -129,7 +129,7 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 	var newFingerprint string
 	var callbackErr error
 	var callbackRan bool
-	lockErr := h.overrides.WithEntityLock(ctx, entityType, entityID, func(ctx context.Context) error {
+	lockErr := h.overrides.WithEntityLock(ctx, projectID, entityType, entityID, func(ctx context.Context) error {
 		callbackRan = true
 		callbackErr = func() error {
 			if req.Fingerprint != "" {
