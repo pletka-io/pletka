@@ -71,6 +71,9 @@ func (m *Materializer) hydrateVendoredProjects(ctx context.Context, plan *Restor
 	// depth-2+ guard below still compares against the ORIGINAL target, not
 	// whichever vendored parent a deeper recursion level happens to be
 	// processing.
+	if plan == nil {
+		return nil
+	}
 	lockedProjectID := strings.TrimSpace(plan.ProjectID)
 	return m.hydrateVendoredProjectsAtDepth(ctx, plan, 0, lockedProjectID)
 }

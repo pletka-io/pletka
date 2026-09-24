@@ -200,7 +200,12 @@ func (s *Service) Run(ctx context.Context, id string) (*Job, error) {
 	// of only overrides+provenance.
 	release, err := s.runner.AcquireProjectLock(ctx, job.TargetProjectID)
 	if err != nil {
-		return s.failJob(ctx, job.ID, RestorePhaseVendored, err)
+		// Validate, not Vendored: the lock is taken before any phase runs,
+		// so nothing has been written. Recording this as a vendored-phase
+		// failure would tell an operator reading the job history that
+		// vendored dependencies were partially applied, which is the
+		// opposite of what happened.
+		return s.failJob(ctx, job.ID, RestorePhaseValidate, err)
 	}
 	defer func() {
 		if release == nil {

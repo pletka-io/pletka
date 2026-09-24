@@ -26,13 +26,26 @@ import (
 // point is catching an unprotected seam. Polling for Postgres's own
 // confirmation that a request is queued cannot false-pass that way: it
 // only returns once a real waiter exists.
-func waitForAdvisoryWaiter(t *testing.T, pool *pgxpool.Pool) {
+func waitForAdvisoryWaiter(t *testing.T, pool *pgxpool.Pool, lockKey string) {
 	t.Helper()
 	ctx := context.Background()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		var count int
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`).Scan(&count); err != nil {
+		// pg_locks is cluster-wide, and internal/testdb deliberately shares
+		// one Postgres across parallel package binaries, several of which
+		// queue advisory waiters of their own. Without the database and key
+		// filters this returns another package's waiter — often before this
+		// test's own goroutine has even been scheduled — and every later
+		// "still blocked" assertion then passes vacuously, which is the
+		// false pass this poll replaced a sleep to avoid.
+		const q = `
+			SELECT count(*) FROM pg_locks
+			WHERE locktype = 'advisory'
+			  AND NOT granted
+			  AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+			  AND ((classid::bigint << 32) | (objid::bigint & 4294967295)) = hashtext($1)::bigint`
+		if err := pool.QueryRow(ctx, q, lockKey).Scan(&count); err != nil {
 			t.Fatalf("poll pg_locks for a waiting advisory lock: %v", err)
 		}
 		if count > 0 {
@@ -114,7 +127,7 @@ func TestSeamNoSaveCanCommitBetweenOverridesAndProvenance(t *testing.T) {
 
 	// Wait for Postgres's own confirmation that the save's lock request is
 	// actually queued — not a fixed sleep (see waitForAdvisoryWaiter).
-	waitForAdvisoryWaiter(t, pool)
+	waitForAdvisoryWaiter(t, pool, advisorylock.ProjectLockKey(projectID))
 	select {
 	case <-saveStarted:
 		t.Fatal("save's callback ran before the overrides phase even started — the restore lock did not block it at all")
