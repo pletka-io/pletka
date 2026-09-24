@@ -64,6 +64,7 @@ type conceptListEntryReorderBody struct {
 	EntryIDs []string `json:"entry_ids"`
 }
 
+// NewHandler builds the vocabulary HTTP handler.
 func NewHandler(svc *Service, projects auth.ProjectReader, logger *slog.Logger, languages []formschema.LanguageInfo, lang LangResolver) *Handler {
 	if logger == nil {
 		logger = slog.Default()

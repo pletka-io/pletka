@@ -24,6 +24,9 @@ import (
 
 const defaultSearchLimit = 50
 
+// conceptBroaderField is the validation-error field key for broader/narrower edits.
+const conceptBroaderField = "broader"
+
 type Service struct {
 	pool     *pgxpool.Pool
 	queries  *sqlcgen.Queries
@@ -160,6 +163,7 @@ type ErrConceptListSealed struct{ ID string }
 
 func (e *ErrConceptListSealed) Error() string { return fmt.Sprintf("concept list %q is sealed", e.ID) }
 
+// ConflictMessage implements apierror.Conflicter (maps to HTTP 409).
 func (e *ErrConceptListSealed) ConflictMessage() string {
 	return "This list is marked complete; unmark it to add terms."
 }
@@ -748,7 +752,7 @@ ORDER BY created_at LIMIT 1
 		SystemName:    &sysName,
 		UiName:        marshalJSON(domain.Translations{"en": "Local terms"}),
 		Description:   marshalJSON(domain.Translations{}),
-		Status:        "published",
+		Status:        string(domain.StatusPublished),
 		ProjectID:     &projectID,
 		ConnectorType: "local",
 		BaseUri:       &baseURI,
@@ -792,10 +796,10 @@ func (s *Service) scopeTerm(ctx context.Context, projectID, listID, conceptID st
 // exposed here. Idempotent: a duplicate edge is a no-op.
 func (s *Service) AddBroader(ctx context.Context, projectID, listID string, edge domain.ConceptBroaderEdge) (domain.ConceptBroaderEdge, error) {
 	if strings.TrimSpace(edge.ConceptID) == "" || strings.TrimSpace(edge.BroaderID) == "" {
-		return edge, &ErrConceptListValidation{Fields: map[string][]string{"broader": {"Concept and broader are required."}}}
+		return edge, &ErrConceptListValidation{Fields: map[string][]string{conceptBroaderField: {"Concept and broader are required."}}}
 	}
 	if edge.ConceptID == edge.BroaderID {
-		return edge, &ErrConceptListValidation{Fields: map[string][]string{"broader": {"A concept cannot be broader than itself."}}}
+		return edge, &ErrConceptListValidation{Fields: map[string][]string{conceptBroaderField: {"A concept cannot be broader than itself."}}}
 	}
 	list, err := s.scopeTerm(ctx, projectID, listID, edge.ConceptID)
 	if err != nil {
@@ -806,7 +810,7 @@ func (s *Service) AddBroader(ctx context.Context, projectID, listID string, edge
 		return edge, fmt.Errorf("check broader concept: %w", err)
 	}
 	if !broaderExists {
-		return edge, &ErrConceptListValidation{Fields: map[string][]string{"broader": {"Broader concept not found."}}}
+		return edge, &ErrConceptListValidation{Fields: map[string][]string{conceptBroaderField: {"Broader concept not found."}}}
 	}
 	scheme := list.ID
 	edge.SchemeID = &scheme
@@ -818,7 +822,7 @@ func (s *Service) AddBroader(ctx context.Context, projectID, listID string, edge
 		ConceptID: edge.ConceptID,
 		BroaderID: edge.BroaderID,
 		SchemeID:  edge.SchemeID,
-		Position:  int32(edge.Position),
+		Position:  int32(edge.Position), //nolint:gosec // position is a small non-negative list index
 	}); err != nil {
 		return edge, fmt.Errorf("add broader edge: %w", err)
 	}
