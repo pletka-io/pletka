@@ -43,6 +43,7 @@ func weaveRowToConceptList(row sqlcgen.WeaveConceptList) *domain.ConceptList {
 		},
 		ListType:     row.ListType,
 		VocabularyID: row.VocabularyID,
+		IsClosed:     row.IsClosed,
 	}
 }
 
