@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pletka-io/pletka/pkg/database/advisorylock"
 	"github.com/pletka-io/pletka/pkg/weave/override"
 )
 
@@ -22,73 +23,158 @@ func minimalRestorePlan(projectID string) *RestorePlan {
 	return &RestorePlan{ProjectID: projectID, Snapshot: &ProjectSnapshot{}}
 }
 
-// TestHydrateFunctionsBlockOnInFlightSaveThenComplete proves scope item 3
-// of the restore-lock design: HydrateProjectOverrides and
-// HydrateProjectProvenance both take the project lock as the first
-// statement of their transaction, so each blocks while a save
-// (override.Service.WithEntityLock) holds the SAME project key SHARED for
-// the same project, and completes once the save releases it — instead of
-// racing its whole-project clear-then-reinsert against the save's writes.
+// TestSeamNoSaveCanCommitBetweenOverridesAndProvenance is the seam test
+// fix round 1 requires (item 1): a save must NOT be able to commit between
+// the overrides phase and the provenance phase.
 //
-// HydrateProjectProvenance is covered here, not just HydrateProjectOverrides:
-// a save's adoption sync (h.weave.Adoptions().ReplaceForContext, called from
-// pkg/weave/project/override_write.go's saveOverrides) runs inside the same
-// entity-lock scope as the rest of the save, and clearProjectAdoptionsAndForks
-// clears the same weave_adoptions table that sync writes to — the identical
-// race the overrides side has, just one table over. See restore-lock-report.md
-// for the full analysis, including why forks are NOT covered by this lock.
-func TestHydrateFunctionsBlockOnInFlightSaveThenComplete(t *testing.T) {
+// It drives LockProjectForRestore, HydrateProjectOverrides, and
+// HydrateProjectProvenance directly, in the exact sequence
+// HydrateProjectOverridesAndProvenance uses internally, so it can assert
+// — deterministically, not by racing wall-clock timing against a
+// near-instant empty-snapshot restore — that a save queued before the
+// restore starts is still blocked immediately AFTER the overrides phase
+// commits and immediately after the provenance phase commits, and only
+// completes once the OUTER lock is released.
+//
+// This is the property an earlier version of the fix broke: it took a
+// pg_advisory_xact_lock per hydration transaction, which released at that
+// transaction's own commit — exactly the "overrides phase committed"
+// instant this test checks — and Postgres woke the queued save right
+// there.
+func TestSeamNoSaveCanCommitBetweenOverridesAndProvenance(t *testing.T) {
 	pool := hydrateTestPool(t)
 	m := NewMaterializer(pool, t.TempDir(), nil)
 	overrideSvc := override.NewService(override.NewPostgresStore(pool), nil, nil)
 	ctx := context.Background()
+	const projectID = "TSTSEAM"
 
-	hydrate := map[string]func(context.Context, *RestorePlan) error{
-		"HydrateProjectOverrides":  m.HydrateProjectOverrides,
-		"HydrateProjectProvenance": m.HydrateProjectProvenance,
+	// The restore takes its lock FIRST, so the save started right after is
+	// guaranteed to have something to queue behind — nothing else
+	// contends for a fresh project key otherwise, so starting the save
+	// first (with only a head-start sleep before the restore) would let
+	// it race the restore for an uncontended lock instead of reliably
+	// queuing behind it.
+	release, err := m.LockProjectForRestore(ctx, projectID)
+	if err != nil {
+		t.Fatalf("LockProjectForRestore: %v", err)
+	}
+	// Guards every early return below (including a t.Fatal partway through
+	// the sabotage/seam checks): release always targets whichever closure
+	// `release` currently holds, since a Go closure captures the variable,
+	// not its value at defer time — without this, a Fatal between an
+	// acquire and its matching release would leave the pinned connection
+	// checked out forever, and the pool's t.Cleanup(pool.Close) would hang
+	// waiting for it.
+	defer func() { _ = release() }()
+
+	saveStarted := make(chan struct{})
+	saveDone := make(chan error, 1)
+	go func() {
+		saveDone <- overrideSvc.WithEntityLock(ctx, projectID, "model", "TSTSEAM.1", func(ctx context.Context) error {
+			close(saveStarted)
+			return nil
+		})
+	}()
+
+	// Give the save time to actually issue its (now-blocked) lock request.
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case <-saveStarted:
+		t.Fatal("save's callback ran before the overrides phase even started — the restore lock did not block it at all")
+	default:
 	}
 
-	for name, fn := range hydrate {
-		t.Run(name, func(t *testing.T) {
-			projectID := "TSTRESTORELOCK_" + name
-			started := make(chan struct{})
-			saveErr := make(chan error, 1)
-			go func() {
-				saveErr <- overrideSvc.WithEntityLock(ctx, projectID, "model", projectID+".1", func(ctx context.Context) error {
-					close(started)
-					time.Sleep(300 * time.Millisecond)
-					return nil
-				})
-			}()
+	if err := m.HydrateProjectOverrides(ctx, minimalRestorePlan(projectID)); err != nil {
+		t.Fatalf("HydrateProjectOverrides: %v", err)
+	}
+	// THE SEAM: HydrateProjectOverrides has committed its own transaction.
+	// The queued save must still be blocked here — only the OUTER lock
+	// (still held via `release`, not yet called) may stop it, since
+	// HydrateProjectOverrides takes none of its own.
+	select {
+	case <-saveStarted:
+		t.Fatal("save's callback ran between the overrides and provenance phases — the seam is unprotected")
+	default:
+	}
 
-			select {
-			case <-started:
-			case err := <-saveErr:
-				t.Fatalf("save failed before it took its lock: %v", err)
-			}
+	if err := m.HydrateProjectProvenance(ctx, minimalRestorePlan(projectID)); err != nil {
+		t.Fatalf("HydrateProjectProvenance: %v", err)
+	}
+	select {
+	case <-saveStarted:
+		t.Fatal("save's callback ran while the outer restore lock was still held")
+	default:
+	}
 
-			waitStart := time.Now()
-			if err := fn(ctx, minimalRestorePlan(projectID)); err != nil {
-				t.Fatalf("%s: %v", name, err)
-			}
-			waited := time.Since(waitStart)
+	if err := release(); err != nil {
+		t.Fatalf("release: %v", err)
+	}
 
-			if err := <-saveErr; err != nil {
-				t.Fatalf("save: %v", err)
-			}
-			if waited < 250*time.Millisecond {
-				t.Fatalf("%s returned after only %s — expected it to block on the in-flight save's project lock (held ~300ms)", name, waited)
-			}
-		})
+	select {
+	case err := <-saveDone:
+		if err != nil {
+			t.Fatalf("save: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("save never completed after the restore released its lock")
+	}
+	select {
+	case <-saveStarted:
+	default:
+		t.Fatal("save's callback never ran even after the restore released its lock")
 	}
 }
 
-// TestRestoreProjectLockTimesOutWhenSaveHeldTooLong proves scope item 4:
-// the restore's own project-lock wait is bounded by its own lock_timeout
-// (restoreProjectLockTimeout), not left to wait forever behind a save, and
-// the resulting error names the project and reports a save in flight.
-// restoreProjectLockTimeout is shortened for the duration of this test the
-// way override.lockTimeout is shortened in lock_busy_integration_test.go.
+// TestHydrateProjectOverridesAndProvenanceBlocksOnInFlightSaveThenCompletes
+// exercises the real, public wrapped entry point end to end: it blocks
+// while a save holds the project lock, and — the point "also worth
+// closing" in the fix-round review — the save itself SUCCEEDS once the
+// restore releases the lock, not merely "is refused while the restore
+// holds it."
+func TestHydrateProjectOverridesAndProvenanceBlocksOnInFlightSaveThenCompletes(t *testing.T) {
+	pool := hydrateTestPool(t)
+	m := NewMaterializer(pool, t.TempDir(), nil)
+	overrideSvc := override.NewService(override.NewPostgresStore(pool), nil, nil)
+	ctx := context.Background()
+	const projectID = "TSTRESTOREWRAP"
+
+	started := make(chan struct{})
+	saveErr := make(chan error, 1)
+	go func() {
+		saveErr <- overrideSvc.WithEntityLock(ctx, projectID, "model", "TSTRESTOREWRAP.1", func(ctx context.Context) error {
+			close(started)
+			time.Sleep(300 * time.Millisecond)
+			return nil
+		})
+	}()
+
+	select {
+	case <-started:
+	case err := <-saveErr:
+		t.Fatalf("save failed before it took its lock: %v", err)
+	}
+
+	waitStart := time.Now()
+	if err := m.HydrateProjectOverridesAndProvenance(ctx, minimalRestorePlan(projectID)); err != nil {
+		t.Fatalf("HydrateProjectOverridesAndProvenance: %v", err)
+	}
+	waited := time.Since(waitStart)
+
+	if err := <-saveErr; err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if waited < 250*time.Millisecond {
+		t.Fatalf("HydrateProjectOverridesAndProvenance returned after only %s — expected it to block on the in-flight save's project lock (held ~300ms)", waited)
+	}
+}
+
+// TestRestoreProjectLockTimesOutWhenSaveHeldTooLong proves scope item 4 of
+// the original brief (restore's own bounded wait): LockProjectForRestore
+// does not wait forever behind a save, and the resulting error names the
+// project, reports a save in flight, and says the project may be partially
+// restored. restoreProjectLockTimeout is shortened for the duration of
+// this test the way override.lockTimeout is shortened in
+// lock_busy_integration_test.go.
 func TestRestoreProjectLockTimesOutWhenSaveHeldTooLong(t *testing.T) {
 	pool := hydrateTestPool(t)
 	m := NewMaterializer(pool, t.TempDir(), nil)
@@ -120,15 +206,19 @@ func TestRestoreProjectLockTimesOutWhenSaveHeldTooLong(t *testing.T) {
 		t.Fatalf("save failed before it took its lock: %v", err)
 	}
 
-	err := m.HydrateProjectOverrides(ctx, minimalRestorePlan(projectID))
+	release, err := m.LockProjectForRestore(ctx, projectID)
 	if err == nil {
-		t.Fatal("expected HydrateProjectOverrides to fail while the save held the project lock")
+		_ = release()
+		t.Fatal("expected LockProjectForRestore to fail while the save held the project lock")
 	}
-	if !errors.Is(err, override.ErrLockBusy) {
-		t.Fatalf("errors.Is(err, override.ErrLockBusy) = false, want true; err = %v", err)
+	if !errors.Is(err, advisorylock.ErrLockBusy) {
+		t.Fatalf("errors.Is(err, advisorylock.ErrLockBusy) = false, want true; err = %v", err)
 	}
 	if !strings.Contains(err.Error(), projectID) {
 		t.Fatalf("error %q does not name the project %q", err.Error(), projectID)
+	}
+	if !strings.Contains(err.Error(), "partially restored") {
+		t.Fatalf("error %q does not tell the operator the project may be partially restored", err.Error())
 	}
 
 	if err := <-saveErr; err != nil {

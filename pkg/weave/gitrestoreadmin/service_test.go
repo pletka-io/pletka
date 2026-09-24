@@ -112,6 +112,13 @@ func (r orderRecordingRunner) HydrateEntities(ctx context.Context, plan *gitmate
 	*r.calls = append(*r.calls, "entities")
 	return nil
 }
+func (r orderRecordingRunner) AcquireProjectLock(ctx context.Context, projectID string) (func() error, error) {
+	*r.calls = append(*r.calls, "lock")
+	return func() error {
+		*r.calls = append(*r.calls, "unlock")
+		return nil
+	}, nil
+}
 func (r orderRecordingRunner) HydrateOverrides(ctx context.Context, plan *gitmaterializer.RestorePlan) error {
 	*r.calls = append(*r.calls, "overrides")
 	return nil
@@ -136,7 +143,7 @@ func TestServiceRun_HydratesVendoredBeforeShell(t *testing.T) {
 		t.Fatalf("expected completed status, got %#v", job)
 	}
 
-	want := []string{"prepare", "vendored", "shell", "entities", "overrides", "provenance"}
+	want := []string{"prepare", "vendored", "shell", "entities", "lock", "overrides", "provenance", "unlock"}
 	if len(calls) != len(want) {
 		t.Fatalf("expected calls %v, got %v", want, calls)
 	}

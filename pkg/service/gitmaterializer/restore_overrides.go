@@ -38,6 +38,18 @@ type canonicalOverrideRefDoc struct {
 	Position   int    `json:"position,omitempty"`
 }
 
+// HydrateProjectOverrides clears and reloads projectID's base/model/
+// collection overrides from plan's snapshot, in one transaction.
+//
+// It takes NO lock of its own — an earlier version took a per-transaction
+// pg_advisory_xact_lock here, which let a save slip in through the seam
+// between this function's commit and HydrateProjectProvenance's own lock
+// (see Materializer.LockProjectForRestore's doc comment for the full
+// story). The caller MUST hold the project's restore lock
+// (m.LockProjectForRestore) across this call AND HydrateProjectProvenance
+// before calling either — HydrateProjectOverridesAndProvenance is the
+// canonical wrapped entry point; gitrestoreadmin's job runner wraps its own
+// separately-phased calls to these two functions the same way.
 func (m *Materializer) HydrateProjectOverrides(ctx context.Context, plan *RestorePlan) error {
 	if plan == nil || plan.Snapshot == nil {
 		return fmt.Errorf("hydrate project overrides: missing snapshot")
@@ -52,15 +64,6 @@ func (m *Materializer) HydrateProjectOverrides(ctx context.Context, plan *Restor
 		return fmt.Errorf("hydrate project overrides: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Must be the transaction's first statement: it takes the EXCLUSIVE
-	// project lock a save's SHARED lock contends with (see
-	// acquireProjectRestoreLock), so nothing below — starting with the
-	// whole-project clear this function is named for — can interleave
-	// with an in-flight save's writes.
-	if err := acquireProjectRestoreLock(ctx, tx, projectID); err != nil {
-		return fmt.Errorf("hydrate project overrides: %w", err)
-	}
 
 	q := m.queries.WithTx(tx)
 	if err := clearProjectOverrideState(ctx, tx, projectID); err != nil {
@@ -81,6 +84,27 @@ func (m *Materializer) HydrateProjectOverrides(ctx context.Context, plan *Restor
 	return nil
 }
 
+// HydrateProjectProvenance clears and reloads projectID's adoption/fork
+// receipts from plan's snapshot, in one transaction.
+//
+// Like HydrateProjectOverrides, it takes NO lock of its own — see that
+// function's doc comment and Materializer.LockProjectForRestore for why.
+// Adoptions specifically need the caller-held project lock: a save's
+// adoption sync (h.weave.Adoptions().ReplaceForContext in
+// pkg/weave/project/override_write.go) runs INSIDE the same
+// project-shared/entity-exclusive lock scope as the rest of the save,
+// scoped delete-then-reinsert per (entityType, entityID) context — the
+// exact "delete-all-then-reinsert with no lock of its own" shape that
+// motivated this whole change for overrides. Without the caller's lock
+// held across this call, this function's whole-project
+// clearProjectAdoptionsAndForks could commit between a save's
+// ReplaceForContext delete and its reinsert (or right after it, undoing a
+// just-written adoption), losing the same way overrides could. Forks are
+// NOT protected: ForkFromSource (pkg/weave/model and
+// pkg/weave/collection's Service) inserts a fork row with no advisory lock
+// at all today, on either side — so the project lock being held here does
+// not close a fork race; it only prevents one that does not yet exist. See
+// the restore-lock report for the full analysis.
 func (m *Materializer) HydrateProjectProvenance(ctx context.Context, plan *RestorePlan) error {
 	if plan == nil || plan.Snapshot == nil {
 		return fmt.Errorf("hydrate provenance: missing snapshot")
@@ -95,26 +119,6 @@ func (m *Materializer) HydrateProjectProvenance(ctx context.Context, plan *Resto
 		return fmt.Errorf("hydrate provenance: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Same project lock as HydrateProjectOverrides, first statement of the
-	// transaction. Adoptions specifically need it: a save's adoption sync
-	// (h.weave.Adoptions().ReplaceForContext in
-	// pkg/weave/project/override_write.go) runs INSIDE the same
-	// project-shared/entity-exclusive lock scope as the rest of the save,
-	// scoped delete-then-reinsert per (entityType, entityID) context — the
-	// exact "delete-all-then-reinsert with no lock of its own" shape that
-	// motivated this whole change for overrides. Without this lock, this
-	// function's whole-project clearProjectAdoptionsAndForks could commit
-	// between a save's ReplaceForContext delete and its reinsert (or after
-	// it, undoing a just-written adoption), losing the same way overrides
-	// could. Forks are not written under any lock today — ForkFromSource
-	// (pkg/weave/model and pkg/weave/collection's Service) inserts a fork
-	// row with no advisory lock at all — so taking this lock does not
-	// close a fork race; it only prevents one that does not yet exist. See
-	// the restore-lock report for the full analysis.
-	if err := acquireProjectRestoreLock(ctx, tx, projectID); err != nil {
-		return fmt.Errorf("hydrate provenance: %w", err)
-	}
 
 	if err := clearProjectAdoptionsAndForks(ctx, tx, projectID); err != nil {
 		return err
@@ -132,7 +136,33 @@ func (m *Materializer) HydrateProjectProvenance(ctx context.Context, plan *Resto
 	return nil
 }
 
+// HydrateProjectOverridesAndProvenance is the canonical wrapped entry point
+// for the overrides+provenance phase of a restore: it takes the project's
+// restore lock ONCE, before either phase's first write, and holds it across
+// BOTH HydrateProjectOverrides and HydrateProjectProvenance, closing the
+// seam a per-transaction lock would leave between them (see
+// Materializer.LockProjectForRestore's doc comment). Used by
+// HydrateRestorePlan (CLI / `pletkactl project load-git` / round-trip
+// tests) and restore_vendored_projects.go. pkg/weave/gitrestoreadmin's
+// HTTP-driven job runner does NOT call this function — it drives the two
+// phases separately (with job-state bookkeeping between them) via its own
+// Runner interface, so it takes the SAME lock itself, the same way, around
+// its own two calls.
 func (m *Materializer) HydrateProjectOverridesAndProvenance(ctx context.Context, plan *RestorePlan) error {
+	if plan == nil {
+		return fmt.Errorf("hydrate project overrides and provenance: missing plan")
+	}
+	projectID := strings.TrimSpace(plan.ProjectID)
+	if projectID == "" {
+		return fmt.Errorf("hydrate project overrides and provenance: missing project id")
+	}
+
+	release, err := m.LockProjectForRestore(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("hydrate project overrides and provenance: %w", err)
+	}
+	defer func() { _ = release() }()
+
 	if err := m.HydrateProjectOverrides(ctx, plan); err != nil {
 		return err
 	}

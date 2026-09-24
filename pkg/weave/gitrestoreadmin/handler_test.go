@@ -202,6 +202,9 @@ func (stubRunner) HydrateShell(ctx context.Context, plan *gitmaterializer.Restor
 func (stubRunner) HydrateEntities(ctx context.Context, plan *gitmaterializer.RestorePlan) error {
 	return nil
 }
+func (stubRunner) AcquireProjectLock(ctx context.Context, projectID string) (func() error, error) {
+	return func() error { return nil }, nil
+}
 func (stubRunner) HydrateOverrides(ctx context.Context, plan *gitmaterializer.RestorePlan) error {
 	return nil
 }

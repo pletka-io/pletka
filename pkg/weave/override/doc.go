@@ -28,13 +28,17 @@
 //     override.ProjectLockKey) and then EXCLUSIVE on the entity (keyed on
 //     entityType+":"+entityID), both on the same connection — so two
 //     saves of the same pattern queue instead of racing, while two saves
-//     of different entities in one project still run concurrently. git
-//     restore (pkg/service/gitmaterializer) takes the same project key
-//     EXCLUSIVE, transaction-scoped, for its whole-project
-//     clear-then-reinsert, so it cannot interleave with a save even
-//     though it never touches an entity lock — see
-//     Store.WithAdvisoryLock's doc comment for the full ordering rule and
-//     why the two lock users can't deadlock.
+//     of different entities in one project still run concurrently. Both
+//     waits share ONE total budget, not one each. git restore
+//     (pkg/service/gitmaterializer) takes the same project key EXCLUSIVE,
+//     also session-level, held across its WHOLE overrides+provenance
+//     pipeline (not scoped to either hydration transaction alone — an
+//     earlier version of this fix took it per-transaction and let a
+//     queued save slip through the seam between the two), so it cannot
+//     interleave with a save even though it never touches an entity lock
+//     — see Store.WithAdvisoryLock's doc comment for the full ordering
+//     rule, the budget split, and why the two lock users can't deadlock
+//     (as long as neither nests within the same project).
 //  3. A non-empty fingerprint is compared against EntityFingerprint's
 //     current value; a mismatch refuses the save with 409 before
 //     anything is written, so a stale draft loses cleanly instead of

@@ -27,6 +27,15 @@ type Runner interface {
 	HydrateVendored(ctx context.Context, plan *gitmaterializer.RestorePlan) error
 	HydrateShell(ctx context.Context, plan *gitmaterializer.RestorePlan) error
 	HydrateEntities(ctx context.Context, plan *gitmaterializer.RestorePlan) error
+	// AcquireProjectLock takes the project's exclusive restore advisory
+	// lock (gitmaterializer's Materializer.LockProjectForRestore) and
+	// returns a release func the caller must call exactly once. Must be
+	// called before HydrateOverrides and held across BOTH HydrateOverrides
+	// and HydrateProvenance — those two take no lock of their own (see
+	// gitmaterializer's restore_lock.go): a per-phase lock let a save
+	// queued behind the overrides phase slip in and run before the
+	// provenance phase started, losing whatever it had just written.
+	AcquireProjectLock(ctx context.Context, projectID string) (release func() error, err error)
 	HydrateOverrides(ctx context.Context, plan *gitmaterializer.RestorePlan) error
 	HydrateProvenance(ctx context.Context, plan *gitmaterializer.RestorePlan) error
 }
@@ -53,6 +62,10 @@ func (r materializerRunner) HydrateShell(ctx context.Context, plan *gitmateriali
 
 func (r materializerRunner) HydrateEntities(ctx context.Context, plan *gitmaterializer.RestorePlan) error {
 	return r.mat.HydrateProjectEntities(ctx, plan)
+}
+
+func (r materializerRunner) AcquireProjectLock(ctx context.Context, projectID string) (func() error, error) {
+	return r.mat.LockProjectForRestore(ctx, projectID)
 }
 
 func (r materializerRunner) HydrateOverrides(ctx context.Context, plan *gitmaterializer.RestorePlan) error {
@@ -181,6 +194,16 @@ func (s *Service) Run(ctx context.Context, id string) (*Job, error) {
 	if err := s.runner.HydrateEntities(ctx, plan); err != nil {
 		return s.failJob(ctx, job.ID, RestorePhaseEntities, err)
 	}
+
+	// Acquired ONCE, before the overrides phase's first write, and held
+	// across BOTH the overrides and provenance phases below (including the
+	// job-state bookkeeping write in between) — see Runner.AcquireProjectLock's
+	// doc comment for why a per-phase lock isn't safe here.
+	release, err := s.runner.AcquireProjectLock(ctx, job.TargetProjectID)
+	if err != nil {
+		return s.failJob(ctx, job.ID, RestorePhaseOverrides, err)
+	}
+	defer func() { _ = release() }()
 
 	if _, err := s.store.UpdateState(ctx, job.ID, JobStatusRunning, RestorePhaseOverrides, "", nil, nil); err != nil {
 		return nil, err
