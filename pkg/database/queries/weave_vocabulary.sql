@@ -271,3 +271,6 @@ JOIN weave_vocabulary_entries ve ON ve.id = cle.vocabulary_entry_id
 WHERE cle.concept_list_id = @concept_list_id::text
   AND cle.version_number = @version_number::text
 ORDER BY cle.position ASC, ve.uri ASC;
+
+-- name: WeaveSetConceptListClosed :exec
+UPDATE weave_concept_lists SET is_closed = $2, updated_at = NOW() WHERE id = $1;

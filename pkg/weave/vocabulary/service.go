@@ -154,6 +154,35 @@ func (e *ErrConceptListInUse) InUseMessage() string {
 	return fmt.Sprintf("Concept list is used by %d fields and cannot be deleted.", e.Count)
 }
 
+// ErrConceptListSealed is returned when a term/entry is added to a sealed
+// (is_closed) list; maps to a 409 conflict.
+type ErrConceptListSealed struct{ ID string }
+
+func (e *ErrConceptListSealed) Error() string { return fmt.Sprintf("concept list %q is sealed", e.ID) }
+
+func (e *ErrConceptListSealed) ConflictMessage() string {
+	return "This list is marked complete; unmark it to add terms."
+}
+
+// SetListClosed marks a project's concept list sealed/unsealed. A sealed list
+// has complete membership: no terms may be added until it is reopened.
+func (s *Service) SetListClosed(ctx context.Context, projectID, listID string, closed bool) error {
+	list, err := s.GetProjectConceptList(ctx, projectID, listID)
+	if err != nil {
+		return err
+	}
+	if list == nil {
+		return &ErrConceptListNotFound{ID: listID}
+	}
+	if err := s.queries.WeaveSetConceptListClosed(ctx, sqlcgen.WeaveSetConceptListClosedParams{
+		ID:       list.ID,
+		IsClosed: closed,
+	}); err != nil {
+		return fmt.Errorf("set concept list closed: %w", err)
+	}
+	return nil
+}
+
 func (s *Service) ListGlobalVocabularies(ctx context.Context) ([]VocabularyView, error) {
 	rows, err := s.queries.WeaveListGlobalVocabularies(ctx)
 	if err != nil {
@@ -571,6 +600,9 @@ func (s *Service) AddConceptListEntry(ctx context.Context, projectID, listID, vo
 	if list == nil {
 		return nil, &ErrConceptListNotFound{ID: listID}
 	}
+	if list.IsClosed {
+		return nil, &ErrConceptListSealed{ID: listID}
+	}
 	vocabularyEntryID = strings.TrimSpace(vocabularyEntryID)
 	vocabularyEntryURI = strings.TrimSpace(vocabularyEntryURI)
 	if vocabularyEntryID == "" && vocabularyEntryURI == "" {
@@ -645,6 +677,9 @@ func (s *Service) CreateLocalTerm(ctx context.Context, projectID, listID string,
 	}
 	if list == nil {
 		return nil, &ErrConceptListNotFound{ID: listID}
+	}
+	if list.IsClosed {
+		return nil, &ErrConceptListSealed{ID: listID}
 	}
 	if strings.TrimSpace(in.Label.Get("en", "")) == "" {
 		return nil, &ErrConceptListValidation{Fields: map[string][]string{"label": {"Enter a term label."}}}

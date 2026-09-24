@@ -1160,6 +1160,20 @@ func (q *Queries) WeaveSearchVocabularyEntries(ctx context.Context, arg WeaveSea
 	return items, nil
 }
 
+const weaveSetConceptListClosed = `-- name: WeaveSetConceptListClosed :exec
+UPDATE weave_concept_lists SET is_closed = $2, updated_at = NOW() WHERE id = $1
+`
+
+type WeaveSetConceptListClosedParams struct {
+	ID       string `json:"id"`
+	IsClosed bool   `json:"is_closed"`
+}
+
+func (q *Queries) WeaveSetConceptListClosed(ctx context.Context, arg WeaveSetConceptListClosedParams) error {
+	_, err := q.db.Exec(ctx, weaveSetConceptListClosed, arg.ID, arg.IsClosed)
+	return err
+}
+
 const weaveUpdateConceptListEntryOrder = `-- name: WeaveUpdateConceptListEntryOrder :exec
 UPDATE weave_concept_list_entries
 SET position = $2, updated_at = NOW()

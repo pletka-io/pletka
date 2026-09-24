@@ -291,6 +291,26 @@ type conceptBroaderBody struct {
 	Position  int    `json:"position,omitempty"`
 }
 
+type conceptListSealBody struct {
+	IsClosed bool `json:"is_closed"`
+}
+
+// SealProjectConceptList marks a list sealed/unsealed (complete membership).
+func (h *Handler) SealProjectConceptList(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+	listID := chi.URLParam(r, "listID")
+	var body conceptListSealBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		return
+	}
+	if err := h.svc.SetListClosed(r.Context(), projectID, listID, body.IsClosed); err != nil {
+		h.writeServiceError(w, "seal concept list failed", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // AddConceptBroader records a broader/narrower edge for a term, scoped to the
 // list in the route (the service enforces project/list ownership).
 func (h *Handler) AddConceptBroader(w http.ResponseWriter, r *http.Request) {
