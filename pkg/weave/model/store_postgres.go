@@ -21,6 +21,12 @@ type postgresStore struct {
 	pool    *pgxpool.Pool
 }
 
+// entityTypeModel is the weave_field_overrides.entity_type value for
+// placements owned by a model. Named to match the same constant in
+// pkg/service/gitmaterializer and pkg/weave/project (unexported in each,
+// there being no shared entity-type package to import it from).
+const entityTypeModel = "model"
+
 var _ Store = (*postgresStore)(nil)
 
 // NewPostgresStore returns a Store backed by the supplied pgx pool.
@@ -179,9 +185,31 @@ func (s *postgresStore) Update(ctx context.Context, m *domain.Model) error {
 	return nil
 }
 
+// Delete removes the model and, in the same transaction, the placement
+// rows the model owns (entity_type='model', entity_id=id) in
+// weave_field_overrides. That table carries no FK on entity_id, so
+// nothing cascades on a bare model delete — leaving those rows behind
+// permanently inflates category usage counts. weave_override_refs cascade
+// from the deleted override rows via their own FK.
 func (s *postgresStore) Delete(ctx context.Context, id string) error {
-	if err := s.queries.WeaveDeleteModel(ctx, id); err != nil {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin delete model tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	q := s.queries.WithTx(tx)
+	if err := q.WeaveDeleteOverridesForEntity(ctx, sqlcgen.WeaveDeleteOverridesForEntityParams{
+		EntityType: entityTypeModel,
+		EntityID:   id,
+	}); err != nil {
+		return fmt.Errorf("delete model placements: %w", err)
+	}
+	if err := q.WeaveDeleteModel(ctx, id); err != nil {
 		return fmt.Errorf("delete weave model: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit delete model tx: %w", err)
 	}
 	return nil
 }

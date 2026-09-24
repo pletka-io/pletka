@@ -21,6 +21,12 @@ type postgresStore struct {
 	pool    *pgxpool.Pool
 }
 
+// entityTypeCollection is the weave_field_overrides.entity_type value for
+// placements owned by a collection. Named to match the same constant in
+// pkg/service/gitmaterializer and pkg/weave/project (unexported in each,
+// there being no shared entity-type package to import it from).
+const entityTypeCollection = "collection"
+
 var _ Store = (*postgresStore)(nil)
 
 func NewPostgresStore(pool *pgxpool.Pool) Store {
@@ -168,9 +174,32 @@ func (s *postgresStore) Update(ctx context.Context, c *domain.Collection) error 
 	return nil
 }
 
+// Delete removes the collection and, in the same transaction, the
+// placement rows the collection owns (entity_type='collection',
+// entity_id=id) in weave_field_overrides. That table carries no FK on
+// entity_id, so nothing cascades on a bare collection delete — leaving
+// those rows behind permanently inflates category usage counts.
+// weave_override_refs cascade from the deleted override rows via their
+// own FK.
 func (s *postgresStore) Delete(ctx context.Context, id string) error {
-	if err := s.queries.WeaveDeleteCollection(ctx, id); err != nil {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin delete collection tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	q := s.queries.WithTx(tx)
+	if err := q.WeaveDeleteOverridesForEntity(ctx, sqlcgen.WeaveDeleteOverridesForEntityParams{
+		EntityType: entityTypeCollection,
+		EntityID:   id,
+	}); err != nil {
+		return fmt.Errorf("delete collection placements: %w", err)
+	}
+	if err := q.WeaveDeleteCollection(ctx, id); err != nil {
 		return fmt.Errorf("delete weave collection: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit delete collection tx: %w", err)
 	}
 	return nil
 }

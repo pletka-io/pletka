@@ -799,7 +799,9 @@ func (s *Service) Delete(ctx context.Context, projectID, id string) error {
 	prev := *m
 	return s.runner.Run(ctx, func(ctx context.Context, rec domain.ChangeLogRecorder) error {
 		// The model's own override rows (entity_type='model',
-		// entity_id=id) are removed by the FK cascade on weave_models.
+		// entity_id=id) are removed explicitly by store.Delete, in the
+		// same transaction as the model row — weave_field_overrides
+		// carries no FK on entity_id, so nothing cascades on its own.
 		if err := s.store.Delete(ctx, id); err != nil {
 			return fmt.Errorf("delete model: %w", err)
 		}
