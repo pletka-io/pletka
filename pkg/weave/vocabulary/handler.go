@@ -251,6 +251,24 @@ func (h *Handler) AddProjectConceptListEntry(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusCreated, item)
 }
 
+// CreateProjectConceptListTerm authors a local (hand-typed) concept and adds
+// it to the list — no remote authority required.
+func (h *Handler) CreateProjectConceptListTerm(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+	listID := chi.URLParam(r, "listID")
+	var in CreateTermInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		return
+	}
+	item, err := h.svc.CreateLocalTerm(r.Context(), projectID, listID, in)
+	if err != nil {
+		h.writeServiceError(w, "create local term failed", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
 func (h *Handler) UpdateProjectConceptListEntry(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	listID := chi.URLParam(r, "listID")

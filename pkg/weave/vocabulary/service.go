@@ -620,6 +620,102 @@ INSERT INTO weave_concept_list_entries (
 	return s.getConceptListEntryView(ctx, list.ID, entryID)
 }
 
+// CreateTermInput is the payload for authoring a local (hand-typed) concept.
+type CreateTermInput struct {
+	Label     domain.Translations `json:"label"`
+	ScopeNote domain.Translations `json:"scope_note,omitempty"`
+}
+
+// CreateLocalTerm mints a hand-authored concept in the project's local
+// vocabulary (no remote authority) and links it to the given list. The term
+// gets a stable curie URI "pletka:concept/<ULID>". Local terms are allowed in
+// any list regardless of the list's source vocabulary.
+func (s *Service) CreateLocalTerm(ctx context.Context, projectID, listID string, in CreateTermInput) (*ConceptListEntryView, error) {
+	list, err := s.GetProjectConceptList(ctx, projectID, listID)
+	if err != nil {
+		return nil, err
+	}
+	if list == nil {
+		return nil, &ErrConceptListNotFound{ID: listID}
+	}
+	if strings.TrimSpace(in.Label.Get("en", "")) == "" {
+		return nil, &ErrConceptListValidation{Fields: map[string][]string{"label": {"Enter a term label."}}}
+	}
+
+	localVocabID, err := s.ensureLocalVocabulary(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	entryID := ids.GenerateULID()
+	uri := "pletka:concept/" + entryID
+	if _, err := s.queries.WeaveCreateVocabularyEntry(ctx, sqlcgen.WeaveCreateVocabularyEntryParams{
+		ID:               entryID,
+		VocabularyID:     localVocabID,
+		Uri:              uri,
+		Label:            marshalJSON(in.Label),
+		ScopeNote:        marshalJSON(in.ScopeNote),
+		BroaderUri:       nil,
+		BroaderPath:      marshalJSONArray([]string{}),
+		BroaderPathItems: marshalJSONArray([]domain.VocabularyEntryRef{}),
+		ExternalID:       nil,
+	}); err != nil {
+		return nil, fmt.Errorf("create local term: %w", err)
+	}
+
+	var position int
+	if err := s.pool.QueryRow(ctx, `
+SELECT COALESCE(MAX(position), 0) + 1 FROM weave_concept_list_entries WHERE concept_list_id = $1
+`, list.ID).Scan(&position); err != nil {
+		return nil, fmt.Errorf("next concept list entry position: %w", err)
+	}
+	junctionID := ids.GenerateULID()
+	if _, err := s.pool.Exec(ctx, `
+INSERT INTO weave_concept_list_entries (
+    id, concept_list_id, vocabulary_entry_id, position, custom_label, created_at, updated_at
+) VALUES ($1, $2, $3, $4, '{}'::jsonb, NOW(), NOW())
+`, junctionID, list.ID, entryID, position); err != nil {
+		return nil, fmt.Errorf("link local term to list: %w", err)
+	}
+	return s.getConceptListEntryView(ctx, list.ID, junctionID)
+}
+
+// ensureLocalVocabulary returns the id of the project's local vocabulary,
+// creating it (connector_type 'local') if it does not exist. Idempotent.
+func (s *Service) ensureLocalVocabulary(ctx context.Context, projectID string) (string, error) {
+	var id string
+	err := s.pool.QueryRow(ctx, `
+SELECT id FROM weave_vocabularies
+WHERE project_id = $1 AND connector_type = 'local'
+ORDER BY created_at LIMIT 1
+`, projectID).Scan(&id)
+	if err == nil && id != "" {
+		return id, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("lookup local vocabulary: %w", err)
+	}
+	newID := ids.GenerateULID()
+	sysName := "local_terms"
+	semID := projectID + ".VOCAB.local"
+	baseURI := "pletka:concept/"
+	if _, err := s.queries.WeaveCreateVocabulary(ctx, sqlcgen.WeaveCreateVocabularyParams{
+		ID:            newID,
+		SemanticID:    &semID,
+		SystemName:    &sysName,
+		UiName:        marshalJSON(domain.Translations{"en": "Local terms"}),
+		Description:   marshalJSON(domain.Translations{}),
+		Status:        "published",
+		ProjectID:     &projectID,
+		ConnectorType: "local",
+		BaseUri:       &baseURI,
+		Config:        nil,
+	}); err != nil {
+		return "", fmt.Errorf("create local vocabulary: %w", err)
+	}
+	return newID, nil
+}
+
 func (s *Service) persistSelectedVocabularyEntry(ctx context.Context, list *ConceptListView, uri string) (*VocabularyEntryView, error) {
 	if strings.TrimSpace(uri) == "" {
 		return nil, &ErrConceptListValidation{Fields: map[string][]string{"vocabulary_entry_uri": {"Choose a vocabulary entry."}}}
