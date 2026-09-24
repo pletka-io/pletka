@@ -1,6 +1,7 @@
 package vocabulary
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
@@ -19,9 +21,24 @@ type LangResolver func(r *http.Request) string
 
 type Handler struct {
 	svc       *Service
+	projects  auth.ProjectReader
 	logger    *slog.Logger
 	languages []formschema.LanguageInfo
 	lang      LangResolver
+}
+
+// canReadProject checks the request's caller has read access to projectID. Used
+// by the "global" (non-project-scoped) routes to gate resources that belong to
+// a project, so those routes are not cross-tenant readable.
+func (h *Handler) canReadProject(ctx context.Context, projectID string) bool {
+	if projectID == "" || h.projects == nil {
+		return false
+	}
+	p, err := h.projects.GetByID(ctx, projectID)
+	if err != nil || p == nil {
+		return false
+	}
+	return auth.FromContext(ctx).Can(auth.ProjectRead, auth.ProjectResource(p), nil)
 }
 
 type conceptListBody struct {
@@ -47,14 +64,15 @@ type conceptListEntryReorderBody struct {
 	EntryIDs []string `json:"entry_ids"`
 }
 
-func NewHandler(svc *Service, logger *slog.Logger, languages []formschema.LanguageInfo, lang LangResolver) *Handler {
+// NewHandler builds the vocabulary HTTP handler.
+func NewHandler(svc *Service, projects auth.ProjectReader, logger *slog.Logger, languages []formschema.LanguageInfo, lang LangResolver) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if lang == nil {
 		lang = func(*http.Request) string { return "en" }
 	}
-	return &Handler{svc: svc, logger: logger, languages: languages, lang: lang}
+	return &Handler{svc: svc, projects: projects, logger: logger, languages: languages, lang: lang}
 }
 
 func (h *Handler) ListGlobalVocabularies(w http.ResponseWriter, r *http.Request) {
@@ -251,6 +269,95 @@ func (h *Handler) AddProjectConceptListEntry(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusCreated, item)
 }
 
+// CreateProjectConceptListTerm authors a local (hand-typed) concept and adds
+// it to the list — no remote authority required.
+func (h *Handler) CreateProjectConceptListTerm(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+	listID := chi.URLParam(r, "listID")
+	var in CreateTermInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		return
+	}
+	item, err := h.svc.CreateLocalTerm(r.Context(), projectID, listID, in)
+	if err != nil {
+		h.writeServiceError(w, "create local term failed", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, item)
+}
+
+type conceptBroaderBody struct {
+	BroaderID string `json:"broader_id"`
+	Position  int    `json:"position,omitempty"`
+}
+
+type conceptListSealBody struct {
+	IsClosed bool `json:"is_closed"`
+}
+
+// SealProjectConceptList marks a list sealed/unsealed (complete membership).
+func (h *Handler) SealProjectConceptList(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+	listID := chi.URLParam(r, "listID")
+	var body conceptListSealBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		return
+	}
+	if err := h.svc.SetListClosed(r.Context(), projectID, listID, body.IsClosed); err != nil {
+		h.writeServiceError(w, "seal concept list failed", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// AddConceptBroader records a broader/narrower edge for a term, scoped to the
+// list in the route (the service enforces project/list ownership).
+func (h *Handler) AddConceptBroader(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+	listID := chi.URLParam(r, "listID")
+	conceptID := chi.URLParam(r, "conceptID")
+	var body conceptBroaderBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		return
+	}
+	edge := domain.ConceptBroaderEdge{ConceptID: conceptID, BroaderID: body.BroaderID, Position: body.Position}
+	out, err := h.svc.AddBroader(r.Context(), projectID, listID, edge)
+	if err != nil {
+		h.writeServiceError(w, "add broader edge failed", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, out)
+}
+
+// ListConceptBroader lists a term's broader concepts within the list.
+func (h *Handler) ListConceptBroader(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+	listID := chi.URLParam(r, "listID")
+	conceptID := chi.URLParam(r, "conceptID")
+	edges, err := h.svc.ListBroader(r.Context(), projectID, listID, conceptID)
+	if err != nil {
+		h.writeServiceError(w, "list broader edges failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, edges)
+}
+
+// RemoveConceptBroader deletes a broader edge, scoped to project/list/term.
+func (h *Handler) RemoveConceptBroader(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+	listID := chi.URLParam(r, "listID")
+	conceptID := chi.URLParam(r, "conceptID")
+	edgeID := chi.URLParam(r, "edgeID")
+	if err := h.svc.RemoveBroader(r.Context(), projectID, listID, conceptID, edgeID); err != nil {
+		h.writeServiceError(w, "remove broader edge failed", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) UpdateProjectConceptListEntry(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	listID := chi.URLParam(r, "listID")
@@ -297,6 +404,17 @@ func (h *Handler) RemoveProjectConceptListEntry(w http.ResponseWriter, r *http.R
 
 func (h *Handler) SearchConceptListEntries(w http.ResponseWriter, r *http.Request) {
 	listID := chi.URLParam(r, "listID")
+	// This route is not project-scoped in its path; enforce that the caller can
+	// read the list's project so it is not cross-tenant readable.
+	projID, err := h.svc.ConceptListProjectID(r.Context(), listID)
+	if err != nil {
+		apierror.Write(w, apierror.Internal())
+		return
+	}
+	if projID == "" || !h.canReadProject(r.Context(), projID) {
+		apierror.Write(w, apierror.NotFound("concept list not found"))
+		return
+	}
 	items, err := h.svc.SearchConceptListEntries(r.Context(), listID, r.URL.Query().Get("q"), h.requestLang(r), requestLimit(r))
 	if err != nil {
 		h.logger.Error("search concept list entries failed", "err", err, "list_id", listID)
@@ -319,6 +437,21 @@ func (h *Handler) SearchConceptListSourceEntries(w http.ResponseWriter, r *http.
 
 func (h *Handler) SearchVocabularyEntries(w http.ResponseWriter, r *http.Request) {
 	vocabularyID := chi.URLParam(r, "vocabularyID")
+	// A project-scoped vocabulary is only searchable by readers of its project;
+	// global (shared-authority) vocabularies stay open.
+	projID, found, err := h.svc.VocabularyProjectID(r.Context(), vocabularyID)
+	if err != nil {
+		apierror.Write(w, apierror.Internal())
+		return
+	}
+	if !found {
+		apierror.Write(w, apierror.NotFound("vocabulary not found"))
+		return
+	}
+	if projID != "" && !h.canReadProject(r.Context(), projID) {
+		apierror.Write(w, apierror.NotFound("vocabulary not found"))
+		return
+	}
 	items, err := h.svc.SearchVocabularyEntries(r.Context(), vocabularyID, r.URL.Query().Get("q"), h.requestLang(r), requestLimit(r))
 	if err != nil {
 		h.logger.Error("search vocabulary entries failed", "err", err, "vocabulary_id", vocabularyID)
@@ -329,6 +462,12 @@ func (h *Handler) SearchVocabularyEntries(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) ResolveEntry(w http.ResponseWriter, r *http.Request) {
+	// ResolveEntry upserts a cached entry and can trigger an outbound connector
+	// fetch, so it must not be driven by anonymous callers (SSRF / cache-write).
+	if auth.FromContext(r.Context()).IsAnonymous {
+		apierror.Write(w, apierror.Unauthorized())
+		return
+	}
 	item, err := h.svc.ResolveEntry(r.Context(), r.URL.Query().Get("uri"), h.requestLang(r))
 	if err != nil {
 		h.logger.Error("resolve vocabulary entry failed", "err", err, "uri", r.URL.Query().Get("uri"))

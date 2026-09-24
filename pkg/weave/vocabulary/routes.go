@@ -38,7 +38,7 @@ func Mount(parent chi.Router, host Host) {
 	if err := host.Validate(); err != nil {
 		panic(err)
 	}
-	h := NewHandler(host.Service, host.Logger, host.Languages, host.LangResolver)
+	h := NewHandler(host.Service, host.Projects, host.Logger, host.Languages, host.LangResolver)
 
 	parent.Get("/api/v2/vocabularies", h.ListGlobalVocabularies)
 	parent.Get("/api/v2/vocabularies/{vocabularyID}/entries/search", h.SearchVocabularyEntries)
@@ -57,6 +57,11 @@ func Mount(parent chi.Router, host Host) {
 	parent.With(auth.RequireProjectEdit(host.Projects)).Delete("/api/v2/projects/{projectID}/concept-lists/{listID}", h.DeleteProjectConceptList)
 	parent.With(auth.RequireProjectEdit(host.Projects)).Get("/api/v2/projects/{projectID}/concept-lists/{listID}/source-entries/search", h.SearchConceptListSourceEntries)
 	parent.With(auth.RequireProjectEdit(host.Projects)).Post("/api/v2/projects/{projectID}/concept-lists/{listID}/entries", h.AddProjectConceptListEntry)
+	parent.With(auth.RequireProjectEdit(host.Projects)).Post("/api/v2/projects/{projectID}/concept-lists/{listID}/terms", h.CreateProjectConceptListTerm)
+	parent.With(auth.RequireProjectEdit(host.Projects)).Patch("/api/v2/projects/{projectID}/concept-lists/{listID}/sealed", h.SealProjectConceptList)
+	parent.With(auth.RequireProjectRead(host.Projects)).Get("/api/v2/projects/{projectID}/concept-lists/{listID}/terms/{conceptID}/broader", h.ListConceptBroader)
+	parent.With(auth.RequireProjectEdit(host.Projects)).Post("/api/v2/projects/{projectID}/concept-lists/{listID}/terms/{conceptID}/broader", h.AddConceptBroader)
+	parent.With(auth.RequireProjectEdit(host.Projects)).Delete("/api/v2/projects/{projectID}/concept-lists/{listID}/terms/{conceptID}/broader/{edgeID}", h.RemoveConceptBroader)
 	parent.With(auth.RequireProjectEdit(host.Projects)).Patch("/api/v2/projects/{projectID}/concept-lists/{listID}/entries/reorder", h.ReorderProjectConceptListEntries)
 	parent.With(auth.RequireProjectEdit(host.Projects)).Patch("/api/v2/projects/{projectID}/concept-lists/{listID}/entries/{entryID}", h.UpdateProjectConceptListEntry)
 	parent.With(auth.RequireProjectEdit(host.Projects)).Delete("/api/v2/projects/{projectID}/concept-lists/{listID}/entries/{entryID}", h.RemoveProjectConceptListEntry)

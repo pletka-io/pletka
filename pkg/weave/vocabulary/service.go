@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
@@ -22,6 +23,9 @@ import (
 )
 
 const defaultSearchLimit = 50
+
+// conceptBroaderField is the validation-error field key for broader/narrower edits.
+const conceptBroaderField = "broader"
 
 type Service struct {
 	pool     *pgxpool.Pool
@@ -96,6 +100,7 @@ type ConceptListView struct {
 	VocabularyID     *string                    `json:"vocabulary_id,omitempty"`
 	VocabularyLabel  string                     `json:"vocabulary_label,omitempty"`
 	SourceVocabulary *domain.VocabularyRef      `json:"source_vocabulary,omitempty"`
+	IsClosed         bool                       `json:"is_closed"`
 	EntryCount       int                        `json:"entry_count"`
 	BoundFieldCount  int                        `json:"bound_field_count"`
 	Entries          []ConceptListEntryView     `json:"entries,omitempty"`
@@ -150,6 +155,36 @@ func (e *ErrConceptListInUse) InUseMessage() string {
 		return "Concept list is used by 1 field and cannot be deleted."
 	}
 	return fmt.Sprintf("Concept list is used by %d fields and cannot be deleted.", e.Count)
+}
+
+// ErrConceptListSealed is returned when a term/entry is added to a sealed
+// (is_closed) list; maps to a 409 conflict.
+type ErrConceptListSealed struct{ ID string }
+
+func (e *ErrConceptListSealed) Error() string { return fmt.Sprintf("concept list %q is sealed", e.ID) }
+
+// ConflictMessage implements apierror.Conflicter (maps to HTTP 409).
+func (e *ErrConceptListSealed) ConflictMessage() string {
+	return "This list is marked complete; unmark it to add terms."
+}
+
+// SetListClosed marks a project's concept list sealed/unsealed. A sealed list
+// has complete membership: no terms may be added until it is reopened.
+func (s *Service) SetListClosed(ctx context.Context, projectID, listID string, closed bool) error {
+	list, err := s.GetProjectConceptList(ctx, projectID, listID)
+	if err != nil {
+		return err
+	}
+	if list == nil {
+		return &ErrConceptListNotFound{ID: listID}
+	}
+	if err := s.queries.WeaveSetConceptListClosed(ctx, sqlcgen.WeaveSetConceptListClosedParams{
+		ID:       list.ID,
+		IsClosed: closed,
+	}); err != nil {
+		return fmt.Errorf("set concept list closed: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) ListGlobalVocabularies(ctx context.Context) ([]VocabularyView, error) {
@@ -389,6 +424,12 @@ GROUP BY cl.id, v.id, v.semantic_id, v.system_name, v.ui_name, v.base_uri, lte.i
 }
 
 func (s *Service) GetProjectConceptList(ctx context.Context, projectID, id string) (*ConceptListView, error) {
+	// Version-aware: a pinned release version reads the archived snapshot, so a
+	// non-editor viewing a released project sees the released list + entries
+	// (and its sealed state), not the live draft. Mirrors detailview.
+	if version := auth.ProjectVersionFromContext(ctx); version != "" {
+		return s.getProjectConceptListArchived(ctx, projectID, id, version)
+	}
 	row, err := s.queries.WeaveGetProjectConceptList(ctx, sqlcgen.WeaveGetProjectConceptListParams{
 		ProjectID: projectID,
 		ID:        id,
@@ -563,6 +604,9 @@ func (s *Service) AddConceptListEntry(ctx context.Context, projectID, listID, vo
 	if list == nil {
 		return nil, &ErrConceptListNotFound{ID: listID}
 	}
+	if list.IsClosed {
+		return nil, &ErrConceptListSealed{ID: listID}
+	}
 	vocabularyEntryID = strings.TrimSpace(vocabularyEntryID)
 	vocabularyEntryURI = strings.TrimSpace(vocabularyEntryURI)
 	if vocabularyEntryID == "" && vocabularyEntryURI == "" {
@@ -618,6 +662,229 @@ INSERT INTO weave_concept_list_entries (
 		return nil, fmt.Errorf("add concept list entry: %w", err)
 	}
 	return s.getConceptListEntryView(ctx, list.ID, entryID)
+}
+
+// CreateTermInput is the payload for authoring a local (hand-typed) concept.
+type CreateTermInput struct {
+	Label     domain.Translations `json:"label"`
+	ScopeNote domain.Translations `json:"scope_note,omitempty"`
+}
+
+// CreateLocalTerm mints a hand-authored concept in the project's local
+// vocabulary (no remote authority) and links it to the given list. The term
+// gets a stable curie URI "pletka:concept/<ULID>". Local terms are allowed in
+// any list regardless of the list's source vocabulary.
+func (s *Service) CreateLocalTerm(ctx context.Context, projectID, listID string, in CreateTermInput) (*ConceptListEntryView, error) {
+	list, err := s.GetProjectConceptList(ctx, projectID, listID)
+	if err != nil {
+		return nil, err
+	}
+	if list == nil {
+		return nil, &ErrConceptListNotFound{ID: listID}
+	}
+	if list.IsClosed {
+		return nil, &ErrConceptListSealed{ID: listID}
+	}
+	if strings.TrimSpace(in.Label.Get("en", "")) == "" {
+		return nil, &ErrConceptListValidation{Fields: map[string][]string{"label": {"Enter a term label."}}}
+	}
+
+	localVocabID, err := s.ensureLocalVocabulary(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	entryID := ids.GenerateULID()
+	uri := "pletka:concept/" + entryID
+	if _, err := s.queries.WeaveCreateVocabularyEntry(ctx, sqlcgen.WeaveCreateVocabularyEntryParams{
+		ID:               entryID,
+		VocabularyID:     localVocabID,
+		Uri:              uri,
+		Label:            marshalJSON(in.Label),
+		ScopeNote:        marshalJSON(in.ScopeNote),
+		BroaderUri:       nil,
+		BroaderPath:      marshalJSONArray([]string{}),
+		BroaderPathItems: marshalJSONArray([]domain.VocabularyEntryRef{}),
+		ExternalID:       nil,
+	}); err != nil {
+		return nil, fmt.Errorf("create local term: %w", err)
+	}
+
+	var position int
+	if err := s.pool.QueryRow(ctx, `
+SELECT COALESCE(MAX(position), 0) + 1 FROM weave_concept_list_entries WHERE concept_list_id = $1
+`, list.ID).Scan(&position); err != nil {
+		return nil, fmt.Errorf("next concept list entry position: %w", err)
+	}
+	junctionID := ids.GenerateULID()
+	if _, err := s.pool.Exec(ctx, `
+INSERT INTO weave_concept_list_entries (
+    id, concept_list_id, vocabulary_entry_id, position, custom_label, created_at, updated_at
+) VALUES ($1, $2, $3, $4, '{}'::jsonb, NOW(), NOW())
+`, junctionID, list.ID, entryID, position); err != nil {
+		return nil, fmt.Errorf("link local term to list: %w", err)
+	}
+	return s.getConceptListEntryView(ctx, list.ID, junctionID)
+}
+
+// ensureLocalVocabulary returns the id of the project's local vocabulary,
+// creating it (connector_type 'local') if it does not exist. Idempotent.
+func (s *Service) ensureLocalVocabulary(ctx context.Context, projectID string) (string, error) {
+	var id string
+	err := s.pool.QueryRow(ctx, `
+SELECT id FROM weave_vocabularies
+WHERE project_id = $1 AND connector_type = 'local'
+ORDER BY created_at LIMIT 1
+`, projectID).Scan(&id)
+	if err == nil && id != "" {
+		return id, nil
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("lookup local vocabulary: %w", err)
+	}
+	newID := ids.GenerateULID()
+	sysName := "local_terms"
+	semID := projectID + ".VOCAB.local"
+	baseURI := "pletka:concept/"
+	if _, err := s.queries.WeaveCreateVocabulary(ctx, sqlcgen.WeaveCreateVocabularyParams{
+		ID:            newID,
+		SemanticID:    &semID,
+		SystemName:    &sysName,
+		UiName:        marshalJSON(domain.Translations{"en": "Local terms"}),
+		Description:   marshalJSON(domain.Translations{}),
+		Status:        string(domain.StatusPublished),
+		ProjectID:     &projectID,
+		ConnectorType: "local",
+		BaseUri:       &baseURI,
+		Config:        nil,
+	}); err != nil {
+		return "", fmt.Errorf("create local vocabulary: %w", err)
+	}
+	return newID, nil
+}
+
+// scopeTerm enforces tenant isolation for hierarchy operations: the list must
+// belong to projectID and conceptID must be an entry of it. Returns the
+// resolved list (its real id) or a not-found error — the same response whether
+// the list/term is missing or belongs to another project, so cross-tenant
+// probing reveals nothing.
+func (s *Service) scopeTerm(ctx context.Context, projectID, listID, conceptID string) (*ConceptListView, error) {
+	list, err := s.GetProjectConceptList(ctx, projectID, listID)
+	if err != nil {
+		return nil, err
+	}
+	if list == nil {
+		return nil, &ErrConceptListNotFound{ID: listID}
+	}
+	present, err := s.queries.WeaveConceptListEntryExists(ctx, sqlcgen.WeaveConceptListEntryExistsParams{
+		ConceptListID:     list.ID,
+		VocabularyEntryID: conceptID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scope term: %w", err)
+	}
+	if !present {
+		return nil, &ErrConceptListNotFound{ID: conceptID}
+	}
+	return list, nil
+}
+
+// AddBroader records an editable skos:broader edge, scoped to the list. The
+// narrower concept must be a term in (projectID, listID); the broader concept
+// must exist (it may be a global/remote term). The edge is always scheme-scoped
+// to the list — cross-scheme global edges are a privileged operation not
+// exposed here. Idempotent: a duplicate edge is a no-op.
+func (s *Service) AddBroader(ctx context.Context, projectID, listID string, edge domain.ConceptBroaderEdge) (domain.ConceptBroaderEdge, error) {
+	if strings.TrimSpace(edge.ConceptID) == "" || strings.TrimSpace(edge.BroaderID) == "" {
+		return edge, &ErrConceptListValidation{Fields: map[string][]string{conceptBroaderField: {"Concept and broader are required."}}}
+	}
+	if edge.ConceptID == edge.BroaderID {
+		return edge, &ErrConceptListValidation{Fields: map[string][]string{conceptBroaderField: {"A concept cannot be broader than itself."}}}
+	}
+	list, err := s.scopeTerm(ctx, projectID, listID, edge.ConceptID)
+	if err != nil {
+		return edge, err
+	}
+	broaderExists, err := s.queries.WeaveVocabularyEntryExists(ctx, edge.BroaderID)
+	if err != nil {
+		return edge, fmt.Errorf("check broader concept: %w", err)
+	}
+	if !broaderExists {
+		return edge, &ErrConceptListValidation{Fields: map[string][]string{conceptBroaderField: {"Broader concept not found."}}}
+	}
+	scheme := list.ID
+	edge.SchemeID = &scheme
+	if edge.ID == "" {
+		edge.ID = ids.GenerateULID()
+	}
+	if err := s.queries.WeaveAddConceptBroader(ctx, sqlcgen.WeaveAddConceptBroaderParams{
+		ID:        edge.ID,
+		ConceptID: edge.ConceptID,
+		BroaderID: edge.BroaderID,
+		SchemeID:  edge.SchemeID,
+		Position:  int32(edge.Position), //nolint:gosec // position is a small non-negative list index
+	}); err != nil {
+		return edge, fmt.Errorf("add broader edge: %w", err)
+	}
+	return edge, nil
+}
+
+// RemoveBroader deletes a broader edge, scoped to (projectID, listID, conceptID).
+// Returns not-found when nothing matched so an edge id alone cannot delete
+// across tenants, and probing does not confirm edge ids.
+func (s *Service) RemoveBroader(ctx context.Context, projectID, listID, conceptID, edgeID string) error {
+	list, err := s.scopeTerm(ctx, projectID, listID, conceptID)
+	if err != nil {
+		return err
+	}
+	scheme := list.ID
+	n, err := s.queries.WeaveRemoveConceptBroaderScoped(ctx, sqlcgen.WeaveRemoveConceptBroaderScopedParams{
+		ID:        edgeID,
+		ConceptID: conceptID,
+		SchemeID:  &scheme,
+	})
+	if err != nil {
+		return fmt.Errorf("remove broader edge: %w", err)
+	}
+	if n == 0 {
+		return &ErrConceptListNotFound{ID: edgeID}
+	}
+	return nil
+}
+
+// ListBroader returns a term's broader concepts within (projectID, listID).
+func (s *Service) ListBroader(ctx context.Context, projectID, listID, conceptID string) ([]domain.ConceptBroaderEdge, error) {
+	list, err := s.scopeTerm(ctx, projectID, listID, conceptID)
+	if err != nil {
+		return nil, err
+	}
+	scheme := list.ID
+	rows, err := s.queries.WeaveListConceptBroaderInScheme(ctx, sqlcgen.WeaveListConceptBroaderInSchemeParams{
+		ConceptID: conceptID,
+		SchemeID:  &scheme,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list broader edges: %w", err)
+	}
+	out := make([]domain.ConceptBroaderEdge, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, domain.ConceptBroaderEdge{ID: r.ID, ConceptID: r.ConceptID, BroaderID: r.BroaderID, SchemeID: r.SchemeID, Position: int(r.Position)})
+	}
+	return out, nil
+}
+
+// ListNarrower returns the edges where conceptID is the broader concept
+// (i.e. its narrower concepts).
+func (s *Service) ListNarrower(ctx context.Context, conceptID string) ([]domain.ConceptBroaderEdge, error) {
+	rows, err := s.queries.WeaveListConceptNarrower(ctx, conceptID)
+	if err != nil {
+		return nil, fmt.Errorf("list narrower edges: %w", err)
+	}
+	out := make([]domain.ConceptBroaderEdge, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, domain.ConceptBroaderEdge{ID: r.ID, ConceptID: r.ConceptID, BroaderID: r.BroaderID, SchemeID: r.SchemeID, Position: int(r.Position)})
+	}
+	return out, nil
 }
 
 func (s *Service) persistSelectedVocabularyEntry(ctx context.Context, list *ConceptListView, uri string) (*VocabularyEntryView, error) {
@@ -826,6 +1093,35 @@ func (s *Service) searchVocabularyEntries(ctx context.Context, vocabularyID, que
 		}
 	}
 	return limitedEntryViews(merged, limit), nil
+}
+
+// ConceptListProjectID returns the project a concept list belongs to, or "" if
+// the list does not exist. Used to gate the non-project-scoped search route.
+func (s *Service) ConceptListProjectID(ctx context.Context, listID string) (string, error) {
+	row, err := s.queries.WeaveGetConceptListByIDOrSemanticID(ctx, listID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("get concept list: %w", err)
+	}
+	return row.ProjectID, nil
+}
+
+// VocabularyProjectID returns (projectID, found). A found vocabulary with an
+// empty projectID is a global (shared-authority) vocabulary.
+func (s *Service) VocabularyProjectID(ctx context.Context, vocabularyID string) (string, bool, error) {
+	row, err := s.queries.WeaveGetVocabulary(ctx, vocabularyID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("get vocabulary: %w", err)
+	}
+	if row.ProjectID == nil {
+		return "", true, nil
+	}
+	return *row.ProjectID, true, nil
 }
 
 func (s *Service) SearchConceptListEntries(ctx context.Context, conceptListID, query, lang string, limit int) ([]ConceptListEntryView, error) {
@@ -1254,6 +1550,65 @@ func vocabularyFromRow(row sqlcgen.WeaveVocabulary) *domain.Vocabulary {
 	}
 }
 
+// getProjectConceptListArchived reads a concept list + its entries from the
+// release archive at a pinned version.
+func (s *Service) getProjectConceptListArchived(ctx context.Context, projectID, id, version string) (*ConceptListView, error) {
+	row, err := s.queries.WeaveGetProjectConceptListArchive(ctx, sqlcgen.WeaveGetProjectConceptListArchiveParams{
+		ProjectID:     projectID,
+		ID:            id,
+		VersionNumber: version,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get archived concept list: %w", err)
+	}
+	view := conceptListViewFromArchive(row)
+	entries, err := s.queries.WeaveListConceptListEntriesArchiveWithVocabulary(ctx, sqlcgen.WeaveListConceptListEntriesArchiveWithVocabularyParams{
+		ConceptListID: view.ID,
+		VersionNumber: version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list archived concept list entries: %w", err)
+	}
+	view.Entries = make([]ConceptListEntryView, 0, len(entries))
+	for _, e := range entries {
+		view.Entries = append(view.Entries, conceptListEntryViewFromArchiveRow(e))
+	}
+	view.EntryCount = len(view.Entries)
+	return &view, nil
+}
+
+func conceptListViewFromArchive(row sqlcgen.WeaveConceptListsArchive) ConceptListView {
+	return ConceptListView{
+		ID:            row.ID,
+		SemanticID:    stringPtrValue(row.SemanticID),
+		SystemName:    stringPtrValue(row.SystemName),
+		UIName:        unmarshalTranslations(row.UiName),
+		Description:   unmarshalTranslations(row.Description),
+		Status:        row.Status,
+		ProjectID:     row.ProjectID,
+		ListType:      row.ListType,
+		ListTypeLabel: stringPtrValue(row.ListType),
+		VocabularyID:  row.VocabularyID,
+		IsClosed:      row.IsClosed,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
+	}
+}
+
+func conceptListEntryViewFromArchiveRow(row sqlcgen.WeaveListConceptListEntriesArchiveWithVocabularyRow) ConceptListEntryView {
+	return ConceptListEntryView{
+		ID:                row.ConceptListEntryID,
+		ConceptListID:     row.ConceptListID,
+		VocabularyEntryID: row.VocabularyEntryID,
+		Position:          int(row.Position),
+		CustomLabel:       unmarshalTranslations(row.CustomLabel),
+		Entry:             vocabularyEntryViewFromParts(row.EntryID, row.VocabularyID, row.Uri, row.Label, row.ScopeNote, row.BroaderUri, row.BroaderPath, row.BroaderPathItems, row.ExternalID, row.EntryCreatedAt, row.EntryUpdatedAt),
+	}
+}
+
 func conceptListView(row sqlcgen.WeaveConceptList) ConceptListView {
 	return ConceptListView{
 		ID:            row.ID,
@@ -1266,6 +1621,7 @@ func conceptListView(row sqlcgen.WeaveConceptList) ConceptListView {
 		ListType:      row.ListType,
 		ListTypeLabel: stringPtrValue(row.ListType),
 		VocabularyID:  row.VocabularyID,
+		IsClosed:      row.IsClosed,
 		CreatedAt:     row.CreatedAt,
 		UpdatedAt:     row.UpdatedAt,
 	}
