@@ -115,6 +115,17 @@ type ConceptListCap struct {
 	UpdateEntryURL   string `json:"update_entry_url,omitempty"`
 	RemoveEntryURL   string `json:"remove_entry_url,omitempty"`
 	ReorderURL       string `json:"reorder_url,omitempty"`
+	// IsClosed marks a sealed list: membership is locked, so the UI disables
+	// adding terms and shows a "sealed" badge (#3599).
+	IsClosed bool `json:"is_closed"`
+	// CreateTermURL POSTs a hand-authored term ({label, scope_note}) into the
+	// project's local vocabulary and links it to this list.
+	CreateTermURL string `json:"create_term_url,omitempty"`
+	// SealURL PATCHes {is_closed} to lock/unlock membership.
+	SealURL string `json:"seal_url,omitempty"`
+	// BroaderURLTemplate is the per-term hierarchy endpoint (GET/POST, and
+	// DELETE at .../{edgeID}); {conceptID} substitutes the vocabulary entry id.
+	BroaderURLTemplate string `json:"broader_url_template,omitempty"`
 }
 
 type ReleaseView struct {

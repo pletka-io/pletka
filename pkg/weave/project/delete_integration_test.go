@@ -22,7 +22,7 @@ func TestDeleteProject_GuardsAndCascade(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	store := project.NewPostgresStore(pool)
-	svc := project.NewService(store, nil, nil, nil)
+	svc := project.NewService(store, nil, nil, nil, nil)
 
 	// --- Guard cases against the REAL fixtures (read-only) ---
 

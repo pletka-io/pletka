@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pletka-io/pletka/pkg/weave/vocabconnector"
 )
@@ -98,5 +99,58 @@ func TestConnectorFetchParsesSingleResult(t *testing.T) {
 	}
 	if entry.URI != "https://vocab.getty.edu/aat/300010358" {
 		t.Fatalf("unexpected URI: %s", entry.URI)
+	}
+}
+
+// TestConnectorSearchDegradesOnSlowEndpoint proves Search never blocks or
+// errors the caller when the remote authority hangs: a 5s-sleeping endpoint
+// against a 100ms timeout returns empty results and a nil error well within
+// the sleep window (#3599).
+func TestConnectorSearchDegradesOnSlowEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(5 * time.Second):
+		case <-r.Context().Done(): // client gave up; unblock server.Close()
+		}
+	}))
+	defer server.Close()
+
+	connector := New(Config{EndpointURL: server.URL, Timeout: 100 * time.Millisecond}, server.Client())
+
+	done := make(chan struct{})
+	var entries []vocabconnector.Entry
+	var err error
+	go func() {
+		entries, err = connector.Search(context.Background(), "bronze", vocabconnector.SearchOpts{Lang: "en"})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		if err != nil {
+			t.Fatalf("Search should degrade to nil error, got: %v", err)
+		}
+		if len(entries) != 0 {
+			t.Fatalf("Search should return no entries on timeout, got %d", len(entries))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Search blocked past its timeout")
+	}
+}
+
+// TestConnectorFetchErrorsOnSlowEndpoint proves Fetch (explicit by-URI resolve)
+// still surfaces the timeout as an error, unlike Search.
+func TestConnectorFetchErrorsOnSlowEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(5 * time.Second):
+		case <-r.Context().Done(): // client gave up; unblock server.Close()
+		}
+	}))
+	defer server.Close()
+
+	connector := New(Config{EndpointURL: server.URL, Timeout: 100 * time.Millisecond}, server.Client())
+	if _, err := connector.Fetch(context.Background(), "http://vocab.getty.edu/aat/300010358", vocabconnector.SearchOpts{Lang: "en"}); err == nil {
+		t.Fatal("Fetch should return an error on timeout")
 	}
 }

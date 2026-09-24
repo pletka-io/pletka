@@ -43,6 +43,14 @@ type MembershipWriter interface {
 	Upsert(ctx context.Context, m domain.Membership) error
 }
 
+// LocalVocabularyProvisioner provisions a new project's local (hand-authored)
+// vocabulary at create time, so concept authoring works without a remote
+// authority (#3599). Satisfied by vocabulary.Service. Optional — nil in tests
+// that don't exercise vocabulary provisioning; best-effort like MembershipWriter.
+type LocalVocabularyProvisioner interface {
+	EnsureLocalVocabulary(ctx context.Context, projectID string) (string, error)
+}
+
 // Service composes Project read business logic over Store + cross-slice
 // reads via HierarchyReader. Currently read-only — write methods will
 // land on Service in a follow-up commit when Create/Update/Delete also
@@ -51,6 +59,7 @@ type Service struct {
 	store     Store
 	hierarchy HierarchyReader
 	memberWrt MembershipWriter
+	localVoc  LocalVocabularyProvisioner
 	log       *slog.Logger
 }
 
@@ -58,12 +67,14 @@ type Service struct {
 // must be non-nil for ResolvedOntologyVersions; pass
 // deps.Weave.Projects() during the strangler-fig period. memberWrt may
 // be nil in tests; production should pass deps.Weave.Memberships() so
-// project creators get an explicit owner-membership row.
-func NewService(store Store, hierarchy HierarchyReader, memberWrt MembershipWriter, log *slog.Logger) *Service {
+// project creators get an explicit owner-membership row. localVoc may be nil
+// in tests; production passes the vocabulary service so new projects get a
+// local vocabulary provisioned and enabled at create time.
+func NewService(store Store, hierarchy HierarchyReader, memberWrt MembershipWriter, localVoc LocalVocabularyProvisioner, log *slog.Logger) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{store: store, hierarchy: hierarchy, memberWrt: memberWrt, log: log}
+	return &Service{store: store, hierarchy: hierarchy, memberWrt: memberWrt, localVoc: localVoc, log: log}
 }
 
 // ---------------------------------------------------------------------------
@@ -470,6 +481,15 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*domain.Project, 
 			Role:      "owner",
 		}); err != nil {
 			s.log.Warn("failed to upsert owner membership", "project_id", project.ID, "actor_id", in.OwnerID, "err", err)
+		}
+	}
+
+	// Best-effort: provision + enable the project's local vocabulary so concept
+	// authoring works out of the box (#3599). Failure logs but doesn't unwind
+	// the project — EnsureLocalVocabulary is idempotent and re-runs on first use.
+	if s.localVoc != nil {
+		if _, err := s.localVoc.EnsureLocalVocabulary(ctx, project.ID); err != nil {
+			s.log.Warn("failed to provision local vocabulary", "project_id", project.ID, "err", err)
 		}
 	}
 
