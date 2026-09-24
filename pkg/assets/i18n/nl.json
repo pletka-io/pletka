@@ -1301,7 +1301,7 @@
       "empty_message": "Begin door je eerste categorie aan te maken.",
       "add": "Categorie toevoegen",
       "reassign_entity_label": "velden",
-      "overrides": "Overrides"
+      "placements": "Plaatsingen"
     },
     "uncategorized": "Ongecategoriseerd"
   }

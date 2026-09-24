@@ -123,7 +123,11 @@ func (s *Service) GetRefs(ctx context.Context, projectID string, overrideID int6
 // collectionID, and produces copies retargeted to (targetEntityType,
 // targetEntityID). The copies are NOT persisted — caller merges them
 // into the desired list and submits via SaveForEntity. Each cloned row
-// has ID=0 so SaveForEntity treats them as Added.
+// has ID=0, so SaveForEntity's diff reports it as Added — unless the
+// target already has a row with the same (field, category, collection)
+// key, in which case matchOverrides reuses that row's id and it's
+// reported as Changed instead. Either way the clone lands somewhere;
+// which changelog bucket it lands in depends on what's already there.
 //
 // fallbackCategoryID is used when a source row's category_id is empty.
 // Pass the collection's default_category_id (read from
@@ -212,11 +216,6 @@ func (s *Service) SaveForEntity(
 
 	// Force the scope onto every desired row so caller payloads can't
 	// smuggle a row into another (entityType, entityID, projectID).
-	// IDs are preserved — they're the diff key (existing rows match by
-	// bigserial ID, new rows arrive with ID==0). ReplaceForEntity keeps the
-	// ids of matched rows, assigns ids to inserted ones and writes them back
-	// onto the desired slice; the diff was computed before that, against the
-	// pre-replace state.
 	for i := range desired {
 		desired[i].EntityType = entityType
 		desired[i].EntityID = entityID
@@ -228,11 +227,33 @@ func (s *Service) SaveForEntity(
 		return nil, Diff{}, fmt.Errorf("load existing overrides: %w", err)
 	}
 
+	// Match desired rows against existing ones the same way ReplaceForEntity
+	// will, and stamp the matched ids onto desired before diffing. Without
+	// this, a caller that resends a kept row without its id — the raw PUT
+	// …/overrides routes decoding straight from client JSON, or an ops/MCP/
+	// CLI writer — would diff as a Removed+Added pair instead of a Changed:
+	// matchOverrides is the only place that knows a row with ID==0 can
+	// still be the same placement as an existing row with the same (field,
+	// category, collection) key. See stampMatchedIDs' doc comment for the
+	// concurrency note on `existing` being a pre-transaction snapshot.
+	plan := matchOverrides(existing, desired)
+	stampMatchedIDs(desired, plan)
+
 	diff := ComputeDiff(existing, desired)
 
 	if err := s.runner.Run(ctx, func(ctx context.Context, rec domain.ChangeLogRecorder) error {
 		if err := s.store.ReplaceForEntity(ctx, entityType, entityID, desired); err != nil {
 			return fmt.Errorf("replace overrides: %w", err)
+		}
+		// ReplaceForEntity just assigned real ids to the rows it inserted.
+		// diff.Added was built before that ran, from copies of desired that
+		// still carried ID==0 (or an id ComputeDiff didn't accept as a
+		// match) — patch those copies now, using diff.AddedIdx (the
+		// desired-slice index ComputeDiff itself recorded for each Added
+		// entry) so the changelog's "create" entries carry the row's
+		// actual id instead of a placeholder.
+		for j, i := range diff.AddedIdx {
+			diff.Added[j].ID = desired[i].ID
 		}
 		return s.recordDiff(ctx, rec, projectID, diff)
 	}); err != nil {
@@ -383,6 +404,51 @@ func (s *Service) requireProjectWrite(ctx context.Context, projectID string) err
 		return &ErrForbidden{Capability: string(auth.ProjectEdit), Resource: "project:" + projectID}
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Fingerprint + locking
+// ---------------------------------------------------------------------------
+
+// EntityFingerprint is the fingerprint of the entity's current pattern: its
+// override rows, their value-target refs, and (for a model) its collection
+// placements. A later API/MCP writer calls this directly, so it takes no
+// projectID and performs no permission check — the caller has already
+// authorized the read.
+func (s *Service) EntityFingerprint(ctx context.Context, entityType, entityID string) (string, error) {
+	rows, err := s.store.ListForEntity(ctx, entityType, entityID)
+	if err != nil {
+		return "", fmt.Errorf("load overrides: %w", err)
+	}
+	ids := make([]int64, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+	refs, err := s.store.RefsForOverrides(ctx, ids)
+	if err != nil {
+		return "", fmt.Errorf("load refs: %w", err)
+	}
+	var placements []domain.CollectionPlacement
+	if entityType == "model" {
+		placements, err = s.store.ListPlacements(ctx, entityID)
+		if err != nil {
+			return "", fmt.Errorf("load placements: %w", err)
+		}
+	}
+	return Fingerprint(rows, refs, placements), nil
+}
+
+// WithEntityLock serializes work on one entity's pattern behind a
+// session-level Postgres advisory lock, so two saves of the same model or
+// collection queue instead of racing. A save spans several service calls,
+// not one transaction, which is why this isn't a plain DB transaction lock.
+// The wait to acquire the lock is bounded; a caller that could not acquire
+// it in time gets ErrLockBusy back — "someone else is already saving this
+// entity", not a real failure. Not re-entrant: a call must not be nested
+// inside another call (directly, or via the callback) for the same
+// (entityType, entityID) — it would deadlock against its own goroutine.
+func (s *Service) WithEntityLock(ctx context.Context, entityType, entityID string, fn func(context.Context) error) error {
+	return s.store.WithAdvisoryLock(ctx, entityType+":"+entityID, fn)
 }
 
 // ---------------------------------------------------------------------------

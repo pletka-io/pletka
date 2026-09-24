@@ -107,8 +107,10 @@ func BuildListSchema(projectID, lang string, languages []formschema.LanguageInfo
 				ZeroStyle:  "gray",
 			},
 			{
+				// Counts field placements (model + collection), not
+				// customisations — "Overrides" was misleading (#3596).
 				Key:        "_overrides",
-				Label:      i18n.L("category.list.overrides", "Overrides"),
+				Label:      i18n.L("category.list.placements", "Placements"),
 				Type:       "computed_badge",
 				Compute:    "model_field_count + collection_field_count",
 				BadgeStyle: "purple",

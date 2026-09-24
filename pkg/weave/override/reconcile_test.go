@@ -66,3 +66,62 @@ func TestMatchOverridesKnownIDWithOtherFieldIsNotClaimed(t *testing.T) {
 		t.Fatalf("plan = %+v", p)
 	}
 }
+
+func TestStampMatchedIDsFillsIDLessKeptRow(t *testing.T) {
+	existing := []domain.FieldOverride{ov(10, "F1", "C", "COL", 1)}
+	desired := []domain.FieldOverride{ov(0, "F1", "C", "COL", 1)}
+	plan := matchOverrides(existing, desired)
+	stampMatchedIDs(desired, plan)
+	if desired[0].ID != 10 {
+		t.Fatalf("desired[0].ID = %d, want 10", desired[0].ID)
+	}
+	if diff := ComputeDiff(existing, desired); len(diff.Added) != 0 {
+		t.Fatalf("stamped row still classified as added: %+v", diff.Added)
+	}
+}
+
+func TestStampMatchedIDsLeavesUnclaimedRowsAlone(t *testing.T) {
+	existing := []domain.FieldOverride{ov(10, "F1", "C", "", 1)}
+	desired := []domain.FieldOverride{ov(0, "F2", "C", "", 1), ov(999, "F9", "C", "", 2)}
+	plan := matchOverrides(existing, desired)
+	stampMatchedIDs(desired, plan)
+	if desired[0].ID != 0 {
+		t.Fatalf("genuinely new row got stamped: ID = %d", desired[0].ID)
+	}
+	if desired[1].ID != 999 {
+		t.Fatalf("stale-id row was changed: ID = %d, want 999 unchanged", desired[1].ID)
+	}
+}
+
+// TestStampThenDiffAddedIdxLinesUpWithDesired exercises the full
+// SaveForEntity sequence (matchOverrides -> stampMatchedIDs -> ComputeDiff)
+// with more than one Added row, so a permutation bug in the correspondence
+// between diff.AddedIdx and diff.Added — the riskiest part of this change,
+// per fix round 1 finding 3 — would show up here even without a database.
+func TestStampThenDiffAddedIdxLinesUpWithDesired(t *testing.T) {
+	existing := []domain.FieldOverride{ov(10, "F1", "C", "COL", 1), ov(11, "F2", "C", "", 2)}
+	// idx0: id-less resend of the kept F1 row (matched by key, not Added).
+	// idx1: genuinely new row (ID==0, no key match).
+	// idx2: unknown non-zero id (not present in existing at all).
+	desired := []domain.FieldOverride{
+		ov(0, "F1", "C", "COL", 1),
+		ov(0, "F3", "C", "", 3),
+		ov(999, "F9", "C", "", 4),
+	}
+	plan := matchOverrides(existing, desired)
+	stampMatchedIDs(desired, plan)
+
+	diff := ComputeDiff(existing, desired)
+	if !slices.Equal(diff.AddedIdx, []int{1, 2}) {
+		t.Fatalf("AddedIdx = %v, want [1 2]", diff.AddedIdx)
+	}
+	if len(diff.AddedIdx) != len(diff.Added) {
+		t.Fatalf("AddedIdx len = %d, Added len = %d", len(diff.AddedIdx), len(diff.Added))
+	}
+	for j, i := range diff.AddedIdx {
+		if diff.Added[j].FieldID != desired[i].FieldID {
+			t.Fatalf("AddedIdx[%d]=%d does not line up with Added[%d] (field %s vs %s)",
+				j, i, j, desired[i].FieldID, diff.Added[j].FieldID)
+		}
+	}
+}

@@ -3,6 +3,7 @@
     AdoptCollectionResponse,
     OverrideCategoryOption,
     OverrideEditorItem,
+    OverrideEditorPresence,
     OverridePathSuggestion,
     OverridePathSuggestionsResponse,
     OverrideSearchResponse,
@@ -13,6 +14,9 @@
   import { tr, type OriginInfo } from '$lib/types/weave-types';
   import { getUILang } from '$lib/utils/locale';
   import { pathElementsToDisplay } from '$lib/utils/ontology-path';
+  import { onDestroy, onMount } from 'svelte';
+  import { confirmAction } from '$lib/stores/confirm';
+  import { addToast } from '$lib/stores/toast';
   import {
     collectionIDForGroup,
     groupWidgetForCollectionState,
@@ -63,7 +67,27 @@
   let searchRequestId = 0;
   let suggestionRequestId = 0;
   let saving = $state(false);
+  // discarding tracks a "discard my draft and reload" round trip the
+  // same way `saving` tracks a save — Save stays clickable while dirty
+  // is still true during that refetch, and the two can otherwise cross:
+  // a save can land, adopt its new fingerprint, and then an
+  // already-in-flight discard's earlier GET can overwrite the tree with
+  // the pre-save payload while the state still holds the post-save
+  // fingerprint — silently losing what the save just wrote the next time
+  // the curator saves again (fix round 2, item 5).
+  let discarding = $state(false);
   let saveError = $state<string | null>(null);
+  // saveConflictKind mirrors the two distinct 409s the save endpoint can
+  // return (see override_write.go): a real conflict (someone else's save
+  // already landed) vs. a transient lock contention (someone else is
+  // mid-save right now). Different copy, different actions — branch on
+  // this, never on HTTP status alone.
+  let saveConflictKind = $state<'pattern_changed' | 'save_in_progress' | null>(null);
+  // dismissedStaleDraft hides the stale-draft banner once the curator
+  // has explicitly chosen "Keep mine" for it. Never implies the draft
+  // stopped being stale — editorState.staleDraft is untouched.
+  let dismissedStaleDraft = $state(false);
+  let othersEditing = $state<OverrideEditorPresence[]>([]);
   let viewMode = $state<'compact' | 'detailed'>('compact');
   let expandedCategories = $state<Set<string>>(new Set());
   let collapsedItems = $state<Set<string>>(new Set());
@@ -144,6 +168,230 @@
     }, 250);
     return () => window.clearTimeout(timeout);
   });
+
+  // --- Presence heartbeat -------------------------------------------------
+  // A notice only — never a lock. Beats every 20s while the editor is in
+  // edit mode, plus once as soon as the payload loads, and tells the
+  // server it left on unmount/pagehide. presenceSessionId is per-tab so a
+  // curator with two tabs open counts as one editor with two sessions,
+  // never two editors (see override.Presence).
+  let presenceSessionId = '';
+  let presenceTimer: ReturnType<typeof setInterval> | null = null;
+  // presenceArmed is a plain (non-reactive) flag, not $state: it only
+  // guards the one-time "fire the first beat" effect below against
+  // re-running (the effect reads editorState.response, which is
+  // reassigned on every edit) and against ever sending a "left" beacon
+  // for a viewer who never actually beat "editing" in the first place.
+  let presenceArmed = false;
+
+  function newPresenceSessionId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  function presenceUrl(): string | null {
+    return editorState.response?.available.presence_url ?? null;
+  }
+
+  async function beatPresence() {
+    const url = presenceUrl();
+    if (!url || !canEditOverrides()) return;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: 'editing', session_id: presenceSessionId }),
+      });
+      if (!res.ok) {
+        // Age the claim out rather than leave it on screen — the server's
+        // own presence entries expire after 60s of missed heartbeats, and
+        // a failed beat (network down, lapsed session) means we no longer
+        // know who is really still editing.
+        othersEditing = [];
+        return;
+      }
+      const data = (await res.json()) as { editors?: OverrideEditorPresence[] };
+      othersEditing = data.editors ?? [];
+    } catch {
+      othersEditing = [];
+    }
+  }
+
+  function sendLeaveBeacon() {
+    const url = presenceUrl();
+    if (!url) return;
+    const body = JSON.stringify({ state: 'left', session_id: presenceSessionId });
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+      return;
+    }
+    void fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true,
+    }).catch(() => {});
+  }
+
+  function handlePageHide() {
+    if (presenceArmed) sendLeaveBeacon();
+  }
+
+  onMount(() => {
+    presenceSessionId = newPresenceSessionId();
+    presenceTimer = setInterval(() => { void beatPresence(); }, 20000);
+    window.addEventListener('pagehide', handlePageHide);
+  });
+
+  onDestroy(() => {
+    if (presenceTimer !== null) clearInterval(presenceTimer);
+    window.removeEventListener('pagehide', handlePageHide);
+    if (presenceArmed) sendLeaveBeacon();
+    clearSaveInProgressTimer();
+  });
+
+  // Fire the first heartbeat the moment the payload (and its
+  // presence_url) is ready, rather than waiting up to 20s for the first
+  // interval tick. Never rearms once presenceArmed flips true, and never
+  // returns a cleanup, so the later reruns this effect gets from every
+  // edit (it reads editorState.response) are harmless no-ops.
+  $effect(() => {
+    if (presenceArmed) return;
+    if (!editorState.response || !canEditOverrides()) return;
+    presenceArmed = true;
+    void beatPresence();
+  });
+
+  function presenceTimeLabel(since: string): string {
+    return new Date(since).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+
+  // joinNames renders a natural-language list: "A", "A and B", or
+  // "A, B and C" — never a bare comma-joined string, and never "and"
+  // before a single trailing name is missing its Oxford comma partner.
+  function joinNames(names: string[]): string {
+    if (names.length <= 1) return names[0] ?? '';
+    if (names.length === 2) return `${names[0]} and ${names[1]}`;
+    return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  }
+
+  // earliestSince picks the oldest `since` across every listed editor, so
+  // the plural line can carry the same "(since HH:MM)" the singular line
+  // does instead of silently dropping it.
+  function earliestSince(editors: OverrideEditorPresence[]): string {
+    return editors.reduce(
+      (earliest, editor) => (new Date(editor.since) < new Date(earliest) ? editor.since : earliest),
+      editors[0].since,
+    );
+  }
+
+  function presenceLineText(): string {
+    if (othersEditing.length === 0) return '';
+    const names = joinNames(othersEditing.map((editor) => editor.name));
+    const verb = othersEditing.length === 1 ? 'is' : 'are';
+    const since = presenceTimeLabel(earliestSince(othersEditing));
+    return `${names} ${verb} also editing this pattern (since ${since})`;
+  }
+
+  // --- Conflict bar --------------------------------------------------------
+  // Two independent triggers can show this bar: a 409 on save (pattern
+  // changed, or someone else's save is in progress right now) and a
+  // restored draft whose stored fingerprint no longer matches what was
+  // live at load time. Never merges, never auto-overwrites — "Discard my
+  // changes and reload" is the only action that throws the draft away,
+  // and it always asks first (confirmAction) since it is a one-click,
+  // irreversible loss of everything the curator has typed.
+  //
+  // save_in_progress renders as a separate, calmer (blue, not amber)
+  // notice with no buttons: nothing has changed yet, the draft is
+  // untouched, and retrying shortly will work — it is not the same kind
+  // of decision as an actual conflict, so it must not look like one.
+  const SAVE_IN_PROGRESS_NOTICE_MS = 15000;
+  let saveInProgressTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearSaveInProgressTimer() {
+    if (saveInProgressTimer !== null) {
+      clearTimeout(saveInProgressTimer);
+      saveInProgressTimer = null;
+    }
+  }
+
+  function isTransientSaveNotice(): boolean {
+    return saveConflictKind === 'save_in_progress';
+  }
+
+  function isActionableConflict(): boolean {
+    return saveConflictKind === 'pattern_changed' || (saveConflictKind === null && editorState.staleDraft && !dismissedStaleDraft);
+  }
+
+  function conflictBannerText(): string {
+    if (saveConflictKind === 'save_in_progress') {
+      return 'Someone else is saving this pattern right now. Your changes are still here — try saving again in a moment.';
+    }
+    if (saveConflictKind === 'pattern_changed') {
+      return 'Someone saved this pattern while you were editing. Your changes are still here, but saving is blocked until you reload or discard them.';
+    }
+    // Deliberately as certain as the pattern_changed copy above, not
+    // softened to "may have changed": staleDraft is only ever set when
+    // the draft's stored fingerprint is missing or differs from what was
+    // live at load time, which means the next save is guaranteed to hit
+    // the same 409 — not merely possible. Keeping the two messages
+    // equally definite also means dismissing a live pattern_changed
+    // conflict (keepEditingMine, below) and falling back to this text
+    // never downgrades what the curator is told: both say saving stays
+    // blocked until they reload or discard.
+    return 'This pattern has changed since your unsaved changes were made. Your changes are still here, but saving is blocked until you reload or discard them.';
+  }
+
+  // discardDraftAndReload is the one path that throws a curator's local
+  // draft away — shared by the conflict bar's "Discard my changes and
+  // reload" and the unrelated unsaved-changes banner's "Discard Draft"
+  // (same destruction, same confirmation; see fix round 2, item 2). Both
+  // always ask first via confirmAction, since this is a one-click,
+  // irreversible loss of everything typed.
+  //
+  // editorState.discardDraft() swallows its own fetch failure into
+  // `error` rather than throwing (round 1 fix — so a failed refetch never
+  // clears the draft), but `error` only ever renders in the "failed to
+  // load" screen, which is unreachable once a response already exists —
+  // exactly the state a discard is invoked from. Without surfacing it
+  // here too, a curator on flaky wifi confirms the dialog and sees
+  // nothing at all happen (fix round 2, item 1) — toast it instead, since
+  // toasts outlive this component if the parent unmounts it.
+  async function discardDraftAndReload() {
+    const ok = await confirmAction({
+      title: 'Discard my changes and reload',
+      message: 'This throws away every change you have made since you started editing, and cannot be undone.',
+      confirmLabel: 'Discard and reload',
+      cancelLabel: 'Cancel',
+      danger: true,
+    });
+    if (!ok) return;
+    saveConflictKind = null;
+    clearSaveInProgressTimer();
+    dismissedStaleDraft = false;
+    saveError = null;
+    discarding = true;
+    try {
+      await editorState.discardDraft();
+      if (editorState.error) {
+        addToast('error', `Could not reload: ${editorState.error}. Your changes are still here.`);
+      }
+    } finally {
+      discarding = false;
+    }
+  }
+
+  function keepEditingMine() {
+    if (saveConflictKind === 'pattern_changed') {
+      saveConflictKind = null;
+      clearSaveInProgressTimer();
+      return;
+    }
+    dismissedStaleDraft = true;
+  }
 
   function activeCategoryName(): string {
     if (!editorState.response) return '';
@@ -702,8 +950,15 @@
     if (!canEditOverrides()) return;
     const payload = editorState.serializePayload();
     if (!payload) return;
+    // Captured before the request goes out: tells markSaved() below
+    // whether any edit landed while this request was in flight, so a
+    // drag/row-edit/sidebar change made during the round trip is never
+    // silently erased along with the draft it was never part of sending.
+    const sinceVersion = editorState.version;
     saving = true;
     saveError = null;
+    saveConflictKind = null;
+    clearSaveInProgressTimer();
     try {
       const res = await fetch(saveUrl, {
         method: 'PUT',
@@ -712,14 +967,71 @@
         },
         body: JSON.stringify({
           commit_message: 'Update overrides',
+          // Never an empty string here — that is the ops-tooling/git-restore
+          // opt-out sentinel the server treats as "skip the staleness
+          // check", and the editor is never allowed to opt out (see
+          // OverrideEditorState.fingerprintForSave / LEGACY_DRAFT_FINGERPRINT).
+          fingerprint: editorState.fingerprintForSave,
           ...payload,
         }),
       });
+      const body = await res.json().catch(() => null);
       if (!res.ok) {
-        const body = await res.json().catch(() => null);
+        // The two 409s are different situations: branch on the `message`
+        // field (apierror.Error.Details), never on the status code alone.
+        if (res.status === 409 && body?.code === 'conflict' && body?.message === 'save_in_progress') {
+          saveConflictKind = 'save_in_progress';
+          saveInProgressTimer = setTimeout(() => {
+            if (saveConflictKind === 'save_in_progress') saveConflictKind = null;
+            saveInProgressTimer = null;
+          }, SAVE_IN_PROGRESS_NOTICE_MS);
+          return;
+        }
+        if (res.status === 409 && body?.code === 'conflict' && body?.message === 'pattern_changed') {
+          saveConflictKind = 'pattern_changed';
+          return;
+        }
         throw new Error(body?.error || `Save failed: ${res.status}`);
       }
-      editorState.markSaved();
+      const fingerprint = typeof body?.fingerprint === 'string' && body.fingerprint.length > 0 ? body.fingerprint : null;
+      if (fingerprint) {
+        // Only a 2xx response carries a real fingerprint — adopt it as
+        // the new baseline before anything else can trigger another save.
+        editorState.fingerprint = fingerprint;
+        dismissedStaleDraft = false;
+        const editedWhileSaving = sinceVersion !== editorState.version;
+        editorState.markSaved(sinceVersion);
+        if (editedWhileSaving) {
+          // onsuccess() below leaves edit mode and unmounts this whole
+          // component in the same tick, so a component-local flag or
+          // banner saying "your in-flight edit is still unsaved" would
+          // be torn down before it ever painted. A toast survives that
+          // unmount (fix round 2, item 3) — the save went through, but
+          // the draft markSaved just kept dirty above still needs to be
+          // said out loud, or the curator has no reason to reopen the
+          // editor and finish sending it.
+          addToast('info', 'Saved. The changes you made while it was saving are still unsaved.');
+        }
+      } else {
+        // The write went through (2xx) but the response carried no
+        // usable fingerprint — this editor's copy of "what version this
+        // now is" can no longer be trusted. Continuing with the OLD
+        // fingerprint would make the curator's own next save look like a
+        // conflict with itself, and the only recovery the conflict bar
+        // offers is discarding everything typed since. Reload from the
+        // server instead of guessing; markSaved(sinceVersion) first so a
+        // draft with no edits since the snapshot doesn't get restored
+        // over the reload (an in-flight edit, if any, is kept and will
+        // correctly show as a stale draft once the reload lands).
+        editorState.markSaved(sinceVersion);
+        await editorState.init();
+        // Same unmount-before-paint problem as above (fix round 2, item
+        // 4) — a saveError here would flash at best. Toasting it costs
+        // one line; this branch stays otherwise exactly as cheap as
+        // before, since it is unreachable against today's server
+        // (override_write.go always sets a fingerprint on a 2xx).
+        addToast('warning', "Saved, but the server didn't confirm the new version — reloaded to stay in sync.");
+      }
       await onsuccess?.();
     } catch (err) {
       saveError = err instanceof Error ? err.message : String(err);
@@ -738,13 +1050,47 @@
     <button
       type="button"
       class="mt-4 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700"
-      onclick={() => editorState.init()}
+      onclick={() => { saveError = null; void editorState.init(); }}
     >
       Retry
     </button>
   </div>
 {:else if editorState.response}
   <div class="space-y-6 rounded-xl border border-blue-200 bg-blue-50/30 p-4 md:p-6">
+    {#if isTransientSaveNotice()}
+      <div role="status" aria-live="polite" class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        {conflictBannerText()}
+      </div>
+    {/if}
+
+    {#if isActionableConflict()}
+      <div role="status" aria-live="polite" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex items-center justify-between gap-4">
+        <div class="text-sm text-amber-800">{conflictBannerText()}</div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-amber-300 bg-white text-amber-800 hover:bg-amber-100"
+            onclick={discardDraftAndReload}
+          >
+            Discard my changes and reload
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
+            onclick={keepEditingMine}
+          >
+            Keep editing mine
+          </button>
+        </div>
+      </div>
+    {/if}
+
+    {#if othersEditing.length > 0}
+      <div role="status" aria-live="polite" class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        {presenceLineText()}
+      </div>
+    {/if}
+
     <div class="flex items-center justify-between">
       <div>
         <div class="flex items-center gap-2">
@@ -811,7 +1157,7 @@
             type="button"
             class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-blue-600 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
             onclick={saveDraft}
-            disabled={!editorState.dirty || saving}
+            disabled={!editorState.dirty || saving || discarding}
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -820,7 +1166,7 @@
     </div>
 
     {#if saveError}
-      <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+      <div role="status" aria-live="polite" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
         {saveError}
       </div>
     {/if}
@@ -838,7 +1184,7 @@
           <button
             type="button"
             class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-amber-300 bg-white text-amber-800 hover:bg-amber-100"
-            onclick={() => editorState.discardDraft()}
+            onclick={discardDraftAndReload}
           >
             Discard Draft
           </button>

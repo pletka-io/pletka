@@ -564,8 +564,19 @@ Do not implement yet:
 
 - collection fork flow
 - standalone override route family
-- edit lock
-- final draft persistence strategy
+
+Shipped, superseding two earlier "do not implement yet" entries on this
+list (a soft edit lock and a final draft-persistence strategy): the save
+path computes a content fingerprint of the entity's pattern (`Fingerprint`
+in `pkg/weave/override`), which the editor carries from load to save; a
+save whose fingerprint no longer matches the entity's current content is
+refused with `409` before anything is written, rather than silently
+overwriting a newer save. Concurrent editing is surfaced as presence, not
+enforced as a lock: an in-memory, notice-only registry
+(`pkg/weave/override.Presence`) tracks who else has the same pattern open
+and the UI shows it as information ("Alice is also editing this"), with no
+lock, banner, or takeover semantics. Save serialisation itself comes from a
+session-level Postgres advisory lock (`WithEntityLock`), not from presence.
 
 ## Relationship to Detailview
 

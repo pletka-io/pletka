@@ -1109,8 +1109,7 @@
       "empty_title": "Няма категории",
       "empty_message": "Започнете, като създадете първата си категория.",
       "add": "Добави категория",
-      "reassign_entity_label": "полета",
-      "overrides": "Замествания"
+      "reassign_entity_label": "полета"
     },
     "uncategorized": "Без категория"
   }

@@ -5,13 +5,36 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// lockTimeout bounds how long a WithAdvisoryLock caller waits to acquire the
+// per-entity lock. Set as a session GUC on the lock's own connection before
+// taking the lock, so a caller with a background ctx (ops tooling, MCP, a
+// future API writer) cannot queue forever behind someone else's save.
+//
+// A var, not a const, solely so an integration test can shorten it to
+// exercise a real lock-busy wait in well under 10 seconds — see
+// lock_busy_integration_test.go. Production code never assigns to it.
+var lockTimeout = 10 * time.Second //nolint:gochecknoglobals // test-only override hook, see comment above
+
+// unlockGraceTimeout bounds the deferred pg_advisory_unlock call. It
+// deliberately does not inherit the caller's ctx cancellation (see
+// WithAdvisoryLock) — it needs its own bound so a truly wedged server can't
+// hang the unlock forever either.
+const unlockGraceTimeout = 5 * time.Second
+
+// lockNotAvailableSQLState is Postgres's SQLSTATE for "lock_timeout
+// exceeded while waiting for a lock" (55P03), returned when
+// pg_advisory_lock aborts because lock_timeout fired.
+const lockNotAvailableSQLState = "55P03"
 
 // postgresStore is the pgx + sqlc implementation of Store, backed by the
 // weave_field_overrides + weave_override_refs tables.
@@ -271,6 +294,131 @@ func (s *postgresStore) GetRefs(ctx context.Context, overrideID int64) ([]domain
 		out = append(out, rowToRef(row))
 	}
 	return out, nil
+}
+
+// ---------------------------------------------------------------------------
+// Fingerprint + locking support
+// ---------------------------------------------------------------------------
+
+// RefsForOverrides bulk-loads refs for a set of override ids, grouped by
+// override id. An empty ids returns an empty map without a round trip.
+func (s *postgresStore) RefsForOverrides(ctx context.Context, ids []int64) (map[int64][]domain.OverrideRef, error) {
+	out := map[int64][]domain.OverrideRef{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := s.queries.WeaveListRefsForOverrides(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list refs for overrides: %w", err)
+	}
+	for _, row := range rows {
+		out[row.OverrideID] = append(out[row.OverrideID], rowToRef(row))
+	}
+	return out, nil
+}
+
+// WithAdvisoryLock runs fn while holding a session-level Postgres advisory
+// lock on key, so two saves of one entity queue instead of racing. The save
+// spans several service calls, so the lock lives on its own pooled
+// connection rather than inside a transaction, not `pg_advisory_xact_lock`.
+//
+// key is hashed server-side with hashtext (so the same key hashes
+// identically across processes and Go versions), an undocumented internal
+// function returning int4: the keyspace is only 2^32, so an unrelated pair
+// of saves can in principle collide and queue behind each other — a
+// slowdown, never a correctness bug, since the lock is only ever a
+// serialization aid, not an identity check. Session-level advisory locks
+// also require a direct, session-pinned connection: they do not work behind
+// a transaction-pooling pgbouncer, which would hand the "session" to a
+// different backend between statements.
+func (s *postgresStore) WithAdvisoryLock(ctx context.Context, key string, fn func(context.Context) error) (err error) {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire lock conn: %w", err)
+	}
+	defer conn.Release()
+
+	// SET does not accept a bind parameter, so the bound duration is
+	// formatted into the statement text. lockTimeout is a package variable
+	// only so a test can shorten the wait; it is never caller input.
+	setLockTimeout := fmt.Sprintf(`SET lock_timeout = '%dms'`, lockTimeout.Milliseconds())
+	if _, execErr := conn.Exec(ctx, setLockTimeout); execErr != nil {
+		return fmt.Errorf("set advisory lock_timeout: %w", execErr)
+	}
+
+	// connClosed is set by the unlock defer below when it closes conn
+	// itself. This defer is registered before the unlock defer, so it runs
+	// after it (LIFO) — checking connClosed here lets it skip the reset
+	// instead of running RESET lock_timeout on a connection the unlock
+	// defer already closed, which would only fail again and join a second,
+	// redundant error onto err describing the same underlying failure.
+	var connClosed bool
+
+	// lock_timeout is session state and the pool does not scrub a connection
+	// on release, so leaving it set would arm a 10s timeout on whatever
+	// unrelated work draws this connection next: a release tag or a git
+	// restore waiting on a row lock would abort instead of waiting. Reset it
+	// on every path out, including the lock-busy one, on a context the
+	// caller's cancellation cannot cut short. This defer is registered
+	// before the unlock defer, so it runs after it.
+	defer func() {
+		if connClosed {
+			return
+		}
+		resetCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unlockGraceTimeout)
+		defer cancel()
+		if _, resetErr := conn.Exec(resetCtx, `RESET lock_timeout`); resetErr != nil {
+			// A session left with a stale lock_timeout must not be reused.
+			_ = conn.Conn().Close(resetCtx) //nolint:errcheck // best-effort; Release then destroys the resource
+			err = errors.Join(err, fmt.Errorf("reset lock_timeout: %w", resetErr))
+		}
+	}()
+	if _, lockErr := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, key); lockErr != nil {
+		if isLockNotAvailable(lockErr) {
+			// Join rather than wrap the sentinel alone: errors.Is still
+			// matches ErrLockBusy, and an operator staring at a 409 keeps
+			// the entity key and the server's own message.
+			return fmt.Errorf("take advisory lock %q: %w", key, errors.Join(ErrLockBusy, lockErr))
+		}
+		return fmt.Errorf("take advisory lock %q: %w", key, lockErr)
+	}
+
+	// The unlock must not run on ctx once ctx may already be done: pgx
+	// short-circuits an already-canceled ctx (newContextAlreadyDoneError)
+	// without ever touching the wire, so the UNLOCK never reaches Postgres,
+	// the session survives, and Release below would hand a connection that
+	// is still holding this lock straight back to the pool. Run the unlock
+	// on a context that ignores the caller's cancellation, bounded by its
+	// own short timeout instead, so it always gets a real chance to reach
+	// the server; if it still fails (or reports the lock wasn't held), the
+	// connection must not go back to the pool holding the lock, so close it
+	// — Release then destroys the resource instead of recycling it.
+	defer func() {
+		unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unlockGraceTimeout)
+		defer cancel()
+
+		var released bool
+		unlockErr := conn.QueryRow(unlockCtx, `SELECT pg_advisory_unlock(hashtext($1))`, key).Scan(&released)
+		if unlockErr == nil && released {
+			return
+		}
+		if unlockErr == nil {
+			unlockErr = fmt.Errorf("advisory lock %q was not held by this session at unlock", key)
+		}
+		_ = conn.Conn().Close(unlockCtx) //nolint:errcheck // best-effort; Release below destroys the resource regardless
+		connClosed = true
+		err = errors.Join(err, fmt.Errorf("release advisory lock: %w", unlockErr))
+	}()
+
+	return fn(ctx)
+}
+
+// isLockNotAvailable reports whether err is Postgres aborting a lock wait
+// because lock_timeout fired (SQLSTATE 55P03) — the signal WithAdvisoryLock
+// translates into ErrLockBusy.
+func isLockNotAvailable(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == lockNotAvailableSQLState
 }
 
 // ---------------------------------------------------------------------------

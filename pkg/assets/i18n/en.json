@@ -1978,7 +1978,7 @@
       "empty_message": "Get started by creating your first category.",
       "add": "Add Category",
       "reassign_entity_label": "fields",
-      "overrides": "Overrides"
+      "placements": "Placements"
     },
     "uncategorized": "Uncategorized",
     "slice": {

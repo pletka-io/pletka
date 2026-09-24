@@ -113,14 +113,16 @@ func buildIdentityFields(mode string, existing *domain.Collection, projectID str
 	}
 
 	defaultCategory := formschema.FieldDef{
-		Name:       "default_category_id",
-		Widget:     formschema.WidgetSelect,
-		Required:   false,
-		Readonly:   mode == formschema.ModeView,
-		Label:      i18n.L("collection.form.default_category", "Default Category"),
-		Help:       i18n.L("collection.form.default_category_help", "Project-level default category for this collection's fields. Models can override per context."),
-		EntityType: "category",
-		OptionsURL: fmt.Sprintf("/projects/%s/categories/options", projectID),
+		Name:        "default_category_id",
+		Widget:      formschema.WidgetSelect,
+		Required:    false,
+		Readonly:    mode == formschema.ModeView,
+		Label:       i18n.L("collection.form.default_category", "Default Category"),
+		Help:        i18n.L("collection.form.default_category_help", "Project-level default category for this collection's fields. Models can override per context."),
+		EntityType:  "category",
+		OptionsURL:  fmt.Sprintf("/projects/%s/categories/options", projectID),
+		CreateURL:   "/api/v1/drafts",
+		CreateLabel: i18n.L("category.form.submit_create", "Create Category"),
 	}
 	if isEdit && existing != nil && existing.DefaultCategoryID != nil {
 		defaultCategory.Value = *existing.DefaultCategoryID

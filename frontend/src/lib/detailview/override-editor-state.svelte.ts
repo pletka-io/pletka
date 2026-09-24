@@ -19,6 +19,20 @@ export type OverrideSearchMode = 'text' | 'path';
 export const UNCATEGORIZED_ID = '__uncategorized__';
 export { DIRECT_FIELDS_ID } from '$lib/detailview/group-kind';
 
+// LEGACY_DRAFT_FINGERPRINT is sent on save instead of an empty string when
+// a restored draft has no stored fingerprint (a draft written by the
+// editor before this feature shipped). An empty fingerprint tells the
+// server to skip its staleness check entirely — that opt-out exists for
+// ops tooling and git restore, which never loaded an editor payload to
+// carry one. The editor always loads a payload, so it must never opt
+// out: a legacy draft with no fingerprint is exactly the case the
+// conflict flow exists to catch (rollout day: a curator holds a
+// pre-deploy draft, someone else saves first). This value is
+// deliberately not 32 hex characters, so it can never collide with a
+// real fingerprint and always falls into the normal "someone saved this
+// while you were editing" conflict path instead of the skip path.
+const LEGACY_DRAFT_FINGERPRINT = 'legacy-draft';
+
 // filterRefsByIDs preserves the display refs (with name + semantic_id)
 // matching the post-mutation ID list. New IDs that have no resolved ref
 // yet keep a bare {id} entry so the chip still renders something — full
@@ -39,10 +53,44 @@ export class OverrideEditorState {
   searchMode: OverrideSearchMode = $state('text');
   dirty = $state(false);
   restoredDraft = $state(false);
+  // fingerprint is the content hash this editor's in-memory state is
+  // known to match — the baseline the next save round-trips back to the
+  // server. Starts from the load payload; a restored draft overrides it
+  // with the draft's OWN stored fingerprint (the version it actually
+  // diverged from), never the freshly-loaded live one — substituting the
+  // live fingerprint here would make a genuinely stale draft's save look
+  // clean and silently overwrite newer work.
+  fingerprint: string | null = $state(null);
+  // staleDraft is true when a restored draft's stored fingerprint is
+  // missing or no longer matches what was live at load time — someone
+  // else saved between when this draft was captured and now. The draft
+  // is still restored either way; this only flags it.
+  staleDraft = $state(false);
 
   constructor(public readonly url: string) {}
 
   private tempId = 0;
+
+  // draftVersion increments on every commit() — i.e. every user edit
+  // that changes the in-memory tree. saveDraft() captures it (via
+  // `version`) right before snapshotting the payload it sends; markSaved
+  // compares it against the current value to tell "no edit landed while
+  // this request was in flight" (safe to drop the local draft) from "an
+  // edit landed mid-flight and was never sent" (keep it, stay dirty).
+  private draftVersion = 0;
+
+  get version(): number {
+    return this.draftVersion;
+  }
+
+  // fingerprintForSave is what a save actually sends — never the bare,
+  // possibly-null `fingerprint`. See LEGACY_DRAFT_FINGERPRINT: a real
+  // fingerprint is never empty here (a legacy null is substituted with a
+  // sentinel that always mismatches), so the server's empty-string
+  // skip-the-check path is never reachable from the editor.
+  get fingerprintForSave(): string {
+    return this.fingerprint || LEGACY_DRAFT_FINGERPRINT;
+  }
 
   // categoryNamesByID reads from the response's available_categories
   // roster — backend builds the full project category list once and
@@ -56,24 +104,38 @@ export class OverrideEditorState {
     return out;
   }
 
+  // fetchLive fetches and parses the current server payload with no
+  // draft involved — shared by init() (which then decides whether to
+  // overlay a local draft) and discardDraft() (which never does).
+  private async fetchLive(): Promise<OverrideEditorResponse> {
+    const res = await fetch(this.url);
+    if (!res.ok) {
+      throw new Error(`Failed to load override editor: ${res.status} ${res.statusText}`);
+    }
+    return (await res.json()) as OverrideEditorResponse;
+  }
+
   async init(): Promise<void> {
     this.loading = true;
     this.error = null;
     try {
-      const res = await fetch(this.url);
-      if (!res.ok) {
-        throw new Error(`Failed to load override editor: ${res.status} ${res.statusText}`);
-      }
-      const live = (await res.json()) as OverrideEditorResponse;
+      const live = await this.fetchLive();
       const draft = this.loadDraft(live);
       // Dedupe items per category by id and fields per item by override_id
       // before handing to render. Stale localStorage drafts could carry
       // duplicates from a pre-guard editor session; without this, the
       // page crashes with each_key_duplicate before the curator can hit
       // "Discard draft".
-      this.response = this.dedupe(draft ?? live);
+      this.response = this.dedupe(draft?.response ?? live);
       this.dirty = draft !== null;
       this.restoredDraft = draft !== null;
+      if (draft) {
+        this.fingerprint = draft.fingerprint;
+        this.staleDraft = !draft.fingerprint || draft.fingerprint !== live.fingerprint;
+      } else {
+        this.fingerprint = live.fingerprint;
+        this.staleDraft = false;
+      }
     } catch (err) {
       this.error = err instanceof Error ? err.message : String(err);
     } finally {
@@ -574,14 +636,49 @@ export class OverrideEditorState {
     this.commit({ ...this.response, categories });
   }
 
-  discardDraft(): void {
-    this.clearDraft();
-    this.dirty = false;
-    this.restoredDraft = false;
-    void this.init();
+  // discardDraft refetches the server payload FIRST and only discards the
+  // local draft once that refetch succeeds — never the other way round.
+  // Clearing localStorage before confirming the refetch worked would
+  // leave a curator whose network drops (or whose session lapsed) mid
+  // reload staring at their own still-on-screen work with the Save
+  // button disabled and no local backup left to recover it from.
+  async discardDraft(): Promise<void> {
+    this.loading = true;
+    this.error = null;
+    try {
+      const live = await this.fetchLive();
+      this.clearDraft();
+      this.response = this.dedupe(live);
+      this.dirty = false;
+      this.restoredDraft = false;
+      this.staleDraft = false;
+      this.fingerprint = live.fingerprint;
+    } catch (err) {
+      // Refetch failed — keep the draft and the on-screen work exactly
+      // as they were; only the error changes.
+      this.error = err instanceof Error ? err.message : String(err);
+    } finally {
+      this.loading = false;
+    }
   }
 
-  markSaved(): void {
+  // markSaved is called after a successful save. sinceVersion is the
+  // `version` captured right before the request was sent: if it still
+  // matches, nothing changed in memory while the request was in flight
+  // and the local draft is now redundant — clear it. If it no longer
+  // matches, an edit landed mid-flight and was never sent: keep the
+  // draft (still dirty, so the Save button and unsaved-changes banner
+  // keep reflecting that there is more to send) and re-persist it so its
+  // stored fingerprint matches whatever the caller just set as the new
+  // baseline (see `fingerprint`) rather than the one this save replaced.
+  // Callers that never track a version (none today) get the old
+  // unconditional-clear behaviour.
+  markSaved(sinceVersion?: number): void {
+    this.staleDraft = false;
+    if (sinceVersion !== undefined && sinceVersion !== this.draftVersion) {
+      if (this.response) this.persistDraft(this.response);
+      return;
+    }
     this.clearDraft();
     this.dirty = false;
     this.restoredDraft = false;
@@ -651,6 +748,7 @@ export class OverrideEditorState {
     this.response = response;
     this.dirty = true;
     this.restoredDraft = false;
+    this.draftVersion += 1;
     this.persistDraft(response);
   }
 
@@ -730,12 +828,14 @@ export class OverrideEditorState {
     return { ...response, categories };
   }
 
-  private loadDraft(response: OverrideEditorResponse): OverrideEditorResponse | null {
+  private loadDraft(
+    response: OverrideEditorResponse,
+  ): { response: OverrideEditorResponse; fingerprint: string | null } | null {
     if (typeof window === 'undefined') return null;
     try {
       const raw = window.localStorage.getItem(this.draftKey(response));
       if (!raw) return null;
-      const parsed = JSON.parse(raw) as { response?: OverrideEditorResponse };
+      const parsed = JSON.parse(raw) as { response?: OverrideEditorResponse; fingerprint?: string };
       if (!parsed.response) return null;
       if (
         parsed.response.project_id !== response.project_id ||
@@ -744,7 +844,7 @@ export class OverrideEditorState {
       ) {
         return null;
       }
-      return parsed.response;
+      return { response: parsed.response, fingerprint: parsed.fingerprint ?? null };
     } catch {
       return null;
     }
@@ -758,6 +858,7 @@ export class OverrideEditorState {
         JSON.stringify({
           saved_at: new Date().toISOString(),
           response,
+          fingerprint: this.fingerprint,
         }),
       );
     } catch {

@@ -86,6 +86,7 @@ func Mount(parent chi.Router, host Host) {
 		r.Use(auth.RequireProjectRead(host.Weave.Projects()))
 		r.Get("/", h.ModelOverrides)
 		r.Put("/", h.SaveModelOverrides)
+		r.Post("/presence", h.ModelOverridesPresence)
 	})
 	mountAt(parent, "/projects/{projectID}/models/{modelID}/composition/adopt-collection", host, func(r chi.Router) {
 		r.Use(auth.RequireProjectRead(host.Weave.Projects()))
@@ -103,6 +104,7 @@ func Mount(parent chi.Router, host Host) {
 		r.Use(auth.RequireProjectRead(host.Weave.Projects()))
 		r.Get("/", h.CollectionOverrides)
 		r.Put("/", h.SaveCollectionOverrides)
+		r.Post("/presence", h.CollectionOverridesPresence)
 	})
 }
 

@@ -8,42 +8,48 @@
 // Override is an internal data layer. It does not register HTTP routes
 // of its own — mutations always arrive through a parent entity (model,
 // collection, or field), so the owning slice drives the user-facing
-// flow and calls into override.Service for the heavy lifting.
+// flow and calls into override.Service for the heavy lifting. The
+// pattern editor's actual save route (PUT
+// /projects/{pid}/{models|collections}/{id}/overrides) is owned by
+// pkg/weave/project's saveOverrides, not by model/collection's own
+// same-path handlers, which take neither a lock nor a fingerprint and
+// exist only because model/collection also expose a flat override CRUD
+// surface — see pkg/weave/project/override_write.go for how the router
+// resolves the two to the same path.
 //
-// Save flow (called from a parent slice handler):
+// Save flow (driven by pkg/weave/project's saveOverrides):
 //
-//  1. Parent slice receives PUT /projects/{pid}/{models|collections}/{id}/overrides
-//  2. Parent decodes payload + commit message, authorises the actor.
-//  3. Parent calls override.Service.SaveForEntity(ctx, entityType, entityID,
-//     desired []FieldOverride, commitMessage string).
-//  4. Service loads the current set, computes a Diff, runs Store.ReplaceForEntity
-//     inside ChangeLogRunner.Run, records one ChangeLogEntry per Added/Removed/
-//     Changed override.
+//  1. The handler authorizes the actor and decodes the payload, the
+//     commit message, and the fingerprint the editor's last load or save
+//     returned.
+//  2. Everything from the fingerprint check through the adoption sync
+//     runs inside WithEntityLock — a session-level Postgres advisory
+//     lock keyed on (entityType, entityID) — so two saves of the same
+//     pattern queue instead of racing.
+//  3. A non-empty fingerprint is compared against EntityFingerprint's
+//     current value; a mismatch refuses the save with 409 before
+//     anything is written, so a stale draft loses cleanly instead of
+//     silently overwriting a newer save. An empty fingerprint skips the
+//     check (ops tooling, git restore, and forks never loaded an editor
+//     payload to carry one).
+//  4. Service.SaveForEntity loads the existing rows, matches desired rows
+//     against them the same way Store.ReplaceForEntity will, and stamps
+//     the matched ids onto desired BEFORE computing the Diff — a kept
+//     row resent without its id (a raw client payload, or an ops/MCP/CLI
+//     writer) must diff as Changed, not Removed+Added. Only then does it
+//     run Store.ReplaceForEntity inside ChangeLogRunner.Run and record
+//     one ChangeLogEntry per Added/Removed/Changed override.
+//  5. The handler recomputes EntityFingerprint once more and returns it,
+//     so the editor's next save round-trips the value the save just
+//     produced.
 //
-// ----------------------------------------------------------------------
-// TODO(override-editor / svelte): when the frontend override editor lands
-// it MUST persist its working state in browser local storage so that an
-// in-progress edit survives a page reload, accidental tab close, or
-// browser crash. Without this, a user who has spent fifteen minutes
-// reordering and tweaking overrides will lose everything on a stray
-// reload. Key the local-storage entry by (projectID, entityType,
-// entityID, actorID) so multiple drafts coexist. Clear the entry only
-// after a successful save (or explicit "discard draft").
-//
-// TODO(override-editor / edit-lock): overrides are a shared editing
-// surface — two users editing the same model/collection at once would
-// silently clobber each other's work via the diff path. Before this
-// goes to production we need an edit-lock gatekeeper:
-//   - When an actor opens the editor, server records a soft lock
-//     (entityType, entityID, actorID, expires_at).
-//   - Other actors loading the editor see "Locked by Alice — read only".
-//   - Lock auto-expires after N minutes of inactivity; client sends
-//     heartbeats while editing.
-//   - Save path verifies the actor still holds the lock and rejects
-//     with 409 if it has expired or been taken over.
-//
-// Implementation is deferred until the model + collection slices land
-// and we know exactly which routes mount the editor. Track in the
-// versioning / overrides design doc when added.
-// ----------------------------------------------------------------------
+// Presence — who else is editing right now — is a separate, deliberately
+// unlocked concern handled by presence.go's Presence type: an in-memory,
+// notice-only registry (Beat/Leave/Others) that blocks nothing and takes
+// no lock on the entity. A client heartbeats while the editor stays open,
+// and the UI surfaces "Alice is also editing this" as information, not
+// enforcement — the owner declined a soft edit-lock (locked-by banner,
+// heartbeat takeover, 409 on lock expiry) in favor of this notify-only
+// design. The save path's correctness comes entirely from the advisory
+// lock and the fingerprint check above; presence plays no part in it.
 package override

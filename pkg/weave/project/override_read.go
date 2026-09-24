@@ -27,6 +27,11 @@ type overrideEditorResponse struct {
 	AvailableCategories []overrideEditorCategoryRef `json:"available_categories"`
 	Available           overrideEditorAvailable     `json:"available"`
 	Capabilities        overrideEditorCapabilities  `json:"capabilities"`
+	// Fingerprint is the content hash of the entity's pattern as loaded
+	// (see override.Service.EntityFingerprint). The editor carries it
+	// with its draft and round-trips it on save so a stale save can be
+	// refused with a 409 instead of silently overwriting newer work.
+	Fingerprint string `json:"fingerprint"`
 }
 
 // overrideEditorCategoryRef is the lightweight category descriptor used
@@ -52,6 +57,10 @@ type overrideEditorAvailable struct {
 	AdoptCollectionURL              string `json:"adopt_collection_url,omitempty"`
 	FieldSidebarSchemaURL           string `json:"field_sidebar_schema_url,omitempty"`
 	CollectionGroupSidebarSchemaURL string `json:"collection_group_sidebar_schema_url,omitempty"`
+	// PresenceURL is the heartbeat endpoint the editor posts to while
+	// open (see project.Handler.overridesPresence). The frontend never
+	// builds this URL itself.
+	PresenceURL string `json:"presence_url"`
 }
 
 type overrideEditorCapabilities struct {
@@ -139,6 +148,24 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fingerprint MUST be read before the content it describes. A save can
+	// commit between two reads on separate connections; whichever comes
+	// second sees the post-save state. Fingerprint-then-content pairs an
+	// OLD hash with NEW content: the next save's staleness check then
+	// compares against content that has already moved on, so it 409s —
+	// a false conflict, harmless, the curator just reloads. The reverse
+	// order (content-then-fingerprint) pairs OLD content with a NEW hash:
+	// the next save's check compares equal against content that already
+	// changed underneath it, and the save proceeds — a silent overwrite,
+	// which is exactly the failure this task exists to close. Do not
+	// "tidy" this back to reading content first.
+	fingerprint, err := h.overrides.EntityFingerprint(ctx, "model", modelID)
+	if err != nil {
+		h.log.Error("compute model override fingerprint", "project_id", projectID, "model_id", modelID, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
+		return
+	}
+
 	view, err := h.weave.ModelView(ctx, modelID, projectID)
 	if err != nil {
 		h.log.Error("build model override editor payload", "project_id", projectID, "model_id", modelID, "err", err)
@@ -163,8 +190,10 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 			AdoptCollectionURL:              fmt.Sprintf("/projects/%s/models/%s/composition/adopt-collection", projectID, modelID),
 			FieldSidebarSchemaURL:           fmt.Sprintf("/projects/%s/composition/sidebar-schema/field", projectID),
 			CollectionGroupSidebarSchemaURL: fmt.Sprintf("/projects/%s/composition/sidebar-schema/collection-group", projectID),
+			PresenceURL:                     fmt.Sprintf("/projects/%s/models/%s/overrides/presence", projectID, modelID),
 		},
 		Capabilities: h.overrideCapabilities(ctx, project, model.ProjectID == projectID, true),
+		Fingerprint:  fingerprint,
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -230,6 +259,17 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 		sourceProjectID = collection.ProjectID
 	}
 
+	// Fingerprint MUST be read before the content it describes — see the
+	// matching comment in ModelOverrides for why the order is asymmetric
+	// (fingerprint-then-content fails safe into a false 409; the reverse
+	// silently loses a concurrent save).
+	fingerprint, err := h.overrides.EntityFingerprint(ctx, "collection", collectionID)
+	if err != nil {
+		h.log.Error("compute collection override fingerprint", "project_id", projectID, "collection_id", collectionID, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
+		return
+	}
+
 	fields, err := h.weave.CollectionView(ctx, collectionID, sourceProjectID)
 	if err != nil {
 		h.log.Error(
@@ -268,8 +308,10 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 			PathSuggestionsURL:              fmt.Sprintf("/api/v1/projects/%s/path-suggestions", projectID),
 			FieldSidebarSchemaURL:           fmt.Sprintf("/projects/%s/composition/sidebar-schema/field", projectID),
 			CollectionGroupSidebarSchemaURL: fmt.Sprintf("/projects/%s/composition/sidebar-schema/collection-group", projectID),
+			PresenceURL:                     fmt.Sprintf("/projects/%s/collections/%s/overrides/presence", projectID, collectionID),
 		},
 		Capabilities: h.overrideCapabilities(ctx, project, collection.ProjectID == projectID, false),
+		Fingerprint:  fingerprint,
 	}
 
 	writeJSON(w, http.StatusOK, resp)
