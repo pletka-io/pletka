@@ -1048,6 +1048,35 @@ func (s *Service) searchVocabularyEntries(ctx context.Context, vocabularyID, que
 	return limitedEntryViews(merged, limit), nil
 }
 
+// ConceptListProjectID returns the project a concept list belongs to, or "" if
+// the list does not exist. Used to gate the non-project-scoped search route.
+func (s *Service) ConceptListProjectID(ctx context.Context, listID string) (string, error) {
+	row, err := s.queries.WeaveGetConceptListByIDOrSemanticID(ctx, listID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("get concept list: %w", err)
+	}
+	return row.ProjectID, nil
+}
+
+// VocabularyProjectID returns (projectID, found). A found vocabulary with an
+// empty projectID is a global (shared-authority) vocabulary.
+func (s *Service) VocabularyProjectID(ctx context.Context, vocabularyID string) (string, bool, error) {
+	row, err := s.queries.WeaveGetVocabulary(ctx, vocabularyID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("get vocabulary: %w", err)
+	}
+	if row.ProjectID == nil {
+		return "", true, nil
+	}
+	return *row.ProjectID, true, nil
+}
+
 func (s *Service) SearchConceptListEntries(ctx context.Context, conceptListID, query, lang string, limit int) ([]ConceptListEntryView, error) {
 	if limit <= 0 || limit > 100 {
 		limit = defaultSearchLimit
