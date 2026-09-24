@@ -1164,6 +1164,12 @@ func (s *Service) SearchConceptListSourceEntries(ctx context.Context, projectID,
 		}
 		return nil, fmt.Errorf("get concept list: %w", err)
 	}
+	// A sealed list is exhaustive: its value picker offers only the list's own
+	// entries, never the source vocabulary / connector (which would suggest
+	// off-list terms that save-time validation then rejects).
+	if list.IsClosed {
+		return s.SearchConceptListEntries(ctx, conceptListID, query, lang, limit)
+	}
 	if list.VocabularyID == nil || *list.VocabularyID == "" {
 		return s.appendProjectVocabularyHits(ctx, nil, list.ProjectID, query, lang, limit)
 	}
