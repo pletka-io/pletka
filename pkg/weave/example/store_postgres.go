@@ -181,26 +181,32 @@ func (s *postgresStore) ConceptURIAllowedForLists(ctx context.Context, uri strin
 			 AND cle.vocabulary_entry_id = ve.id
 			WHERE (cl.id = ANY($2::text[]) OR cl.semantic_id = ANY($2::text[]))
 			  AND (
+			    -- An explicit list entry is always allowed. The broader
+			    -- "any term from the list's source vocabulary" allowances only
+			    -- apply to OPEN lists; a sealed (is_closed) list is exhaustive,
+			    -- so only its explicit entries are valid values (#3599).
 			    cle.id IS NOT NULL
-			    OR (cl.vocabulary_id IS NOT NULL AND cl.vocabulary_id = ve.vocabulary_id)
-			    OR (
-			      cl.vocabulary_id IS NULL
-			      AND NOT EXISTS (
-			        SELECT 1
-			        FROM weave_concept_list_entries existing
-			        WHERE existing.concept_list_id = cl.id
+			    OR (NOT cl.is_closed AND (
+			      (cl.vocabulary_id IS NOT NULL AND cl.vocabulary_id = ve.vocabulary_id)
+			      OR (
+			        cl.vocabulary_id IS NULL
+			        AND NOT EXISTS (
+			          SELECT 1
+			          FROM weave_concept_list_entries existing
+			          WHERE existing.concept_list_id = cl.id
+			        )
+			        AND EXISTS (
+			          SELECT 1
+			          FROM weave_vocabularies v
+			          LEFT JOIN weave_project_vocabularies pv
+			            ON pv.vocabulary_id = v.id
+			           AND pv.project_id = cl.project_id
+			           AND pv.status = 'active'
+			          WHERE v.id = ve.vocabulary_id
+			            AND (v.project_id = cl.project_id OR pv.project_id = cl.project_id)
+			        )
 			      )
-			      AND EXISTS (
-			        SELECT 1
-			        FROM weave_vocabularies v
-			        LEFT JOIN weave_project_vocabularies pv
-			          ON pv.vocabulary_id = v.id
-			         AND pv.project_id = cl.project_id
-			         AND pv.status = 'active'
-			        WHERE v.id = ve.vocabulary_id
-			          AND (v.project_id = cl.project_id OR pv.project_id = cl.project_id)
-			      )
-			    )
+			    ))
 			  )
 		)
 	`, uri, conceptListIDs).Scan(&allowed)
