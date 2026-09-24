@@ -11,13 +11,32 @@
     state: EntityViewState;
   } = $props();
 
+  type BroaderEdge = { id: string; concept_id: string; broader_id: string; scheme_id?: string; position?: number };
+
   const entries = $derived(viewState.response?.entries ?? []);
   const caps = $derived(viewState.response?.capabilities?.concept_list);
-  const canAdd = $derived(Boolean(caps?.add_entry_url && caps?.search_entries_url));
+  const isClosed = $derived(Boolean(caps?.is_closed));
+  const canAdd = $derived(Boolean(caps?.add_entry_url && caps?.search_entries_url) && !isClosed);
   const updateTemplate = $derived(caps?.update_entry_url ?? '');
   const removeTemplate = $derived(caps?.remove_entry_url ?? '');
   const reorderURL = $derived(caps?.reorder_url ?? '');
+  const createTermURL = $derived(caps?.create_term_url ?? '');
+  const sealURL = $derived(caps?.seal_url ?? '');
+  const broaderTemplate = $derived(caps?.broader_url_template ?? '');
   const selectedEntryKeys = $derived(new Set(entries.flatMap((entry) => [entry.vocabulary_entry_id, entry.uri].filter(Boolean))));
+
+  const jsonHeaders = { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+
+  let termLabel = $state('');
+  let creatingTerm = $state(false);
+  let sealing = $state(false);
+
+  // Hierarchy (broader/narrower) editing, lazy per term.
+  let hierarchyOpenID = $state('');
+  let broaderCache = $state<Record<string, BroaderEdge[]>>({});
+  let broaderLoading = $state('');
+  let broaderChoice = $state('');
+  let broaderBusy = $state('');
 
   let query = $state('');
   let open = $state(false);
@@ -245,16 +264,188 @@
       mutatingID = '';
     }
   }
+
+  async function createTerm() {
+    const label = termLabel.trim();
+    if (!createTermURL || !label) return;
+    creatingTerm = true;
+    try {
+      const res = await fetch(createTermURL, {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ label: { [getUILang()]: label } }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || `Create failed (${res.status})`);
+      }
+      addToast('success', 'Term added');
+      termLabel = '';
+      await viewState.init();
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Failed to add term');
+    } finally {
+      creatingTerm = false;
+    }
+  }
+
+  async function toggleSealed() {
+    if (!sealURL) return;
+    sealing = true;
+    try {
+      const res = await fetch(sealURL, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ is_closed: !isClosed }),
+      });
+      if (!res.ok && res.status !== 204) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || `Update failed (${res.status})`);
+      }
+      addToast('success', isClosed ? 'List reopened' : 'List sealed');
+      await viewState.init();
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Failed to update list');
+    } finally {
+      sealing = false;
+    }
+  }
+
+  function entryLabelForVocabID(vocabID: string): string {
+    const match = entries.find((entry) => entry.vocabulary_entry_id === vocabID);
+    return match ? labelFor(match) : vocabID;
+  }
+
+  function broaderURLFor(conceptID: string): string {
+    return broaderTemplate.replace('{conceptID}', encodeURIComponent(conceptID));
+  }
+
+  async function toggleHierarchy(conceptID: string) {
+    if (hierarchyOpenID === conceptID) {
+      hierarchyOpenID = '';
+      return;
+    }
+    hierarchyOpenID = conceptID;
+    broaderChoice = '';
+    if (!broaderCache[conceptID] && broaderTemplate) await loadBroader(conceptID);
+  }
+
+  async function loadBroader(conceptID: string) {
+    if (!broaderTemplate) return;
+    broaderLoading = conceptID;
+    try {
+      const res = await fetch(broaderURLFor(conceptID));
+      if (!res.ok) throw new Error(`Load failed (${res.status})`);
+      const data = await res.json();
+      broaderCache = { ...broaderCache, [conceptID]: Array.isArray(data) ? data : [] };
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Failed to load hierarchy');
+    } finally {
+      broaderLoading = '';
+    }
+  }
+
+  async function addBroader(conceptID: string) {
+    if (!broaderTemplate || !broaderChoice) return;
+    broaderBusy = conceptID;
+    try {
+      const res = await fetch(broaderURLFor(conceptID), {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ broader_id: broaderChoice }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || `Add failed (${res.status})`);
+      }
+      broaderChoice = '';
+      await loadBroader(conceptID);
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Failed to add broader term');
+    } finally {
+      broaderBusy = '';
+    }
+  }
+
+  async function removeBroader(conceptID: string, edgeID: string) {
+    if (!broaderTemplate) return;
+    broaderBusy = conceptID;
+    try {
+      const res = await fetch(`${broaderURLFor(conceptID)}/${encodeURIComponent(edgeID)}`, {
+        method: 'DELETE',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      });
+      if (!res.ok && res.status !== 204) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || `Remove failed (${res.status})`);
+      }
+      await loadBroader(conceptID);
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Failed to remove broader term');
+    } finally {
+      broaderBusy = '';
+    }
+  }
 </script>
 
 <div class="bg-white shadow-sm rounded-lg border border-gray-200">
   <div class="border-b border-gray-200 px-6 py-4 space-y-4">
-    <div>
-      <h2 class="text-lg font-semibold text-gray-900">Entries</h2>
-      <p class="mt-1 text-sm text-gray-500">
-        Curated concepts pinned into this controlled list. These are the values examples and future content forms can offer as dropdown choices.
-      </p>
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <div class="flex items-center gap-2">
+          <h2 class="text-lg font-semibold text-gray-900">Entries</h2>
+          {#if isClosed}
+            <span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">Sealed</span>
+          {/if}
+        </div>
+        <p class="mt-1 text-sm text-gray-500">
+          Curated concepts pinned into this controlled list. These are the values examples and future content forms can offer as dropdown choices.
+        </p>
+      </div>
+      {#if sealURL}
+        <button
+          type="button"
+          class="shrink-0 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-60"
+          disabled={sealing}
+          onclick={toggleSealed}
+          title={isClosed ? 'Reopen this list to allow adding terms' : 'Seal this list: its membership is complete and locked'}
+        >
+          {#if sealing}
+            Working...
+          {:else if isClosed}
+            Reopen list
+          {:else}
+            Mark complete (seal)
+          {/if}
+        </button>
+      {/if}
     </div>
+
+    {#if createTermURL && !isClosed}
+      <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+        <label class="block text-sm font-medium text-gray-700" for="concept-list-new-term">
+          Add a new term
+        </label>
+        <p class="mt-0.5 text-xs text-gray-500">Creates a hand-authored concept in this project — no external authority needed.</p>
+        <div class="mt-2 flex items-center gap-2">
+          <input
+            id="concept-list-new-term"
+            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-pletka-primary focus:ring-pletka-primary sm:text-sm"
+            placeholder="e.g. Female"
+            bind:value={termLabel}
+            onkeydown={(e) => e.key === 'Enter' && createTerm()}
+          />
+          <button
+            type="button"
+            class="shrink-0 rounded-md bg-pletka-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-pletka-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={creatingTerm || !termLabel.trim()}
+            onclick={createTerm}
+          >
+            {creatingTerm ? 'Adding...' : 'Add term'}
+          </button>
+        </div>
+      </div>
+    {/if}
 
     {#if canAdd}
       <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
@@ -407,6 +598,66 @@
                         >
                           Use source label
                         </button>
+                      {/if}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+              {#if broaderTemplate && entry.vocabulary_entry_id}
+                <div class="mt-3">
+                  <button
+                    type="button"
+                    class="text-xs font-medium text-gray-500 hover:text-gray-800"
+                    onclick={() => toggleHierarchy(entry.vocabulary_entry_id)}
+                  >
+                    {hierarchyOpenID === entry.vocabulary_entry_id ? 'Hide hierarchy' : 'Hierarchy'}
+                  </button>
+                  {#if hierarchyOpenID === entry.vocabulary_entry_id}
+                    <div class="mt-2 max-w-xl rounded-md border border-gray-200 bg-gray-50 p-3">
+                      {#if broaderLoading === entry.vocabulary_entry_id}
+                        <p class="text-xs text-gray-500">Loading...</p>
+                      {:else}
+                        <p class="text-xs font-medium text-gray-600">Broader than</p>
+                        {#if (broaderCache[entry.vocabulary_entry_id] ?? []).length === 0}
+                          <p class="mt-1 text-xs text-gray-400">No broader terms yet.</p>
+                        {:else}
+                          <ul class="mt-1 space-y-1">
+                            {#each broaderCache[entry.vocabulary_entry_id] as edge (edge.id)}
+                              <li class="flex items-center justify-between gap-2 text-xs text-gray-700">
+                                <span class="truncate">{entryLabelForVocabID(edge.broader_id)}</span>
+                                <button
+                                  type="button"
+                                  class="shrink-0 text-gray-400 hover:text-red-600 disabled:opacity-60"
+                                  disabled={broaderBusy === entry.vocabulary_entry_id}
+                                  onclick={() => removeBroader(entry.vocabulary_entry_id, edge.id)}
+                                >
+                                  Remove
+                                </button>
+                              </li>
+                            {/each}
+                          </ul>
+                        {/if}
+                        {#if !isClosed}
+                          <div class="mt-2 flex items-center gap-2">
+                            <select
+                              class="block w-full rounded-md border-gray-300 text-xs shadow-sm focus:border-pletka-primary focus:ring-pletka-primary"
+                              bind:value={broaderChoice}
+                            >
+                              <option value="">Choose a broader term...</option>
+                              {#each entries.filter((other) => other.vocabulary_entry_id && other.vocabulary_entry_id !== entry.vocabulary_entry_id) as other (other.id)}
+                                <option value={other.vocabulary_entry_id}>{labelFor(other)}</option>
+                              {/each}
+                            </select>
+                            <button
+                              type="button"
+                              class="shrink-0 rounded-md bg-pletka-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-pletka-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                              disabled={!broaderChoice || broaderBusy === entry.vocabulary_entry_id}
+                              onclick={() => addBroader(entry.vocabulary_entry_id)}
+                            >
+                              Add
+                            </button>
+                          </div>
+                        {/if}
                       {/if}
                     </div>
                   {/if}

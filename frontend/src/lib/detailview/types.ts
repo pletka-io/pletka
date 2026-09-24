@@ -116,6 +116,14 @@ export interface ConceptListCap {
   update_entry_url?: string;
   remove_entry_url?: string;
   reorder_url?: string;
+  /** Sealed list: membership locked; disable add + show badge (#3599). */
+  is_closed?: boolean;
+  /** POST {label, scope_note} to author a local term into this list. */
+  create_term_url?: string;
+  /** PATCH {is_closed} to lock/unlock membership. */
+  seal_url?: string;
+  /** Per-term hierarchy endpoint; {conceptID} = vocabulary entry id. GET/POST, DELETE at .../{edgeID}. */
+  broader_url_template?: string;
 }
 
 /** One relationship's usages: same-project models/collections plus
