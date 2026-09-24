@@ -239,3 +239,35 @@ LIMIT @result_limit::integer;
 UPDATE weave_concept_list_entries
 SET position = $2, updated_at = NOW()
 WHERE id = $1;
+
+-- name: WeaveGetProjectConceptListArchive :one
+SELECT * FROM weave_concept_lists_archive
+WHERE project_id = @project_id::text
+  AND (id = @id::text OR semantic_id = @id::text)
+  AND version_number = @version_number::text;
+
+-- name: WeaveListConceptListEntriesArchiveWithVocabulary :many
+SELECT
+    cle.id AS concept_list_entry_id,
+    cle.concept_list_id,
+    cle.vocabulary_entry_id,
+    cle.position,
+    cle.custom_label,
+    cle.created_at AS concept_list_entry_created_at,
+    cle.updated_at AS concept_list_entry_updated_at,
+    ve.id AS entry_id,
+    ve.vocabulary_id,
+    ve.uri,
+    ve.label,
+    ve.scope_note,
+    ve.broader_uri,
+    ve.broader_path,
+    ve.broader_path_items,
+    ve.external_id,
+    ve.created_at AS entry_created_at,
+    ve.updated_at AS entry_updated_at
+FROM weave_concept_list_entries_archive cle
+JOIN weave_vocabulary_entries ve ON ve.id = cle.vocabulary_entry_id
+WHERE cle.concept_list_id = @concept_list_id::text
+  AND cle.version_number = @version_number::text
+ORDER BY cle.position ASC, ve.uri ASC;

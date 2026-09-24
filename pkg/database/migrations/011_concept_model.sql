@@ -6,6 +6,10 @@
 -- A concept list (skos:ConceptScheme) can be sealed: membership is complete.
 ALTER TABLE weave_concept_lists
     ADD COLUMN IF NOT EXISTS is_closed boolean NOT NULL DEFAULT false;
+-- The release archive must carry is_closed too so a released list's sealed
+-- state is snapshot and readable at its pinned version.
+ALTER TABLE weave_concept_lists_archive
+    ADD COLUMN IF NOT EXISTS is_closed boolean NOT NULL DEFAULT false;
 
 -- Editable broader/narrower edges between concepts (skos:broader).
 -- scheme_id NULL = a global edge not scoped to one scheme (cross-scheme).
@@ -43,4 +47,5 @@ CREATE TABLE weave_concept_broader_archive (
 -- +goose Down
 DROP TABLE IF EXISTS weave_concept_broader_archive;
 DROP TABLE IF EXISTS weave_concept_broader;
+ALTER TABLE weave_concept_lists_archive DROP COLUMN IF EXISTS is_closed;
 ALTER TABLE weave_concept_lists DROP COLUMN IF EXISTS is_closed;

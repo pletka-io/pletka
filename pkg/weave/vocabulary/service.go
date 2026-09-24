@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
@@ -96,6 +97,7 @@ type ConceptListView struct {
 	VocabularyID     *string                    `json:"vocabulary_id,omitempty"`
 	VocabularyLabel  string                     `json:"vocabulary_label,omitempty"`
 	SourceVocabulary *domain.VocabularyRef      `json:"source_vocabulary,omitempty"`
+	IsClosed         bool                       `json:"is_closed"`
 	EntryCount       int                        `json:"entry_count"`
 	BoundFieldCount  int                        `json:"bound_field_count"`
 	Entries          []ConceptListEntryView     `json:"entries,omitempty"`
@@ -389,6 +391,12 @@ GROUP BY cl.id, v.id, v.semantic_id, v.system_name, v.ui_name, v.base_uri, lte.i
 }
 
 func (s *Service) GetProjectConceptList(ctx context.Context, projectID, id string) (*ConceptListView, error) {
+	// Version-aware: a pinned release version reads the archived snapshot, so a
+	// non-editor viewing a released project sees the released list + entries
+	// (and its sealed state), not the live draft. Mirrors detailview.
+	if version := auth.ProjectVersionFromContext(ctx); version != "" {
+		return s.getProjectConceptListArchived(ctx, projectID, id, version)
+	}
 	row, err := s.queries.WeaveGetProjectConceptList(ctx, sqlcgen.WeaveGetProjectConceptListParams{
 		ProjectID: projectID,
 		ID:        id,
@@ -1503,6 +1511,65 @@ func vocabularyFromRow(row sqlcgen.WeaveVocabulary) *domain.Vocabulary {
 	}
 }
 
+// getProjectConceptListArchived reads a concept list + its entries from the
+// release archive at a pinned version.
+func (s *Service) getProjectConceptListArchived(ctx context.Context, projectID, id, version string) (*ConceptListView, error) {
+	row, err := s.queries.WeaveGetProjectConceptListArchive(ctx, sqlcgen.WeaveGetProjectConceptListArchiveParams{
+		ProjectID:     projectID,
+		ID:            id,
+		VersionNumber: version,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get archived concept list: %w", err)
+	}
+	view := conceptListViewFromArchive(row)
+	entries, err := s.queries.WeaveListConceptListEntriesArchiveWithVocabulary(ctx, sqlcgen.WeaveListConceptListEntriesArchiveWithVocabularyParams{
+		ConceptListID: view.ID,
+		VersionNumber: version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list archived concept list entries: %w", err)
+	}
+	view.Entries = make([]ConceptListEntryView, 0, len(entries))
+	for _, e := range entries {
+		view.Entries = append(view.Entries, conceptListEntryViewFromArchiveRow(e))
+	}
+	view.EntryCount = len(view.Entries)
+	return &view, nil
+}
+
+func conceptListViewFromArchive(row sqlcgen.WeaveConceptListsArchive) ConceptListView {
+	return ConceptListView{
+		ID:            row.ID,
+		SemanticID:    stringPtrValue(row.SemanticID),
+		SystemName:    stringPtrValue(row.SystemName),
+		UIName:        unmarshalTranslations(row.UiName),
+		Description:   unmarshalTranslations(row.Description),
+		Status:        row.Status,
+		ProjectID:     row.ProjectID,
+		ListType:      row.ListType,
+		ListTypeLabel: stringPtrValue(row.ListType),
+		VocabularyID:  row.VocabularyID,
+		IsClosed:      row.IsClosed,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
+	}
+}
+
+func conceptListEntryViewFromArchiveRow(row sqlcgen.WeaveListConceptListEntriesArchiveWithVocabularyRow) ConceptListEntryView {
+	return ConceptListEntryView{
+		ID:                row.ConceptListEntryID,
+		ConceptListID:     row.ConceptListID,
+		VocabularyEntryID: row.VocabularyEntryID,
+		Position:          int(row.Position),
+		CustomLabel:       unmarshalTranslations(row.CustomLabel),
+		Entry:             vocabularyEntryViewFromParts(row.EntryID, row.VocabularyID, row.Uri, row.Label, row.ScopeNote, row.BroaderUri, row.BroaderPath, row.BroaderPathItems, row.ExternalID, row.EntryCreatedAt, row.EntryUpdatedAt),
+	}
+}
+
 func conceptListView(row sqlcgen.WeaveConceptList) ConceptListView {
 	return ConceptListView{
 		ID:            row.ID,
@@ -1515,6 +1582,7 @@ func conceptListView(row sqlcgen.WeaveConceptList) ConceptListView {
 		ListType:      row.ListType,
 		ListTypeLabel: stringPtrValue(row.ListType),
 		VocabularyID:  row.VocabularyID,
+		IsClosed:      row.IsClosed,
 		CreatedAt:     row.CreatedAt,
 		UpdatedAt:     row.UpdatedAt,
 	}

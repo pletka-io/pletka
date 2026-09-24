@@ -417,6 +417,40 @@ func (q *Queries) WeaveGetProjectConceptList(ctx context.Context, arg WeaveGetPr
 	return i, err
 }
 
+const weaveGetProjectConceptListArchive = `-- name: WeaveGetProjectConceptListArchive :one
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id, version_number, is_closed FROM weave_concept_lists_archive
+WHERE project_id = $1::text
+  AND (id = $2::text OR semantic_id = $2::text)
+  AND version_number = $3::text
+`
+
+type WeaveGetProjectConceptListArchiveParams struct {
+	ProjectID     string `json:"project_id"`
+	ID            string `json:"id"`
+	VersionNumber string `json:"version_number"`
+}
+
+func (q *Queries) WeaveGetProjectConceptListArchive(ctx context.Context, arg WeaveGetProjectConceptListArchiveParams) (WeaveConceptListsArchive, error) {
+	row := q.db.QueryRow(ctx, weaveGetProjectConceptListArchive, arg.ProjectID, arg.ID, arg.VersionNumber)
+	var i WeaveConceptListsArchive
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SemanticID,
+		&i.SystemName,
+		&i.UiName,
+		&i.Description,
+		&i.Status,
+		&i.ProjectID,
+		&i.ListType,
+		&i.VocabularyID,
+		&i.VersionNumber,
+		&i.IsClosed,
+	)
+	return i, err
+}
+
 const weaveGetVocabulary = `-- name: WeaveGetVocabulary :one
 SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted FROM weave_vocabularies WHERE id = $1
 `
@@ -545,6 +579,98 @@ func (q *Queries) WeaveListConceptListEntries(ctx context.Context, conceptListID
 			&i.CustomLabel,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveListConceptListEntriesArchiveWithVocabulary = `-- name: WeaveListConceptListEntriesArchiveWithVocabulary :many
+SELECT
+    cle.id AS concept_list_entry_id,
+    cle.concept_list_id,
+    cle.vocabulary_entry_id,
+    cle.position,
+    cle.custom_label,
+    cle.created_at AS concept_list_entry_created_at,
+    cle.updated_at AS concept_list_entry_updated_at,
+    ve.id AS entry_id,
+    ve.vocabulary_id,
+    ve.uri,
+    ve.label,
+    ve.scope_note,
+    ve.broader_uri,
+    ve.broader_path,
+    ve.broader_path_items,
+    ve.external_id,
+    ve.created_at AS entry_created_at,
+    ve.updated_at AS entry_updated_at
+FROM weave_concept_list_entries_archive cle
+JOIN weave_vocabulary_entries ve ON ve.id = cle.vocabulary_entry_id
+WHERE cle.concept_list_id = $1::text
+  AND cle.version_number = $2::text
+ORDER BY cle.position ASC, ve.uri ASC
+`
+
+type WeaveListConceptListEntriesArchiveWithVocabularyParams struct {
+	ConceptListID string `json:"concept_list_id"`
+	VersionNumber string `json:"version_number"`
+}
+
+type WeaveListConceptListEntriesArchiveWithVocabularyRow struct {
+	ConceptListEntryID        string          `json:"concept_list_entry_id"`
+	ConceptListID             string          `json:"concept_list_id"`
+	VocabularyEntryID         string          `json:"vocabulary_entry_id"`
+	Position                  int32           `json:"position"`
+	CustomLabel               []byte          `json:"custom_label"`
+	ConceptListEntryCreatedAt time.Time       `json:"concept_list_entry_created_at"`
+	ConceptListEntryUpdatedAt time.Time       `json:"concept_list_entry_updated_at"`
+	EntryID                   string          `json:"entry_id"`
+	VocabularyID              string          `json:"vocabulary_id"`
+	Uri                       string          `json:"uri"`
+	Label                     json.RawMessage `json:"label"`
+	ScopeNote                 []byte          `json:"scope_note"`
+	BroaderUri                *string         `json:"broader_uri"`
+	BroaderPath               json.RawMessage `json:"broader_path"`
+	BroaderPathItems          json.RawMessage `json:"broader_path_items"`
+	ExternalID                *string         `json:"external_id"`
+	EntryCreatedAt            time.Time       `json:"entry_created_at"`
+	EntryUpdatedAt            time.Time       `json:"entry_updated_at"`
+}
+
+func (q *Queries) WeaveListConceptListEntriesArchiveWithVocabulary(ctx context.Context, arg WeaveListConceptListEntriesArchiveWithVocabularyParams) ([]WeaveListConceptListEntriesArchiveWithVocabularyRow, error) {
+	rows, err := q.db.Query(ctx, weaveListConceptListEntriesArchiveWithVocabulary, arg.ConceptListID, arg.VersionNumber)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveListConceptListEntriesArchiveWithVocabularyRow{}
+	for rows.Next() {
+		var i WeaveListConceptListEntriesArchiveWithVocabularyRow
+		if err := rows.Scan(
+			&i.ConceptListEntryID,
+			&i.ConceptListID,
+			&i.VocabularyEntryID,
+			&i.Position,
+			&i.CustomLabel,
+			&i.ConceptListEntryCreatedAt,
+			&i.ConceptListEntryUpdatedAt,
+			&i.EntryID,
+			&i.VocabularyID,
+			&i.Uri,
+			&i.Label,
+			&i.ScopeNote,
+			&i.BroaderUri,
+			&i.BroaderPath,
+			&i.BroaderPathItems,
+			&i.ExternalID,
+			&i.EntryCreatedAt,
+			&i.EntryUpdatedAt,
 		); err != nil {
 			return nil, err
 		}

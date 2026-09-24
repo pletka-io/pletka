@@ -339,6 +339,7 @@ type WeaveConceptListsArchive struct {
 	ListType      *string   `json:"list_type"`
 	VocabularyID  *string   `json:"vocabulary_id"`
 	VersionNumber string    `json:"version_number"`
+	IsClosed      bool      `json:"is_closed"`
 }
 
 type WeaveEntityCounter struct {

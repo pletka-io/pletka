@@ -358,11 +358,11 @@ var snapshotStatements = []string{
 	WHERE project_id = $1`,
 	`INSERT INTO weave_concept_lists_archive (
 		id, created_at, updated_at, semantic_id, system_name, ui_name, description,
-		status, project_id, list_type, vocabulary_id, version_number
+		status, project_id, list_type, vocabulary_id, is_closed, version_number
 	)
 	SELECT
 		id, created_at, updated_at, semantic_id, system_name, ui_name, description,
-		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END, project_id, list_type, vocabulary_id, $2
+		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END, project_id, list_type, vocabulary_id, is_closed, $2
 	FROM weave_concept_lists
 	WHERE project_id = $1
 	ON CONFLICT (id, version_number) DO NOTHING`,
