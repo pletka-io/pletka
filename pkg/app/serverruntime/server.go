@@ -44,8 +44,12 @@ type Config struct {
 	// ModuleHost/OntologyHost override the gitmaterializer module-path
 	// namespace (git_materializer.module_host / .ontology_host). Empty falls
 	// back to the public-clean defaults — see app.Options.ModuleHost.
-	ModuleHost                string
-	OntologyHost              string
+	ModuleHost   string
+	OntologyHost string
+	// VocabularyServiceURL addresses the one vocabulary service this instance
+	// uses for external vocabularies (vocabulary_service.base_url). Empty means
+	// none: rows asking for it fall back to the local connector.
+	VocabularyServiceURL      string
 	MetricsAddr               string
 	AnalyticsEnabled          bool
 	AnalyticsMatomoBaseURL    string
@@ -119,6 +123,7 @@ func ConfigFromViper() Config {
 		GitDataDir:                viper.GetString("git_materializer.data_dir"),
 		ModuleHost:                viper.GetString("git_materializer.module_host"),
 		OntologyHost:              viper.GetString("git_materializer.ontology_host"),
+		VocabularyServiceURL:      viper.GetString("vocabulary_service.base_url"),
 		MetricsAddr:               viper.GetString("observability.metrics_addr"),
 		AnalyticsEnabled:          viper.GetBool("analytics.enabled"),
 		AnalyticsMatomoBaseURL:    viper.GetString("analytics.matomo.base_url"),
@@ -464,6 +469,7 @@ func buildApp(ctx context.Context, cfg Config, logger *slog.Logger, pool *pgxpoo
 		GitDataDir:                gitDataDir(cfg),
 		ModuleHost:                cfg.ModuleHost,
 		OntologyHost:              cfg.OntologyHost,
+		VocabularyServiceURL:      cfg.VocabularyServiceURL,
 		MetricsAddr:               cfg.MetricsAddr,
 		ContentOverlayPath:        cfg.ContentOverlayPath,
 		FrontendManifestPaths:     cfg.FrontendManifestPaths,

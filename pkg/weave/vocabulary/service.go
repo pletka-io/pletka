@@ -47,7 +47,7 @@ type EntityNumberer interface {
 
 func NewService(pool *pgxpool.Pool, reg *registry.Registry, numberer ...EntityNumberer) *Service {
 	if reg == nil {
-		reg = registry.New(nil)
+		reg = registry.New(nil, "")
 	}
 	var n EntityNumberer
 	if len(numberer) > 0 {

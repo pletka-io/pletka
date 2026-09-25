@@ -198,9 +198,10 @@ func buildProjectHost(
 	changeLog domain.ChangeLogRunner,
 	languages []formschema.LanguageInfo,
 	langResolver project.LangResolver,
+	vocabServiceURL string,
 ) project.Host {
 	return project.Host{
-		Service:             project.NewService(project.NewPostgresStore(pool), weave.Projects(), weave.Memberships(), vocabulary.NewService(pool, registry.New(http.DefaultClient)), logger),
+		Service:             project.NewService(project.NewPostgresStore(pool), weave.Projects(), weave.Memberships(), vocabulary.NewService(pool, registry.New(http.DefaultClient, vocabServiceURL)), logger),
 		Overrides:           overridepkg.NewService(overridepkg.NewPostgresStore(pool), logger, changeLog),
 		Weave:               weave,
 		Logger:              logger,
@@ -372,9 +373,10 @@ func buildVocabularyHost(
 	logger *slog.Logger,
 	languages []formschema.LanguageInfo,
 	langResolver vocabulary.LangResolver,
+	vocabServiceURL string,
 ) vocabulary.Host {
 	return vocabulary.Host{
-		Service:      vocabulary.NewService(pool, registry.New(http.DefaultClient), weave),
+		Service:      vocabulary.NewService(pool, registry.New(http.DefaultClient, vocabServiceURL), weave),
 		Projects:     weave.Projects(),
 		Logger:       logger,
 		Languages:    languages,

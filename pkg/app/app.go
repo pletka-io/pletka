@@ -58,8 +58,10 @@ type Options struct {
 	// written into pletka.mod/ontology.yaml files. Empty falls back to the
 	// public-clean defaults (pletka.io / ontology.pletka.io) — see
 	// gitmaterializer.NewMaterializer.
-	ModuleHost               string
-	OntologyHost             string
+	ModuleHost   string
+	OntologyHost string
+	// VocabularyServiceURL is the vocabulary service for external vocabularies.
+	VocabularyServiceURL     string
 	MetricsAddr              string
 	Analytics                weavetemplates.AnalyticsConfig
 	ContentOverlayPath       string
@@ -251,12 +253,12 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	// the publication rollup — see auth.ResolveContentVersion.
 	publicationReader := publication.NewReader(opts.Pool)
 	organizationHost, orgMembersHost := buildOrganizationHosts(opts.Pool, logger, languages, langResolver)
-	projectHost := buildProjectHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver)
+	projectHost := buildProjectHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver, opts.VocabularyServiceURL)
 	workspaceHost := buildWorkspaceHost(logger, templateRenderer, i18nManager, sessionManager, languages, langResolver, organizationHost, projectHost, orgMembersHost)
 	authPagesHost := buildAuthPagesHost(logger, templateRenderer, i18nManager, sessionManager, langResolver, opts.RegistrationEnabled, opts.SSOLoginURL)
 	projectPagesHost := buildProjectPagesHost(logger, templateRenderer, weaveStore, i18nManager, sessionManager, publicationReader)
 	searchHost := buildSearchHost(weaveStore, logger, publicationReader)
-	vocabularyHost := buildVocabularyHost(opts.Pool, weaveStore, logger, languages, langResolver)
+	vocabularyHost := buildVocabularyHost(opts.Pool, weaveStore, logger, languages, langResolver, opts.VocabularyServiceURL)
 	entitySchemaHost := buildEntitySchemaHost(weaveStore, logger, languages, langResolver, i18nManager, organizationHost, publicationReader)
 	projectPageHost := buildProjectPageHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver, i18nManager, ontologyReader, ontologyVersionReader, publicationReader, opts.ExamplesMaxNestingDepth)
 	draftsHost := buildDraftsHost(weaveStore, logger)
