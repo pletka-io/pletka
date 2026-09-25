@@ -1,87 +1,211 @@
 package vocabservice
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/vocabconnector"
 )
 
-func TestSearchBuildsTheRequestAndMapsAHit(t *testing.T) {
-	var gotPath, gotQuery string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+// TestSearchMapsAV2Hit covers the v2 suggest shape end to end: an item plus
+// broader/parents, decoded straight off the contract's own example.
+func TestSearchMapsAV2Hit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[
-			{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957","prefLabel":"brons","lang":"nl",
-			 "parentString":"koperlegering, metaal","broader":"http://vocab.getty.edu/aat/300010942"},
-			{"uri":"http://vocab.getty.edu/aat/300311355","id":"300311355","prefLabel":"brons (kleur)","lang":"nl",
-			 "parentString":null,"broader":null}]}`))
+		_, _ = w.Write([]byte(`{"vocab":"aat","resolvedLang":"en","q":"ethnic","offset":0,"limit":2,"total":12,
+			"results":[
+			 {"uri":"http://vocab.getty.edu/aat/300250435","id":"300250435",
+			  "kind":"concept","class":"Concept",
+			  "prefLabel":{"en":"ethnicity"},"lang":"en",
+			  "matched":"prefLabel","matchedLabel":"ethnicity",
+			  "broader":"http://vocab.getty.edu/aat/300162135",
+			  "parents":[{"uri":"http://vocab.getty.edu/aat/300162135","id":"300162135",
+			              "kind":"concept","class":"Concept",
+			              "prefLabel":{"en":"culture-related concepts"},"lang":"en"}],
+			  "score":9.8095}]}`))
 	}))
 	defer srv.Close()
 
 	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
-	entries, err := c.Search(context.Background(), "brons", vocabconnector.SearchOpts{
-		Lang: "nl", Limit: 20, ParentURI: "https://vocab.getty.edu/aat/300264091",
-	})
+	entries, err := c.Search(context.Background(), "ethnic", vocabconnector.SearchOpts{Lang: "en", Limit: 2})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if gotPath != "/vocab/aat/suggest" {
-		t.Errorf("path = %q, want /vocab/aat/suggest", gotPath)
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
 	}
-	// under= carries only the identifier, not the whole URI.
-	for _, want := range []string{"q=brons", "lang=nl", "limit=20", "under=300264091"} {
-		if !contains(gotQuery, want) {
-			t.Errorf("query %q is missing %q", gotQuery, want)
-		}
+	entry := entries[0]
+	if entry.URI != "http://vocab.getty.edu/aat/300250435" {
+		t.Errorf("URI = %q, want the URI verbatim (not rewritten)", entry.URI)
 	}
-	if len(entries) != 2 {
-		t.Fatalf("got %d entries, want 2", len(entries))
+	if entry.ExternalID != "300250435" {
+		t.Errorf("ExternalID = %q, want 300250435", entry.ExternalID)
 	}
-	if entries[0].URI != "https://vocab.getty.edu/aat/300010957" {
-		t.Errorf("URI = %q, want the https form", entries[0].URI)
+	if diff := cmp.Diff(map[string]string{"en": "ethnicity"}, map[string]string(entry.Label)); diff != "" {
+		t.Errorf("Label mismatch (-want +got):\n%s", diff)
 	}
-	if entries[0].Label["nl"] != "brons" {
-		t.Errorf("Label[nl] = %q, want brons", entries[0].Label["nl"])
+	if entry.BroaderURI != "http://vocab.getty.edu/aat/300162135" {
+		t.Errorf("BroaderURI = %q", entry.BroaderURI)
 	}
-	if entries[0].BroaderURI != "https://vocab.getty.edu/aat/300010942" {
-		t.Errorf("BroaderURI = %q", entries[0].BroaderURI)
-	}
-	if diff := cmp.Diff([]string{"koperlegering", "metaal"}, entries[0].BroaderPath); diff != "" {
+	if diff := cmp.Diff([]string{"culture-related concepts"}, entry.BroaderPath); diff != "" {
 		t.Errorf("BroaderPath mismatch (-want +got):\n%s", diff)
 	}
-	// The nearest ancestor is the broader concept, so item 0 gets its identity.
-	if entries[0].BroaderPathItems[0].URI != entries[0].BroaderURI {
-		t.Errorf("BroaderPathItems[0].URI = %q, want %q", entries[0].BroaderPathItems[0].URI, entries[0].BroaderURI)
+	if len(entry.BroaderPathItems) != 1 {
+		t.Fatalf("got %d BroaderPathItems, want 1", len(entry.BroaderPathItems))
 	}
-	if entries[0].BroaderPathItems[0].ID != "300010942" {
-		t.Errorf("BroaderPathItems[0].ID = %q, want 300010942", entries[0].BroaderPathItems[0].ID)
+	item0 := entry.BroaderPathItems[0]
+	if item0.URI != "http://vocab.getty.edu/aat/300162135" {
+		t.Errorf("BroaderPathItems[0].URI = %q", item0.URI)
 	}
-	if entries[0].ExternalID != "300010957" {
-		t.Errorf("ExternalID = %q", entries[0].ExternalID)
+	if diff := cmp.Diff(map[string]string{"en": "culture-related concepts"}, map[string]string(item0.Label)); diff != "" {
+		t.Errorf("BroaderPathItems[0].Label mismatch (-want +got):\n%s", diff)
 	}
-	if entries[1].BroaderPath != nil || entries[1].BroaderURI != "" {
-		t.Error("a hit with null parentString and null broader must map to no path and no broader URI")
+	if item0.ExternalID != "300162135" {
+		t.Errorf("BroaderPathItems[0].ExternalID = %q, want 300162135", item0.ExternalID)
 	}
 }
 
-func TestSearchOmitsUnderWhenNoParentGiven(t *testing.T) {
-	var gotQuery string
+// TestSearchKeepsAnAncestorsOwnLanguage is v2's whole point for parents: each
+// ancestor resolves its own language rather than being stamped with the
+// requested one, so a Dutch/English request can still surface a Spanish-only
+// ancestor honestly.
+func TestSearchKeepsAnAncestorsOwnLanguage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[
+			{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			 "kind":"concept","class":"Concept","prefLabel":{"en":"bronze (metal)"},"lang":"en",
+			 "broader":"http://vocab.getty.edu/aat/300010942",
+			 "parents":[
+			  {"uri":"http://vocab.getty.edu/aat/300010942","id":"300010942",
+			   "kind":"concept","class":"Concept","prefLabel":{"en":"copper alloy"},"lang":"en"},
+			  {"uri":"http://vocab.getty.edu/aat/300241441","id":"300241441",
+			   "kind":"guideTerm","class":"GuideTerm","prefLabel":{"en":"<copper and copper alloy>"},"lang":"en"},
+			  {"uri":"http://vocab.getty.edu/aat/300011014","id":"300011014",
+			   "kind":"concept","class":"Concept","prefLabel":{"es":"metal no ferroso"},"lang":"es"}
+			 ]}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entries, err := c.Search(context.Background(), "bronze", vocabconnector.SearchOpts{Lang: "en"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(entries[0].BroaderPathItems) != 3 {
+		t.Fatalf("got %d BroaderPathItems, want 3", len(entries[0].BroaderPathItems))
+	}
+	third := entries[0].BroaderPathItems[2]
+	if _, ok := third.Label["es"]; !ok {
+		t.Fatalf("third ancestor Label = %v, want it keyed \"es\"", third.Label)
+	}
+	if _, ok := third.Label["en"]; ok {
+		t.Errorf("third ancestor Label = %v, must not be stamped with the requested language \"en\"", third.Label)
+	}
+	if diff := cmp.Diff([]string{"copper alloy", "<copper and copper alloy>", "metal no ferroso"}, entries[0].BroaderPath); diff != "" {
+		t.Errorf("BroaderPath mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestSearchHandlesARootHit covers broader: null, parents: [] — a facet root
+// or any concept with no ancestor.
+func TestSearchHandlesARootHit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[
+			{"uri":"http://vocab.getty.edu/aat/300264091","id":"300264091",
+			 "kind":"facet","class":"Facet","prefLabel":{"en":"Materials Facet"},"lang":"en",
+			 "broader":null,"parents":[]}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entries, err := c.Search(context.Background(), "Materials Facet", vocabconnector.SearchOpts{Lang: "en"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if entries[0].BroaderURI != "" {
+		t.Errorf("BroaderURI = %q, want empty at a root", entries[0].BroaderURI)
+	}
+	if entries[0].BroaderPath != nil {
+		t.Errorf("BroaderPath = %v, want empty at a root", entries[0].BroaderPath)
+	}
+	if entries[0].BroaderPathItems != nil {
+		t.Errorf("BroaderPathItems = %v, want empty at a root", entries[0].BroaderPathItems)
+	}
+}
+
+// TestSearchHandlesAnItemWithNoPrefLabel covers the one legitimate {}/null
+// prefLabel case: an ancestor with no skos:prefLabel at all must still
+// contribute a ref with its URI and id, not be silently dropped — that would
+// shorten a breadcrumb without saying so.
+func TestSearchHandlesAnItemWithNoPrefLabel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[
+			{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			 "kind":"concept","class":"Concept","prefLabel":{"en":"bronze (metal)"},"lang":"en",
+			 "broader":"http://vocab.getty.edu/aat/300099999",
+			 "parents":[
+			  {"uri":"http://vocab.getty.edu/aat/300099999","id":"300099999",
+			   "kind":"concept","class":"Concept","prefLabel":{},"lang":null}
+			 ]}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entries, err := c.Search(context.Background(), "bronze", vocabconnector.SearchOpts{Lang: "en"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(entries[0].BroaderPathItems) != 1 {
+		t.Fatalf("got %d BroaderPathItems, want 1 (the unlabeled ancestor must not be dropped)", len(entries[0].BroaderPathItems))
+	}
+	unlabeled := entries[0].BroaderPathItems[0]
+	if unlabeled.URI != "http://vocab.getty.edu/aat/300099999" || unlabeled.ExternalID != "300099999" {
+		t.Errorf("unlabeled ancestor = %+v, want URI/ExternalID set", unlabeled)
+	}
+	if len(unlabeled.Label) != 0 {
+		t.Errorf("unlabeled ancestor Label = %v, want nil/empty", unlabeled.Label)
+	}
+	if len(entries[0].BroaderPath) != 1 {
+		t.Fatalf("got %d BroaderPath entries, want 1 (dropping would shorten the breadcrumb)", len(entries[0].BroaderPath))
+	}
+}
+
+// TestSearchSendsTheRequestV2Expects covers the request side: q, lang, limit
+// always; under= only when ParentURI was passed, and as a bare id.
+func TestSearchSendsTheRequestV2Expects(t *testing.T) {
+	var gotPath, gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotQuery = r.URL.RawQuery
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
 		_, _ = w.Write([]byte(`{"results":[]}`))
 	}))
 	defer srv.Close()
 
 	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	if _, err := c.Search(context.Background(), "brons", vocabconnector.SearchOpts{
+		Lang: "nl", Limit: 20, ParentURI: "https://vocab.getty.edu/aat/300264091",
+	}); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if gotPath != "/vocab/aat/suggest" {
+		t.Errorf("path = %q, want /vocab/aat/suggest", gotPath)
+	}
+	for _, want := range []string{"q=brons", "lang=nl", "limit=20", "under=300264091"} {
+		if !contains(gotQuery, want) {
+			t.Errorf("query %q is missing %q", gotQuery, want)
+		}
+	}
+
 	if _, err := c.Search(context.Background(), "brons", vocabconnector.SearchOpts{Lang: "nl"}); err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -218,13 +342,24 @@ func TestSearchOnBlankQueryAsksNothing(t *testing.T) {
 	}
 }
 
+// TestFetchReadsOneConcept covers the v2 /concept shape: an item plus
+// broader/parents, same as suggest. Per the contract, concept/{id}?lang=
+// takes a display-language parameter that "the concept and every nested
+// item" resolve against server-side, so Fetch must send it (v1's connector
+// deliberately did not; that assumption no longer holds under v2).
 func TestFetchReadsOneConcept(t *testing.T) {
 	var gotPath, gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
 		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
-			"prefLabel":"bronze (metal)","lang":"en","parentString":"copper alloy, metal",
-			"broader":"http://vocab.getty.edu/aat/300010942"}`))
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"en":"bronze (metal)","nl":"brons"},"lang":"en",
+			"broader":"http://vocab.getty.edu/aat/300010942",
+			"parents":[
+			 {"uri":"http://vocab.getty.edu/aat/300010942","id":"300010942",
+			  "kind":"concept","class":"Concept","prefLabel":{"en":"copper alloy"},"lang":"en"},
+			 {"uri":"http://vocab.getty.edu/aat/300011014","id":"300011014",
+			  "kind":"concept","class":"Concept","prefLabel":{"en":"metal"},"lang":"en"}]}`))
 	}))
 	defer srv.Close()
 
@@ -236,49 +371,231 @@ func TestFetchReadsOneConcept(t *testing.T) {
 	if gotPath != "/vocab/aat/concept/300010957" {
 		t.Errorf("path = %q, want /vocab/aat/concept/300010957", gotPath)
 	}
-	// concept/{id} takes no lang parameter in the contract; sending one is a
-	// request a future implementation may reject.
-	if gotQuery != "" {
-		t.Errorf("query = %q, want no parameters", gotQuery)
+	if !contains(gotQuery, "lang=en") {
+		t.Errorf("query %q is missing lang=en", gotQuery)
+	}
+	if entry.URI != "http://vocab.getty.edu/aat/300010957" {
+		t.Errorf("URI = %q, want it verbatim (not rewritten)", entry.URI)
 	}
 	if entry.Label["en"] != "bronze (metal)" {
 		t.Errorf("Label[en] = %q", entry.Label["en"])
 	}
-}
-
-// TestFetchReadsOneConceptWithLanguageMappedFields is the regression guard for
-// the /concept response shape: unlike /suggest, prefLabel and parentString are
-// language-keyed objects there, not plain strings. Reverting hitText back to a
-// bare `string` field leaves every other test in this file green (they all
-// mock /suggest's shape) while silently restoring the decode failure a live
-// run against the real service caught.
-func TestFetchReadsOneConceptWithLanguageMappedFields(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300250435","id":"300250435",
-			"prefLabel":{"en":"ethnicity","nl":"etniciteit"},
-			"parentString":{"en":"culture-related concepts, associated concepts",
-			                "nl":"cultuurgerelateerde concepten, geassocieerde concepten"},
-			"broader":"http://vocab.getty.edu/aat/300264086"}`))
-	}))
-	defer srv.Close()
-
-	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
-	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300250435", vocabconnector.SearchOpts{Lang: "nl"})
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
-	}
-	if entry.Label["nl"] != "etniciteit" {
-		t.Errorf("Label[nl] = %q, want etniciteit", entry.Label["nl"])
-	}
-	if diff := cmp.Diff([]string{"cultuurgerelateerde concepten", "geassocieerde concepten"}, entry.BroaderPath); diff != "" {
+	if diff := cmp.Diff([]string{"copper alloy", "metal"}, entry.BroaderPath); diff != "" {
 		t.Errorf("BroaderPath mismatch (-want +got):\n%s", diff)
 	}
 }
 
-// TestFetchOnPrefLabelOfNeitherShapeErrors covers the third decode outcome:
-// a prefLabel that is neither a plain string nor a language object (here, a
-// JSON number) must surface as a real decode error, not an empty entry.
-func TestFetchOnPrefLabelOfNeitherShapeErrors(t *testing.T) {
+// TestFetchSendsLang covers the request side for a non-English row: the
+// contract's lang param sets the display language for the concept and every
+// nested item, so it must ride on every Fetch, not just the default.
+func TestFetchSendsLang(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept","prefLabel":{"nl":"brons"},"lang":"nl"}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	if _, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "nl"}); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if !contains(gotQuery, "lang=nl") {
+		t.Errorf("query %q is missing lang=nl", gotQuery)
+	}
+}
+
+// TestFetchNarrowsTheStoredLanguages covers concept/{id}'s one real
+// difference from every other item: prefLabel there holds every language the
+// concept has (up to ~200 for TGN), not two. Storing all of them would carry
+// a concept's whole language set where every other path stores one, so
+// labelFor's narrowing (display language + English) applies here exactly as
+// it does on an item elsewhere.
+func TestFetchNarrowsTheStoredLanguages(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"en":"bronze (metal)","nl":"brons","de":"Bronze"},"lang":"nl"}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "nl"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"nl": "brons", "en": "bronze (metal)"}, map[string]string(entry.Label)); diff != "" {
+		t.Errorf("Label mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFetchReadsScopeNoteInTheDisplayLanguagePairedWithEnglish covers
+// scopeNote's ordinary hit case: the display language names one of its
+// keys, and — like labelFor's prefLabel — the result is paired with English
+// too, when present and different, because the frontend's tr() falls back
+// requested-language-then-English-then-whatever's-there, and a note stored
+// in Dutch alone would fall all the way through to some other language for
+// a curator whose next-best language is English, not whatever is left.
+func TestFetchReadsScopeNoteInTheDisplayLanguagePairedWithEnglish(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"nl":"brons"},"lang":"nl",
+			"scopeNote":{"en":"a copper alloy","nl":"een koperlegering","de":"eine Kupferlegierung"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "nl"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"nl": "een koperlegering", "en": "a copper alloy"}, map[string]string(entry.ScopeNote)); diff != "" {
+		t.Errorf("ScopeNote mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFetchReadsScopeNoteInEnglishWithNoDuplicateKey covers the "and
+// differs" half of the pairing rule: an English display language must not
+// duplicate the "en" key, the same way labelFor's own English case does not.
+func TestFetchReadsScopeNoteInEnglishWithNoDuplicateKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"en":"bronze (metal)"},"lang":"en",
+			"scopeNote":{"en":"a copper alloy","nl":"een koperlegering"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "en"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"en": "a copper alloy"}, map[string]string(entry.ScopeNote)); diff != "" {
+		t.Errorf("ScopeNote mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFetchScopeNoteFallsBackToEnglishWhenDisplayLanguageHasNone pins the
+// bug this connector shipped with: prefLabel guarantees lang names one of
+// its own keys, but the contract makes no such promise about scopeNote — a
+// concept can have a German prefLabel and no German scopeNote at all. Using
+// labelFor's exact-key rule for scopeNote too silently dropped the note in
+// every language that had none of its own (seven of this concept's fourteen
+// display languages, measured live), and worse: Fetch's result reaches an
+// upsert with no guard against overwriting a stored scope note with
+// nothing. lang here is "de" (present in prefLabel, matching the live bug
+// report) with no "de" key in scopeNote at all, so this must fall back to
+// English rather than return nil.
+func TestFetchScopeNoteFallsBackToEnglishWhenDisplayLanguageHasNone(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"de":"Bronze"},"lang":"de",
+			"scopeNote":{"en":"a copper alloy","nl":"een koperlegering"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "de"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"en": "a copper alloy"}, map[string]string(entry.ScopeNote)); diff != "" {
+		t.Errorf("ScopeNote mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFetchScopeNoteFallsBackToUndWhenNeitherDisplayLanguageNorEnglishHaveOne
+// covers scopeNote's second fallback: the contract calls scopeNote out as
+// the one predicate whose values can still arrive with no language tag at
+// all, so an untagged note must not be dropped just because it is not
+// keyed "de" or "en".
+func TestFetchScopeNoteFallsBackToUndWhenNeitherDisplayLanguageNorEnglishHaveOne(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"de":"Bronze"},"lang":"de",
+			"scopeNote":{"und":"an untagged note"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "de"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"und": "an untagged note"}, map[string]string(entry.ScopeNote)); diff != "" {
+		t.Errorf("ScopeNote mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFetchScopeNoteAbsentWhenNoneOfTheFallbacksMatch covers a concept with
+// a scopeNote that has neither the display language, nor English, nor an
+// untagged value: the fallback chain is exhausted, and the result must be
+// nil rather than an empty map or a language the concept does not have.
+func TestFetchScopeNoteAbsentWhenNoneOfTheFallbacksMatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"de":"Bronze"},"lang":"de",
+			"scopeNote":{"fr":"une note"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "de"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(entry.ScopeNote) != 0 {
+		t.Errorf("ScopeNote = %v, want none (display language, English and und all absent)", entry.ScopeNote)
+	}
+}
+
+// TestFetchKeepsAncestorLanguages is the contract's own bronze example: an en
+// fetch whose third ancestor (AAT 300011014) has no English prefLabel at all,
+// so it is honestly reported in Spanish rather than stamped with the
+// requested language the way v1's parentString did.
+func TestFetchKeepsAncestorLanguages(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept","prefLabel":{"en":"bronze (metal)"},"lang":"en",
+			"broader":"http://vocab.getty.edu/aat/300010942",
+			"parents":[
+			 {"uri":"http://vocab.getty.edu/aat/300010942","id":"300010942",
+			  "kind":"concept","class":"Concept","prefLabel":{"en":"copper alloy"},"lang":"en"},
+			 {"uri":"http://vocab.getty.edu/aat/300241441","id":"300241441",
+			  "kind":"guideTerm","class":"GuideTerm","prefLabel":{"en":"<copper and copper alloy>"},"lang":"en"},
+			 {"uri":"http://vocab.getty.edu/aat/300011014","id":"300011014",
+			  "kind":"concept","class":"Concept","prefLabel":{"es":"metal no ferroso"},"lang":"es"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "en"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(entry.BroaderPathItems) != 3 {
+		t.Fatalf("got %d BroaderPathItems, want 3", len(entry.BroaderPathItems))
+	}
+	third := entry.BroaderPathItems[2]
+	if _, ok := third.Label["es"]; !ok {
+		t.Fatalf("third ancestor Label = %v, want it keyed \"es\"", third.Label)
+	}
+	if _, ok := third.Label["en"]; ok {
+		t.Errorf("third ancestor Label = %v, must not be stamped with the requested language \"en\"", third.Label)
+	}
+}
+
+// TestFetchOnPrefLabelNotAnObjectErrors covers a prefLabel that is not an
+// object at all (here, a JSON number): the contract guarantees prefLabel is
+// always a language-keyed object, so anything else is a real decode error,
+// not an empty entry.
+func TestFetchOnPrefLabelNotAnObjectErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300250435","id":"300250435","prefLabel":42}`))
 	}))
@@ -287,153 +604,7 @@ func TestFetchOnPrefLabelOfNeitherShapeErrors(t *testing.T) {
 	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
 	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300250435", vocabconnector.SearchOpts{})
 	if err == nil {
-		t.Fatalf("Fetch with a prefLabel of neither shape returned no error, entry=%+v", entry)
-	}
-}
-
-// TestFetchFallsBackToEnglishWhenTheConceptHasNoLabelInTheRequestedLanguage is
-// the concrete case from review: fetching ULAN 500115588 in Dutch must not
-// drop the English ancestor chain just because the concept has no Dutch
-// prefLabel. Search's own fallback and Fetch's must agree on the same
-// concept, or the vocabulary service persists a permanently empty path.
-func TestFetchFallsBackToEnglishWhenTheConceptHasNoLabelInTheRequestedLanguage(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/ulan/500115588","id":"500115588",
-			"prefLabel":{"en":"Gogh, Vincent van"},
-			"parentString":{"en":"Persons, Artists"},
-			"broader":"http://vocab.getty.edu/ulan/500000002"}`))
-	}))
-	defer srv.Close()
-
-	c := New(Config{BaseURL: srv.URL, Vocab: "ulan"}, srv.Client())
-	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/ulan/500115588", vocabconnector.SearchOpts{Lang: "nl"})
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
-	}
-	if entry.Label["en"] != "Gogh, Vincent van" {
-		t.Errorf("Label[en] = %q, want the English fallback", entry.Label["en"])
-	}
-	if diff := cmp.Diff([]string{"Persons", "Artists"}, entry.BroaderPath); diff != "" {
-		t.Errorf("BroaderPath mismatch (-want +got):\n%s", diff)
-	}
-}
-
-// TestFetchTreatsAnEmptyLabelValueAsNoValueForThatLanguage is fix round 2,
-// item 1: a language key present with an empty string is not a real value.
-// Left as a hit, it pins resolution to a language with nothing in it, which
-// both stores an empty label past the caller's len(label)==0 guard and, since
-// label and chain resolution share the same lookup, drops an ancestor chain
-// that exists in another language along with it.
-func TestFetchTreatsAnEmptyLabelValueAsNoValueForThatLanguage(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
-			"prefLabel":{"nl":"","en":"bronze"},
-			"parentString":{"en":"copper alloy, metal"},
-			"broader":"http://vocab.getty.edu/aat/300010942"}`))
-	}))
-	defer srv.Close()
-
-	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
-	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "nl"})
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
-	}
-	if _, hasEmptyNL := entry.Label["nl"]; hasEmptyNL {
-		t.Errorf("Label = %v; an empty nl value must not survive into the stored label", entry.Label)
-	}
-	if entry.Label["en"] != "bronze" {
-		t.Errorf("Label[en] = %q, want the English fallback since nl was empty", entry.Label["en"])
-	}
-	if diff := cmp.Diff([]string{"copper alloy", "metal"}, entry.BroaderPath); diff != "" {
-		t.Errorf("BroaderPath mismatch (-want +got):\n%s", diff)
-	}
-}
-
-// TestFetchFallsBackTheChainIndependentlyOfTheLabelsLanguage is fix round 2,
-// item 2: the ancestor chain resolves on its own — label language, then
-// English, then whichever language the concept has a chain in — instead of
-// staying pinned to whatever language the label ended up in, and the refs
-// are stamped with the chain's own language, not the label's.
-func TestFetchFallsBackTheChainIndependentlyOfTheLabelsLanguage(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
-			"prefLabel":{"nl":"brons","en":"bronze"},
-			"parentString":{"en":"copper alloy, metal"},
-			"broader":"http://vocab.getty.edu/aat/300010942"}`))
-	}))
-	defer srv.Close()
-
-	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
-	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "nl"})
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
-	}
-	if entry.Label["nl"] != "brons" {
-		t.Errorf("Label[nl] = %q, want brons", entry.Label["nl"])
-	}
-	if diff := cmp.Diff([]string{"copper alloy", "metal"}, entry.BroaderPath); diff != "" {
-		t.Errorf("BroaderPath mismatch (-want +got):\n%s", diff)
-	}
-	if len(entry.BroaderPathItems) == 0 {
-		t.Fatal("BroaderPathItems is empty, want the English-only chain")
-	}
-	if entry.BroaderPathItems[0].Label["en"] != "copper alloy" {
-		t.Errorf("BroaderPathItems[0].Label[en] = %q, want copper alloy: the ref must be stamped "+
-			"with the chain's own language (English), not the label's (Dutch)", entry.BroaderPathItems[0].Label["en"])
-	}
-	if _, hasDutch := entry.BroaderPathItems[0].Label["nl"]; hasDutch {
-		t.Errorf("BroaderPathItems[0] = %+v carries a Dutch label, but the chain only exists in English",
-			entry.BroaderPathItems[0])
-	}
-}
-
-// TestFetchNarrowsTheStoredLabelToTheResolvedLanguagePlusEnglish is the ruled
-// fix for item 3: the stored entry carries the language Fetch resolved to,
-// plus English when that differs, never the concept's whole language set —
-// otherwise adopting one TGN place would persist up to ~200 language keys.
-func TestFetchNarrowsTheStoredLabelToTheResolvedLanguagePlusEnglish(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/tgn/7006952","id":"7006952",
-			"prefLabel":{"en":"Amsterdam","nl":"Amsterdam","de":"Amsterdam","fr":"Amsterdam"},
-			"parentString":{"en":"North Holland, Netherlands, Europe, World",
-			                "nl":"Noord-Holland, Nederland, Europa, Wereld"},
-			"broader":"http://vocab.getty.edu/tgn/7006951"}`))
-	}))
-	defer srv.Close()
-
-	c := New(Config{BaseURL: srv.URL, Vocab: "tgn"}, srv.Client())
-	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/tgn/7006952", vocabconnector.SearchOpts{Lang: "nl"})
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
-	}
-	want := map[string]string{"nl": "Amsterdam", "en": "Amsterdam"}
-	if diff := cmp.Diff(want, map[string]string(entry.Label)); diff != "" {
-		t.Errorf("Label mismatch (-want +got):\n%s", diff)
-	}
-}
-
-// TestFetchResolvesLanguageCaseInsensitively covers item 4: the contract
-// matches lang case-insensitively and echoes the vocabulary's own spelling,
-// so a caller asking for "ZH-HANT" must still find a map keyed "zh-Hant".
-func TestFetchResolvesLanguageCaseInsensitively(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
-			"prefLabel":{"zh-Hant":"青銅"},
-			"parentString":{"zh-Hant":"合金, 金屬"},
-			"broader":"http://vocab.getty.edu/aat/300010942"}`))
-	}))
-	defer srv.Close()
-
-	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
-	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "ZH-HANT"})
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
-	}
-	if entry.Label["zh-Hant"] != "青銅" {
-		t.Errorf("Label[zh-Hant] = %q", entry.Label["zh-Hant"])
-	}
-	if entry.BroaderPath == nil {
-		t.Error("BroaderPath is nil; case-insensitive lang match should have found the zh-Hant chain")
+		t.Fatalf("Fetch with a non-object prefLabel returned no error, entry=%+v", entry)
 	}
 }
 
@@ -456,26 +627,31 @@ func TestFetchPropagatesTheServerError(t *testing.T) {
 	}
 }
 
-func TestVocabulariesListsWhatTheServiceServes(t *testing.T) {
+// TestVocabulariesReadsTheListing covers the v2 discovery shape: a top-level
+// version plus, per mount, name/label/concepts/languages. Shaped like the
+// real listing, including the fields core does not read yet: the decode
+// must ignore profile, dump, scheme, kinds, obsolete, languages_skipped,
+// roots, built, source, license, endpoints and extras rather than fail on
+// them.
+func TestVocabulariesReadsTheListing(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/vocab" {
 			t.Errorf("path = %q, want /vocab", r.URL.Path)
 		}
-		// Shaped like the real listing, including the fields core does not
-		// read: the decode must ignore profile, dump, scheme, kinds,
-		// obsolete, languages, roots, built, endpoints and extras rather
-		// than fail on them.
-		_, _ = w.Write([]byte(`{"vocabs":[
-			{"name":"aat","profile":"gvp","dump":"aat","scheme":"http://vocab.getty.edu/aat/",
-			 "concepts":58996,"kinds":{"concept":57085,"guideTerm":1785,"hierarchy":118,"facet":8},
-			 "obsolete":1332,"languages":["en","nl"],"languages_skipped":139,"roots":8,
+		_, _ = w.Write([]byte(`{"version":2,"vocabs":[
+			{"name":"aat","version":2,"label":"Art & Architecture Thesaurus","profile":"gvp","dump":"aat",
+			 "scheme":"http://vocab.getty.edu/aat/","concepts":58996,
+			 "kinds":{"concept":57085,"guideTerm":1785,"hierarchy":118,"facet":8},
+			 "obsolete":1332,"languages":["ar","en","nl"],"languages_skipped":139,"roots":8,
 			 "built":"2026-09-25T14:27:57Z",
+			 "source":{"url":"http://aatdownloads.getty.edu/VocabData/explicit.zip"},
+			 "license":{"name":"ODC-By 1.0"},
 			 "endpoints":{"suggest":"/vocab/aat/suggest","concept":"/vocab/aat/concept/{id}","children":"/vocab/aat/children/{id}"}},
-			{"name":"tgn","profile":"gvp","concepts":2991143,
-			 "extras":{"coordinates":2972719,"placeTypes":2991065},
+			{"name":"tgn","version":2,"label":"Getty Thesaurus of Geographic Names","profile":"gvp","concepts":2991143,
+			 "extras":{"coordinates":2972719,"placeTypes":2991065},"languages":["en"],
 			 "endpoints":{"suggest":"/vocab/tgn/suggest"}},
-			{"name":"ulan","profile":"gvp","concepts":404637,
-			 "extras":{"agentTypes":404637,"biographies":398155,"nationalities":401234},
+			{"name":"ulan","version":2,"profile":"gvp","concepts":404637,
+			 "extras":{"agentTypes":404637,"biographies":398155,"nationalities":401234},"languages":["en"],
 			 "endpoints":{"suggest":"/vocab/ulan/suggest"}}]}`))
 	}))
 	defer srv.Close()
@@ -485,18 +661,74 @@ func TestVocabulariesListsWhatTheServiceServes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Vocabularies: %v", err)
 	}
-	want := []VocabularyInfo{
-		{Name: "aat", Concepts: 58996},
-		{Name: "tgn", Concepts: 2991143},
-		{Name: "ulan", Concepts: 404637},
+	if got.Version != 2 {
+		t.Errorf("Version = %d, want 2", got.Version)
 	}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("Vocabularies mismatch (-want +got):\n%s", diff)
+	want := []VocabularyInfo{
+		{Name: "aat", Label: "Art & Architecture Thesaurus", Concepts: 58996, Languages: []string{"ar", "en", "nl"}},
+		{Name: "tgn", Label: "Getty Thesaurus of Geographic Names", Concepts: 2991143, Languages: []string{"en"}},
+		{Name: "ulan", Concepts: 404637, Languages: []string{"en"}},
+	}
+	if diff := cmp.Diff(want, got.Vocabs); diff != "" {
+		t.Errorf("Vocabs mismatch (-want +got):\n%s", diff)
 	}
 }
 
+// TestVocabulariesWarnsOnAnUnexpectedVersion covers the owner's decision:
+// warn, do not fail. A service reporting something other than the contract
+// version this connector decodes still returns its listing, but logs once —
+// and a service reporting the expected version must not log anything, so the
+// test would fail if the warning were deleted rather than pass vacuously.
+func TestVocabulariesWarnsOnAnUnexpectedVersion(t *testing.T) {
+	t.Run("unexpected version logs and still returns the listing", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"version":3,"vocabs":[{"name":"aat","concepts":58996}]}`))
+		}))
+		defer srv.Close()
+
+		var buf bytes.Buffer
+		c := New(Config{BaseURL: srv.URL}, srv.Client())
+		c.logger = slog.New(slog.NewTextHandler(&buf, nil))
+		got, err := c.Vocabularies(context.Background())
+		if err != nil {
+			t.Fatalf("Vocabularies: %v", err)
+		}
+		if len(got.Vocabs) != 1 || got.Vocabs[0].Name != "aat" {
+			t.Fatalf("Vocabularies = %+v, want the listing to still come back", got)
+		}
+		if !strings.Contains(buf.String(), "level=WARN") {
+			t.Errorf("log output = %q, want a warning logged for version 3", buf.String())
+		}
+	})
+
+	t.Run("version 2 logs nothing", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"version":2,"vocabs":[{"name":"aat","concepts":58996}]}`))
+		}))
+		defer srv.Close()
+
+		var buf bytes.Buffer
+		c := New(Config{BaseURL: srv.URL}, srv.Client())
+		c.logger = slog.New(slog.NewTextHandler(&buf, nil))
+		if _, err := c.Vocabularies(context.Background()); err != nil {
+			t.Fatalf("Vocabularies: %v", err)
+		}
+		if buf.Len() != 0 {
+			t.Errorf("log output = %q, want no warning for the expected version", buf.String())
+		}
+	})
+}
+
 // TestLiveVocabService runs only when KAKUGO_VOCAB_URL names a service, so it
-// never runs in CI. Run it once by hand against https://vocab.pletka.io.
+// never runs in CI. Run it once by hand against https://vocab.pletka.io:
+//
+//	KAKUGO_VOCAB_URL=https://vocab.pletka.io go test ./pkg/weave/vocabconnector/vocabservice/ -run TestLive -count=1 -v
+//
+// It exercises aat, tgn and ulan with a Search and a Fetch each, and
+// separately proves the contract document's bronze example against the real
+// service: AAT 300010957 fetched at lang=en has a third ancestor (300011014)
+// with no English prefLabel, so v2 must report it honestly in Spanish rather
+// than stamp it with the requested language the way v1's parentString did.
 func TestLiveVocabService(t *testing.T) {
 	base := os.Getenv("KAKUGO_VOCAB_URL")
 	if base == "" {
@@ -535,6 +767,37 @@ func TestLiveVocabService(t *testing.T) {
 				tc.vocab, len(entries), entry.ExternalID, entry.Label[tc.lang], entry.BroaderPath)
 		})
 	}
+
+	// TestLiveVocabService/aat_ancestor_keeps_its_own_language is the one
+	// assertion the v1 connector could never make: fetch a concept whose
+	// ancestor chain contains a link in a language other than the requested
+	// one, and assert we kept that link's own language rather than silently
+	// stamping it with "en". This is the contract document's bronze example.
+	t.Run("aat ancestor keeps its own language", func(t *testing.T) {
+		c := New(Config{BaseURL: base, Vocab: "aat"}, nil)
+		entry, err := c.Fetch(context.Background(), "http://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "en"})
+		if err != nil {
+			t.Fatalf("live Fetch: %v", err)
+		}
+		var ancestor *domain.VocabularyEntryRef
+		for i := range entry.BroaderPathItems {
+			if entry.BroaderPathItems[i].ExternalID == "300011014" {
+				ancestor = &entry.BroaderPathItems[i]
+				break
+			}
+		}
+		if ancestor == nil {
+			t.Fatalf("live Fetch of 300010957 (lang=en) has no ancestor 300011014; got %v", entry.BroaderPath)
+		}
+		if _, ok := ancestor.Label["es"]; !ok {
+			t.Fatalf("ancestor 300011014 Label = %v, want it keyed \"es\" (this concept has no English prefLabel)", ancestor.Label)
+		}
+		if _, ok := ancestor.Label["en"]; ok {
+			t.Errorf("ancestor 300011014 Label = %v, must not be stamped with the requested language \"en\"", ancestor.Label)
+		}
+		t.Logf("aat 300010957 (lang=en): ancestor 300011014 kept its own language, Label = %v, BroaderPath = %v",
+			ancestor.Label, entry.BroaderPath)
+	})
 }
 
 func contains(haystack, needle string) bool {

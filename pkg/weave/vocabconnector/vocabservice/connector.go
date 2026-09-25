@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
-	"path"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +24,12 @@ const (
 	defaultLimit = 50
 	maxLimit     = 100
 )
+
+// expectedListingVersion is the discovery contract version this connector
+// decodes GET /vocab against. The owner's call: a service reporting anything
+// else still returns its listing — see Vocabularies — because this exists to
+// warn an operator at configuration time, not to fail authoring.
+const expectedListingVersion = 2
 
 // errNoVocab means a row has no vocabulary name configured: it is the row
 // that is broken, not the service, so Search/Fetch say so without calling the
@@ -51,6 +56,13 @@ type Config struct {
 type Connector struct {
 	cfg    Config
 	client *http.Client
+
+	// logger receives warnings raised while configuring a vocabulary — such
+	// as the service reporting an unexpected discovery contract version. New
+	// defaults it to slog.Default() the way vocabulary.Service's own logger
+	// field is defaulted on its runtime struct (Service, not a config type),
+	// so no call site changes.
+	logger *slog.Logger
 }
 
 var _ vocabconnector.Connector = (*Connector)(nil)
@@ -66,58 +78,60 @@ func New(cfg Config, client *http.Client) *Connector {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &Connector{cfg: cfg, client: client}
+	return &Connector{cfg: cfg, client: client, logger: slog.Default()}
 }
 
-// hitText decodes a field that is a single string on the /suggest response
-// (one hit, already resolved to one language) but a language-keyed object on
-// the /concept response (the whole concept, every language it has). prefLabel
-// and parentString both take this shape; broader does not, so it stays a
-// plain *string below. A value that is neither shape (not a JSON string, not
-// a JSON object) is left to the underlying json.Unmarshal error. On Fetch
-// that reaches the caller as a real error rather than an empty entry; on
-// Search it does not, because Search wraps everything get() returns —
-// decode included — as ErrDegraded.
-type hitText struct {
-	text   string
-	byLang map[string]string
-}
-
-// UnmarshalJSON implements json.Unmarshaler, choosing the plain-string or
-// language-map decode by sniffing the first byte of the value.
-func (h *hitText) UnmarshalJSON(data []byte) error {
-	if len(data) == 0 || string(data) == "null" {
-		return nil
-	}
-	if data[0] == '"' {
-		return json.Unmarshal(data, &h.text)
-	}
-	return json.Unmarshal(data, &h.byLang)
-}
-
+// suggestHit is a suggest result: an item plus the fields that explain why it
+// matched and where it sits in the hierarchy. A concept fetch decodes into
+// conceptResponse instead, a different type below — the two endpoints share
+// the item shape, not this whole struct, since /concept carries fields
+// (scopeNote, altLabel) that suggest never sends and never sends
+// matched/matchedLabel/score, which /concept does not carry.
 type suggestHit struct {
-	URI          string   `json:"uri"`
-	ID           string   `json:"id"`
-	PrefLabel    hitText  `json:"prefLabel"`
-	Lang         string   `json:"lang"`
-	ParentString *hitText `json:"parentString"`
-	Broader      *string  `json:"broader"`
+	item
+	Matched      string  `json:"matched"`
+	MatchedLabel *string `json:"matchedLabel"`
+	Broader      *string `json:"broader"`
+	Parents      []item  `json:"parents"`
+	Score        float64 `json:"score"`
 }
 
 type suggestResponse struct {
 	Results []suggestHit `json:"results"`
 }
 
-type vocabListResponse struct {
-	Vocabs []VocabularyInfo `json:"vocabs"`
+// conceptResponse is the /concept/{id} decode: the one item shape plus the
+// fields only a concept fetch carries. altLabel is decoded and not mapped —
+// Entry has nowhere to put it, and inventing a home is out of scope for this
+// connector. narrower/matches/broaderOther are not represented here at all,
+// so the decoder ignores them the same way it already ignores /suggest's
+// matched/matchedLabel/score on this endpoint.
+type conceptResponse struct {
+	item
+	AltLabel  map[string][]string `json:"altLabel"`
+	ScopeNote map[string]string   `json:"scopeNote"`
+	Broader   *string             `json:"broader"`
+	Parents   []item              `json:"parents"`
+}
+
+// VocabularyListing is the service's own listing, read when someone is
+// configuring a vocabulary row — never on a curator's keystroke.
+type VocabularyListing struct {
+	Version int              `json:"version"`
+	Vocabs  []VocabularyInfo `json:"vocabs"`
 }
 
 // VocabularyInfo is one entry of the service's own listing, used when
-// configuring which vocabulary a row should serve.
+// configuring which vocabulary a row should serve. Languages is which
+// languages have their own suggest index on that mount — most mounts serve
+// exactly one, and a configuration screen needs it to tell an operator that a
+// Dutch project pointed at an English-only mount will only ever answer in
+// English.
 type VocabularyInfo struct {
-	Name     string `json:"name"`
-	Label    string `json:"label,omitempty"`
-	Concepts int    `json:"concepts,omitempty"`
+	Name      string   `json:"name"`
+	Label     string   `json:"label,omitempty"`
+	Concepts  int      `json:"concepts,omitempty"`
+	Languages []string `json:"languages,omitempty"`
 }
 
 // Search asks the service for suggestions. A failure returns no entries and
@@ -154,7 +168,7 @@ func (c *Connector) Search(ctx context.Context, query string, opts vocabconnecto
 	}
 	out := make([]vocabconnector.Entry, 0, len(body.Results))
 	for _, hit := range body.Results {
-		out = append(out, hitToEntry(hit, lang))
+		out = append(out, hitToEntry(hit))
 	}
 	return out, nil
 }
@@ -171,27 +185,37 @@ func (c *Connector) Fetch(ctx context.Context, uri string, opts vocabconnector.S
 	}
 	lang := firstNonEmpty(opts.Lang, c.cfg.Lang, "en")
 
-	// concept/{id} is not documented to take lang (only suggest and children
-	// are): it returns every language the concept has, and the client picks
-	// one from that. Sending an undocumented parameter is a request a future
-	// implementation may reject.
-	var hit suggestHit
+	// concept/{id}?lang= picks the display language for the concept and every
+	// nested item, resolved server-side (falls back to en, then the first
+	// key, on an unknown tag) — so, unlike v1's assumption, this must be sent.
+	params := url.Values{}
+	params.Set("lang", lang)
+	var resp conceptResponse
 	endpoint := "/vocab/" + url.PathEscape(c.cfg.Vocab) + "/concept/" + url.PathEscape(id)
-	if err := c.get(ctx, endpoint, nil, &hit); err != nil {
+	if err := c.get(ctx, endpoint, params, &resp); err != nil {
 		return nil, fmt.Errorf("fetch %q: %w", uri, err)
 	}
-	entry := hitToEntry(hit, lang)
+	entry := conceptToEntry(resp)
 	return &entry, nil
 }
 
 // Vocabularies lists what the service serves. Configuration calls this; a
 // curator typing never does, so it is not cached.
-func (c *Connector) Vocabularies(ctx context.Context) ([]VocabularyInfo, error) {
-	var body vocabListResponse
-	if err := c.get(ctx, "/vocab", nil, &body); err != nil {
-		return nil, fmt.Errorf("list vocabularies: %w", err)
+//
+// A service reporting a discovery version other than expectedListingVersion
+// still has its listing returned — the owner's call is warn, not fail, since
+// this is what lets an operator discover a misconfigured base URL while
+// configuring a vocabulary row, rather than through empty pickers later.
+func (c *Connector) Vocabularies(ctx context.Context) (VocabularyListing, error) {
+	var listing VocabularyListing
+	if err := c.get(ctx, "/vocab", nil, &listing); err != nil {
+		return VocabularyListing{}, fmt.Errorf("list vocabularies: %w", err)
 	}
-	return body.Vocabs, nil
+	if listing.Version != expectedListingVersion {
+		c.logger.Warn("vocabulary service reported an unexpected discovery contract version",
+			"base_url", c.cfg.BaseURL, "got_version", listing.Version, "want_version", expectedListingVersion)
+	}
+	return listing, nil
 }
 
 func (c *Connector) get(ctx context.Context, endpoint string, params url.Values, into any) error {
@@ -218,7 +242,7 @@ func (c *Connector) get(ctx context.Context, endpoint string, params url.Values,
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("call %s: status %d", endpoint, resp.StatusCode)
+		return decodeServiceError(endpoint, resp)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(into); err != nil {
 		return fmt.Errorf("decode %s: %w", endpoint, err)
@@ -226,145 +250,44 @@ func (c *Connector) get(ctx context.Context, endpoint string, params url.Values,
 	return nil
 }
 
-// hitToEntry maps one decoded hit/concept to an Entry. lang is the language
-// already resolved for this call (opts.Lang, then the row's configured
-// language, then "en").
-func hitToEntry(hit suggestHit, lang string) vocabconnector.Entry {
-	entry := vocabconnector.Entry{
-		URI:        NormalizeURI(hit.URI),
-		ExternalID: hit.ID,
-	}
-	// hitLang is the language the label ended up in. The ancestor chain below
-	// starts its own resolution there, but does not stay pinned to it — see
-	// resolveChain.
-	hitLang := lang
-	switch {
-	case hit.PrefLabel.byLang != nil:
-		// /concept: prefLabel is a language map covering everything the
-		// concept has. Resolve one language — requested, then English, then
-		// whichever the concept actually has, chosen deterministically — and
-		// store only that language plus English (when it differs). Storing
-		// the whole map would put the concept's entire language set (up to
-		// ~200 for TGN) in a row every other path stores one language in.
-		if value, resolvedLang, ok := resolveByLang(hit.PrefLabel.byLang, lang); ok {
-			hitLang = resolvedLang
-			labels := domain.Translations{resolvedLang: value}
-			if !strings.EqualFold(resolvedLang, "en") {
-				if enValue, enKey, found := lookupLang(hit.PrefLabel.byLang, "en"); found {
-					labels[enKey] = enValue
-				}
-			}
-			entry.Label = labels
-		}
-	case hit.PrefLabel.text != "":
-		// /suggest: prefLabel is one string, already resolved by the service
-		// to hit.Lang. A hit with no label at all (the contract allows it)
-		// leaves entry.Label unset rather than {"<lang>": ""}.
-		hitLang = firstNonEmpty(hit.Lang, lang)
-		entry.Label = domain.Translations{hitLang: hit.PrefLabel.text}
-	}
-	if hit.Broader != nil {
-		entry.BroaderURI = NormalizeURI(*hit.Broader)
-	}
-	// The chain falls back on its own — label language, then English, then
-	// whichever language the concept has a chain in at all — rather than
-	// being pinned to hitLang: a concept can have ancestors only in a
-	// language its own label never resolved to, and dropping them there is
-	// exactly the permanently-empty stored path this connector exists to
-	// avoid. ParentStringRefs is stamped with the chain's own language below,
-	// so a curator sees an honest "these ancestors are in English" rather
-	// than none, and never a Dutch label with Spanish ancestors mislabeled
-	// as Dutch.
-	chain, chainLang := resolveChain(hit.ParentString, hitLang)
-	if chain != "" {
-		entry.BroaderPath = SplitParentString(chain)
-		entry.BroaderPathItems = ParentStringRefs(chain, chainLang)
-		// parentString is nearest-first, so its first element IS the broader
-		// concept; give that item the identity we already know.
-		if len(entry.BroaderPathItems) > 0 && entry.BroaderURI != "" {
-			entry.BroaderPathItems[0].URI = entry.BroaderURI
-			entry.BroaderPathItems[0].ID = conceptID(entry.BroaderURI)
-		}
-	}
+// hitToEntry maps one decoded suggest hit to an Entry. The URI is stored
+// exactly as the service sent it: v2 promises the publisher's canonical IRI,
+// never rewritten.
+func hitToEntry(hit suggestHit) vocabconnector.Entry {
+	return entryFromItem(hit.item, hit.Broader, hit.Parents)
+}
+
+// conceptToEntry maps a decoded concept fetch to an Entry: the same
+// URI/Label/broader/parents mapping hitToEntry does, plus ScopeNote, which
+// only concept/{id} carries. ScopeNote gets its own resolution, not
+// labelFor's — see scopeNoteFor for why lang is a preference here and not
+// the guaranteed key it is for prefLabel.
+func conceptToEntry(resp conceptResponse) vocabconnector.Entry {
+	entry := entryFromItem(resp.item, resp.Broader, resp.Parents)
+	entry.ScopeNote = scopeNoteFor(resp.Lang, resp.ScopeNote)
 	return entry
 }
 
-// resolveChain picks the ancestor chain and the language it actually came in.
-// field is nil for a hit with no parentString at all (a facet root, or a
-// /suggest hit that never had one). labelLang is where resolution starts —
-// the label's own language — not where it must end: see the comment at the
-// call site.
-func resolveChain(field *hitText, labelLang string) (chain, chainLang string) {
-	if field == nil {
-		return "", labelLang
+// entryFromItem builds the URI/ExternalID/Label/broader/parents fields
+// shared by a suggest hit and a concept fetch.
+func entryFromItem(it item, broader *string, parents []item) vocabconnector.Entry {
+	entry := vocabconnector.Entry{
+		URI:        it.URI,
+		ExternalID: it.ID,
+		Label:      labelFor(it),
 	}
-	if field.byLang != nil {
-		if value, resolvedLang, ok := resolveByLang(field.byLang, labelLang); ok {
-			return value, resolvedLang
-		}
-		return "", labelLang
+	if broader != nil {
+		entry.BroaderURI = *broader
 	}
-	return field.text, labelLang
-}
-
-// lookupLang finds byLang's value for lang, matched case-insensitively: the
-// service itself matches lang case-insensitively and echoes back its own
-// spelling, so an exact map lookup on the caller's spelling can miss an entry
-// that is really there. A key present with an empty string counts as no
-// value for that language, not a hit: the contract's own documented shape is
-// to omit a language entirely rather than send it empty, but treating an
-// empty string as present would store an empty label and, because label and
-// chain resolution share this lookup, silently drop an ancestor chain that
-// exists in another language.
-func lookupLang(byLang map[string]string, lang string) (value, key string, ok bool) {
-	if v, exists := byLang[lang]; exists && v != "" {
-		return v, lang, true
-	}
-	for k, v := range byLang {
-		if v != "" && strings.EqualFold(k, lang) {
-			return v, k, true
+	if len(parents) > 0 {
+		entry.BroaderPath = make([]string, 0, len(parents))
+		entry.BroaderPathItems = make([]domain.VocabularyEntryRef, 0, len(parents))
+		for _, parent := range parents {
+			entry.BroaderPath = append(entry.BroaderPath, labelText(parent))
+			entry.BroaderPathItems = append(entry.BroaderPathItems, itemToRef(parent))
 		}
 	}
-	return "", "", false
-}
-
-// resolveByLang picks which language a language-keyed field is read in:
-// requested language first, then English, then whichever language the
-// response actually has. That last case is resolved deterministically (the
-// lexicographically smallest key), not by map iteration order, so the same
-// response always resolves to the same language. ok is false only when
-// byLang holds no non-empty value in any language (empty values are treated
-// as absent, see lookupLang).
-func resolveByLang(byLang map[string]string, lang string) (value, resolvedLang string, ok bool) {
-	if v, k, found := lookupLang(byLang, lang); found {
-		return v, k, true
-	}
-	if !strings.EqualFold(lang, "en") {
-		if v, k, found := lookupLang(byLang, "en"); found {
-			return v, k, true
-		}
-	}
-	keys := make([]string, 0, len(byLang))
-	for k, v := range byLang {
-		if v != "" {
-			keys = append(keys, k)
-		}
-	}
-	if len(keys) == 0 {
-		return "", "", false
-	}
-	sort.Strings(keys)
-	return byLang[keys[0]], keys[0], true
-}
-
-// conceptID takes the last path segment of a concept URI, which is the
-// identifier the service addresses concepts by.
-func conceptID(uri string) string {
-	uri = strings.TrimRight(strings.TrimSpace(uri), "/")
-	if uri == "" {
-		return ""
-	}
-	return path.Base(uri)
+	return entry
 }
 
 func firstNonEmpty(values ...string) string {
