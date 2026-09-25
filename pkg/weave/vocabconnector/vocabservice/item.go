@@ -15,10 +15,20 @@ type item struct {
 	Lang      *string           `json:"lang"`
 }
 
-// labelFor returns the one language it.Lang names, or nil when prefLabel is
-// empty or lang is null — a subject with no skos:prefLabel at all. It does
-// not iterate prefLabel to pick a language: lang is the contract's answer,
-// and map iteration order is not deterministic.
+// labelFor returns the language it.Lang names, plus "en" when the item has
+// one and it is not already the display language — matching the contract's
+// "the key chosen as lang, plus en when the concept has an English
+// prefLabel too". On suggest the service has already narrowed prefLabel to
+// (at most) those two keys; on concept, where prefLabel carries every
+// language the concept has, this same rule is the narrowing to at most two
+// that Task 2 needs, which is why it lives here rather than at a call site.
+//
+// Returns nil when prefLabel is empty or lang is null — a subject with no
+// skos:prefLabel at all. It does not iterate prefLabel to pick lang, and it
+// does not scan for "en" case-insensitively or fall back to a near-miss
+// (e.g. "en-GB"): lang is the contract's answer for the display language,
+// "en" is indexed directly, and an item with no exact "en" key simply gets
+// one language, deterministically.
 func labelFor(it item) domain.Translations {
 	if it.Lang == nil {
 		return nil
@@ -27,7 +37,13 @@ func labelFor(it item) domain.Translations {
 	if !ok {
 		return nil
 	}
-	return domain.Translations{*it.Lang: value}
+	labels := domain.Translations{*it.Lang: value}
+	if *it.Lang != "en" {
+		if enValue, ok := it.PrefLabel["en"]; ok {
+			labels["en"] = enValue
+		}
+	}
+	return labels
 }
 
 // labelText is labelFor's plain-string counterpart, used where a caller
