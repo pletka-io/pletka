@@ -49,7 +49,7 @@ func TestSplitParentString(t *testing.T) {
 	}
 }
 
-func TestParentStringRefsLabelsEachAncestorInTheRequestedLanguage(t *testing.T) {
+func TestParentStringRefsLabelsEachAncestorInTheResolvedLanguage(t *testing.T) {
 	refs := ParentStringRefs("koperlegering, metaal", "nl")
 	if len(refs) != 2 {
 		t.Fatalf("got %d refs, want 2", len(refs))

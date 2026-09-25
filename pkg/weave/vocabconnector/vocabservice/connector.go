@@ -27,8 +27,12 @@ const (
 )
 
 // errNoVocab means a row has no vocabulary name configured: it is the row
-// that is broken, not the service, and Search/Fetch say so rather than
-// calling the service and reporting an outage that isn't happening.
+// that is broken, not the service, so Search/Fetch say so without calling the
+// service. Search still wraps it in ErrDegraded — a row that cannot be
+// searched is an incomplete result like any other — so a misconfigured row
+// does set the degraded flag; the throttled log line carries this error's
+// text, which is what keeps the row's own breakage diagnosable rather than
+// looking like a service outage.
 var errNoVocab = errors.New("vocabulary service: no vocabulary configured for this row")
 
 // Config is the per-vocabulary configuration stored in weave_vocabularies.config.
@@ -70,8 +74,10 @@ func New(cfg Config, client *http.Client) *Connector {
 // the /concept response (the whole concept, every language it has). prefLabel
 // and parentString both take this shape; broader does not, so it stays a
 // plain *string below. A value that is neither shape (not a JSON string, not
-// a JSON object) is left to the underlying json.Unmarshal error, which
-// propagates out of decode as a real error rather than an empty entry.
+// a JSON object) is left to the underlying json.Unmarshal error. On Fetch
+// that reaches the caller as a real error rather than an empty entry; on
+// Search it does not, because Search wraps everything get() returns —
+// decode included — as ErrDegraded.
 type hitText struct {
 	text   string
 	byLang map[string]string

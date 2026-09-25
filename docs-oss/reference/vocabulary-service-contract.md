@@ -18,10 +18,21 @@ adds or changes something outside this list, core does not notice either way.
 
 ## One service per instance
 
-An instance talks to exactly one vocabulary service, configured once (the
-service's base URL). A `weave_vocabularies` row using this connector
-(`connector_type = "vocabservice"`) names only *which vocabulary* to use on
-that service, via its `config` JSON:
+An instance talks to exactly one vocabulary service, configured once in the
+instance config as `vocabulary_service.base_url`:
+
+```yaml
+vocabulary_service:
+  base_url: "https://vocab.pletka.io"
+```
+
+Unset means no service is configured, and every row asking for this connector
+falls back to `local` — its stored entries only, no remote suggestions and no
+degraded flag, because no call is made.
+
+A `weave_vocabularies` row using this connector (`connector_type =
+"vocabservice"`) names only *which vocabulary* to use on that service, via
+its `config` JSON:
 
 ```json
 {"vocab": "aat", "lang": "en"}
@@ -40,15 +51,39 @@ instance is the point.
 Lists what the service serves. Called only when configuring a row (deciding
 which `vocab` name to use), never from autocomplete.
 
-Response:
+Response — what `https://vocab.pletka.io/vocab` actually returns, per
+vocabulary (`languages` abridged here; the real array runs to dozens of tags):
 
 ```json
-{"vocabs": [{"name": "aat", "label": "Art & Architecture Thesaurus", "concepts": 55000}]}
+{
+  "vocabs": [
+    {
+      "name": "aat",
+      "profile": "gvp",
+      "dump": "aat",
+      "scheme": "http://vocab.getty.edu/aat/",
+      "concepts": 58996,
+      "kinds": {"concept": 57085, "guideTerm": 1785, "hierarchy": 118, "facet": 8},
+      "obsolete": 1332,
+      "languages": ["en", "nl", "de", "fr"],
+      "languages_skipped": 139,
+      "roots": 8,
+      "built": "2026-09-25T15:40:33Z",
+      "endpoints": {
+        "suggest": "/vocab/aat/suggest",
+        "concept": "/vocab/aat/concept/{id}",
+        "children": "/vocab/aat/children/{id}"
+      }
+    }
+  ]
+}
 ```
 
-Core reads `name` (used as `vocab` in a row's config), `label`, and
-`concepts`. Both `label` and `concepts` are optional (`omitempty` on the
-core side) — an implementer may omit either.
+Core reads only `name` (used as `vocab` in a row's config), `label`, and
+`concepts`, and ignores every other field. Both `label` and `concepts` are
+optional on the core side (`omitempty`) — an implementer may omit either, and
+the reference deployment in fact sends no `label` at all, so a configuration
+UI has only `name` to show.
 
 ### `GET /vocab/{name}/suggest`
 
@@ -144,7 +179,10 @@ service sends the plain-string shape on `suggest` and the object shape on
 `concept`, and an implementer only has to serve that pairing correctly — but
 an implementer serving only one shape everywhere still decodes on the core
 side. A value that is neither a string nor an object (for example, a number)
-is a decode error, propagated as a real error, not an empty entry.
+is a decode error. On `concept` (`Fetch`) that error reaches the caller. On
+`suggest` (`Search`) it does not: `Search` wraps everything the HTTP call
+returns — transport, status, and decode alike — as a degrade, so the caller
+sees an empty result flagged degraded, never an error.
 
 Language resolution on `concept`, when `prefLabel`/`parentString` are
 language-keyed objects: the requested language, then English, then whichever
@@ -182,13 +220,38 @@ connector change. A URI on any other host is passed through unchanged.
 | Non-2xx status | empty result, no error | error |
 | Transport failure (connection refused, etc.) | empty result, no error | error |
 | Body that will not decode as JSON | empty result, no error | error |
-| Decoded body has a field of neither tolerated shape (e.g. `prefLabel` as a number) | error | error |
-| Row has no `vocab` configured | empty result, no error naming the problem internally | error naming the problem |
+| Decoded body has a field of neither tolerated shape (e.g. `prefLabel` as a number) | empty result, no error | error |
+| Row has no `vocab` configured | empty result, no error, reported as degraded | error naming the problem |
+
+`Search` has exactly one failure mode: it wraps everything the HTTP call
+returns — transport, status, and decode alike — as a degrade. Only `Fetch`
+surfaces any of it as an error. A degraded search is reported to the caller
+(the search response carries `"degraded": true`, and the server logs a
+throttled warning naming the vocabulary and the underlying cause), but it is
+never an error the picker has to handle.
+
+There is one failure the service can produce that core cannot see at all:
+core keys on the response's `results` array, so a 200 whose body is
+well-formed JSON *without* it — `{}`, or a differently-named envelope —
+decodes cleanly into zero results and is indistinguishable from a genuine
+no-match. That vocabulary is permanently empty, with no degrade and nothing
+in the log.
 
 Every timeout is bounded — a single call to the service (either endpoint)
-is canceled at 3 seconds by default (configurable per row via the `config`
-JSON's `timeout`), so a slow or hung service cannot block the picker
-indefinitely.
+is canceled at 3 seconds by default, so a slow or hung service cannot block
+the picker indefinitely.
+
+The per-row override is the `config` JSON's `timeout`, and it is a Go
+`time.Duration` decoded from a JSON number, so **its unit is nanoseconds**,
+not seconds. `{"timeout": 5}` is a 5-nanosecond deadline: every call is
+canceled before it leaves, and that vocabulary degrades permanently. Five
+seconds is written out in full:
+
+```json
+{"vocab": "aat", "lang": "en", "timeout": 5000000000}
+```
+
+A value of `0` or less (or an absent `timeout`) takes the 3-second default.
 
 ## Out of scope for this contract
 
