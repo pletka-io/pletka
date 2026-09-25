@@ -1395,6 +1395,7 @@ func (h *Handler) buildConceptList(ctx context.Context, projectID, conceptListID
 				BroaderURLTemplate: capabilityURL(canEdit, fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/terms/{conceptID}/broader", projectID, list.ID)),
 				SourceName:         sourceName,
 				HasRemoteSource:    hasRemoteSource,
+				SkosURL:            fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/skos", projectID, list.ID),
 			},
 		},
 		ViewMode: ViewModeDetailed,

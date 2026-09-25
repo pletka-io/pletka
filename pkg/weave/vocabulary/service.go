@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"regexp"
 	"sort"
@@ -18,11 +19,17 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
+	"github.com/pletka-io/pletka/pkg/weave/generators/skos"
 	"github.com/pletka-io/pletka/pkg/weave/vocabconnector"
 	"github.com/pletka-io/pletka/pkg/weave/vocabconnector/registry"
 )
 
 const defaultSearchLimit = 50
+
+// defaultConceptNamespace expands the pletka: curie prefix when emitting SKOS.
+// Phase 1.5 (#3599) will make this configurable per project/weave (F4); until
+// then local concept URIs (pletka:concept/{ULID}) resolve under this base.
+const defaultConceptNamespace = "https://vocab.pletka.io/"
 
 // conceptBroaderField is the validation-error field key for broader/narrower edits.
 const conceptBroaderField = "broader"
@@ -1824,4 +1831,58 @@ func translationLabel(value domain.Translations, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+// RenderConceptListSKOS streams a concept list as a SKOS concept scheme in
+// Turtle: the list is a skos:ConceptScheme, each member a skos:Concept with
+// prefLabel/scopeNote/inScheme and skos:broader/narrower from the hierarchy
+// edges (#3599). Returns ErrConceptListNotFound if the list is missing.
+func (s *Service) RenderConceptListSKOS(ctx context.Context, projectID, listID string, w io.Writer) error {
+	view, err := s.GetProjectConceptList(ctx, projectID, listID)
+	if err != nil {
+		return err
+	}
+	if view == nil {
+		return &ErrConceptListNotFound{ID: listID}
+	}
+
+	scheme := domain.ConceptList{
+		Entity: domain.Entity{
+			ID:         view.ID,
+			SemanticID: view.SemanticID,
+			UIName:     view.UIName,
+		},
+		IsClosed: view.IsClosed,
+	}
+
+	concepts := make([]domain.VocabularyEntry, 0, len(view.Entries))
+	for _, e := range view.Entries {
+		label := e.Entry.Label
+		if len(e.CustomLabel) > 0 {
+			label = e.CustomLabel // a curator override wins as the prefLabel
+		}
+		concepts = append(concepts, domain.VocabularyEntry{
+			ID:        e.VocabularyEntryID,
+			URI:       e.Entry.URI,
+			Label:     label,
+			ScopeNote: e.Entry.ScopeNote,
+		})
+	}
+
+	edgeRows, err := s.queries.WeaveListConceptBroaderByScheme(ctx, &view.ID)
+	if err != nil {
+		return fmt.Errorf("list scheme broader edges: %w", err)
+	}
+	edges := make([]domain.ConceptBroaderEdge, 0, len(edgeRows))
+	for _, r := range edgeRows {
+		edges = append(edges, domain.ConceptBroaderEdge{
+			ID:        r.ID,
+			ConceptID: r.ConceptID,
+			BroaderID: r.BroaderID,
+			SchemeID:  r.SchemeID,
+			Position:  int(r.Position),
+		})
+	}
+
+	return skos.Render(w, scheme, concepts, edges, map[string]string{"pletka": defaultConceptNamespace})
 }
