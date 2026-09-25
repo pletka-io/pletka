@@ -126,6 +126,13 @@ type ConceptListCap struct {
 	// BroaderURLTemplate is the per-term hierarchy endpoint (GET/POST, and
 	// DELETE at .../{edgeID}); {conceptID} substitutes the vocabulary entry id.
 	BroaderURLTemplate string `json:"broader_url_template,omitempty"`
+	// SourceName is the display name of the list's source vocabulary (e.g.
+	// "Art & Architecture Thesaurus"), so the UI can label "Add from {name}".
+	SourceName string `json:"source_name,omitempty"`
+	// HasRemoteSource is true when the source vocabulary is a remote authority
+	// (aat/sparql/csv) rather than local/none. When false the add UI goes
+	// straight to local term creation instead of a source search (#3599).
+	HasRemoteSource bool `json:"has_remote_source,omitempty"`
 }
 
 type ReleaseView struct {

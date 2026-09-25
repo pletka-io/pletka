@@ -1274,6 +1274,8 @@ func (h *Handler) buildConceptList(ctx context.Context, projectID, conceptListID
 
 	vocabularyID := ""
 	vocabularyLabel := ""
+	sourceName := ""
+	hasRemoteSource := false
 	var sourceVocabulary *pkgdomain.VocabularyRef
 	if list.VocabularyID != nil && *list.VocabularyID != "" {
 		vocabularyID = *list.VocabularyID
@@ -1285,6 +1287,12 @@ func (h *Handler) buildConceptList(ctx context.Context, projectID, conceptListID
 			vocabularyLabel = vocab.UIName.Get("en", vocab.SystemName)
 			if vocabularyLabel == "" {
 				vocabularyLabel = vocab.ID
+			}
+			sourceName = vocabularyLabel
+			// Remote authority (vs local/none): the add UI names it and
+			// searches it; otherwise it goes straight to local term creation.
+			if ct := vocab.ConnectorType; ct != "" && ct != "local" {
+				hasRemoteSource = true
 			}
 			sourceVocabulary = &pkgdomain.VocabularyRef{
 				ID:         vocab.ID,
@@ -1385,6 +1393,8 @@ func (h *Handler) buildConceptList(ctx context.Context, projectID, conceptListID
 				CreateTermURL:      capabilityURL(canEdit, fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/terms", projectID, list.ID)),
 				SealURL:            capabilityURL(canEdit, fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/sealed", projectID, list.ID)),
 				BroaderURLTemplate: capabilityURL(canEdit, fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/terms/{conceptID}/broader", projectID, list.ID)),
+				SourceName:         sourceName,
+				HasRemoteSource:    hasRemoteSource,
 			},
 		},
 		ViewMode: ViewModeDetailed,
