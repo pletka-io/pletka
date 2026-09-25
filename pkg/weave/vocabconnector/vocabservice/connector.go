@@ -49,13 +49,6 @@ type Config struct {
 	Lang    string `json:"lang,omitempty"`
 	// Timeout bounds a single call; <= 0 falls back to defaultTimeout.
 	Timeout time.Duration `json:"timeout,omitempty"`
-
-	// logger receives warnings raised while configuring a vocabulary — such
-	// as the service reporting an unexpected discovery contract version.
-	// Unexported so it never round-trips through the stored JSON config; New
-	// defaults it to slog.Default() the way vocabulary.Service does for its
-	// own logger field, so no call site changes.
-	logger *slog.Logger
 }
 
 // Connector speaks the vocabulary-service contract for one configured
@@ -63,6 +56,13 @@ type Config struct {
 type Connector struct {
 	cfg    Config
 	client *http.Client
+
+	// logger receives warnings raised while configuring a vocabulary — such
+	// as the service reporting an unexpected discovery contract version. New
+	// defaults it to slog.Default() the way vocabulary.Service's own logger
+	// field is defaulted on its runtime struct (Service, not a config type),
+	// so no call site changes.
+	logger *slog.Logger
 }
 
 var _ vocabconnector.Connector = (*Connector)(nil)
@@ -75,13 +75,10 @@ func New(cfg Config, client *http.Client) *Connector {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = defaultTimeout
 	}
-	if cfg.logger == nil {
-		cfg.logger = slog.Default()
-	}
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &Connector{cfg: cfg, client: client}
+	return &Connector{cfg: cfg, client: client, logger: slog.Default()}
 }
 
 // suggestHit is a suggest result: an item plus the fields that explain why it
@@ -214,7 +211,7 @@ func (c *Connector) Vocabularies(ctx context.Context) (VocabularyListing, error)
 		return VocabularyListing{}, fmt.Errorf("list vocabularies: %w", err)
 	}
 	if listing.Version != expectedListingVersion {
-		c.cfg.logger.Warn("vocabulary service reported an unexpected discovery contract version",
+		c.logger.Warn("vocabulary service reported an unexpected discovery contract version",
 			"base_url", c.cfg.BaseURL, "got_version", listing.Version, "want_version", expectedListingVersion)
 	}
 	return listing, nil

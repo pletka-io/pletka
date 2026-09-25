@@ -585,8 +585,8 @@ func TestVocabulariesWarnsOnAnUnexpectedVersion(t *testing.T) {
 		defer srv.Close()
 
 		var buf bytes.Buffer
-		logger := slog.New(slog.NewTextHandler(&buf, nil))
-		c := New(Config{BaseURL: srv.URL, logger: logger}, srv.Client())
+		c := New(Config{BaseURL: srv.URL}, srv.Client())
+		c.logger = slog.New(slog.NewTextHandler(&buf, nil))
 		got, err := c.Vocabularies(context.Background())
 		if err != nil {
 			t.Fatalf("Vocabularies: %v", err)
@@ -606,8 +606,8 @@ func TestVocabulariesWarnsOnAnUnexpectedVersion(t *testing.T) {
 		defer srv.Close()
 
 		var buf bytes.Buffer
-		logger := slog.New(slog.NewTextHandler(&buf, nil))
-		c := New(Config{BaseURL: srv.URL, logger: logger}, srv.Client())
+		c := New(Config{BaseURL: srv.URL}, srv.Client())
+		c.logger = slog.New(slog.NewTextHandler(&buf, nil))
 		if _, err := c.Vocabularies(context.Background()); err != nil {
 			t.Fatalf("Vocabularies: %v", err)
 		}
