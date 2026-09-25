@@ -86,12 +86,17 @@ Core reads:
   wrong or upgraded service is something an operator can be warned about
   rather than something that should ever break a configuration screen.
 - `name`, `label`, `concepts`, `languages` per vocabulary — mapped onto
-  `VocabularyInfo`. `label` and `concepts` are optional on the core side
-  (`omitempty`); an implementer may omit either. `languages` is which
-  languages have their own suggest index on that mount (most mounts serve
-  exactly one) — a configuration screen needs it to tell an operator that a
-  Dutch project pointed at an English-only mount will only ever answer in
-  English.
+  `VocabularyInfo`. At decode, every one of these fields is equally
+  optional — an absent key just leaves the Go zero value, `name` and
+  `languages` included, no differently from `label` and `concepts`.
+  `label` and `concepts` do carry `omitempty` in the Go struct, but that
+  tag only affects *marshaling* `VocabularyInfo` back out (were core to
+  serialize it into its own response somewhere); it has no bearing on
+  decoding the service's listing, where `encoding/json` never errors on a
+  missing key regardless of any tag. `languages` is which languages have
+  their own suggest index on that mount (most mounts serve exactly one) —
+  a configuration screen needs it to tell an operator that a Dutch project
+  pointed at an English-only mount will only ever answer in English.
 
 Every other field the service may send on this endpoint (`profile`, `dump`,
 `scheme`, `kinds`, `obsolete`, `languages_skipped`, `roots`, `built`,
@@ -107,7 +112,7 @@ Autocomplete. Core sends:
 |---|---|---|
 | `q` | yes | the search term, trimmed; a blank query is never sent — core returns an empty result locally instead |
 | `lang` | yes | resolved as: the caller's requested language, then the row's configured `lang`, then `"en"` |
-| `limit` | yes | the caller's requested limit, clamped to `1..100` server-side by core (default `50`) before sending |
+| `limit` | yes | the caller's requested limit; core clamps it itself, client-side, before the request ever leaves: a non-positive value becomes the default `50`, and anything over `100` is capped to `100` |
 | `under` | only when narrowing to a parent | the parent concept's identifier (last path segment of its URI), when the caller scopes the search under a broader concept |
 
 Response — one **item** per hit (see **The one item shape** below), plus the
@@ -231,10 +236,11 @@ Core reads:
   has. Core narrows this down to the same at-most-two-keys shape `suggest`
   already sends (the resolved `lang`, plus `en` when different and present)
   **before storing it** — see **Why the narrowing** below.
-- `scopeNote` — a language-keyed object, `{lang: sentence}`. Narrowed by the
-  exact same rule as `prefLabel` (display language plus English), for the
-  same reason. **This is new in this branch: v1 read no `scopeNote` at
-  all.**
+- `scopeNote` — a language-keyed object, `{lang: sentence}`. **This is new
+  in this branch: v1 read no `scopeNote` at all.** It is narrowed to one
+  entry, like `prefLabel`, but not by `prefLabel`'s rule — see **Why the
+  narrowing** below for why an exact-key lookup is wrong here and what the
+  fallback chain is instead.
 - `altLabel` — **decoded off the wire, and not mapped anywhere.** `Entry`
   has no field for it; inventing one is out of scope for this work.
 - `narrower`, `matches`, `broaderOther` — **not represented in the decode
@@ -245,8 +251,8 @@ Core reads:
   /vocab/{name}/children/{id}`; core calls neither that endpoint nor reads a
   `children` key were one present on `concept`.)
 
-A `prefLabel` that decodes to neither a language-keyed object (the only
-shape v2 ever sends) is a real decode error on `Fetch` — for example a JSON
+A `prefLabel` that does not decode as a language-keyed object — the only
+shape v2 ever sends — is a real decode error on `Fetch`, for example a JSON
 number where an object was expected.
 
 #### Ancestor languages
@@ -288,10 +294,32 @@ more data than the same field carries everywhere else `Entry.Label` is
 populated (a suggest hit, an ancestor item — both already narrowed to at
 most two keys by the service itself). That breaks row-shape consistency for
 no benefit core currently has a use for, so `Fetch` narrows
-`concept/{id}`'s `prefLabel` (and, by the same reasoning, its `scopeNote`)
-down to the resolved display language plus English, using the identical
-rule `suggest` already applies — one rule, not two invented separately for
-the same shape of problem.
+`concept/{id}`'s `prefLabel` down to the resolved display language plus
+English, exactly as `suggest` already does. That rule is an exact lookup
+(`labelFor` in `item.go`) because the contract specifically guarantees
+`lang` names a key of `prefLabel` — a miss there would mean the service
+broke its own promise, not that a fallback is owed.
+
+`scopeNote` is narrowed the same way in spirit — never store every language
+a concept has — but **not by the same rule, and this was gotten wrong once
+already in an earlier round of this branch.** The contract's guarantee that
+`lang` names a key is specific to `prefLabel`; it makes no such promise
+about `scopeNote`. Reusing `prefLabel`'s exact-key lookup for `scopeNote`
+silently dropped the note whenever the display language had none of its
+own — measured against the live service, seven of AAT 300010957's fourteen
+`prefLabel` languages have no `scopeNote` at all — and the effect on
+`Fetch` was worse than a merely absent field: the stored `Entry` reaches an
+upsert (`pkg/database/queries/weave_vocabulary.sql`) with no guard against
+replacing an existing scope note with nothing, so resolving the same
+concept in one of those languages silently erased a scope note the row
+already had. `scopeNote` therefore gets its own fallback chain
+(`scopeNoteFor` in `item.go`): the display language if `scopeNote` has it,
+else English, else whatever `und` (untagged) value the concept has — the
+contract calls `scopeNote` out as the one predicate whose values can still
+arrive with no language tag at all, so skipping that fallback would drop an
+untagged note exactly the way the bug dropped a tagged one — else nothing.
+The result is always narrowed to the one language actually resolved, never
+the whole map.
 
 ## The one item shape
 
@@ -340,16 +368,31 @@ response, so the connector stores whatever the service sends, unchanged.
 | Non-2xx status | empty result, `ErrDegraded` | error |
 | Transport failure (connection refused, etc.) | empty result, `ErrDegraded` | error |
 | Body that will not decode as JSON | empty result, `ErrDegraded` — **no error surfaces to the caller** | error |
-| Row has no `vocab` configured | empty result, `ErrDegraded` (wrapping `errNoVocab`) | error naming the missing vocabulary, not `ErrDegraded` |
+| Row has no `vocab` configured | empty result, `ErrDegraded` (wrapping `errNoVocab`) | error saying the row has no vocabulary configured, not `ErrDegraded` |
+
+`errNoVocab`'s text is "no vocabulary configured for this row" — it names
+the *problem*, not a vocabulary, because there isn't one to name: the row's
+`vocab` is empty in the first place, which is exactly what triggers this
+path.
 
 `Search` has exactly one failure mode from the caller's point of view: it
 wraps everything the HTTP round trip can produce — transport error, non-2xx
 status, and an undecodable body alike — as `ErrDegraded`, with zero entries
-and no other signal. **An undecodable `suggest` body is not an error the
-picker ever sees** — it is indistinguishable, to the caller, from a timeout
-or a genuine no-match; only `Fetch` ever returns a decode failure as an
-error. (A previous version of this document said suggest's decode failure
-surfaced as "error" — that was wrong. `Search`'s wrapping is unconditional.)
+and no other signal. **An undecodable `suggest` body does not surface as an
+error** — only `Fetch` ever returns a decode failure as an error — but that
+does not make it invisible: `ErrDegraded` exists precisely so a degraded
+search can be told apart from a genuine no-match, and `Search`'s wrapping
+of a decode failure into it is exactly as deliberate as its wrapping of a
+timeout or a non-2xx status. One layer up,
+`pkg/weave/vocabulary`'s `classifyConnectorErr` turns any `ErrDegraded`
+into a `degraded` flag, and the picker's response carries `"degraded":
+true` — so a caller that cares can tell "the service could not be reached
+or its answer could not be read" apart from "nothing matched," even though
+neither ever reaches the picker as a Go `error` to handle. (A previous
+version of this document said suggest's decode failure surfaced as "error"
+— that was wrong, `Search`'s wrapping is unconditional; a later revision
+overcorrected into calling the result indistinguishable from a no-match,
+which contradicts the reason `ErrDegraded` exists at all.)
 
 Only `Fetch` surfaces any of this as an error a caller has to handle —
 because `Fetch` is an explicit lookup (resolving a stored value), not a
@@ -369,7 +412,7 @@ produces an error naming the HTTP status; it is never treated as success.
 |---|---|---|---|
 | `unknown_vocabulary` | 404 | **permanent** (`ErrMisconfigured`) | the row names a vocabulary this service does not mount at all; retrying changes nothing until the row's config changes |
 | `bad_lang` | 400 | **permanent** (`ErrMisconfigured`) | the row's configured language tag cannot name an index directory at all (malformed, not merely unindexed) — under v2 an unindexed-but-well-formed tag is answered from a fallback, so `bad_lang` narrowed to mean only "this tag is not usable at all," which is as permanent a fault as an unknown vocabulary |
-| every other token (`missing_q`, `bad_kind`, `bad_offset`, `bad_limit`, `unknown_concept`, `obsolete`, `vocab_unavailable`, and any token this connector does not name explicitly) | varies | **transient** | the mount exists and the row's configuration is not inherently wrong; the failure is the service's problem right now (a bad request the connector should never actually send, an id that moved, a mount that could not be read) and may clear on its own or on retry |
+| every other token (`missing_q`, `bad_kind`, `bad_offset`, `bad_limit`, `unknown_concept`, `obsolete`, `vocab_unavailable`, and any token this connector does not name explicitly) | varies | **transient** | none of these mean the *row's configuration* is wrong, which is the only thing `ErrMisconfigured` claims — so none of them get it, even though not all of them will actually resolve themselves. `vocab_unavailable` genuinely can clear on its own (the mount becomes readable again) or on retry. `unknown_concept` and `obsolete` will not: a stored URI that stops resolving, or gets retired, stays that way no matter how many times it is retried — but that is a fact about the *concept id*, not about the row's own `vocab`/`lang` configuration, which is the only thing this classification speaks to |
 
 The permanent/transient split exists because `Search` and `Fetch` need to
 tell an operator two different kinds of "this failed": a row that is
@@ -384,10 +427,11 @@ misconfigured row exactly as it does for an outage, but a throttled server
 log can say which one it actually was.
 
 `ServiceError.Status` is always set from the HTTP transport
-(`resp.StatusCode`), never trusted from the response body, even though the
-body has no `json:"-"` protection against a same-named key — a defensive
-choice against a future token, or a misbehaving proxy, that happens to send
-its own `"status"` field.
+(`resp.StatusCode`), never from the response body: the field is tagged
+`json:"-"`, so a body that happens to send its own `"status"` key — no
+documented token's does today — cannot overwrite it during decode. That tag
+is a defensive choice against a future token, or a misbehaving proxy, doing
+exactly that.
 
 ## URI resolution
 
