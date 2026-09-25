@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
@@ -54,6 +55,11 @@ func (c *Connector) Search(ctx context.Context, query string, opts vocabconnecto
 	}
 	entries, err := c.query(ctx, searchQuery(query, opts.Lang, opts.Limit, opts.ParentURI), opts.Lang)
 	if err != nil {
+		// Degrade to empty, but leave a breadcrumb: a persistently empty AAT
+		// search is usually the remote authority being unreachable (e.g. Getty
+		// 403-ing a datacenter IP), not a genuine no-match — this is the only
+		// signal ops gets that AAT is down (#3599).
+		slog.WarnContext(ctx, "AAT search degraded to empty results", "endpoint", c.cfg.EndpointURL, "err", err)
 		//nolint:nilerr // deliberate: a failed/slow remote authority yields no suggestions, never an error (#3599)
 		return nil, nil
 	}
