@@ -3,10 +3,12 @@ package vocabservice
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +25,11 @@ const (
 	defaultLimit = 50
 	maxLimit     = 100
 )
+
+// errNoVocab means a row has no vocabulary name configured: it is the row
+// that is broken, not the service, and Search/Fetch say so rather than
+// calling the service and reporting an outage that isn't happening.
+var errNoVocab = errors.New("vocabulary service: no vocabulary configured for this row")
 
 // Config is the per-vocabulary configuration stored in weave_vocabularies.config.
 // BaseURL is filled in by the registry from the instance config, never from the
@@ -62,7 +69,9 @@ func New(cfg Config, client *http.Client) *Connector {
 // (one hit, already resolved to one language) but a language-keyed object on
 // the /concept response (the whole concept, every language it has). prefLabel
 // and parentString both take this shape; broader does not, so it stays a
-// plain *string below.
+// plain *string below. A value that is neither shape (not a JSON string, not
+// a JSON object) is left to the underlying json.Unmarshal error, which
+// propagates out of decode as a real error rather than an empty entry.
 type hitText struct {
 	text   string
 	byLang map[string]string
@@ -114,6 +123,9 @@ func (c *Connector) Search(ctx context.Context, query string, opts vocabconnecto
 	if query == "" {
 		return nil, nil
 	}
+	if c.cfg.Vocab == "" {
+		return nil, fmt.Errorf("search %q: %w: %w", query, vocabconnector.ErrDegraded, errNoVocab)
+	}
 	lang := firstNonEmpty(opts.Lang, c.cfg.Lang, "en")
 	limit := opts.Limit
 	switch {
@@ -148,13 +160,18 @@ func (c *Connector) Fetch(ctx context.Context, uri string, opts vocabconnector.S
 	if id == "" {
 		return nil, fmt.Errorf("fetch %q: no concept id in uri", uri)
 	}
+	if c.cfg.Vocab == "" {
+		return nil, fmt.Errorf("fetch %q: %w", uri, errNoVocab)
+	}
 	lang := firstNonEmpty(opts.Lang, c.cfg.Lang, "en")
-	params := url.Values{}
-	params.Set("lang", lang)
 
+	// concept/{id} is not documented to take lang (only suggest and children
+	// are): it returns every language the concept has, and the client picks
+	// one from that. Sending an undocumented parameter is a request a future
+	// implementation may reject.
 	var hit suggestHit
 	endpoint := "/vocab/" + url.PathEscape(c.cfg.Vocab) + "/concept/" + url.PathEscape(id)
-	if err := c.get(ctx, endpoint, params, &hit); err != nil {
+	if err := c.get(ctx, endpoint, nil, &hit); err != nil {
 		return nil, fmt.Errorf("fetch %q: %w", uri, err)
 	}
 	entry := hitToEntry(hit, lang)
@@ -203,22 +220,41 @@ func (c *Connector) get(ctx context.Context, endpoint string, params url.Values,
 	return nil
 }
 
+// hitToEntry maps one decoded hit/concept to an Entry. lang is the language
+// already resolved for this call (opts.Lang, then the row's configured
+// language, then "en").
 func hitToEntry(hit suggestHit, lang string) vocabconnector.Entry {
 	entry := vocabconnector.Entry{
 		URI:        NormalizeURI(hit.URI),
 		ExternalID: hit.ID,
 	}
-	// prefLabel is one string in the requested language on /suggest, but a
-	// full language map on /concept: carry every language we were given
-	// there rather than pick one arbitrarily.
+	// hitLang is the language the label ended up in, and it is what the
+	// ancestor chain below is read in too: label and chain must agree on one
+	// language, or the picker shows an ancestor path in a language its own
+	// label was never resolved to.
 	hitLang := lang
-	if hit.PrefLabel.byLang != nil {
-		labels := make(domain.Translations, len(hit.PrefLabel.byLang))
-		for l, v := range hit.PrefLabel.byLang {
-			labels[l] = v
+	switch {
+	case hit.PrefLabel.byLang != nil:
+		// /concept: prefLabel is a language map covering everything the
+		// concept has. Resolve one language — requested, then English, then
+		// whichever the concept actually has, chosen deterministically — and
+		// store only that language plus English (when it differs). Storing
+		// the whole map would put the concept's entire language set (up to
+		// ~200 for TGN) in a row every other path stores one language in.
+		if value, resolvedLang, ok := resolveByLang(hit.PrefLabel.byLang, lang); ok {
+			hitLang = resolvedLang
+			labels := domain.Translations{resolvedLang: value}
+			if !strings.EqualFold(resolvedLang, "en") {
+				if enValue, enKey, found := lookupLang(hit.PrefLabel.byLang, "en"); found {
+					labels[enKey] = enValue
+				}
+			}
+			entry.Label = labels
 		}
-		entry.Label = labels
-	} else {
+	case hit.PrefLabel.text != "":
+		// /suggest: prefLabel is one string, already resolved by the service
+		// to hit.Lang. A hit with no label at all (the contract allows it)
+		// leaves entry.Label unset rather than {"<lang>": ""}.
 		hitLang = firstNonEmpty(hit.Lang, lang)
 		entry.Label = domain.Translations{hitLang: hit.PrefLabel.text}
 	}
@@ -226,9 +262,11 @@ func hitToEntry(hit suggestHit, lang string) vocabconnector.Entry {
 		entry.BroaderURI = NormalizeURI(*hit.Broader)
 	}
 	if hit.ParentString != nil {
-		chain := hit.ParentString.text
+		var chain string
 		if hit.ParentString.byLang != nil {
-			chain = hit.ParentString.byLang[hitLang]
+			chain, _, _ = lookupLang(hit.ParentString.byLang, hitLang)
+		} else {
+			chain = hit.ParentString.text
 		}
 		if chain != "" {
 			entry.BroaderPath = SplitParentString(chain)
@@ -242,6 +280,49 @@ func hitToEntry(hit suggestHit, lang string) vocabconnector.Entry {
 		}
 	}
 	return entry
+}
+
+// lookupLang finds byLang's value for lang, matched case-insensitively: the
+// service itself matches lang case-insensitively and echoes back its own
+// spelling, so an exact map lookup on the caller's spelling can miss an entry
+// that is really there.
+func lookupLang(byLang map[string]string, lang string) (value, key string, ok bool) {
+	if v, exists := byLang[lang]; exists {
+		return v, lang, true
+	}
+	for k, v := range byLang {
+		if strings.EqualFold(k, lang) {
+			return v, k, true
+		}
+	}
+	return "", "", false
+}
+
+// resolveByLang picks which language a language-keyed field is read in:
+// requested language first, then English, then whichever language the
+// response actually has. That last case is resolved deterministically (the
+// lexicographically smallest key), not by map iteration order, so the same
+// response always resolves to the same language. ok is false only when
+// byLang holds nothing at all (the concept has no values for that predicate
+// in any language).
+func resolveByLang(byLang map[string]string, lang string) (value, resolvedLang string, ok bool) {
+	if v, k, found := lookupLang(byLang, lang); found {
+		return v, k, true
+	}
+	if !strings.EqualFold(lang, "en") {
+		if v, k, found := lookupLang(byLang, "en"); found {
+			return v, k, true
+		}
+	}
+	if len(byLang) == 0 {
+		return "", "", false
+	}
+	keys := make([]string, 0, len(byLang))
+	for k := range byLang {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return byLang[keys[0]], keys[0], true
 }
 
 // conceptID takes the last path segment of a concept URI, which is the

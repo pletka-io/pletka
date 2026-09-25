@@ -11,6 +11,10 @@ func TestNormalizeURIUpgradesGettyToHTTPS(t *testing.T) {
 		{"http://vocab.getty.edu/aat/300010957", "https://vocab.getty.edu/aat/300010957"},
 		{"https://vocab.getty.edu/aat/300010957", "https://vocab.getty.edu/aat/300010957"},
 		{"http://vocab.getty.edu/page/aat/300010957", "https://vocab.getty.edu/aat/300010957"},
+		// Generic across vocabularies: the host marks a Getty URI, not "aat"
+		// in the path, so tgn and ulan normalize the same way.
+		{"http://vocab.getty.edu/tgn/7006952", "https://vocab.getty.edu/tgn/7006952"},
+		{"http://vocab.getty.edu/page/ulan/500011051", "https://vocab.getty.edu/ulan/500011051"},
 		{"http://example.com/aat/300010957", "http://example.com/aat/300010957"},
 		{"  ", ""},
 		{"not a url", "not a url"},

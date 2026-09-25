@@ -12,7 +12,10 @@ import (
 )
 
 // NormalizeURI stores Getty concepts under a canonical https identifier and
-// rewrites the human "page" form to the data form.
+// rewrites the human "page" form to the data form, for any Getty vocabulary
+// (aat, tgn, ulan, or a future one) rather than aat alone: the host is what
+// marks a Getty URI, not the vocabulary name in its path, so a vocabulary this
+// connector has never heard of still normalizes correctly.
 //
 // Copied deliberately from pkg/weave/vocabconnector/aat/uri.go rather than
 // shared: this package exists so external vocabularies can move off the aat
@@ -29,12 +32,9 @@ func NormalizeURI(value string) string {
 	if !strings.EqualFold(parsed.Host, "vocab.getty.edu") {
 		return parsed.String()
 	}
-	switch {
-	case strings.HasPrefix(parsed.Path, "/page/aat/"):
-		parsed.Scheme = "https"
-		parsed.Path = "/aat/" + strings.TrimPrefix(parsed.Path, "/page/aat/")
-	case strings.HasPrefix(parsed.Path, "/aat/"):
-		parsed.Scheme = "https"
+	parsed.Scheme = "https"
+	if strings.HasPrefix(parsed.Path, "/page/") {
+		parsed.Path = strings.TrimPrefix(parsed.Path, "/page")
 	}
 	return parsed.String()
 }
