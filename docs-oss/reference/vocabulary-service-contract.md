@@ -237,10 +237,11 @@ Core reads:
   already sends (the resolved `lang`, plus `en` when different and present)
   **before storing it** — see **Why the narrowing** below.
 - `scopeNote` — a language-keyed object, `{lang: sentence}`. **This is new
-  in this branch: v1 read no `scopeNote` at all.** It is narrowed to one
-  entry, like `prefLabel`, but not by `prefLabel`'s rule — see **Why the
-  narrowing** below for why an exact-key lookup is wrong here and what the
-  fallback chain is instead.
+  in this branch: v1 read no `scopeNote` at all.** Narrowed like `prefLabel`
+  — display language plus English, at most two keys — when the display
+  language has a note of its own; unlike `prefLabel`, it also has a
+  fallback chain for when it does not. See **Why the narrowing** below for
+  both halves and why they differ.
 - `altLabel` — **decoded off the wire, and not mapped anywhere.** `Entry`
   has no field for it; inventing one is out of scope for this work.
 - `narrower`, `matches`, `broaderOther` — **not represented in the decode
@@ -300,11 +301,23 @@ English, exactly as `suggest` already does. That rule is an exact lookup
 `lang` names a key of `prefLabel` — a miss there would mean the service
 broke its own promise, not that a fallback is owed.
 
-`scopeNote` is narrowed the same way in spirit — never store every language
-a concept has — but **not by the same rule, and this was gotten wrong once
-already in an earlier round of this branch.** The contract's guarantee that
-`lang` names a key is specific to `prefLabel`; it makes no such promise
-about `scopeNote`. Reusing `prefLabel`'s exact-key lookup for `scopeNote`
+`scopeNote` is narrowed with the same at-most-two-keys shape when the
+display language has a note of its own: the display language plus English,
+present and different, exactly as `prefLabel`'s pairing works and for the
+identical reason — the frontend's `tr()` resolves a stored language map as
+requested language, then English, then whatever is left, so a note stored
+in only the display language falls through to an arbitrary remaining key
+for a curator whose next-best language is English, where the pairing lands
+them on English instead. (Arguably this matters *more* for a scope note
+than a label: a curator can often still recognize a label in an unfamiliar
+language, but a whole paragraph either reads or it does not.)
+
+Where `scopeNote` differs from `prefLabel` is what happens on a miss — and
+this difference **was gotten wrong once already in an earlier round of
+this branch**, by reusing `prefLabel`'s rule (an exact lookup with no
+fallback at all) for `scopeNote` too. That rule is correct for `prefLabel`
+because the contract guarantees `lang` names one of its keys; it makes no
+such promise about `scopeNote`, so treating a miss there as impossible
 silently dropped the note whenever the display language had none of its
 own — measured against the live service, seven of AAT 300010957's fourteen
 `prefLabel` languages have no `scopeNote` at all — and the effect on
@@ -313,13 +326,14 @@ upsert (`pkg/database/queries/weave_vocabulary.sql`) with no guard against
 replacing an existing scope note with nothing, so resolving the same
 concept in one of those languages silently erased a scope note the row
 already had. `scopeNote` therefore gets its own fallback chain
-(`scopeNoteFor` in `item.go`): the display language if `scopeNote` has it,
-else English, else whatever `und` (untagged) value the concept has — the
-contract calls `scopeNote` out as the one predicate whose values can still
-arrive with no language tag at all, so skipping that fallback would drop an
-untagged note exactly the way the bug dropped a tagged one — else nothing.
-The result is always narrowed to the one language actually resolved, never
-the whole map.
+(`scopeNoteFor` in `item.go`) for exactly the miss case: when the display
+language has no note, fall back to English alone, then whatever `und`
+(untagged) value the concept has — the contract calls `scopeNote` out as
+the one predicate whose values can still arrive with no language tag at
+all, so skipping that fallback would drop an untagged note exactly the way
+the bug dropped a tagged one — then nothing. The hit case and the miss case
+are both always narrowed: at most the display language plus English on a
+hit, at most one key on a fallback, never the whole map.
 
 ## The one item shape
 
