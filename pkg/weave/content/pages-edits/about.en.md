@@ -32,7 +32,7 @@ Who Are We
 - **Designed and Managed by:** [Takin.solutions](https://takin.solutions)
 - **Hosted and Powered by:** [Delving](https://delving.io)
 - **Inspired and Driven by:** our Community
-- **Built on:** the Pletka™ open-source software package
+- **Built on:** the Pletka® open-source software package
 
 <!--key:pages.about.method_title-->
 The Pletka Method
