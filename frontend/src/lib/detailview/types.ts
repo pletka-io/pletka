@@ -128,6 +128,8 @@ export interface ConceptListCap {
   source_name?: string;
   /** True when a remote authority (aat/sparql/csv) backs the list; false → local-direct add. */
   has_remote_source?: boolean;
+  /** Download the list as a SKOS concept scheme (Turtle). */
+  skos_url?: string;
 }
 
 /** One relationship's usages: same-project models/collections plus

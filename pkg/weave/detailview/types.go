@@ -133,6 +133,9 @@ type ConceptListCap struct {
 	// (aat/sparql/csv) rather than local/none. When false the add UI goes
 	// straight to local term creation instead of a source search (#3599).
 	HasRemoteSource bool `json:"has_remote_source,omitempty"`
+	// SkosURL downloads the list as a SKOS concept scheme (Turtle). Read-only,
+	// available to any viewer of the list (#3599).
+	SkosURL string `json:"skos_url,omitempty"`
 }
 
 type ReleaseView struct {

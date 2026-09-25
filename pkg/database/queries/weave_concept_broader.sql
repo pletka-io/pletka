@@ -20,6 +20,12 @@ FROM weave_concept_broader
 WHERE broader_id = $1
 ORDER BY position, id;
 
+-- name: WeaveListConceptBroaderByScheme :many
+SELECT id, concept_id, broader_id, scheme_id, position
+FROM weave_concept_broader
+WHERE scheme_id = $1
+ORDER BY concept_id, position, id;
+
 -- name: WeaveConceptListEntryExists :one
 SELECT EXISTS(
     SELECT 1 FROM weave_concept_list_entries

@@ -1,8 +1,10 @@
 package vocabulary
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -762,4 +764,26 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+// ExportConceptListSKOS streams a concept list as SKOS Turtle (#3599). The
+// route is project-scoped; the caller must be able to read the project. The
+// document is rendered into a buffer first so a mid-render error still returns
+// a clean error response rather than a truncated body.
+func (h *Handler) ExportConceptListSKOS(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+	listID := chi.URLParam(r, "listID")
+	if !h.canReadProject(r.Context(), projectID) {
+		apierror.Write(w, apierror.NotFound("concept list not found"))
+		return
+	}
+	var buf bytes.Buffer
+	if err := h.svc.RenderConceptListSKOS(r.Context(), projectID, listID, &buf); err != nil {
+		h.writeServiceError(w, "render concept list SKOS failed", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/turtle; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", listID+".ttl"))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(buf.Bytes())
 }

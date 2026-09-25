@@ -26,6 +26,7 @@
   const reorderURL = $derived(caps?.reorder_url ?? '');
   const createTermURL = $derived(caps?.create_term_url ?? '');
   const sealURL = $derived(caps?.seal_url ?? '');
+  const skosURL = $derived(caps?.skos_url ?? '');
   const broaderTemplate = $derived(caps?.broader_url_template ?? '');
   const selectedEntryKeys = $derived(new Set(entries.flatMap((entry) => [entry.vocabulary_entry_id, entry.uri].filter(Boolean))));
 
@@ -410,23 +411,35 @@
           Curated concepts pinned into this controlled list. These are the values examples and future content forms can offer as dropdown choices.
         </p>
       </div>
-      {#if sealURL}
-        <button
-          type="button"
-          class="shrink-0 rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-60"
-          disabled={sealing}
-          onclick={toggleSealed}
-          title={isClosed ? 'Reopen this list to allow adding terms' : 'Seal this list: its membership is complete and locked'}
-        >
-          {#if sealing}
-            Working...
-          {:else if isClosed}
-            Reopen list
-          {:else}
-            Mark complete (seal)
-          {/if}
-        </button>
-      {/if}
+      <div class="flex shrink-0 items-center gap-2">
+        {#if skosURL}
+          <a
+            href={skosURL}
+            class="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+            title="Download this list as a SKOS concept scheme (Turtle)"
+            download
+          >
+            SKOS
+          </a>
+        {/if}
+        {#if sealURL}
+          <button
+            type="button"
+            class="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-60"
+            disabled={sealing}
+            onclick={toggleSealed}
+            title={isClosed ? 'Reopen this list to allow adding terms' : 'Seal this list: its membership is complete and locked'}
+          >
+            {#if sealing}
+              Working...
+            {:else if isClosed}
+              Reopen list
+            {:else}
+              Mark complete (seal)
+            {/if}
+          </button>
+        {/if}
+      </div>
     </div>
 
     {#if !isClosed && hasRemoteSource}

@@ -53,6 +53,47 @@ func (q *Queries) WeaveConceptListEntryExists(ctx context.Context, arg WeaveConc
 	return present, err
 }
 
+const weaveListConceptBroaderByScheme = `-- name: WeaveListConceptBroaderByScheme :many
+SELECT id, concept_id, broader_id, scheme_id, position
+FROM weave_concept_broader
+WHERE scheme_id = $1
+ORDER BY concept_id, position, id
+`
+
+type WeaveListConceptBroaderBySchemeRow struct {
+	ID        string  `json:"id"`
+	ConceptID string  `json:"concept_id"`
+	BroaderID string  `json:"broader_id"`
+	SchemeID  *string `json:"scheme_id"`
+	Position  int32   `json:"position"`
+}
+
+func (q *Queries) WeaveListConceptBroaderByScheme(ctx context.Context, schemeID *string) ([]WeaveListConceptBroaderBySchemeRow, error) {
+	rows, err := q.db.Query(ctx, weaveListConceptBroaderByScheme, schemeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveListConceptBroaderBySchemeRow{}
+	for rows.Next() {
+		var i WeaveListConceptBroaderBySchemeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConceptID,
+			&i.BroaderID,
+			&i.SchemeID,
+			&i.Position,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveListConceptBroaderInScheme = `-- name: WeaveListConceptBroaderInScheme :many
 SELECT id, concept_id, broader_id, scheme_id, position
 FROM weave_concept_broader

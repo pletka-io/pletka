@@ -52,6 +52,7 @@ func Mount(parent chi.Router, host Host) {
 	parent.With(auth.RequireProjectEdit(host.Projects)).Post("/api/v2/projects/{projectID}/concept-lists", h.CreateProjectConceptList)
 	parent.With(auth.RequireProjectRead(host.Projects)).Get("/api/v2/projects/{projectID}/concept-lists/filters/vocabularies", h.ConceptListVocabularyFilterOptions)
 	parent.With(auth.RequireProjectRead(host.Projects)).Get("/api/v2/projects/{projectID}/concept-lists/{listID}", h.GetProjectConceptList)
+	parent.With(auth.RequireProjectRead(host.Projects)).Get("/api/v2/projects/{projectID}/concept-lists/{listID}/skos", h.ExportConceptListSKOS)
 	parent.With(auth.RequireProjectEdit(host.Projects)).Get("/api/v2/projects/{projectID}/concept-lists/{listID}/form-schema", h.ConceptListEditFormSchema)
 	parent.With(auth.RequireProjectEdit(host.Projects)).Put("/api/v2/projects/{projectID}/concept-lists/{listID}", h.UpdateProjectConceptList)
 	parent.With(auth.RequireProjectEdit(host.Projects)).Delete("/api/v2/projects/{projectID}/concept-lists/{listID}", h.DeleteProjectConceptList)
