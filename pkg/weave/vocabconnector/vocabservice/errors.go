@@ -47,7 +47,12 @@ var ErrMisconfigured = errors.New("vocabulary service: configuration does not ma
 // unknown_vocabulary sends. Switch on Token; Message is prose for a log and
 // may be reworded between releases without notice.
 type ServiceError struct {
-	Status  int
+	// Status is set from the transport (resp.StatusCode), never from the
+	// body: it is tagged json:"-" so a body that happens to carry its own
+	// "status" key (no documented token's does today) cannot overwrite the
+	// one fact here that is authoritative because it did NOT come from the
+	// peer.
+	Status  int    `json:"-"`
 	Token   string `json:"error"`
 	Message string `json:"message"`
 	Vocab   string `json:"vocab,omitempty"`

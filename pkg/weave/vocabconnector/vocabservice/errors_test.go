@@ -43,6 +43,36 @@ func TestServiceErrorCarriesItsToken(t *testing.T) {
 	}
 }
 
+// TestServiceErrorStatusIsFromTransportNotBody pins the fix-round-1 bug: a
+// body that happens to carry its own "status" key must not overwrite
+// ServiceError.Status, which is authoritative precisely because it comes
+// from resp.StatusCode, not from the peer. No documented v2 token's body
+// carries a "status" key today, but Status has no json tag protecting it,
+// and encoding/json matches an untagged exported field by name
+// case-insensitively — so a future token, or a misbehaving proxy, could
+// otherwise silently relabel a 404 as whatever the body claims.
+func TestServiceErrorStatusIsFromTransportNotBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"unknown_vocabulary","message":"m","vocab":"not-a-mount","status":999}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "not-a-mount"}, srv.Client())
+	_, err := c.Fetch(context.Background(), "https://vocab.getty.edu/not-a-mount/1", vocabconnector.SearchOpts{})
+	if err == nil {
+		t.Fatal("Fetch returned no error")
+	}
+	var svcErr *ServiceError
+	if !errors.As(err, &svcErr) {
+		t.Fatalf("errors.As found no *ServiceError in %v", err)
+	}
+	if svcErr.Status != http.StatusNotFound {
+		t.Errorf("Status = %d, want %d (the real HTTP status, not the body's own \"status\" key)", svcErr.Status, http.StatusNotFound)
+	}
+}
+
 // TestUnknownVocabularyIsPermanent asserts the ErrMisconfigured classification
 // itself: unknown_vocabulary and bad_lang (a malformed language tag, since
 // the service now falls back on a merely unindexed one) are permanent rows
