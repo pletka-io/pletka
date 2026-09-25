@@ -1,3 +1,10 @@
+<script module lang="ts">
+  // One warning per vocabulary per page load, shared across every picker
+  // instance: a repeatable field mounts one picker per occurrence, and all
+  // of them read the same sources.
+  const degradedWarned = new Set<string>();
+</script>
+
 <script lang="ts">
   import type { Translations } from '$lib/types/form-schema';
   import type { ExampleConceptSource, ExampleFormField } from '$lib/types/example-form-schema';
@@ -37,10 +44,6 @@
   let searchError = $state('');
   let searchToken = 0;
   let resolveToken = 0;
-
-  // Once per vocabulary per page load: a keystroke-driven warning would be
-  // useless noise. Nothing is shown to the curator; this is for dev tools.
-  const degradedWarned = new Set<string>();
 
   const sources = $derived(field.concept_sources ?? []);
   const selectedLabel = $derived(selected ? tr(selected.label, lang) || selected.uri : value);
