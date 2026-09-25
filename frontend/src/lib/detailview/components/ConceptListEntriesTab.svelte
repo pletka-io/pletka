@@ -469,7 +469,10 @@
             {:else if searchError}
               <div class="px-4 py-3 text-sm text-red-600">{searchError}</div>
             {:else if results.length === 0 && completedQuery === query.trim()}
-              <div class="px-4 py-3 text-sm text-gray-400">No matching concepts.</div>
+              <div class="px-4 py-3 text-sm text-gray-400">
+                No matching concepts. If this list draws on an external authority (e.g. AAT / Getty) it may be
+                temporarily unavailable — {createTermURL ? 'you can add the term by hand above.' : 'try again later.'}
+              </div>
             {:else}
               {#each results as result (result.vocabulary_entry_id || result.entry.uri)}
                 <div class="flex items-start justify-between gap-4 px-4 py-3">
