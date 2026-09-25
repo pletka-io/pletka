@@ -56,3 +56,36 @@ func TestRenderConceptListSKOS_Integration(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderConceptListSKOS_ConfiguredNamespace proves F4 (#3599): a project's
+// concept_namespace overrides the default base in the emitted SKOS.
+func TestRenderConceptListSKOS_ConfiguredNamespace(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := context.Background()
+
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed exec: %v\n%s", err, sql)
+		}
+	}
+	exec(`INSERT INTO weave_actors (id, display_name, slug) VALUES ('nso','NSO','nso')`)
+	exec(`INSERT INTO weave_projects (id, owner_id, concept_namespace) VALUES ('NSP','nso','https://vocab.example.org/')`)
+	exec(`INSERT INTO weave_vocabularies (id, connector_type, project_id) VALUES ('NSV','local','NSP')`)
+	exec(`INSERT INTO weave_vocabulary_entries (id, vocabulary_id, uri, label) VALUES ('NA','NSV','pletka:concept/NA','{"en":"Amber"}')`)
+	exec(`INSERT INTO weave_concept_lists (id, project_id, semantic_id) VALUES ('NSCL','NSP','NSP.CL.1')`)
+	exec(`INSERT INTO weave_concept_list_entries (id, concept_list_id, vocabulary_entry_id, position) VALUES ('NJ','NSCL','NA',1)`)
+
+	svc := vocabulary.NewService(pool, nil)
+	var buf bytes.Buffer
+	if err := svc.RenderConceptListSKOS(ctx, "NSP", "NSCL", &buf); err != nil {
+		t.Fatalf("RenderConceptListSKOS: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "@prefix pletka: <https://vocab.example.org/> .") {
+		t.Fatalf("expected configured namespace, got:\n%s", out)
+	}
+	if !strings.Contains(out, "<https://vocab.example.org/concept/NA> a skos:Concept") {
+		t.Fatalf("concept URI not expanded with configured namespace:\n%s", out)
+	}
+}

@@ -51,7 +51,7 @@ INSERT INTO weave_projects (
     status, namespace, parent_project_id, owner_id, staging_id, visibility, created_by_id, is_core_weave
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-) RETURNING id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave
+) RETURNING id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave, concept_namespace
 `
 
 type WeaveCreateProjectParams struct {
@@ -107,6 +107,7 @@ func (q *Queries) WeaveCreateProject(ctx context.Context, arg WeaveCreateProject
 		&i.VersionNumber,
 		&i.EnforceConceptLists,
 		&i.IsCoreWeave,
+		&i.ConceptNamespace,
 	)
 	return i, err
 }
@@ -121,7 +122,7 @@ func (q *Queries) WeaveDeleteProject(ctx context.Context, id string) error {
 }
 
 const weaveGetProjectByID = `-- name: WeaveGetProjectByID :one
-SELECT id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave FROM weave_projects WHERE id = $1
+SELECT id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave, concept_namespace FROM weave_projects WHERE id = $1
 `
 
 func (q *Queries) WeaveGetProjectByID(ctx context.Context, id string) (WeaveProject, error) {
@@ -149,6 +150,7 @@ func (q *Queries) WeaveGetProjectByID(ctx context.Context, id string) (WeaveProj
 		&i.VersionNumber,
 		&i.EnforceConceptLists,
 		&i.IsCoreWeave,
+		&i.ConceptNamespace,
 	)
 	return i, err
 }
@@ -164,6 +166,19 @@ func (q *Queries) WeaveGetProjectConceptListEnforcement(ctx context.Context, id 
 	var enforce_concept_lists bool
 	err := row.Scan(&enforce_concept_lists)
 	return enforce_concept_lists, err
+}
+
+const weaveGetProjectConceptNamespace = `-- name: WeaveGetProjectConceptNamespace :one
+SELECT concept_namespace
+FROM weave_projects
+WHERE id = $1
+`
+
+func (q *Queries) WeaveGetProjectConceptNamespace(ctx context.Context, id string) (*string, error) {
+	row := q.db.QueryRow(ctx, weaveGetProjectConceptNamespace, id)
+	var concept_namespace *string
+	err := row.Scan(&concept_namespace)
+	return concept_namespace, err
 }
 
 const weaveGetProjectParentID = `-- name: WeaveGetProjectParentID :one
@@ -198,7 +213,7 @@ func (q *Queries) WeaveIsReleaseArchived(ctx context.Context, arg WeaveIsRelease
 }
 
 const weaveListChildProjects = `-- name: WeaveListChildProjects :many
-SELECT id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave FROM weave_projects
+SELECT id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave, concept_namespace FROM weave_projects
 WHERE parent_project_id = $1
 ORDER BY id ASC
 `
@@ -234,6 +249,7 @@ func (q *Queries) WeaveListChildProjects(ctx context.Context, parentProjectID *s
 			&i.VersionNumber,
 			&i.EnforceConceptLists,
 			&i.IsCoreWeave,
+			&i.ConceptNamespace,
 		); err != nil {
 			return nil, err
 		}
@@ -273,7 +289,7 @@ func (q *Queries) WeaveListProjectReleaseVersions(ctx context.Context, projectID
 }
 
 const weaveListProjects = `-- name: WeaveListProjects :many
-SELECT id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave FROM weave_projects
+SELECT id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave, concept_namespace FROM weave_projects
 WHERE
     ($1::text = ''
      OR EXISTS (SELECT 1 FROM jsonb_each_text(ui_name) jt WHERE jt.value ILIKE '%' || $1::text || '%')
@@ -348,6 +364,7 @@ func (q *Queries) WeaveListProjects(ctx context.Context, arg WeaveListProjectsPa
 			&i.VersionNumber,
 			&i.EnforceConceptLists,
 			&i.IsCoreWeave,
+			&i.ConceptNamespace,
 		); err != nil {
 			return nil, err
 		}
@@ -365,7 +382,7 @@ UPDATE weave_projects SET
     namespace = $6, parent_project_id = $7, visibility = $8,
     is_core_weave = $9,
     updated_at = NOW()
-WHERE id = $1 RETURNING id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave
+WHERE id = $1 RETURNING id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave, concept_namespace
 `
 
 type WeaveUpdateProjectParams struct {
@@ -415,6 +432,7 @@ func (q *Queries) WeaveUpdateProject(ctx context.Context, arg WeaveUpdateProject
 		&i.VersionNumber,
 		&i.EnforceConceptLists,
 		&i.IsCoreWeave,
+		&i.ConceptNamespace,
 	)
 	return i, err
 }
@@ -423,7 +441,7 @@ const weaveUpdateProjectAbout = `-- name: WeaveUpdateProjectAbout :one
 UPDATE weave_projects SET
     license = $2, readme = $3, topics = $4, base_url = $5,
     updated_at = NOW()
-WHERE id = $1 RETURNING id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave
+WHERE id = $1 RETURNING id, created_at, updated_at, system_name, ui_name, description, status, namespace, parent_project_id, staging_id, owner_id, visibility, deprecated, license, readme, topics, base_url, created_by_id, version_number, enforce_concept_lists, is_core_weave, concept_namespace
 `
 
 type WeaveUpdateProjectAboutParams struct {
@@ -465,6 +483,7 @@ func (q *Queries) WeaveUpdateProjectAbout(ctx context.Context, arg WeaveUpdatePr
 		&i.VersionNumber,
 		&i.EnforceConceptLists,
 		&i.IsCoreWeave,
+		&i.ConceptNamespace,
 	)
 	return i, err
 }
@@ -483,5 +502,22 @@ type WeaveUpdateProjectConceptListEnforcementParams struct {
 
 func (q *Queries) WeaveUpdateProjectConceptListEnforcement(ctx context.Context, arg WeaveUpdateProjectConceptListEnforcementParams) error {
 	_, err := q.db.Exec(ctx, weaveUpdateProjectConceptListEnforcement, arg.ID, arg.EnforceConceptLists)
+	return err
+}
+
+const weaveUpdateProjectConceptNamespace = `-- name: WeaveUpdateProjectConceptNamespace :exec
+UPDATE weave_projects
+SET concept_namespace = $2,
+    updated_at = NOW()
+WHERE id = $1
+`
+
+type WeaveUpdateProjectConceptNamespaceParams struct {
+	ID               string  `json:"id"`
+	ConceptNamespace *string `json:"concept_namespace"`
+}
+
+func (q *Queries) WeaveUpdateProjectConceptNamespace(ctx context.Context, arg WeaveUpdateProjectConceptNamespaceParams) error {
+	_, err := q.db.Exec(ctx, weaveUpdateProjectConceptNamespace, arg.ID, arg.ConceptNamespace)
 	return err
 }

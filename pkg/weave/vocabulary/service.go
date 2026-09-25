@@ -1884,5 +1884,16 @@ func (s *Service) RenderConceptListSKOS(ctx context.Context, projectID, listID s
 		})
 	}
 
-	return skos.Render(w, scheme, concepts, edges, map[string]string{"pletka": defaultConceptNamespace})
+	return skos.Render(w, scheme, concepts, edges, map[string]string{"pletka": s.conceptNamespace(ctx, projectID)})
+}
+
+// conceptNamespace returns the IRI the project's pletka: curies expand to on
+// export — the project's configured namespace (F4, #3599), else the platform
+// default.
+func (s *Service) conceptNamespace(ctx context.Context, projectID string) string {
+	ns, err := s.queries.WeaveGetProjectConceptNamespace(ctx, projectID)
+	if err != nil || ns == nil || strings.TrimSpace(*ns) == "" {
+		return defaultConceptNamespace
+	}
+	return strings.TrimSpace(*ns)
 }

@@ -34,6 +34,17 @@ SELECT enforce_concept_lists
 FROM weave_projects
 WHERE id = $1;
 
+-- name: WeaveUpdateProjectConceptNamespace :exec
+UPDATE weave_projects
+SET concept_namespace = $2,
+    updated_at = NOW()
+WHERE id = $1;
+
+-- name: WeaveGetProjectConceptNamespace :one
+SELECT concept_namespace
+FROM weave_projects
+WHERE id = $1;
+
 -- name: WeaveListProjectReleaseVersions :many
 SELECT version
 FROM weave_releases

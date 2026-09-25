@@ -791,6 +791,7 @@ type WeaveProject struct {
 	VersionNumber       string          `json:"version_number"`
 	EnforceConceptLists bool            `json:"enforce_concept_lists"`
 	IsCoreWeave         bool            `json:"is_core_weave"`
+	ConceptNamespace    *string         `json:"concept_namespace"`
 }
 
 type WeaveProjectActor struct {
