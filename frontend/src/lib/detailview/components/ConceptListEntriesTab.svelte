@@ -4,6 +4,7 @@
   import { tr } from '$lib/types/weave-types';
   import { getUILang } from '$lib/utils/locale';
   import { addToast } from '$lib/stores/toast';
+  import { warnVocabularyDegraded } from '$lib/utils/degraded-warning';
 
   let {
     state: viewState,
@@ -112,6 +113,9 @@
       const res = await fetch(url.toString());
       if (!res.ok) throw new Error(`Search failed (${res.status})`);
       const data = await res.json();
+      // Console only: a degraded source search means the panel offers fewer
+      // terms to add, which is not something to put in front of a curator.
+      if (data.degraded) warnVocabularyDegraded(caps.search_entries_url, sourceName || caps.search_entries_url);
       if (token === searchToken) {
         results = data.items ?? [];
         completedQuery = q;

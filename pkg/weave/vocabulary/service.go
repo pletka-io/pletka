@@ -1201,7 +1201,11 @@ func (s *Service) SearchConceptListEntries(ctx context.Context, conceptListID, q
 	return out, nil
 }
 
-func (s *Service) SearchConceptListSourceEntries(ctx context.Context, projectID, conceptListID, query, lang string, limit int) ([]ConceptListEntryView, error) {
+// SearchConceptListSourceEntries backs the concept-list page's "add an entry
+// from the source vocabulary" panel. It also reports whether a remote lookup
+// degraded, so the handler can say so without failing the request: this is one
+// of the two routes a curator uses that reaches a connector at all.
+func (s *Service) SearchConceptListSourceEntries(ctx context.Context, projectID, conceptListID, query, lang string, limit int) ([]ConceptListEntryView, bool, error) {
 	if limit <= 0 || limit > 100 {
 		limit = defaultSearchLimit
 	}
@@ -1211,46 +1215,54 @@ func (s *Service) SearchConceptListSourceEntries(ctx context.Context, projectID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, &ErrConceptListNotFound{ID: conceptListID}
+			return nil, false, &ErrConceptListNotFound{ID: conceptListID}
 		}
-		return nil, fmt.Errorf("get concept list: %w", err)
+		return nil, false, fmt.Errorf("get concept list: %w", err)
 	}
 	// A sealed list is exhaustive: its value picker offers only the list's own
 	// entries, never the source vocabulary / connector (which would suggest
-	// off-list terms that save-time validation then rejects).
+	// off-list terms that save-time validation then rejects). That path is pure
+	// SQL, so it can never be degraded.
 	if list.IsClosed {
-		return s.SearchConceptListEntries(ctx, conceptListID, query, lang, limit)
+		items, err := s.SearchConceptListEntries(ctx, conceptListID, query, lang, limit)
+		return items, false, err
 	}
 	if list.VocabularyID == nil || *list.VocabularyID == "" {
 		return s.appendProjectVocabularyHits(ctx, nil, list.ProjectID, query, lang, limit)
 	}
 	parentURI, err := s.conceptListTypeURI(ctx, list.ListType)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	vocabHits, err := s.SearchVocabularyEntriesWithParent(ctx, *list.VocabularyID, query, lang, limit, parentURI)
+	vocabHits, degraded, err := s.SearchVocabularyEntriesDegradable(ctx, *list.VocabularyID, query, lang, limit, parentURI)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return appendVocabularyHits(nil, vocabHits, limit), nil
+	return appendVocabularyHits(nil, vocabHits, limit), degraded, nil
 }
 
-func (s *Service) appendProjectVocabularyHits(ctx context.Context, out []ConceptListEntryView, projectID, query, lang string, limit int) ([]ConceptListEntryView, error) {
+func (s *Service) appendProjectVocabularyHits(ctx context.Context, out []ConceptListEntryView, projectID, query, lang string, limit int) ([]ConceptListEntryView, bool, error) {
 	vocabs, err := s.queries.WeaveListProjectScopedVocabularies(ctx, projectID)
 	if err != nil {
-		return nil, fmt.Errorf("list project vocabularies: %w", err)
+		return nil, false, fmt.Errorf("list project vocabularies: %w", err)
 	}
+	degraded := false
 	for _, vocab := range vocabs {
 		if len(out) >= limit {
 			break
 		}
-		vocabHits, err := s.SearchVocabularyEntries(ctx, vocab.ID, query, lang, limit-len(out))
+		vocabHits, vocabDegraded, err := s.SearchVocabularyEntriesDegradable(ctx, vocab.ID, query, lang, limit-len(out), "")
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
+		// One failing vocabulary degrades the whole response even when the
+		// others answered: the suggestions the curator sees are incomplete
+		// either way, and saying so per-vocabulary is not a distinction this
+		// response shape carries.
+		degraded = degraded || vocabDegraded
 		out = appendVocabularyHits(out, vocabHits, limit)
 	}
-	return out, nil
+	return out, degraded, nil
 }
 
 func appendVocabularyHits(out []ConceptListEntryView, vocabHits []VocabularyEntryView, limit int) []ConceptListEntryView {

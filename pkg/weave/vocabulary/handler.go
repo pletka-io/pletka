@@ -429,12 +429,21 @@ func (h *Handler) SearchConceptListEntries(w http.ResponseWriter, r *http.Reques
 func (h *Handler) SearchConceptListSourceEntries(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	listID := chi.URLParam(r, "listID")
-	items, err := h.svc.SearchConceptListSourceEntries(r.Context(), projectID, listID, r.URL.Query().Get("q"), h.requestLang(r), requestLimit(r))
+	items, degraded, err := h.svc.SearchConceptListSourceEntries(r.Context(), projectID, listID, r.URL.Query().Get("q"), h.requestLang(r), requestLimit(r))
 	if err != nil {
 		h.writeServiceError(w, "search concept list source entries failed", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": len(items)})
+	body := map[string]any{"items": items, "total": len(items)}
+	if degraded {
+		// A failed remote lookup and a genuine no-match are otherwise the same
+		// 200 with an empty list, so neither a browser's network tab nor a
+		// developer without server-log access can tell them apart. The key is
+		// absent (not false) when nothing degraded, so a reader cannot mistake
+		// every other connector for a degraded one.
+		body["degraded"] = true
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 func (h *Handler) SearchVocabularyEntries(w http.ResponseWriter, r *http.Request) {
