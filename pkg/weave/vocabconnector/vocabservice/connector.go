@@ -82,10 +82,11 @@ func New(cfg Config, client *http.Client) *Connector {
 }
 
 // suggestHit is a suggest result: an item plus the fields that explain why it
-// matched and where it sits in the hierarchy. The same shape decodes a
-// concept fetch (Task 2) — /concept's extra fields (narrower, altLabel, …)
-// are simply ignored by this decode, and matched/matchedLabel/score are
-// absent there and so decode to their zero values.
+// matched and where it sits in the hierarchy. A concept fetch decodes into
+// conceptResponse instead, a different type below — the two endpoints share
+// the item shape, not this whole struct, since /concept carries fields
+// (scopeNote, altLabel) that suggest never sends and never sends
+// matched/matchedLabel/score, which /concept does not carry.
 type suggestHit struct {
 	item
 	Matched      string  `json:"matched"`
@@ -102,8 +103,8 @@ type suggestResponse struct {
 // conceptResponse is the /concept/{id} decode: the one item shape plus the
 // fields only a concept fetch carries. altLabel is decoded and not mapped —
 // Entry has nowhere to put it, and inventing a home is out of scope for this
-// task. narrower/matches/broaderOther are not represented here at all, so
-// the decoder ignores them the same way it already ignores /suggest's
+// connector. narrower/matches/broaderOther are not represented here at all,
+// so the decoder ignores them the same way it already ignores /suggest's
 // matched/matchedLabel/score on this endpoint.
 type conceptResponse struct {
 	item
@@ -258,11 +259,12 @@ func hitToEntry(hit suggestHit) vocabconnector.Entry {
 
 // conceptToEntry maps a decoded concept fetch to an Entry: the same
 // URI/Label/broader/parents mapping hitToEntry does, plus ScopeNote, which
-// only concept/{id} carries. ScopeNote is narrowed by the same rule as
-// Label (display language plus English) — see narrowByLang.
+// only concept/{id} carries. ScopeNote gets its own resolution, not
+// labelFor's — see scopeNoteFor for why lang is a preference here and not
+// the guaranteed key it is for prefLabel.
 func conceptToEntry(resp conceptResponse) vocabconnector.Entry {
 	entry := entryFromItem(resp.item, resp.Broader, resp.Parents)
-	entry.ScopeNote = narrowByLang(resp.Lang, resp.ScopeNote)
+	entry.ScopeNote = scopeNoteFor(resp.Lang, resp.ScopeNote)
 	return entry
 }
 

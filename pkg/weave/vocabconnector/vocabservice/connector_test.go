@@ -345,9 +345,8 @@ func TestSearchOnBlankQueryAsksNothing(t *testing.T) {
 // TestFetchReadsOneConcept covers the v2 /concept shape: an item plus
 // broader/parents, same as suggest. Per the contract, concept/{id}?lang=
 // takes a display-language parameter that "the concept and every nested
-// item" resolve against server-side, so Fetch must send it (v1's code
-// deliberately did not; that assumption no longer holds under v2 — see the
-// task-1 report).
+// item" resolve against server-side, so Fetch must send it (v1's connector
+// deliberately did not; that assumption no longer holds under v2).
 func TestFetchReadsOneConcept(t *testing.T) {
 	var gotPath, gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -431,11 +430,12 @@ func TestFetchNarrowsTheStoredLanguages(t *testing.T) {
 	}
 }
 
-// TestFetchReadsScopeNote covers the field the owner actually asked for:
-// scopeNote is narrowed the same way prefLabel is, for the same reason (a
-// stored row otherwise carries a concept's whole language set), rather than
-// inventing a second rule.
-func TestFetchReadsScopeNote(t *testing.T) {
+// TestFetchReadsScopeNoteInTheDisplayLanguage covers scopeNote's ordinary
+// case: the display language names one of its keys. Unlike prefLabel,
+// scopeNote does not also get an English key added alongside it — see
+// TestFetchScopeNoteFallsBackToEnglishWhenDisplayLanguageHasNone for why
+// that pairing would be the wrong rule to reuse here.
+func TestFetchReadsScopeNoteInTheDisplayLanguage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
 			"kind":"concept","class":"Concept",
@@ -449,8 +449,85 @@ func TestFetchReadsScopeNote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	if diff := cmp.Diff(map[string]string{"nl": "een koperlegering", "en": "a copper alloy"}, map[string]string(entry.ScopeNote)); diff != "" {
+	if diff := cmp.Diff(map[string]string{"nl": "een koperlegering"}, map[string]string(entry.ScopeNote)); diff != "" {
 		t.Errorf("ScopeNote mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFetchScopeNoteFallsBackToEnglishWhenDisplayLanguageHasNone pins the
+// bug this connector shipped with: prefLabel guarantees lang names one of
+// its own keys, but the contract makes no such promise about scopeNote — a
+// concept can have a German prefLabel and no German scopeNote at all. Using
+// labelFor's exact-key rule for scopeNote too silently dropped the note in
+// every language that had none of its own (seven of this concept's fourteen
+// display languages, measured live), and worse: Fetch's result reaches an
+// upsert with no guard against overwriting a stored scope note with
+// nothing. lang here is "de" (present in prefLabel, matching the live bug
+// report) with no "de" key in scopeNote at all, so this must fall back to
+// English rather than return nil.
+func TestFetchScopeNoteFallsBackToEnglishWhenDisplayLanguageHasNone(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"de":"Bronze"},"lang":"de",
+			"scopeNote":{"en":"a copper alloy","nl":"een koperlegering"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "de"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"en": "a copper alloy"}, map[string]string(entry.ScopeNote)); diff != "" {
+		t.Errorf("ScopeNote mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFetchScopeNoteFallsBackToUndWhenNeitherDisplayLanguageNorEnglishHaveOne
+// covers scopeNote's second fallback: the contract calls scopeNote out as
+// the one predicate whose values can still arrive with no language tag at
+// all, so an untagged note must not be dropped just because it is not
+// keyed "de" or "en".
+func TestFetchScopeNoteFallsBackToUndWhenNeitherDisplayLanguageNorEnglishHaveOne(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"de":"Bronze"},"lang":"de",
+			"scopeNote":{"und":"an untagged note"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "de"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"und": "an untagged note"}, map[string]string(entry.ScopeNote)); diff != "" {
+		t.Errorf("ScopeNote mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFetchScopeNoteAbsentWhenNoneOfTheFallbacksMatch covers a concept with
+// a scopeNote that has neither the display language, nor English, nor an
+// untagged value: the fallback chain is exhausted, and the result must be
+// nil rather than an empty map or a language the concept does not have.
+func TestFetchScopeNoteAbsentWhenNoneOfTheFallbacksMatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"de":"Bronze"},"lang":"de",
+			"scopeNote":{"fr":"une note"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "de"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(entry.ScopeNote) != 0 {
+		t.Errorf("ScopeNote = %v, want none (display language, English and und all absent)", entry.ScopeNote)
 	}
 }
 

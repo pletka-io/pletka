@@ -20,40 +20,65 @@ type item struct {
 // "the key chosen as lang, plus en when the concept has an English
 // prefLabel too". On suggest the service has already narrowed prefLabel to
 // (at most) those two keys; on concept, where prefLabel carries every
-// language the concept has, this same rule is the narrowing to at most two
-// that Task 2 needs, which is why it lives here rather than at a call site.
+// language the concept has, this same rule narrows it down to at most two,
+// which is why it lives here rather than at a call site.
 //
-// Returns nil when prefLabel is empty or lang is null — a subject with no
-// skos:prefLabel at all. It does not iterate prefLabel to pick lang, and it
-// does not scan for "en" case-insensitively or fall back to a near-miss
-// (e.g. "en-GB"): lang is the contract's answer for the display language,
-// "en" is indexed directly, and an item with no exact "en" key simply gets
-// one language, deterministically.
+// This is an exact lookup, deliberately with no fallback: the contract
+// guarantees lang names a key of prefLabel specifically (nothing else), so a
+// miss here would mean the service broke its own promise, not that a
+// fallback is owed. Returns nil when prefLabel is empty or lang is null — a
+// subject with no skos:prefLabel at all. It does not iterate prefLabel to
+// pick lang, and it does not scan for "en" case-insensitively or fall back
+// to a near-miss (e.g. "en-GB"): lang is the contract's answer for the
+// display language, "en" is indexed directly, and an item with no exact
+// "en" key simply gets one language, deterministically.
 func labelFor(it item) domain.Translations {
-	return narrowByLang(it.Lang, it.PrefLabel)
-}
-
-// narrowByLang applies labelFor's rule to any language-keyed map, not just an
-// item's own prefLabel. concept/{id} needs the same narrowing a second time,
-// for scopeNote: that field carries every language the concept has, exactly
-// like concept's prefLabel does, and for the same reason a stored row must
-// not carry a concept's whole language set. One rule, shared, rather than a
-// second one invented for scopeNote.
-func narrowByLang(lang *string, values map[string]string) domain.Translations {
-	if lang == nil {
+	if it.Lang == nil {
 		return nil
 	}
-	value, ok := values[*lang]
+	value, ok := it.PrefLabel[*it.Lang]
 	if !ok {
 		return nil
 	}
-	labels := domain.Translations{*lang: value}
-	if *lang != "en" {
-		if enValue, ok := values["en"]; ok {
+	labels := domain.Translations{*it.Lang: value}
+	if *it.Lang != "en" {
+		if enValue, ok := it.PrefLabel["en"]; ok {
 			labels["en"] = enValue
 		}
 	}
 	return labels
+}
+
+// scopeNoteFor resolves a concept's scopeNote — a map the contract makes no
+// promise about beyond "language-keyed". Unlike prefLabel, lang is not
+// guaranteed to name a key of scopeNote: the service's only guarantee about
+// lang is that it names a prefLabel key. Treating lang as an exact key here
+// too (labelFor's rule) would silently drop a scope note in every language
+// that happens to have none of its own — which on a Fetch does not just omit
+// a field, it overwrites a scope note the row already had, since the
+// persisted upsert has no guard against replacing a value with nothing.
+//
+// So this is a preference, not a lookup, and it falls back: the display
+// language if scopeNote has it, else English, else whatever untagged value
+// the concept has, else nothing. und is deliberate, not an afterthought —
+// the contract calls scopeNote out as the one predicate whose values can
+// still arrive with no language tag at all, so skipping it would drop an
+// untagged note exactly the way the display-language miss used to drop a
+// tagged one. The result is narrowed to the one language actually found,
+// never the whole map.
+func scopeNoteFor(lang *string, values map[string]string) domain.Translations {
+	if lang != nil {
+		if value, ok := values[*lang]; ok {
+			return domain.Translations{*lang: value}
+		}
+	}
+	if value, ok := values["en"]; ok {
+		return domain.Translations{"en": value}
+	}
+	if value, ok := values["und"]; ok {
+		return domain.Translations{"und": value}
+	}
+	return nil
 }
 
 // labelText is labelFor's plain-string counterpart, used where a caller
