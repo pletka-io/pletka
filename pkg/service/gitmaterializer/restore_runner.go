@@ -7,10 +7,54 @@ import (
 	"strings"
 )
 
+// HydrateRestorePlan runs the whole restore pipeline for plan's project:
+// vendored dependencies, project shell, entities, then overrides and
+// provenance, in that order. It takes plan's project's restore lock ONCE,
+// as the very first thing it does — before the vendored phase, not just
+// before overrides+provenance — and holds it across every phase, releasing
+// only once the whole pipeline finishes.
+//
+// This is the fix for the version of this lock that only wrapped
+// overrides+provenance: a busy project failed only after vendored/shell/
+// entities had already committed, leaving shell, categories, fields,
+// models and collections at snapshot state while overrides, refs,
+// adoptions and forks stayed at pre-restore state, with nothing to roll
+// either half back. Those earlier phases are safe to run unlocked in
+// isolation — HydrateProjectShell/HydrateProjectEntities are upsert-only
+// and id-preserving, so they don't lose or orphan anything a concurrent
+// save could be mid-write on — but that safety is a property of what they
+// do today, not of which tables they touch: the day a "delete entities
+// absent from the snapshot" sweep is added (a natural step for restore
+// fidelity), that upsert-only property breaks and the seam reopens one
+// phase earlier, with dangling rows instead of merely lost ones. Acquiring
+// the lock unconditionally, before any phase, means that day doesn't
+// require touching this function again.
+//
+// Once this lock is held, it calls hydrateProjectOverridesAndProvenanceLocked
+// directly for plan's own project — NOT the self-locking
+// HydrateProjectOverridesAndProvenance — since this function already holds
+// that project's lock; see hydrateProjectOverridesAndProvenanceLocked's
+// doc comment for why calling the self-locking entry point here would
+// self-block.
 func (m *Materializer) HydrateRestorePlan(ctx context.Context, plan *RestorePlan) error {
 	if plan == nil {
 		return fmt.Errorf("hydrate restore plan: missing plan")
 	}
+	projectID := strings.TrimSpace(plan.ProjectID)
+	if projectID == "" {
+		return fmt.Errorf("hydrate restore plan: missing project id")
+	}
+
+	release, err := m.LockProjectForRestore(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("hydrate restore plan: %w", err)
+	}
+	defer func() {
+		if unlockErr := release(); unlockErr != nil {
+			m.logger.Warn("hydrate restore plan: release restore lock", "project_id", projectID, "err", unlockErr)
+		}
+	}()
+
 	if err := m.HydrateVendored(ctx, plan); err != nil {
 		return err
 	}
@@ -20,7 +64,7 @@ func (m *Materializer) HydrateRestorePlan(ctx context.Context, plan *RestorePlan
 	if err := m.HydrateProjectEntities(ctx, plan); err != nil {
 		return err
 	}
-	if err := m.HydrateProjectOverridesAndProvenance(ctx, plan); err != nil {
+	if err := m.hydrateProjectOverridesAndProvenanceLocked(ctx, plan); err != nil {
 		return err
 	}
 	return nil

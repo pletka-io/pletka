@@ -35,7 +35,7 @@ func Mount(parent chi.Router, h Host) {
 	if err := h.Validate(); err != nil {
 		panic(err)
 	}
-	svc := NewService(h.Store, h.Previewer, h.Runner)
+	svc := NewService(h.Store, h.Previewer, h.Runner, h.Logger)
 	handler := NewHandler(h.Logger, svc)
 
 	parent.Group(func(r chi.Router) {

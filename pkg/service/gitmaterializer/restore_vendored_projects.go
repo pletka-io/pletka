@@ -63,10 +63,22 @@ const maxVendoredProjectDepth = 3
 // re-hydrated by this step — a present parent is assumed to already be
 // correct, matching the same assumption made for vendored ontologies).
 func (m *Materializer) hydrateVendoredProjects(ctx context.Context, plan *RestorePlan) error {
-	return m.hydrateVendoredProjectsAtDepth(ctx, plan, 0)
+	// lockedProjectID is whichever project's restore lock the top of this
+	// pipeline already holds (HydrateRestorePlan, or gitrestoreadmin's job
+	// runner) — always plan.ProjectID at depth 0, since this is only ever
+	// reached from HydrateVendored, which only ever receives the
+	// TOP-level plan. Threaded down unchanged through recursion so the
+	// depth-2+ guard below still compares against the ORIGINAL target, not
+	// whichever vendored parent a deeper recursion level happens to be
+	// processing.
+	if plan == nil {
+		return nil
+	}
+	lockedProjectID := strings.TrimSpace(plan.ProjectID)
+	return m.hydrateVendoredProjectsAtDepth(ctx, plan, 0, lockedProjectID)
 }
 
-func (m *Materializer) hydrateVendoredProjectsAtDepth(ctx context.Context, plan *RestorePlan, depth int) error {
+func (m *Materializer) hydrateVendoredProjectsAtDepth(ctx context.Context, plan *RestorePlan, depth int, lockedProjectID string) error {
 	if plan == nil || plan.Snapshot == nil {
 		return nil
 	}
@@ -113,7 +125,7 @@ func (m *Materializer) hydrateVendoredProjectsAtDepth(ctx context.Context, plan 
 	for _, projectID := range ordered {
 		dep := deps[pendingIdx[projectID]]
 		subPlan := BuildRestorePlan(dep.Snapshot)
-		if err := m.hydrateVendoredProjectsAtDepth(ctx, subPlan, depth+1); err != nil {
+		if err := m.hydrateVendoredProjectsAtDepth(ctx, subPlan, depth+1, lockedProjectID); err != nil {
 			return err
 		}
 		if err := m.hydrateVendoredOntologies(ctx, subPlan); err != nil {
@@ -130,6 +142,23 @@ func (m *Materializer) hydrateVendoredProjectsAtDepth(ctx context.Context, plan 
 
 	// Pass 2: overrides + provenance, after all vendored entities exist.
 	for _, projectID := range ordered {
+		if projectID == lockedProjectID {
+			// Guard: a vendored dependency's project id coincides with the
+			// project whose restore lock the top of this pipeline already
+			// holds. Not reachable in practice today — a project cannot
+			// legitimately vendor itself as its own dependency — but the
+			// id space isn't otherwise enforced to exclude it, and calling
+			// the self-locking HydrateProjectOverridesAndProvenance here
+			// would try to re-acquire the SAME exclusive key the caller
+			// already holds, self-blocking for the full
+			// restoreProjectLockTimeout before failing. Use the
+			// already-locked variant instead, exactly as the top-level
+			// caller does for the target project itself.
+			if err := m.hydrateProjectOverridesAndProvenanceLocked(ctx, subPlans[projectID]); err != nil {
+				return fmt.Errorf("hydrate vendored projects: hydrate overrides for %s: %w", projectID, err)
+			}
+			continue
+		}
 		if err := m.HydrateProjectOverridesAndProvenance(ctx, subPlans[projectID]); err != nil {
 			return fmt.Errorf("hydrate vendored projects: hydrate overrides for %s: %w", projectID, err)
 		}

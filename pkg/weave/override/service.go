@@ -440,15 +440,24 @@ func (s *Service) EntityFingerprint(ctx context.Context, entityType, entityID st
 
 // WithEntityLock serializes work on one entity's pattern behind a
 // session-level Postgres advisory lock, so two saves of the same model or
-// collection queue instead of racing. A save spans several service calls,
+// collection queue instead of racing. It first takes projectID's shared
+// project lock, then the entity's exclusive lock, both on the same
+// connection (see Store.WithAdvisoryLock) — two saves of different
+// entities in the same project still run concurrently, since they only
+// contend on the shared project lock. A save spans several service calls,
 // not one transaction, which is why this isn't a plain DB transaction lock.
-// The wait to acquire the lock is bounded; a caller that could not acquire
-// it in time gets ErrLockBusy back — "someone else is already saving this
-// entity", not a real failure. Not re-entrant: a call must not be nested
-// inside another call (directly, or via the callback) for the same
-// (entityType, entityID) — it would deadlock against its own goroutine.
-func (s *Service) WithEntityLock(ctx context.Context, entityType, entityID string, fn func(context.Context) error) error {
-	return s.store.WithAdvisoryLock(ctx, entityType+":"+entityID, fn)
+// The wait to acquire the project lock and the wait to acquire the entity
+// lock share ONE total budget (see Store.WithAdvisoryLock), not one each,
+// so a caller that could not acquire either in time gets ErrLockBusy back
+// — "someone else is already saving this entity" (or restoring this
+// project), not a real failure. Not re-entrant, and not just for the same
+// entity: a call must not be nested inside another call (directly, or via
+// the callback) for ANY entity in the SAME project — see
+// Store.WithAdvisoryLock's doc comment for the three-way deadlock a
+// same-project (different-entity) nested call now creates against a
+// concurrently-queued restore.
+func (s *Service) WithEntityLock(ctx context.Context, projectID, entityType, entityID string, fn func(context.Context) error) error {
+	return s.store.WithAdvisoryLock(ctx, projectID, entityType+":"+entityID, fn)
 }
 
 // ---------------------------------------------------------------------------

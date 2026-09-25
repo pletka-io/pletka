@@ -131,7 +131,7 @@ func TestWithEntityLockSerialises(t *testing.T) {
 	holderErr := make(chan error, 1)
 	started := make(chan struct{})
 	go func() {
-		holderErr <- svc.WithEntityLock(ctx, "model", "TSTFPLOCK.1", func(ctx context.Context) error {
+		holderErr <- svc.WithEntityLock(ctx, fpTestProjectID, "model", "TSTFPLOCK.1", func(ctx context.Context) error {
 			close(started)
 			time.Sleep(300 * time.Millisecond)
 			return nil
@@ -147,7 +147,7 @@ func TestWithEntityLockSerialises(t *testing.T) {
 		t.Fatalf("holder failed before it took the lock: %v", hErr)
 	}
 	waitStart := time.Now()
-	err := svc.WithEntityLock(ctx, "model", "TSTFPLOCK.1", func(ctx context.Context) error {
+	err := svc.WithEntityLock(ctx, fpTestProjectID, "model", "TSTFPLOCK.1", func(ctx context.Context) error {
 		return nil
 	})
 	waited := time.Since(waitStart)
@@ -183,7 +183,7 @@ func TestWithAdvisoryLockReleasesOnCancelledContext(t *testing.T) {
 	const key = "model:TSTFPCANCEL.1"
 
 	ctx, cancel := context.WithCancel(context.Background())
-	err := store.WithAdvisoryLock(ctx, key, func(cbCtx context.Context) error {
+	err := store.WithAdvisoryLock(ctx, fpTestProjectID, key, func(cbCtx context.Context) error {
 		// Cancel the ctx WithAdvisoryLock was called with before its
 		// deferred unlock runs, so that unlock sees an already-done ctx —
 		// the exact scenario a curator closing a tab mid-save produces.
@@ -234,7 +234,7 @@ func TestWithAdvisoryLockResetsLockTimeout(t *testing.T) {
 	defer pool.Close()
 
 	store := NewPostgresStore(pool)
-	if lockErr := store.WithAdvisoryLock(ctx, "model:TSTFPRESET.1", func(context.Context) error {
+	if lockErr := store.WithAdvisoryLock(ctx, fpTestProjectID, "model:TSTFPRESET.1", func(context.Context) error {
 		return nil
 	}); lockErr != nil {
 		t.Fatalf("WithAdvisoryLock: %v", lockErr)

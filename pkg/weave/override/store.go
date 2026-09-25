@@ -16,8 +16,8 @@ package override
 
 import (
 	"context"
-	"errors"
 
+	"github.com/pletka-io/pletka/pkg/database/advisorylock"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -122,24 +122,81 @@ type Store interface {
 	// hash a whole entity's ref-set in one round trip.
 	RefsForOverrides(ctx context.Context, ids []int64) (map[int64][]domain.OverrideRef, error)
 
-	// WithAdvisoryLock runs fn while holding a session-level Postgres
-	// advisory lock on key, so two saves of the same entity queue instead
-	// of racing. The lock lives on its own pooled connection (not inside a
-	// transaction) because a save spans several service calls. The wait to
-	// acquire the lock is bounded; a caller that times out gets ErrLockBusy.
-	// An implementation that cannot serialize callers must return an error,
-	// never a silent no-op.
+	// WithAdvisoryLock runs fn while holding, on the same pooled connection
+	// and in this order:
 	//
-	// The lock is NOT re-entrant: a call must never be nested inside
-	// another call for the same key (directly, or by the callback reaching
-	// code that locks the same entity again) — the nested call acquires a
-	// different session and queues behind the lock its own goroutine holds,
-	// deadlocking forever while pinning two pooled connections.
-	WithAdvisoryLock(ctx context.Context, key string, fn func(context.Context) error) error
+	//  1. a session-level Postgres advisory lock SHARED on projectID (see
+	//     ProjectLockKey) — a save never modifies project-wide state
+	//     directly, so several saves in one project only need to agree that
+	//     none of them is a whole-project operation;
+	//  2. a session-level Postgres advisory lock EXCLUSIVE on key — so two
+	//     saves of the same entity queue instead of racing.
+	//
+	// The lock lives on its own pooled connection (not inside a
+	// transaction) because a save spans several service calls. The wait to
+	// acquire either lock is bounded; a caller that times out gets
+	// ErrLockBusy. An implementation that cannot serialize callers must
+	// return an error, never a silent no-op.
+	//
+	// git restore (pkg/service/gitmaterializer's Materializer.LockProjectForRestore)
+	// takes the SAME projectID key EXCLUSIVE and session-level too — held
+	// on its own pooled connection across restore's WHOLE
+	// overrides+provenance pipeline (both hydration transactions, not just
+	// one), released only when the pipeline finishes. It must be
+	// session-level, not `pg_advisory_xact_lock` scoped to one of those
+	// transactions: an xact-scoped lock releases at THAT transaction's
+	// commit, and Postgres wakes the queued waiter exactly there — letting
+	// a save slip in between the two phases and lose the earlier phase's
+	// writes when the later one clears and reinserts. Ordering is
+	// project-then-entity everywhere a caller takes both, and restore only
+	// ever takes the project lock, so no deadlock cycle exists between the
+	// two lock users on that axis alone (see the re-entrancy paragraph
+	// below for the cycle that DOES exist if a caller nests).
+	//
+	// The lock is NOT re-entrant, and the unsafe case is broader than "the
+	// same entity": no call may be nested inside another ANYWHERE within
+	// the SAME PROJECT, even for a different entity. This used to be safe
+	// when only the entity lock existed; it is not safe now that a project
+	// lock exists too. See WithAdvisoryLock's implementation comment
+	// (store_postgres.go) for the exact three-way deadlock this creates —
+	// in short: once a restore is queued for the project lock EXCLUSIVE, a
+	// nested call's SHARED request for the same project queues behind
+	// that restore too (Postgres's own queue fairness, confirmed
+	// empirically), even though two SHARED holders would ordinarily
+	// coexist — and the restore is itself waiting on the OUTER call's
+	// still-held project lock, which never releases because the outer
+	// call is blocked waiting for the nested call to return. No caller
+	// nests today; this is a constraint on any future one.
+	WithAdvisoryLock(ctx context.Context, projectID, key string, fn func(context.Context) error) error
 }
 
 // ErrLockBusy is returned by WithAdvisoryLock (and its Service wrapper,
-// WithEntityLock) when the per-entity lock could not be acquired within its
-// bounded wait — someone else is already saving this entity. Callers use
-// errors.Is(err, ErrLockBusy). Task 3 maps this to a 409.
-var ErrLockBusy = errors.New("override: entity is locked by another save")
+// WithEntityLock) when the project or entity advisory lock could not be
+// acquired within its bounded wait — someone else is already saving this
+// entity, or restoring this project. Callers use errors.Is(err,
+// ErrLockBusy). Task 3 maps this to a 409 on the save side.
+//
+// git restore also joins this exact sentinel onto its own project-lock-busy
+// error (pkg/service/gitmaterializer) so a caller that only cares "is
+// something else holding this lock" can use the same errors.Is check on
+// either side. It lives in pkg/database/advisorylock, not here, and this is
+// a re-export: gitmaterializer's production code cannot import this
+// package directly without creating an import cycle through this
+// package's own integration tests (see advisorylock's doc comment for the
+// exact cycle) — advisorylock has no imports of its own, so both sides
+// depend on it instead of one depending on the other.
+var ErrLockBusy = advisorylock.ErrLockBusy
+
+// ProjectLockKey returns the advisory-lock key for a project-wide lock: the
+// SHARED lock WithAdvisoryLock takes before its entity lock, and the
+// EXCLUSIVE, session-level lock git restore holds across its whole
+// overrides+provenance pipeline (pkg/service/gitmaterializer's
+// Materializer.LockProjectForRestore). Both sides call this
+// (this is a thin re-export of advisorylock.ProjectLockKey — see ErrLockBusy's
+// comment for why the shared definition lives there, not here) so the key
+// can never drift between packages — pg_advisory_lock hashes the string
+// with hashtext, so a mismatched prefix would silently stop the two sides
+// from contending on the same lock at all.
+func ProjectLockKey(projectID string) string {
+	return advisorylock.ProjectLockKey(projectID)
+}

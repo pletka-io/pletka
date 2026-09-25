@@ -52,11 +52,18 @@ func OpenPingedSQLDB(ctx context.Context) (*sql.DB, error) {
 // connections from the same pool for the actual write work; pgx's own
 // default (max(4, NumCPU)) leaves no headroom; on a small instance a
 // handful of concurrent saves can each hold a lock connection and then all
-// block acquiring one for their own work, wedging unrelated reads too. An
-// explicit pool_max_conns in the connection string always wins, higher or
-// lower than the floor: an operator who deliberately caps the pool below
-// 16 — e.g. to fit several instances into one database's connection limit
-// — must not have that choice silently overridden.
+// block acquiring one for their own work, wedging unrelated reads too.
+// pkg/service/gitmaterializer.Materializer.LockProjectForRestore now pins a
+// connection the same way, for a whole restore's pipeline rather than one
+// save — a longer hold, but restores are rare and effectively one-at-a-time
+// (an operator-triggered job, not concurrent request traffic), so it adds
+// at most one more long-lived pinned connection at a time, not the
+// many-at-once pressure concurrent saves create; the floor set for saves
+// already covers it without needing to be raised further. An explicit
+// pool_max_conns in the connection string always wins, higher or lower
+// than the floor: an operator who deliberately caps the pool below 16 —
+// e.g. to fit several instances into one database's connection limit —
+// must not have that choice silently overridden.
 const lockConnFloor = 16
 
 // explicitPoolSizePattern matches a pool_max_conns setting in either
