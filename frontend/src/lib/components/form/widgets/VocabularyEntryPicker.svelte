@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { FieldDef, Translations } from '$lib/types/form-schema';
   import { tr } from '$lib/types/form-schema';
+  import { warnVocabularyDegraded } from '$lib/utils/degraded-warning';
 
   let {
     field,
@@ -118,13 +119,17 @@
     pending = true;
     searchError = '';
     try {
-      const url = new URL(substituteURL(field.search_url ?? ''), window.location.origin);
+      const searchURL = substituteURL(field.search_url ?? '');
+      const url = new URL(searchURL, window.location.origin);
       url.searchParams.set('q', q);
       url.searchParams.set('limit', '20');
       url.searchParams.set('lang', lang);
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Search failed (${res.status})`);
       const data = await res.json();
+      // Console only: the picker still works, it just has fewer suggestions,
+      // and a curator has no action to take.
+      if (data.degraded) warnVocabularyDegraded(searchURL, tr(field.label, lang) || searchURL);
       const seen = new Set<string>();
       const next: VocabularyEntry[] = [];
       for (const item of data.items ?? []) {

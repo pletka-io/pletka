@@ -72,3 +72,14 @@ features:
 git_materializer:
   module_host: "pletka.io"
   ontology_host: "ontology.pletka.io"
+
+# Vocabulary service
+# base_url is the one vocabulary service this instance talks to. Every
+# weave_vocabularies row with connector_type "vocabservice" uses it; a row's
+# own base_url, if it has one, is overwritten with this value and never read.
+# Unset means no service is configured and those rows fall back to local
+# (their stored entries only, no remote suggestions). The reference
+# deployment is https://vocab.pletka.io — see
+# docs-oss/reference/vocabulary-service-contract.md.
+#vocabulary_service:
+#  base_url: "https://vocab.pletka.io"

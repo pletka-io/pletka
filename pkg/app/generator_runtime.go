@@ -44,7 +44,7 @@ func NewGeneratorRuntime(opts Options) (*GeneratorRuntime, error) {
 	changeLog := domain.NoopChangeLogRunner()
 	languages := []formschema.LanguageInfo(nil)
 	langResolver := func(*http.Request) string { return "" }
-	projectHost := buildProjectHost(opts.Pool, weaveStore, opts.Logger, changeLog, languages, nil)
+	projectHost := buildProjectHost(opts.Pool, weaveStore, opts.Logger, changeLog, languages, nil, opts.VocabularyServiceURL)
 	_, namespaceSvc := buildNamespaceBindingHost(opts.Pool, opts.Logger, changeLog, languages, nil)
 	fieldHost, modelHost, collectionHost, _ := buildCoreEntityHosts(coreEntityDeps{
 		Pool:      opts.Pool,
