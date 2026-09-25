@@ -124,6 +124,10 @@ export interface ConceptListCap {
   seal_url?: string;
   /** Per-term hierarchy endpoint; {conceptID} = vocabulary entry id. GET/POST, DELETE at .../{edgeID}. */
   broader_url_template?: string;
+  /** Display name of the list's source vocabulary, for "Add from {name}". */
+  source_name?: string;
+  /** True when a remote authority (aat/sparql/csv) backs the list; false → local-direct add. */
+  has_remote_source?: boolean;
 }
 
 /** One relationship's usages: same-project models/collections plus

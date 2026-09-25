@@ -16,7 +16,11 @@
   const entries = $derived(viewState.response?.entries ?? []);
   const caps = $derived(viewState.response?.capabilities?.concept_list);
   const isClosed = $derived(Boolean(caps?.is_closed));
-  const canAdd = $derived(Boolean(caps?.add_entry_url && caps?.search_entries_url) && !isClosed);
+  const hasRemoteSource = $derived(Boolean(caps?.has_remote_source));
+  const sourceName = $derived(caps?.source_name ?? '');
+  // Source search is only meaningful when a remote authority backs the list;
+  // a local-only list goes straight to term creation.
+  const canAdd = $derived(Boolean(caps?.add_entry_url && caps?.search_entries_url) && hasRemoteSource && !isClosed);
   const updateTemplate = $derived(caps?.update_entry_url ?? '');
   const removeTemplate = $derived(caps?.remove_entry_url ?? '');
   const reorderURL = $derived(caps?.reorder_url ?? '');
@@ -265,8 +269,8 @@
     }
   }
 
-  async function createTerm() {
-    const label = termLabel.trim();
+  async function createTerm(labelText?: string) {
+    const label = (labelText ?? termLabel).trim();
     if (!createTermURL || !label) return;
     creatingTerm = true;
     try {
@@ -281,6 +285,10 @@
       }
       addToast('success', 'Term added');
       termLabel = '';
+      query = '';
+      open = false;
+      results = [];
+      completedQuery = '';
       await viewState.init();
     } catch (err) {
       addToast('error', err instanceof Error ? err.message : 'Failed to add term');
@@ -421,57 +429,43 @@
       {/if}
     </div>
 
-    {#if createTermURL && !isClosed}
-      <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
-        <label class="block text-sm font-medium text-gray-700" for="concept-list-new-term">
-          Add a new term
-        </label>
-        <p class="mt-0.5 text-xs text-gray-500">Creates a hand-authored concept in this project — no external authority needed.</p>
-        <div class="mt-2 flex items-center gap-2">
-          <input
-            id="concept-list-new-term"
-            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-pletka-primary focus:ring-pletka-primary sm:text-sm"
-            placeholder="e.g. Female"
-            bind:value={termLabel}
-            onkeydown={(e) => e.key === 'Enter' && createTerm()}
-          />
-          <button
-            type="button"
-            class="shrink-0 rounded-md bg-pletka-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-pletka-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={creatingTerm || !termLabel.trim()}
-            onclick={createTerm}
-          >
-            {creatingTerm ? 'Adding...' : 'Add term'}
-          </button>
-        </div>
-      </div>
-    {/if}
-
-    {#if canAdd}
+    {#if !isClosed && hasRemoteSource}
       <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
         <label class="block text-sm font-medium text-gray-700" for="concept-list-entry-search">
-          Add from source vocabulary
+          Add from {sourceName || 'source vocabulary'}
         </label>
+        <p class="mt-0.5 text-xs text-gray-500">Search {sourceName || 'the source vocabulary'}; if it has no match you can add the term to this project instead.</p>
         <div class="relative mt-2">
           <input
             id="concept-list-entry-search"
             class="block w-full rounded-md border-gray-300 shadow-sm focus:border-pletka-primary focus:ring-pletka-primary sm:text-sm"
-            placeholder="Browse terms or type to filter..."
+            placeholder={`Search ${sourceName || 'the source vocabulary'}…`}
             bind:value={query}
             oninput={handleQueryInput}
             onfocus={() => (open = true)}
           />
         </div>
         {#if open}
-          <div class="mt-3 divide-y divide-gray-200 rounded-md border border-gray-200 bg-white">
+          <div class="mt-3 max-h-72 divide-y divide-gray-200 overflow-y-auto rounded-md border border-gray-200 bg-white">
             {#if searching || pending || completedQuery !== query.trim()}
-              <div class="px-4 py-3 text-sm text-gray-500">Searching...</div>
+              <div class="px-4 py-3 text-sm text-gray-500">Searching {sourceName || 'source'}…</div>
             {:else if searchError}
               <div class="px-4 py-3 text-sm text-red-600">{searchError}</div>
             {:else if results.length === 0 && completedQuery === query.trim()}
-              <div class="px-4 py-3 text-sm text-gray-400">
-                No matching concepts. If this list draws on an external authority (e.g. AAT / Getty) it may be
-                temporarily unavailable — {createTermURL ? 'you can add the term by hand above.' : 'try again later.'}
+              <div class="px-4 py-3 text-sm">
+                {#if query.trim() && createTermURL}
+                  <span class="text-gray-500">No match in {sourceName || 'the source'}.</span>
+                  <button
+                    type="button"
+                    class="ml-1 font-medium text-pletka-primary hover:underline disabled:opacity-60"
+                    disabled={creatingTerm}
+                    onclick={() => createTerm(query)}
+                  >
+                    {creatingTerm ? 'Adding…' : `Add “${query.trim()}” as a new term`}
+                  </button>
+                {:else}
+                  <span class="text-gray-400">No concepts found.</span>
+                {/if}
               </div>
             {:else}
               {#each results as result (result.vocabulary_entry_id || result.entry.uri)}
@@ -516,6 +510,32 @@
             {/if}
           </div>
         {/if}
+      </div>
+    {/if}
+
+    {#if !isClosed && !hasRemoteSource && createTermURL}
+      <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+        <label class="block text-sm font-medium text-gray-700" for="concept-list-new-term">
+          Add a term
+        </label>
+        <p class="mt-0.5 text-xs text-gray-500">This list has no external source vocabulary — terms are created directly in this project.</p>
+        <div class="mt-2 flex items-center gap-2">
+          <input
+            id="concept-list-new-term"
+            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-pletka-primary focus:ring-pletka-primary sm:text-sm"
+            placeholder="e.g. Female"
+            bind:value={termLabel}
+            onkeydown={(e) => e.key === 'Enter' && createTerm()}
+          />
+          <button
+            type="button"
+            class="shrink-0 rounded-md bg-pletka-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-pletka-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={creatingTerm || !termLabel.trim()}
+            onclick={() => createTerm()}
+          >
+            {creatingTerm ? 'Adding…' : 'Add term'}
+          </button>
+        </div>
       </div>
     {/if}
   </div>
@@ -610,10 +630,12 @@
                 <div class="mt-3">
                   <button
                     type="button"
-                    class="text-xs font-medium text-gray-500 hover:text-gray-800"
+                    class="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
                     onclick={() => toggleHierarchy(entry.vocabulary_entry_id)}
+                    aria-expanded={hierarchyOpenID === entry.vocabulary_entry_id}
                   >
-                    {hierarchyOpenID === entry.vocabulary_entry_id ? 'Hide hierarchy' : 'Hierarchy'}
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7h6l2 2h10M3 12h4M7 17h4" /></svg>
+                    {hierarchyOpenID === entry.vocabulary_entry_id ? 'Hide broader / narrower' : 'Broader / narrower'}
                   </button>
                   {#if hierarchyOpenID === entry.vocabulary_entry_id}
                     <div class="mt-2 max-w-xl rounded-md border border-gray-200 bg-gray-50 p-3">
