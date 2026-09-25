@@ -1897,3 +1897,27 @@ func (s *Service) conceptNamespace(ctx context.Context, projectID string) string
 	}
 	return strings.TrimSpace(*ns)
 }
+
+// ConceptListMemberURIs returns the distinct member concept URIs across the
+// given concept lists (by id or semantic id), with local pletka: curies
+// expanded to the project's concept namespace so the values are absolute IRIs
+// consistent with SKOS export. Satisfies the generators ConceptEnumReader
+// (#3599).
+func (s *Service) ConceptListMemberURIs(ctx context.Context, projectID string, listIDs []string) ([]string, error) {
+	if len(listIDs) == 0 {
+		return nil, nil
+	}
+	uris, err := s.queries.WeaveListConceptListMemberURIs(ctx, listIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list concept list member URIs: %w", err)
+	}
+	ns := s.conceptNamespace(ctx, projectID)
+	out := make([]string, 0, len(uris))
+	for _, uri := range uris {
+		if rest, ok := strings.CutPrefix(uri, "pletka:"); ok {
+			uri = ns + rest
+		}
+		out = append(out, uri)
+	}
+	return out, nil
+}

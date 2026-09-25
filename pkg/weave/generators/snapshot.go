@@ -51,6 +51,13 @@ type FieldNode struct {
 	// Collection entity.
 	CollectionName domain.Translations `json:"collection_name,omitempty"`
 
+	// ConceptEnum is the sorted, de-duplicated set of member concept URIs from
+	// the field's bound *sealed* concept lists. Populated only when a concept
+	// enum reader is wired (host build) and at least one bound list is sealed;
+	// generators (SHACL sh:in, later Arches) emit it as an exhaustive value
+	// constraint (#3599). Empty for open/unbound fields.
+	ConceptEnum []string `json:"concept_enum,omitempty"`
+
 	// GraftPath is the chain of Collection-stub fields that anchored this
 	// field's grafted position. Empty on an un-grafted field (the field
 	// sits directly on the model or its declared collection). Non-empty on
