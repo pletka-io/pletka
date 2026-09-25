@@ -82,10 +82,15 @@ func (s *postgresStore) VocabularySettingsState(ctx context.Context, projectID s
 	if err != nil {
 		return VocabularySettingsState{}, err
 	}
+	namespace := ""
+	if ns, err := s.queries.WeaveGetProjectConceptNamespace(ctx, projectID); err == nil && ns != nil {
+		namespace = *ns
+	}
 	return VocabularySettingsState{
-		Options:  options,
-		Selected: selected,
-		Enforce:  enforce,
+		Options:   options,
+		Selected:  selected,
+		Enforce:   enforce,
+		Namespace: namespace,
 	}, nil
 }
 
@@ -101,7 +106,7 @@ func (s *postgresStore) GlobalVocabularyIDs(ctx context.Context) (map[string]boo
 	return out, nil
 }
 
-func (s *postgresStore) UpdateVocabularySettings(ctx context.Context, projectID string, vocabularyIDs []string, enforceConceptLists bool) error {
+func (s *postgresStore) UpdateVocabularySettings(ctx context.Context, projectID string, vocabularyIDs []string, enforceConceptLists bool, conceptNamespace string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin vocabulary settings update: %w", err)
@@ -125,6 +130,16 @@ func (s *postgresStore) UpdateVocabularySettings(ctx context.Context, projectID 
 		EnforceConceptLists: enforceConceptLists,
 	}); err != nil {
 		return fmt.Errorf("update concept-list enforcement: %w", err)
+	}
+	var ns *string
+	if trimmed := strings.TrimSpace(conceptNamespace); trimmed != "" {
+		ns = &trimmed
+	}
+	if err := q.WeaveUpdateProjectConceptNamespace(ctx, sqlcgen.WeaveUpdateProjectConceptNamespaceParams{
+		ID:               projectID,
+		ConceptNamespace: ns,
+	}); err != nil {
+		return fmt.Errorf("update concept namespace: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit vocabulary settings update: %w", err)

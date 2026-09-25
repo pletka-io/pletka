@@ -17,9 +17,10 @@ type VocabularySettingsOption struct {
 }
 
 type VocabularySettingsState struct {
-	Options  []VocabularySettingsOption
-	Selected []string
-	Enforce  bool
+	Options   []VocabularySettingsOption
+	Selected  []string
+	Enforce   bool
+	Namespace string // concept namespace override (F4, #3599); "" = platform default
 }
 
 type Store interface {
@@ -27,5 +28,5 @@ type Store interface {
 	ReleaseArchived(ctx context.Context, projectID, version string) (bool, error)
 	VocabularySettingsState(ctx context.Context, projectID string) (VocabularySettingsState, error)
 	GlobalVocabularyIDs(ctx context.Context) (map[string]bool, error)
-	UpdateVocabularySettings(ctx context.Context, projectID string, vocabularyIDs []string, enforceConceptLists bool) error
+	UpdateVocabularySettings(ctx context.Context, projectID string, vocabularyIDs []string, enforceConceptLists bool, conceptNamespace string) error
 }

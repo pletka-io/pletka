@@ -144,7 +144,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load vocabulary settings")
 			return
 		}
-		schema = formschema.BuildVocabularySettingsSchema(project.ID, vocabularySelectOptions(vocabState.Options), vocabState.Selected, vocabState.Enforce, lang, h.languages)
+		schema = formschema.BuildVocabularySettingsSchema(project.ID, vocabularySelectOptions(vocabState.Options), vocabState.Selected, vocabState.Enforce, vocabState.Namespace, lang, h.languages)
 	case "autocomplete":
 		schema = formschema.BuildOntologyProbeSchema(lang, h.languages)
 	case "ontology":
@@ -416,6 +416,7 @@ func (h *Handler) UpdateVocabularies(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		VocabularyIDs       []string `json:"vocabulary_ids"`
 		EnforceConceptLists bool     `json:"enforce_concept_lists"`
+		ConceptNamespace    string   `json:"concept_namespace"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
@@ -443,7 +444,7 @@ func (h *Handler) UpdateVocabularies(w http.ResponseWriter, r *http.Request) {
 		selected = append(selected, id)
 	}
 
-	if err := h.store.UpdateVocabularySettings(ctx, projectID, selected, body.EnforceConceptLists); err != nil {
+	if err := h.store.UpdateVocabularySettings(ctx, projectID, selected, body.EnforceConceptLists, body.ConceptNamespace); err != nil {
 		h.log.Error("save vocabulary settings", "project_id", projectID, "err", err)
 		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to save vocabulary settings")
 		return

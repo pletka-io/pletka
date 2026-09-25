@@ -293,7 +293,10 @@ func BuildGeneralSettingsSchema(project *domain.Project, canFlagCoreWeave bool, 
 	return schema
 }
 
-func BuildVocabularySettingsSchema(projectID string, vocabularyOptions []SelectOption, selectedVocabularyIDs []string, enforceConceptLists bool, lang string, languages []LanguageInfo) *FormSchema {
+// BuildVocabularySettingsSchema builds the project's vocabulary settings form:
+// exposed source vocabularies, concept-list enforcement, and the concept
+// namespace override used for RDF/SKOS export (F4, #3599).
+func BuildVocabularySettingsSchema(projectID string, vocabularyOptions []SelectOption, selectedVocabularyIDs []string, enforceConceptLists bool, conceptNamespace string, lang string, languages []LanguageInfo) *FormSchema {
 	return &FormSchema{
 		EntityType: "project_settings",
 		Mode:       ModeEdit,
@@ -320,6 +323,13 @@ func BuildVocabularySettingsSchema(projectID string, vocabularyOptions []SelectO
 						Label:  i18n.L("project_settings.vocabularies.enforce", "Enforce concept lists"),
 						Help:   i18n.L("project_settings.vocabularies.enforce_help", "When enabled, concept values should come from the concept lists configured for each field. Keep off while auditing legacy fields."),
 						Value:  enforceConceptLists,
+					},
+					{
+						Name:   "concept_namespace",
+						Widget: WidgetText,
+						Label:  i18n.L("project_settings.vocabularies.namespace", "Concept namespace"),
+						Help:   i18n.L("project_settings.vocabularies.namespace_help", "Base IRI that this project's local concept identifiers expand to in RDF/SKOS exports. Leave blank for the platform default (https://vocab.pletka.io/)."),
+						Value:  conceptNamespace,
 					},
 				},
 			},
