@@ -454,13 +454,20 @@ func (h *Handler) SearchVocabularyEntries(w http.ResponseWriter, r *http.Request
 		apierror.Write(w, apierror.NotFound("vocabulary not found"))
 		return
 	}
-	items, err := h.svc.SearchVocabularyEntries(r.Context(), vocabularyID, r.URL.Query().Get("q"), h.requestLang(r), requestLimit(r))
+	items, degraded, err := h.svc.SearchVocabularyEntriesDegradable(r.Context(), vocabularyID, r.URL.Query().Get("q"), h.requestLang(r), requestLimit(r), "")
 	if err != nil {
 		h.logger.Error("search vocabulary entries failed", "err", err, "vocabulary_id", vocabularyID)
 		apierror.Write(w, apierror.Internal())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": len(items)})
+	body := map[string]any{"items": items, "total": len(items)}
+	if degraded {
+		// A failed remote lookup and a genuine no-match are otherwise the same
+		// 200 with an empty list, so neither a browser's network tab nor a
+		// developer without server-log access can tell them apart.
+		body["degraded"] = true
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 func (h *Handler) ResolveEntry(w http.ResponseWriter, r *http.Request) {
