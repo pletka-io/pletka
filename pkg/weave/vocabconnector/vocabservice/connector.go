@@ -210,7 +210,7 @@ func (c *Connector) get(ctx context.Context, endpoint string, params url.Values,
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("call %s: status %d", endpoint, resp.StatusCode)
+		return decodeServiceError(endpoint, resp)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(into); err != nil {
 		return fmt.Errorf("decode %s: %w", endpoint, err)
