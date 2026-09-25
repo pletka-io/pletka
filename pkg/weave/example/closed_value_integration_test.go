@@ -19,11 +19,11 @@ func exec(t *testing.T, pool *pgxpool.Pool, sql string) {
 	}
 }
 
-// TestConceptURIAllowedForLists_ClosedOnlyExplicit proves a sealed list is
-// exhaustive for value validation: a term from the list's source vocabulary
-// that is NOT an explicit entry is allowed while the list is open, but rejected
-// once the list is sealed; an explicit entry is always allowed.
-func TestConceptURIAllowedForLists_ClosedOnlyExplicit(t *testing.T) {
+// TestConceptURIAllowedForLists_AlwaysExplicit proves value validation accepts
+// only a list's explicit entries — open or sealed. A source-vocab term that is
+// not an entry is rejected in both states; open/sealed governs list-membership
+// editing, not which values a bound field accepts (#3599).
+func TestConceptURIAllowedForLists_AlwaysExplicit(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 
@@ -43,20 +43,21 @@ func TestConceptURIAllowedForLists_ClosedOnlyExplicit(t *testing.T) {
 	store := example.NewPostgresStore(pool).(conceptValidator)
 	lists := []string{"CVCL"}
 
-	// OPEN: uri:2 is from the source vocab but not an explicit entry -> allowed.
-	if ok, err := store.ConceptURIAllowedForLists(ctx, "uri:2", lists); err != nil || !ok {
-		t.Fatalf("open list should allow a source-vocab term: ok=%v err=%v", ok, err)
-	}
-
-	// Seal the list.
-	exec(t, pool, `UPDATE weave_concept_lists SET is_closed = true WHERE id = 'CVCL'`)
-
-	// CLOSED: uri:2 (not an explicit entry) is now rejected.
+	// OPEN: uri:2 is from the source vocab but not an explicit entry -> rejected.
 	if ok, err := store.ConceptURIAllowedForLists(ctx, "uri:2", lists); err != nil || ok {
-		t.Fatalf("closed list should reject a non-entry term: ok=%v err=%v", ok, err)
+		t.Fatalf("open list should reject a non-entry term: ok=%v err=%v", ok, err)
 	}
-	// CLOSED: uri:1 (explicit entry) is still allowed.
+	// OPEN: uri:1 (explicit entry) -> allowed.
 	if ok, err := store.ConceptURIAllowedForLists(ctx, "uri:1", lists); err != nil || !ok {
-		t.Fatalf("closed list should allow an explicit entry: ok=%v err=%v", ok, err)
+		t.Fatalf("open list should allow an explicit entry: ok=%v err=%v", ok, err)
+	}
+
+	// Sealing changes nothing for value validation.
+	exec(t, pool, `UPDATE weave_concept_lists SET is_closed = true WHERE id = 'CVCL'`)
+	if ok, err := store.ConceptURIAllowedForLists(ctx, "uri:2", lists); err != nil || ok {
+		t.Fatalf("sealed list should reject a non-entry term: ok=%v err=%v", ok, err)
+	}
+	if ok, err := store.ConceptURIAllowedForLists(ctx, "uri:1", lists); err != nil || !ok {
+		t.Fatalf("sealed list should allow an explicit entry: ok=%v err=%v", ok, err)
 	}
 }

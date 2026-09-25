@@ -170,44 +170,19 @@ func (s *postgresStore) ConceptURIAllowedForLists(ctx context.Context, uri strin
 		return true, nil
 	}
 	var allowed bool
+	// A field bound to a control list accepts only that list's own entries —
+	// open or sealed. open/sealed governs whether the list can still grow, not
+	// which values a field accepts; the value must always be a member (#3599).
 	err := s.pool.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
 			FROM weave_concept_lists cl
 			JOIN weave_vocabulary_entries ve
 			  ON ve.uri = $1
-			LEFT JOIN weave_concept_list_entries cle
+			JOIN weave_concept_list_entries cle
 			  ON cle.concept_list_id = cl.id
 			 AND cle.vocabulary_entry_id = ve.id
 			WHERE (cl.id = ANY($2::text[]) OR cl.semantic_id = ANY($2::text[]))
-			  AND (
-			    -- An explicit list entry is always allowed. The broader
-			    -- "any term from the list's source vocabulary" allowances only
-			    -- apply to OPEN lists; a sealed (is_closed) list is exhaustive,
-			    -- so only its explicit entries are valid values (#3599).
-			    cle.id IS NOT NULL
-			    OR (NOT cl.is_closed AND (
-			      (cl.vocabulary_id IS NOT NULL AND cl.vocabulary_id = ve.vocabulary_id)
-			      OR (
-			        cl.vocabulary_id IS NULL
-			        AND NOT EXISTS (
-			          SELECT 1
-			          FROM weave_concept_list_entries existing
-			          WHERE existing.concept_list_id = cl.id
-			        )
-			        AND EXISTS (
-			          SELECT 1
-			          FROM weave_vocabularies v
-			          LEFT JOIN weave_project_vocabularies pv
-			            ON pv.vocabulary_id = v.id
-			           AND pv.project_id = cl.project_id
-			           AND pv.status = 'active'
-			          WHERE v.id = ve.vocabulary_id
-			            AND (v.project_id = cl.project_id OR pv.project_id = cl.project_id)
-			        )
-			      )
-			    ))
-			  )
 		)
 	`, uri, conceptListIDs).Scan(&allowed)
 	return allowed, err

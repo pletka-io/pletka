@@ -269,9 +269,9 @@ func TestServiceBuildFormSchemaExposesConceptSources(t *testing.T) {
 	if len(got.ConceptSources) != 1 {
 		t.Fatalf("ConceptSources = %#v, want one source", got.ConceptSources)
 	}
-	// Open list (default) → source-vocabulary search, scoped to the list's
-	// own project. A sealed list would instead get the list-only endpoint.
-	if got.ConceptSources[0].SearchURL != "/api/v2/projects/SEM/concept-lists/SEM.CL.6/source-entries/search" {
+	// A bound list always autocompletes against only its own entries (open or
+	// sealed) — never the source vocabulary (#3599).
+	if got.ConceptSources[0].SearchURL != "/api/v2/concept-lists/SEM.CL.6/entries/search" {
 		t.Fatalf("SearchURL = %q", got.ConceptSources[0].SearchURL)
 	}
 }
