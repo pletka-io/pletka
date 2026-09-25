@@ -1047,37 +1047,14 @@ func conceptSources(refs []domain.EntityRef) []ConceptListSource {
 			SemanticID: ref.SemanticID,
 			Name:       ref.Name,
 			URL:        ref.URL,
-			SearchURL:  conceptSearchURL(ref),
+			// A field bound to a control list always autocompletes against only
+			// that list's own entries — never the source vocabulary or another
+			// list (#3599). open/sealed governs list-membership editing, not the
+			// value picker. The source vocab is a curation aid on the list page.
+			SearchURL: fmt.Sprintf("/api/v2/concept-lists/%s/entries/search", ref.ID),
 		})
 	}
 	return out
-}
-
-// conceptSearchURL picks the value-picker source for a bound list. A sealed
-// (closed) list is exhaustive, so it offers only its own entries; an open list
-// offers its source vocabulary + connector too, so authors can pin broader
-// terms (#3599). The open URL is project-scoped, so it needs the list's own
-// project (from ref.URL: /projects/{pid}/concept-lists/{id}); if that can't be
-// recovered, fall back to the safe list-only endpoint.
-func conceptSearchURL(ref domain.EntityRef) string {
-	listOnly := fmt.Sprintf("/api/v2/concept-lists/%s/entries/search", ref.ID)
-	if ref.IsClosed {
-		return listOnly
-	}
-	if pid := projectIDFromRefURL(ref.URL); pid != "" {
-		return fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/source-entries/search", pid, ref.ID)
-	}
-	return listOnly
-}
-
-// projectIDFromRefURL extracts {pid} from a /projects/{pid}/concept-lists/{id}
-// ref URL, or "" if the shape doesn't match.
-func projectIDFromRefURL(url string) string {
-	parts := strings.Split(strings.TrimPrefix(url, "/"), "/")
-	if len(parts) >= 2 && parts[0] == "projects" {
-		return parts[1]
-	}
-	return ""
 }
 
 func linkedTargetAllowed(linked *domain.Example, field domain.ResolvedField) bool {
