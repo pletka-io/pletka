@@ -38,6 +38,10 @@
   let searchToken = 0;
   let resolveToken = 0;
 
+  // Once per vocabulary per page load: a keystroke-driven warning would be
+  // useless noise. Nothing is shown to the curator; this is for dev tools.
+  const degradedWarned = new Set<string>();
+
   const sources = $derived(field.concept_sources ?? []);
   const selectedLabel = $derived(selected ? tr(selected.label, lang) || selected.uri : value);
 
@@ -109,6 +113,14 @@
           const res = await fetch(url);
           if (!res.ok) return;
           const data = await res.json();
+          if (data.degraded && !degradedWarned.has(source.id)) {
+            degradedWarned.add(source.id);
+            console.warn(
+              `[pletka] vocabulary lookup degraded for ${tr(source.name, lang) || source.search_url}: ` +
+                'suggestions from this vocabulary are incomplete because the vocabulary service did not answer. ' +
+                'This warning appears once per vocabulary per page load, so this is logged only once even though the lookup keeps failing.',
+            );
+          }
           for (const item of data.items ?? []) {
             const entry = item.entry ?? item;
             const uri = entry.uri;
