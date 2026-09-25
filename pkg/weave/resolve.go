@@ -181,6 +181,7 @@ func attachRefs(
 			case "collection_model":
 				fields[i].CollectionModels = append(fields[i].CollectionModels, eRef)
 			case "concept_list":
+				eRef.IsClosed = lookup.isClosed[ref.TargetID]
 				fields[i].ConceptLists = append(fields[i].ConceptLists, eRef)
 			}
 		}
@@ -191,6 +192,7 @@ func attachRefs(
 type refLookup struct {
 	names      map[string]domain.Translations
 	projectIDs map[string]string
+	isClosed   map[string]bool // concept-list id/semantic-id -> sealed
 }
 
 func batchLoadNames(
@@ -201,6 +203,7 @@ func batchLoadNames(
 	lookup := refLookup{
 		names:      make(map[string]domain.Translations),
 		projectIDs: make(map[string]string),
+		isClosed:   make(map[string]bool),
 	}
 
 	if len(modelIDs) > 0 {
@@ -230,9 +233,11 @@ func batchLoadNames(
 				name := unmarshalDomainTranslations(row.UiName)
 				lookup.names[row.ID] = name
 				lookup.projectIDs[row.ID] = row.ProjectID
+				lookup.isClosed[row.ID] = row.IsClosed
 				if row.SemanticID != nil {
 					lookup.names[*row.SemanticID] = name
 					lookup.projectIDs[*row.SemanticID] = row.ProjectID
+					lookup.isClosed[*row.SemanticID] = row.IsClosed
 				}
 			}
 		}
@@ -582,6 +587,7 @@ func (r *resolver) attachRefsVersion(ctx context.Context, fields []domain.Resolv
 			case "collection_model":
 				fields[i].CollectionModels = append(fields[i].CollectionModels, eRef)
 			case "concept_list":
+				eRef.IsClosed = lookup.isClosed[ref.TargetID]
 				fields[i].ConceptLists = append(fields[i].ConceptLists, eRef)
 			}
 		}
@@ -593,6 +599,7 @@ func (r *resolver) batchLoadNamesVersion(ctx context.Context, modelIDs, collecti
 	lookup := refLookup{
 		names:      make(map[string]domain.Translations),
 		projectIDs: make(map[string]string),
+		isClosed:   make(map[string]bool),
 	}
 	if len(modelIDs) > 0 {
 		rows, err := r.pool.Query(ctx, `
@@ -628,7 +635,7 @@ func (r *resolver) batchLoadNamesVersion(ctx context.Context, modelIDs, collecti
 	}
 	if len(conceptListIDs) > 0 {
 		rows, err := r.pool.Query(ctx, `
-			SELECT id, semantic_id, ui_name, project_id FROM weave_concept_lists_archive
+			SELECT id, semantic_id, ui_name, project_id, is_closed FROM weave_concept_lists_archive
 			WHERE version_number = $2 AND (id = ANY($1) OR semantic_id = ANY($1))
 		`, mapKeys(conceptListIDs), version)
 		if err == nil {
@@ -638,13 +645,16 @@ func (r *resolver) batchLoadNamesVersion(ctx context.Context, modelIDs, collecti
 				var semanticID *string
 				var uiName []byte
 				var projectID string
-				if err := rows.Scan(&id, &semanticID, &uiName, &projectID); err == nil {
+				var isClosed bool
+				if err := rows.Scan(&id, &semanticID, &uiName, &projectID, &isClosed); err == nil {
 					name := unmarshalDomainTranslations(uiName)
 					lookup.names[id] = name
 					lookup.projectIDs[id] = projectID
+					lookup.isClosed[id] = isClosed
 					if semanticID != nil {
 						lookup.names[*semanticID] = name
 						lookup.projectIDs[*semanticID] = projectID
+						lookup.isClosed[*semanticID] = isClosed
 					}
 				}
 			}

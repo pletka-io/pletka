@@ -69,6 +69,10 @@ type EntityRef struct {
 	Name       Translations `json:"name,omitempty"`
 	URL        string       `json:"url,omitempty"`
 	Origin     Origin       `json:"origin,omitempty"`
+	// IsClosed is set only for concept-list refs: true when the list is sealed
+	// (exhaustive). Consumers pick a list-only vs source-vocabulary value
+	// picker from this (#3599). Omitted for other ref types.
+	IsClosed bool `json:"is_closed,omitempty"`
 }
 
 // ResolvedField is a field with its winning override applied and refs resolved.

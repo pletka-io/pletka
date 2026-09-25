@@ -148,7 +148,7 @@ WHERE project_id = @project_id::text
   AND (id = @id::text OR semantic_id = @id::text);
 
 -- name: WeaveGetConceptListNamesByIDs :many
-SELECT id, semantic_id, ui_name, project_id
+SELECT id, semantic_id, ui_name, project_id, is_closed
 FROM weave_concept_lists
 WHERE id = ANY(@ids::text[])
    OR semantic_id = ANY(@ids::text[]);

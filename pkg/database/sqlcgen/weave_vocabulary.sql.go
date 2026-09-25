@@ -348,7 +348,7 @@ func (q *Queries) WeaveGetConceptListByIDOrSemanticID(ctx context.Context, id st
 }
 
 const weaveGetConceptListNamesByIDs = `-- name: WeaveGetConceptListNamesByIDs :many
-SELECT id, semantic_id, ui_name, project_id
+SELECT id, semantic_id, ui_name, project_id, is_closed
 FROM weave_concept_lists
 WHERE id = ANY($1::text[])
    OR semantic_id = ANY($1::text[])
@@ -359,6 +359,7 @@ type WeaveGetConceptListNamesByIDsRow struct {
 	SemanticID *string `json:"semantic_id"`
 	UiName     []byte  `json:"ui_name"`
 	ProjectID  string  `json:"project_id"`
+	IsClosed   bool    `json:"is_closed"`
 }
 
 func (q *Queries) WeaveGetConceptListNamesByIDs(ctx context.Context, ids []string) ([]WeaveGetConceptListNamesByIDsRow, error) {
@@ -375,6 +376,7 @@ func (q *Queries) WeaveGetConceptListNamesByIDs(ctx context.Context, ids []strin
 			&i.SemanticID,
 			&i.UiName,
 			&i.ProjectID,
+			&i.IsClosed,
 		); err != nil {
 			return nil, err
 		}
