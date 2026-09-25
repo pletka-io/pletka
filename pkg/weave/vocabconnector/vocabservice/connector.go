@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -24,6 +25,12 @@ const (
 	maxLimit     = 100
 )
 
+// expectedListingVersion is the discovery contract version this connector
+// decodes GET /vocab against. The owner's call: a service reporting anything
+// else still returns its listing — see Vocabularies — because this exists to
+// warn an operator at configuration time, not to fail authoring.
+const expectedListingVersion = 2
+
 // errNoVocab means a row has no vocabulary name configured: it is the row
 // that is broken, not the service, so Search/Fetch say so without calling the
 // service. Search still wraps it in ErrDegraded — a row that cannot be
@@ -42,6 +49,13 @@ type Config struct {
 	Lang    string `json:"lang,omitempty"`
 	// Timeout bounds a single call; <= 0 falls back to defaultTimeout.
 	Timeout time.Duration `json:"timeout,omitempty"`
+
+	// logger receives warnings raised while configuring a vocabulary — such
+	// as the service reporting an unexpected discovery contract version.
+	// Unexported so it never round-trips through the stored JSON config; New
+	// defaults it to slog.Default() the way vocabulary.Service does for its
+	// own logger field, so no call site changes.
+	logger *slog.Logger
 }
 
 // Connector speaks the vocabulary-service contract for one configured
@@ -60,6 +74,9 @@ func New(cfg Config, client *http.Client) *Connector {
 	cfg.Vocab = strings.TrimSpace(cfg.Vocab)
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = defaultTimeout
+	}
+	if cfg.logger == nil {
+		cfg.logger = slog.Default()
 	}
 	if client == nil {
 		client = http.DefaultClient
@@ -99,16 +116,24 @@ type conceptResponse struct {
 	Parents   []item              `json:"parents"`
 }
 
-type vocabListResponse struct {
-	Vocabs []VocabularyInfo `json:"vocabs"`
+// VocabularyListing is the service's own listing, read when someone is
+// configuring a vocabulary row — never on a curator's keystroke.
+type VocabularyListing struct {
+	Version int              `json:"version"`
+	Vocabs  []VocabularyInfo `json:"vocabs"`
 }
 
 // VocabularyInfo is one entry of the service's own listing, used when
-// configuring which vocabulary a row should serve.
+// configuring which vocabulary a row should serve. Languages is which
+// languages have their own suggest index on that mount — most mounts serve
+// exactly one, and a configuration screen needs it to tell an operator that a
+// Dutch project pointed at an English-only mount will only ever answer in
+// English.
 type VocabularyInfo struct {
-	Name     string `json:"name"`
-	Label    string `json:"label,omitempty"`
-	Concepts int    `json:"concepts,omitempty"`
+	Name      string   `json:"name"`
+	Label     string   `json:"label,omitempty"`
+	Concepts  int      `json:"concepts,omitempty"`
+	Languages []string `json:"languages,omitempty"`
 }
 
 // Search asks the service for suggestions. A failure returns no entries and
@@ -178,12 +203,21 @@ func (c *Connector) Fetch(ctx context.Context, uri string, opts vocabconnector.S
 
 // Vocabularies lists what the service serves. Configuration calls this; a
 // curator typing never does, so it is not cached.
-func (c *Connector) Vocabularies(ctx context.Context) ([]VocabularyInfo, error) {
-	var body vocabListResponse
-	if err := c.get(ctx, "/vocab", nil, &body); err != nil {
-		return nil, fmt.Errorf("list vocabularies: %w", err)
+//
+// A service reporting a discovery version other than expectedListingVersion
+// still has its listing returned — the owner's call is warn, not fail, since
+// this is what lets an operator discover a misconfigured base URL while
+// configuring a vocabulary row, rather than through empty pickers later.
+func (c *Connector) Vocabularies(ctx context.Context) (VocabularyListing, error) {
+	var listing VocabularyListing
+	if err := c.get(ctx, "/vocab", nil, &listing); err != nil {
+		return VocabularyListing{}, fmt.Errorf("list vocabularies: %w", err)
 	}
-	return body.Vocabs, nil
+	if listing.Version != expectedListingVersion {
+		c.cfg.logger.Warn("vocabulary service reported an unexpected discovery contract version",
+			"base_url", c.cfg.BaseURL, "got_version", listing.Version, "want_version", expectedListingVersion)
+	}
+	return listing, nil
 }
 
 func (c *Connector) get(ctx context.Context, endpoint string, params url.Values, into any) error {

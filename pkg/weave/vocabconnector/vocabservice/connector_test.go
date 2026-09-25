@@ -1,11 +1,14 @@
 package vocabservice
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -522,26 +525,31 @@ func TestFetchPropagatesTheServerError(t *testing.T) {
 	}
 }
 
-func TestVocabulariesListsWhatTheServiceServes(t *testing.T) {
+// TestVocabulariesReadsTheListing covers the v2 discovery shape: a top-level
+// version plus, per mount, name/label/concepts/languages. Shaped like the
+// real listing, including the fields core does not read yet: the decode
+// must ignore profile, dump, scheme, kinds, obsolete, languages_skipped,
+// roots, built, source, license, endpoints and extras rather than fail on
+// them.
+func TestVocabulariesReadsTheListing(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/vocab" {
 			t.Errorf("path = %q, want /vocab", r.URL.Path)
 		}
-		// Shaped like the real listing, including the fields core does not
-		// read: the decode must ignore profile, dump, scheme, kinds,
-		// obsolete, languages, roots, built, endpoints and extras rather
-		// than fail on them.
-		_, _ = w.Write([]byte(`{"vocabs":[
-			{"name":"aat","profile":"gvp","dump":"aat","scheme":"http://vocab.getty.edu/aat/",
-			 "concepts":58996,"kinds":{"concept":57085,"guideTerm":1785,"hierarchy":118,"facet":8},
-			 "obsolete":1332,"languages":["en","nl"],"languages_skipped":139,"roots":8,
+		_, _ = w.Write([]byte(`{"version":2,"vocabs":[
+			{"name":"aat","version":2,"label":"Art & Architecture Thesaurus","profile":"gvp","dump":"aat",
+			 "scheme":"http://vocab.getty.edu/aat/","concepts":58996,
+			 "kinds":{"concept":57085,"guideTerm":1785,"hierarchy":118,"facet":8},
+			 "obsolete":1332,"languages":["ar","en","nl"],"languages_skipped":139,"roots":8,
 			 "built":"2026-09-25T14:27:57Z",
+			 "source":{"url":"http://aatdownloads.getty.edu/VocabData/explicit.zip"},
+			 "license":{"name":"ODC-By 1.0"},
 			 "endpoints":{"suggest":"/vocab/aat/suggest","concept":"/vocab/aat/concept/{id}","children":"/vocab/aat/children/{id}"}},
-			{"name":"tgn","profile":"gvp","concepts":2991143,
-			 "extras":{"coordinates":2972719,"placeTypes":2991065},
+			{"name":"tgn","version":2,"label":"Getty Thesaurus of Geographic Names","profile":"gvp","concepts":2991143,
+			 "extras":{"coordinates":2972719,"placeTypes":2991065},"languages":["en"],
 			 "endpoints":{"suggest":"/vocab/tgn/suggest"}},
-			{"name":"ulan","profile":"gvp","concepts":404637,
-			 "extras":{"agentTypes":404637,"biographies":398155,"nationalities":401234},
+			{"name":"ulan","version":2,"profile":"gvp","concepts":404637,
+			 "extras":{"agentTypes":404637,"biographies":398155,"nationalities":401234},"languages":["en"],
 			 "endpoints":{"suggest":"/vocab/ulan/suggest"}}]}`))
 	}))
 	defer srv.Close()
@@ -551,14 +559,62 @@ func TestVocabulariesListsWhatTheServiceServes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Vocabularies: %v", err)
 	}
+	if got.Version != 2 {
+		t.Errorf("Version = %d, want 2", got.Version)
+	}
 	want := []VocabularyInfo{
-		{Name: "aat", Concepts: 58996},
-		{Name: "tgn", Concepts: 2991143},
-		{Name: "ulan", Concepts: 404637},
+		{Name: "aat", Label: "Art & Architecture Thesaurus", Concepts: 58996, Languages: []string{"ar", "en", "nl"}},
+		{Name: "tgn", Label: "Getty Thesaurus of Geographic Names", Concepts: 2991143, Languages: []string{"en"}},
+		{Name: "ulan", Concepts: 404637, Languages: []string{"en"}},
 	}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("Vocabularies mismatch (-want +got):\n%s", diff)
+	if diff := cmp.Diff(want, got.Vocabs); diff != "" {
+		t.Errorf("Vocabs mismatch (-want +got):\n%s", diff)
 	}
+}
+
+// TestVocabulariesWarnsOnAnUnexpectedVersion covers the owner's decision:
+// warn, do not fail. A service reporting something other than the contract
+// version this connector decodes still returns its listing, but logs once —
+// and a service reporting the expected version must not log anything, so the
+// test would fail if the warning were deleted rather than pass vacuously.
+func TestVocabulariesWarnsOnAnUnexpectedVersion(t *testing.T) {
+	t.Run("unexpected version logs and still returns the listing", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"version":3,"vocabs":[{"name":"aat","concepts":58996}]}`))
+		}))
+		defer srv.Close()
+
+		var buf bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&buf, nil))
+		c := New(Config{BaseURL: srv.URL, logger: logger}, srv.Client())
+		got, err := c.Vocabularies(context.Background())
+		if err != nil {
+			t.Fatalf("Vocabularies: %v", err)
+		}
+		if len(got.Vocabs) != 1 || got.Vocabs[0].Name != "aat" {
+			t.Fatalf("Vocabularies = %+v, want the listing to still come back", got)
+		}
+		if !strings.Contains(buf.String(), "level=WARN") {
+			t.Errorf("log output = %q, want a warning logged for version 3", buf.String())
+		}
+	})
+
+	t.Run("version 2 logs nothing", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"version":2,"vocabs":[{"name":"aat","concepts":58996}]}`))
+		}))
+		defer srv.Close()
+
+		var buf bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&buf, nil))
+		c := New(Config{BaseURL: srv.URL, logger: logger}, srv.Client())
+		if _, err := c.Vocabularies(context.Background()); err != nil {
+			t.Fatalf("Vocabularies: %v", err)
+		}
+		if buf.Len() != 0 {
+			t.Errorf("log output = %q, want no warning for the expected version", buf.String())
+		}
+	})
 }
 
 // TestLiveVocabService runs only when KAKUGO_VOCAB_URL names a service, so it
