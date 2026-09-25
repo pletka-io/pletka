@@ -770,6 +770,37 @@ func (q *Queries) WeaveListConceptListEntriesWithVocabulary(ctx context.Context,
 	return items, nil
 }
 
+const weaveListConceptListMemberURIs = `-- name: WeaveListConceptListMemberURIs :many
+SELECT DISTINCT ve.uri
+FROM weave_concept_lists cl
+JOIN weave_concept_list_entries cle ON cle.concept_list_id = cl.id
+JOIN weave_vocabulary_entries ve ON ve.id = cle.vocabulary_entry_id
+WHERE (cl.id = ANY($1::text[]) OR cl.semantic_id = ANY($1::text[]))
+ORDER BY ve.uri
+`
+
+// Distinct member concept URIs across the given concept lists (by id or
+// semantic_id). Used to emit sealed-list value enums in generators (#3599).
+func (q *Queries) WeaveListConceptListMemberURIs(ctx context.Context, ids []string) ([]string, error) {
+	rows, err := q.db.Query(ctx, weaveListConceptListMemberURIs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var uri string
+		if err := rows.Scan(&uri); err != nil {
+			return nil, err
+		}
+		items = append(items, uri)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveListConceptLists = `-- name: WeaveListConceptLists :many
 SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id, is_closed FROM weave_concept_lists
 WHERE project_id = $1

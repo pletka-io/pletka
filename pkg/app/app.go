@@ -34,6 +34,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/publication"
 	weaverouter "github.com/pletka-io/pletka/pkg/weave/router"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
+	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
 
 // IntegrationProjectArtifactProviderFactory supplies project-level integration
@@ -322,6 +323,8 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		namespaceSvc,
 		generatorRenderers,
 	)
+	// Sealed-list value enums in generated schemas (#3599).
+	generatorService.SetConceptEnumReader(vocabulary.NewService(opts.Pool, nil))
 	visualizationHost := buildVisualizationHost(opts.Pool, weaveStore, logger, generatorService, publicationReader)
 	detailViewHost := buildDetailViewHost(opts.Pool, logger, templateRenderer, weaveStore, i18nManager, sessionManager, opts.IntegrationRegistry, ontologySvc, hasFormat, publicationReader)
 	categoryHost, categoryService := buildCategoryHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver)

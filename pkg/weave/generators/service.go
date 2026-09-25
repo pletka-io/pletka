@@ -62,6 +62,14 @@ type NamespaceReader interface {
 	ListForProject(ctx context.Context, projectID string) ([]*domain.NamespaceBinding, error)
 }
 
+// ConceptEnumReader returns the member concept URIs of the given concept lists
+// (union, de-duplicated). Optional — wired by the host so generators can emit
+// value enums for fields bound to sealed lists (#3599); nil in core-only
+// builds and tests, in which case no enum is attached.
+type ConceptEnumReader interface {
+	ConceptListMemberURIs(ctx context.Context, projectID string, listIDs []string) ([]string, error)
+}
+
 // Service builds generator snapshots from narrow cross-slice readers.
 type Service struct {
 	projects    ProjectReader
@@ -70,6 +78,37 @@ type Service struct {
 	fields      FieldReader
 	namespaces  NamespaceReader
 	registry    *Registry
+	conceptEnum ConceptEnumReader // optional; set via SetConceptEnumReader
+}
+
+// SetConceptEnumReader wires the optional reader used to attach sealed-list
+// value enums to snapshot fields (#3599). Host builds call this after
+// construction; leaving it unset disables enum attachment.
+func (s *Service) SetConceptEnumReader(r ConceptEnumReader) { s.conceptEnum = r }
+
+// attachConceptEnums fills FieldNode.ConceptEnum for fields bound to a sealed
+// concept list, from the optional reader. Best-effort: a reader/query error
+// leaves the field's enum empty rather than failing the whole snapshot.
+func (s *Service) attachConceptEnums(ctx context.Context, snap *Snapshot) *Snapshot {
+	if s.conceptEnum == nil || snap == nil {
+		return snap
+	}
+	for i := range snap.Fields {
+		var sealed []string
+		for _, ref := range snap.Fields[i].Field.ConceptLists {
+			if ref.IsClosed && ref.ID != "" {
+				sealed = append(sealed, ref.ID)
+			}
+		}
+		if len(sealed) == 0 {
+			continue
+		}
+		uris, err := s.conceptEnum.ConceptListMemberURIs(ctx, snap.Project.ID, sealed)
+		if err == nil && len(uris) > 0 {
+			snap.Fields[i].ConceptEnum = uris
+		}
+	}
+	return snap
 }
 
 func NewService(
@@ -135,7 +174,7 @@ func (s *Service) SnapshotForModel(ctx context.Context, projectID, modelID strin
 		return nil, err
 	}
 
-	return BuildModelSnapshot(ModelSnapshotInput{
+	return s.attachConceptEnums(ctx, BuildModelSnapshot(ModelSnapshotInput{
 		Project:       *project,
 		Model:         *model,
 		View:          *view,
@@ -144,7 +183,7 @@ func (s *Service) SnapshotForModel(ctx context.Context, projectID, modelID strin
 		Namespaces:  namespaces,
 		Ontologies:  ontologies,
 		Options:     opts,
-	}), nil
+	})), nil
 }
 
 func (s *Service) SnapshotForCollection(ctx context.Context, projectID, collectionID string, opts Options) (*Snapshot, error) {
@@ -175,14 +214,14 @@ func (s *Service) SnapshotForCollection(ctx context.Context, projectID, collecti
 		return nil, err
 	}
 
-	return BuildCollectionSnapshot(CollectionSnapshotInput{
+	return s.attachConceptEnums(ctx, BuildCollectionSnapshot(CollectionSnapshotInput{
 		Project:    *project,
 		Collection: *collection,
 		Fields:     fields,
 		Namespaces: namespaces,
 		Ontologies: ontologies,
 		Options:    opts,
-	}), nil
+	})), nil
 }
 
 func (s *Service) SnapshotForField(ctx context.Context, projectID, fieldID string, opts Options) (*Snapshot, error) {
@@ -212,14 +251,14 @@ func (s *Service) SnapshotForField(ctx context.Context, projectID, fieldID strin
 		return nil, err
 	}
 
-	return BuildFieldSnapshot(FieldSnapshotInput{
+	return s.attachConceptEnums(ctx, BuildFieldSnapshot(FieldSnapshotInput{
 		Project:    *project,
 		Field:      *field,
 		Resolved:   *resolved,
 		Namespaces: namespaces,
 		Ontologies: ontologies,
 		Options:    opts,
-	}), nil
+	})), nil
 }
 
 func (s *Service) GenerateModel(ctx context.Context, projectID, modelID string, format Format, w io.Writer, opts Options) error {

@@ -274,3 +274,13 @@ ORDER BY cle.position ASC, ve.uri ASC;
 
 -- name: WeaveSetConceptListClosed :exec
 UPDATE weave_concept_lists SET is_closed = $2, updated_at = NOW() WHERE id = $1;
+
+-- name: WeaveListConceptListMemberURIs :many
+-- Distinct member concept URIs across the given concept lists (by id or
+-- semantic_id). Used to emit sealed-list value enums in generators (#3599).
+SELECT DISTINCT ve.uri
+FROM weave_concept_lists cl
+JOIN weave_concept_list_entries cle ON cle.concept_list_id = cl.id
+JOIN weave_vocabulary_entries ve ON ve.id = cle.vocabulary_entry_id
+WHERE (cl.id = ANY(@ids::text[]) OR cl.semantic_id = ANY(@ids::text[]))
+ORDER BY ve.uri;

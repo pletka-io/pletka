@@ -14,6 +14,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/genwiring"
 	"github.com/pletka-io/pletka/pkg/weave/model"
+	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
 
 // GeneratorRuntime exposes the app-assembled generator service plus the
@@ -57,16 +58,19 @@ func NewGeneratorRuntime(opts Options) (*GeneratorRuntime, error) {
 	if len(renderers) == 0 {
 		renderers = genwiring.CoreRenderers()
 	}
+	genSvc := buildGeneratorService(
+		opts.Logger,
+		projectHost,
+		fieldHost,
+		modelHost,
+		collectionHost,
+		namespaceSvc,
+		renderers,
+	)
+	// Sealed-list value enums in generated schemas (#3599).
+	genSvc.SetConceptEnumReader(vocabulary.NewService(opts.Pool, nil))
 	return &GeneratorRuntime{
-		Service: buildGeneratorService(
-			opts.Logger,
-			projectHost,
-			fieldHost,
-			modelHost,
-			collectionHost,
-			namespaceSvc,
-			renderers,
-		),
+		Service:     genSvc,
 		models:      model.NewPostgresStore(opts.Pool),
 		collections: collection.NewPostgresStore(opts.Pool),
 		fields:      field.NewPostgresStore(opts.Pool),
