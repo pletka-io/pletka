@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"path"
 	"regexp"
 	"sort"
@@ -39,6 +40,8 @@ type Service struct {
 	queries  *sqlcgen.Queries
 	registry *registry.Registry
 	numberer EntityNumberer
+	logger   *slog.Logger
+	degrade  *degradeLog
 }
 
 type EntityNumberer interface {
@@ -53,7 +56,14 @@ func NewService(pool *pgxpool.Pool, reg *registry.Registry, numberer ...EntityNu
 	if len(numberer) > 0 {
 		n = numberer[0]
 	}
-	return &Service{pool: pool, queries: sqlcgen.New(pool), registry: reg, numberer: n}
+	return &Service{
+		pool:     pool,
+		queries:  sqlcgen.New(pool),
+		registry: reg,
+		numberer: n,
+		logger:   slog.Default(),
+		degrade:  newDegradeLog(),
+	}
 }
 
 type VocabularyView struct {
@@ -1074,30 +1084,38 @@ WHERE id = $2
 }
 
 func (s *Service) SearchVocabularyEntries(ctx context.Context, vocabularyID, query, lang string, limit int) ([]VocabularyEntryView, error) {
-	return s.searchVocabularyEntries(ctx, vocabularyID, query, lang, limit, "")
+	views, _, err := s.searchVocabularyEntries(ctx, vocabularyID, query, lang, limit, "")
+	return views, err
 }
 
 func (s *Service) SearchVocabularyEntriesWithParent(ctx context.Context, vocabularyID, query, lang string, limit int, parentURI string) ([]VocabularyEntryView, error) {
+	views, _, err := s.searchVocabularyEntries(ctx, vocabularyID, query, lang, limit, parentURI)
+	return views, err
+}
+
+// SearchVocabularyEntriesDegradable also reports whether the remote lookup
+// degraded, so a handler can say so without failing the request.
+func (s *Service) SearchVocabularyEntriesDegradable(ctx context.Context, vocabularyID, query, lang string, limit int, parentURI string) ([]VocabularyEntryView, bool, error) {
 	return s.searchVocabularyEntries(ctx, vocabularyID, query, lang, limit, parentURI)
 }
 
-func (s *Service) searchVocabularyEntries(ctx context.Context, vocabularyID, query, lang string, limit int, parentURI string) ([]VocabularyEntryView, error) {
+func (s *Service) searchVocabularyEntries(ctx context.Context, vocabularyID, query, lang string, limit int, parentURI string) ([]VocabularyEntryView, bool, error) {
 	if limit <= 0 || limit > 100 {
 		limit = defaultSearchLimit
 	}
 	vocab, err := s.queries.WeaveGetVocabulary(ctx, vocabularyID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+			return nil, false, nil
 		}
-		return nil, fmt.Errorf("get vocabulary: %w", err)
+		return nil, false, fmt.Errorf("get vocabulary: %w", err)
 	}
 	rows, err := s.queries.WeaveSearchVocabularyEntries(ctx, sqlcgen.WeaveSearchVocabularyEntriesParams{
 		VocabularyID: vocabularyID,
 		Query:        query,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("search vocabulary entries: %w", err)
+		return nil, false, fmt.Errorf("search vocabulary entries: %w", err)
 	}
 	merged := entryRowsToMap(rows)
 	if strings.TrimSpace(parentURI) != "" {
@@ -1109,15 +1127,23 @@ func (s *Service) searchVocabularyEntries(ctx context.Context, vocabularyID, que
 			Limit:     limit,
 			ParentURI: parentURI,
 		})
-		if err != nil && !errors.Is(err, vocabconnector.ErrNotImplemented) {
-			return nil, err
+		degraded, fail := classifyConnectorErr(err)
+		if fail {
+			return nil, false, err
+		}
+		if degraded {
+			if report, count := s.degrade.shouldLog(vocabularyID, time.Now()); report {
+				s.logger.Warn("vocabulary lookup degraded",
+					"vocabulary_id", vocabularyID, "failures_since_last_line", count, "err", err)
+			}
+			return limitedEntryViews(merged, limit), true, nil
 		}
 		for _, connectorRow := range connectorRows {
 			view := connectorEntryView(vocabularyID, connectorRow)
 			merged[view.URI] = view
 		}
 	}
-	return limitedEntryViews(merged, limit), nil
+	return limitedEntryViews(merged, limit), false, nil
 }
 
 // ConceptListProjectID returns the project a concept list belongs to, or "" if
