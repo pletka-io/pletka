@@ -9,6 +9,17 @@ import (
 
 var ErrNotImplemented = errors.New("vocabulary connector not implemented")
 
+// ErrDegraded is returned with zero entries when a lookup could not be
+// performed: a timeout, a transport failure, a non-2xx status, or a body that
+// would not decode. It is NOT "found nothing".
+//
+// A connector returns it instead of swallowing the failure, so that the policy
+// decision — autocomplete never errors — is made once, in the vocabulary
+// service, rather than separately inside every connector. A connector that
+// swallows its own failures cannot be told apart from one that genuinely
+// matched nothing, which is what made a service outage invisible.
+var ErrDegraded = errors.New("vocabulary lookup degraded")
+
 type Entry struct {
 	URI              string                      `json:"uri"`
 	Label            domain.Translations         `json:"label"`
