@@ -317,6 +317,75 @@ func TestFetchFallsBackToEnglishWhenTheConceptHasNoLabelInTheRequestedLanguage(t
 	}
 }
 
+// TestFetchTreatsAnEmptyLabelValueAsNoValueForThatLanguage is fix round 2,
+// item 1: a language key present with an empty string is not a real value.
+// Left as a hit, it pins resolution to a language with nothing in it, which
+// both stores an empty label past the caller's len(label)==0 guard and, since
+// label and chain resolution share the same lookup, drops an ancestor chain
+// that exists in another language along with it.
+func TestFetchTreatsAnEmptyLabelValueAsNoValueForThatLanguage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"prefLabel":{"nl":"","en":"bronze"},
+			"parentString":{"en":"copper alloy, metal"},
+			"broader":"http://vocab.getty.edu/aat/300010942"}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "nl"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if _, hasEmptyNL := entry.Label["nl"]; hasEmptyNL {
+		t.Errorf("Label = %v; an empty nl value must not survive into the stored label", entry.Label)
+	}
+	if entry.Label["en"] != "bronze" {
+		t.Errorf("Label[en] = %q, want the English fallback since nl was empty", entry.Label["en"])
+	}
+	if diff := cmp.Diff([]string{"copper alloy", "metal"}, entry.BroaderPath); diff != "" {
+		t.Errorf("BroaderPath mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFetchFallsBackTheChainIndependentlyOfTheLabelsLanguage is fix round 2,
+// item 2: the ancestor chain resolves on its own — label language, then
+// English, then whichever language the concept has a chain in — instead of
+// staying pinned to whatever language the label ended up in, and the refs
+// are stamped with the chain's own language, not the label's.
+func TestFetchFallsBackTheChainIndependentlyOfTheLabelsLanguage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"prefLabel":{"nl":"brons","en":"bronze"},
+			"parentString":{"en":"copper alloy, metal"},
+			"broader":"http://vocab.getty.edu/aat/300010942"}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "nl"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if entry.Label["nl"] != "brons" {
+		t.Errorf("Label[nl] = %q, want brons", entry.Label["nl"])
+	}
+	if diff := cmp.Diff([]string{"copper alloy", "metal"}, entry.BroaderPath); diff != "" {
+		t.Errorf("BroaderPath mismatch (-want +got):\n%s", diff)
+	}
+	if len(entry.BroaderPathItems) == 0 {
+		t.Fatal("BroaderPathItems is empty, want the English-only chain")
+	}
+	if entry.BroaderPathItems[0].Label["en"] != "copper alloy" {
+		t.Errorf("BroaderPathItems[0].Label[en] = %q, want copper alloy: the ref must be stamped "+
+			"with the chain's own language (English), not the label's (Dutch)", entry.BroaderPathItems[0].Label["en"])
+	}
+	if _, hasDutch := entry.BroaderPathItems[0].Label["nl"]; hasDutch {
+		t.Errorf("BroaderPathItems[0] = %+v carries a Dutch label, but the chain only exists in English",
+			entry.BroaderPathItems[0])
+	}
+}
+
 // TestFetchNarrowsTheStoredLabelToTheResolvedLanguagePlusEnglish is the ruled
 // fix for item 3: the stored entry carries the language Fetch resolved to,
 // plus English when that differs, never the concept's whole language set —

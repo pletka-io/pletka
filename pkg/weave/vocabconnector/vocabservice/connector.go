@@ -228,10 +228,9 @@ func hitToEntry(hit suggestHit, lang string) vocabconnector.Entry {
 		URI:        NormalizeURI(hit.URI),
 		ExternalID: hit.ID,
 	}
-	// hitLang is the language the label ended up in, and it is what the
-	// ancestor chain below is read in too: label and chain must agree on one
-	// language, or the picker shows an ancestor path in a language its own
-	// label was never resolved to.
+	// hitLang is the language the label ended up in. The ancestor chain below
+	// starts its own resolution there, but does not stay pinned to it — see
+	// resolveChain.
 	hitLang := lang
 	switch {
 	case hit.PrefLabel.byLang != nil:
@@ -261,37 +260,62 @@ func hitToEntry(hit suggestHit, lang string) vocabconnector.Entry {
 	if hit.Broader != nil {
 		entry.BroaderURI = NormalizeURI(*hit.Broader)
 	}
-	if hit.ParentString != nil {
-		var chain string
-		if hit.ParentString.byLang != nil {
-			chain, _, _ = lookupLang(hit.ParentString.byLang, hitLang)
-		} else {
-			chain = hit.ParentString.text
-		}
-		if chain != "" {
-			entry.BroaderPath = SplitParentString(chain)
-			entry.BroaderPathItems = ParentStringRefs(chain, hitLang)
-			// parentString is nearest-first, so its first element IS the broader
-			// concept; give that item the identity we already know.
-			if len(entry.BroaderPathItems) > 0 && entry.BroaderURI != "" {
-				entry.BroaderPathItems[0].URI = entry.BroaderURI
-				entry.BroaderPathItems[0].ID = conceptID(entry.BroaderURI)
-			}
+	// The chain falls back on its own — label language, then English, then
+	// whichever language the concept has a chain in at all — rather than
+	// being pinned to hitLang: a concept can have ancestors only in a
+	// language its own label never resolved to, and dropping them there is
+	// exactly the permanently-empty stored path this connector exists to
+	// avoid. ParentStringRefs is stamped with the chain's own language below,
+	// so a curator sees an honest "these ancestors are in English" rather
+	// than none, and never a Dutch label with Spanish ancestors mislabeled
+	// as Dutch.
+	chain, chainLang := resolveChain(hit.ParentString, hitLang)
+	if chain != "" {
+		entry.BroaderPath = SplitParentString(chain)
+		entry.BroaderPathItems = ParentStringRefs(chain, chainLang)
+		// parentString is nearest-first, so its first element IS the broader
+		// concept; give that item the identity we already know.
+		if len(entry.BroaderPathItems) > 0 && entry.BroaderURI != "" {
+			entry.BroaderPathItems[0].URI = entry.BroaderURI
+			entry.BroaderPathItems[0].ID = conceptID(entry.BroaderURI)
 		}
 	}
 	return entry
 }
 
+// resolveChain picks the ancestor chain and the language it actually came in.
+// field is nil for a hit with no parentString at all (a facet root, or a
+// /suggest hit that never had one). labelLang is where resolution starts —
+// the label's own language — not where it must end: see the comment at the
+// call site.
+func resolveChain(field *hitText, labelLang string) (chain, chainLang string) {
+	if field == nil {
+		return "", labelLang
+	}
+	if field.byLang != nil {
+		if value, resolvedLang, ok := resolveByLang(field.byLang, labelLang); ok {
+			return value, resolvedLang
+		}
+		return "", labelLang
+	}
+	return field.text, labelLang
+}
+
 // lookupLang finds byLang's value for lang, matched case-insensitively: the
 // service itself matches lang case-insensitively and echoes back its own
 // spelling, so an exact map lookup on the caller's spelling can miss an entry
-// that is really there.
+// that is really there. A key present with an empty string counts as no
+// value for that language, not a hit: the contract's own documented shape is
+// to omit a language entirely rather than send it empty, but treating an
+// empty string as present would store an empty label and, because label and
+// chain resolution share this lookup, silently drop an ancestor chain that
+// exists in another language.
 func lookupLang(byLang map[string]string, lang string) (value, key string, ok bool) {
-	if v, exists := byLang[lang]; exists {
+	if v, exists := byLang[lang]; exists && v != "" {
 		return v, lang, true
 	}
 	for k, v := range byLang {
-		if strings.EqualFold(k, lang) {
+		if v != "" && strings.EqualFold(k, lang) {
 			return v, k, true
 		}
 	}
@@ -303,8 +327,8 @@ func lookupLang(byLang map[string]string, lang string) (value, key string, ok bo
 // response actually has. That last case is resolved deterministically (the
 // lexicographically smallest key), not by map iteration order, so the same
 // response always resolves to the same language. ok is false only when
-// byLang holds nothing at all (the concept has no values for that predicate
-// in any language).
+// byLang holds no non-empty value in any language (empty values are treated
+// as absent, see lookupLang).
 func resolveByLang(byLang map[string]string, lang string) (value, resolvedLang string, ok bool) {
 	if v, k, found := lookupLang(byLang, lang); found {
 		return v, k, true
@@ -314,12 +338,14 @@ func resolveByLang(byLang map[string]string, lang string) (value, resolvedLang s
 			return v, k, true
 		}
 	}
-	if len(byLang) == 0 {
-		return "", "", false
-	}
 	keys := make([]string, 0, len(byLang))
-	for k := range byLang {
-		keys = append(keys, k)
+	for k, v := range byLang {
+		if v != "" {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		return "", "", false
 	}
 	sort.Strings(keys)
 	return byLang[keys[0]], keys[0], true
