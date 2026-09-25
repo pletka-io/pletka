@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/vocabconnector"
 )
 
@@ -618,7 +619,15 @@ func TestVocabulariesWarnsOnAnUnexpectedVersion(t *testing.T) {
 }
 
 // TestLiveVocabService runs only when KAKUGO_VOCAB_URL names a service, so it
-// never runs in CI. Run it once by hand against https://vocab.pletka.io.
+// never runs in CI. Run it once by hand against https://vocab.pletka.io:
+//
+//	KAKUGO_VOCAB_URL=https://vocab.pletka.io go test ./pkg/weave/vocabconnector/vocabservice/ -run TestLive -count=1 -v
+//
+// It exercises aat, tgn and ulan with a Search and a Fetch each, and
+// separately proves the contract document's bronze example against the real
+// service: AAT 300010957 fetched at lang=en has a third ancestor (300011014)
+// with no English prefLabel, so v2 must report it honestly in Spanish rather
+// than stamp it with the requested language the way v1's parentString did.
 func TestLiveVocabService(t *testing.T) {
 	base := os.Getenv("KAKUGO_VOCAB_URL")
 	if base == "" {
@@ -657,6 +666,37 @@ func TestLiveVocabService(t *testing.T) {
 				tc.vocab, len(entries), entry.ExternalID, entry.Label[tc.lang], entry.BroaderPath)
 		})
 	}
+
+	// TestLiveVocabService/aat_ancestor_keeps_its_own_language is the one
+	// assertion the v1 connector could never make: fetch a concept whose
+	// ancestor chain contains a link in a language other than the requested
+	// one, and assert we kept that link's own language rather than silently
+	// stamping it with "en". This is the contract document's bronze example.
+	t.Run("aat ancestor keeps its own language", func(t *testing.T) {
+		c := New(Config{BaseURL: base, Vocab: "aat"}, nil)
+		entry, err := c.Fetch(context.Background(), "http://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "en"})
+		if err != nil {
+			t.Fatalf("live Fetch: %v", err)
+		}
+		var ancestor *domain.VocabularyEntryRef
+		for i := range entry.BroaderPathItems {
+			if entry.BroaderPathItems[i].ExternalID == "300011014" {
+				ancestor = &entry.BroaderPathItems[i]
+				break
+			}
+		}
+		if ancestor == nil {
+			t.Fatalf("live Fetch of 300010957 (lang=en) has no ancestor 300011014; got %v", entry.BroaderPath)
+		}
+		if _, ok := ancestor.Label["es"]; !ok {
+			t.Fatalf("ancestor 300011014 Label = %v, want it keyed \"es\" (this concept has no English prefLabel)", ancestor.Label)
+		}
+		if _, ok := ancestor.Label["en"]; ok {
+			t.Errorf("ancestor 300011014 Label = %v, must not be stamped with the requested language \"en\"", ancestor.Label)
+		}
+		t.Logf("aat 300010957 (lang=en): ancestor 300011014 kept its own language, Label = %v, BroaderPath = %v",
+			ancestor.Label, entry.BroaderPath)
+	})
 }
 
 func contains(haystack, needle string) bool {
