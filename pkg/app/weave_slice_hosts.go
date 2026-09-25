@@ -200,12 +200,13 @@ func buildProjectHost(
 	langResolver project.LangResolver,
 ) project.Host {
 	return project.Host{
-		Service:      project.NewService(project.NewPostgresStore(pool), weave.Projects(), weave.Memberships(), vocabulary.NewService(pool, registry.New(http.DefaultClient)), logger),
-		Overrides:    overridepkg.NewService(overridepkg.NewPostgresStore(pool), logger, changeLog),
-		Weave:        weave,
-		Logger:       logger,
-		Languages:    languages,
-		LangResolver: langResolver,
+		Service:             project.NewService(project.NewPostgresStore(pool), weave.Projects(), weave.Memberships(), vocabulary.NewService(pool, registry.New(http.DefaultClient)), logger),
+		Overrides:           overridepkg.NewService(overridepkg.NewPostgresStore(pool), logger, changeLog),
+		Weave:               weave,
+		Logger:              logger,
+		Languages:           languages,
+		LangResolver:        langResolver,
+		ConceptValueChecker: vocabulary.NewService(pool, nil), // set_value must be a control-list member (#3599)
 	}
 }
 
