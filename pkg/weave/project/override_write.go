@@ -91,6 +91,21 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 		return
 	}
 
+	// A set_value on a field bound to a control list must be a member of that
+	// list — a set_value is a value, and a bound list always constrains
+	// values (#3599). Reject before any write.
+	if h.conceptCheck != nil {
+		if fieldErrs := h.validateSetValueAgainstLists(ctx, req.Categories); len(fieldErrs) > 0 {
+			apierror.Write(w, &apierror.Error{
+				Status:  http.StatusUnprocessableEntity,
+				Code:    apierror.CodeValidation,
+				Message: "set value must be a term from the field's control list",
+				Fields:  fieldErrs,
+			})
+			return
+		}
+	}
+
 	draftRows := flattenOverrideDraft(projectID, entityType, entityID, req.Categories)
 	desired := make([]domain.FieldOverride, len(draftRows))
 	for i := range draftRows {
@@ -261,6 +276,33 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 		Categories:  req.Categories,
 		Fingerprint: newFingerprint,
 	})
+}
+
+// validateSetValueAgainstLists checks each field's set_value is a member of
+// its bound control list(s); returns per-field error messages keyed by field
+// id (empty when all valid). A checker error is logged and does not block the
+// save. (#3599)
+func (h *Handler) validateSetValueAgainstLists(ctx context.Context, categories []overrideEditorCategory) map[string][]string {
+	errs := map[string][]string{}
+	for _, category := range categories {
+		for _, item := range category.Items {
+			for _, field := range item.Fields {
+				sv := strings.TrimSpace(field.SetValue)
+				if sv == "" || len(field.ExpectedConceptLists) == 0 {
+					continue
+				}
+				ok, err := h.conceptCheck.ConceptURIInLists(ctx, sv, field.ExpectedConceptLists)
+				if err != nil {
+					h.log.Error("validate set_value against control list", "field_id", field.FieldID, "err", err)
+					continue
+				}
+				if !ok {
+					errs[field.FieldID] = append(errs[field.FieldID], "Set value must be a term from the field's control list.")
+				}
+			}
+		}
+	}
+	return errs
 }
 
 func flattenOverrideDraft(projectID, entityType, entityID string, categories []overrideEditorCategory) []overrideDraftRow {

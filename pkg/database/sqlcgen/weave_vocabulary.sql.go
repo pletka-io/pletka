@@ -11,6 +11,31 @@ import (
 	"time"
 )
 
+const weaveConceptURIInLists = `-- name: WeaveConceptURIInLists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM weave_concept_lists cl
+    JOIN weave_concept_list_entries cle ON cle.concept_list_id = cl.id
+    JOIN weave_vocabulary_entries ve ON ve.id = cle.vocabulary_entry_id AND ve.uri = $1::text
+    WHERE (cl.id = ANY($2::text[]) OR cl.semantic_id = ANY($2::text[]))
+) AS present
+`
+
+type WeaveConceptURIInListsParams struct {
+	Uri string   `json:"uri"`
+	Ids []string `json:"ids"`
+}
+
+// Whether a concept URI is an explicit entry of any of the given concept lists
+// (by id or semantic id). Used to validate a field's set_value against its
+// bound control list(s) (#3599).
+func (q *Queries) WeaveConceptURIInLists(ctx context.Context, arg WeaveConceptURIInListsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, weaveConceptURIInLists, arg.Uri, arg.Ids)
+	var present bool
+	err := row.Scan(&present)
+	return present, err
+}
+
 const weaveCreateConceptList = `-- name: WeaveCreateConceptList :one
 INSERT INTO weave_concept_lists (
     id, created_at, updated_at, semantic_id, system_name,

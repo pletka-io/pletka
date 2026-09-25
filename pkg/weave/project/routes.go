@@ -20,6 +20,9 @@ type Host struct {
 	Logger       *slog.Logger
 	Languages    []formschema.LanguageInfo
 	LangResolver LangResolver
+	// ConceptValueChecker validates a field's set_value against its bound
+	// control list(s) on override save (#3599). Optional — nil skips it.
+	ConceptValueChecker ConceptListValueChecker
 }
 
 func (h Host) Validate() error {
@@ -47,6 +50,7 @@ func Mount(parent chi.Router, host Host) {
 		panic(err)
 	}
 	h := NewHandler(host.Service, host.Overrides, host.Weave, host.Logger, host.Languages, host.LangResolver)
+	h.SetConceptListValueChecker(host.ConceptValueChecker)
 
 	// POST /projects → create. Coexists with the pages slice's GET /projects
 	// on the same path.

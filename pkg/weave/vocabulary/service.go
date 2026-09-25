@@ -1921,3 +1921,17 @@ func (s *Service) ConceptListMemberURIs(ctx context.Context, projectID string, l
 	}
 	return out, nil
 }
+
+// ConceptURIInLists reports whether uri is an explicit entry of any of the
+// given concept lists. Used to validate a field's set_value against its bound
+// control list(s) (#3599). Empty uri or no lists → allowed (nothing to check).
+func (s *Service) ConceptURIInLists(ctx context.Context, uri string, listIDs []string) (bool, error) {
+	if strings.TrimSpace(uri) == "" || len(listIDs) == 0 {
+		return true, nil
+	}
+	ok, err := s.queries.WeaveConceptURIInLists(ctx, sqlcgen.WeaveConceptURIInListsParams{Uri: uri, Ids: listIDs})
+	if err != nil {
+		return false, fmt.Errorf("check concept uri in lists: %w", err)
+	}
+	return ok, nil
+}

@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -53,7 +54,20 @@ type Handler struct {
 	// sleeping, without needing to fake anything below the handler.
 	// Defaults to time.Now; never nil after NewHandler.
 	clock func() time.Time
+	// conceptCheck validates a field's set_value against its bound control
+	// list(s) on override save (#3599). Optional — nil skips the check.
+	conceptCheck ConceptListValueChecker
 }
+
+// ConceptListValueChecker reports whether a concept URI is a member of the
+// given concept lists. Satisfied by vocabulary.Service.
+type ConceptListValueChecker interface {
+	ConceptURIInLists(ctx context.Context, uri string, listIDs []string) (bool, error)
+}
+
+// SetConceptListValueChecker wires the optional set_value control-list
+// validator (#3599). Hosts call this after Mount builds the handler.
+func (h *Handler) SetConceptListValueChecker(c ConceptListValueChecker) { h.conceptCheck = c }
 
 // NewHandler constructs a Handler. nil log → slog.Default; nil lang → "en".
 func NewHandler(svc *Service, overrides *overridepkg.Service, weave domain.WeaveStore, log *slog.Logger, languages []formschema.LanguageInfo, lang LangResolver) *Handler {

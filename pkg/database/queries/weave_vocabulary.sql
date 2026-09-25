@@ -284,3 +284,15 @@ JOIN weave_concept_list_entries cle ON cle.concept_list_id = cl.id
 JOIN weave_vocabulary_entries ve ON ve.id = cle.vocabulary_entry_id
 WHERE (cl.id = ANY(@ids::text[]) OR cl.semantic_id = ANY(@ids::text[]))
 ORDER BY ve.uri;
+
+-- name: WeaveConceptURIInLists :one
+-- Whether a concept URI is an explicit entry of any of the given concept lists
+-- (by id or semantic id). Used to validate a field's set_value against its
+-- bound control list(s) (#3599).
+SELECT EXISTS (
+    SELECT 1
+    FROM weave_concept_lists cl
+    JOIN weave_concept_list_entries cle ON cle.concept_list_id = cl.id
+    JOIN weave_vocabulary_entries ve ON ve.id = cle.vocabulary_entry_id AND ve.uri = @uri::text
+    WHERE (cl.id = ANY(@ids::text[]) OR cl.semantic_id = ANY(@ids::text[]))
+) AS present;
