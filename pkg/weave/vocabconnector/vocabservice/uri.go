@@ -41,6 +41,9 @@ func NormalizeURI(value string) string {
 
 // SplitParentString turns the service's comma-joined ancestor chain into its
 // parts, nearest ancestor first. Copied from the aat connector, see above.
+// Deliberately differs from the aat original on input of only separators
+// (e.g., ",," returns nil, not a slice with the trimmed string): nil is
+// better than rendering bare separators as ancestor labels in the picker.
 func SplitParentString(value string) []string {
 	value = strings.TrimSpace(value)
 	if value == "" {

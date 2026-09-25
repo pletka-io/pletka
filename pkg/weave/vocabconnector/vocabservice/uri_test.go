@@ -11,6 +11,7 @@ func TestNormalizeURIUpgradesGettyToHTTPS(t *testing.T) {
 		{"http://vocab.getty.edu/aat/300010957", "https://vocab.getty.edu/aat/300010957"},
 		{"https://vocab.getty.edu/aat/300010957", "https://vocab.getty.edu/aat/300010957"},
 		{"http://vocab.getty.edu/page/aat/300010957", "https://vocab.getty.edu/aat/300010957"},
+		{"http://example.com/aat/300010957", "http://example.com/aat/300010957"},
 		{"  ", ""},
 		{"not a url", "not a url"},
 	} {
@@ -31,6 +32,16 @@ func TestSplitParentString(t *testing.T) {
 	}
 	if got := SplitParentString("   "); got != nil {
 		t.Errorf("SplitParentString(blank) = %v, want nil", got)
+	}
+	if got := SplitParentString(""); got != nil {
+		t.Errorf("SplitParentString(empty) = %v, want nil", got)
+	}
+	// Deliberately differs from aat original: separators-only input returns nil,
+	// not the trimmed string, avoiding bare separators as ancestor labels.
+	for _, in := range []string{",", " , , ", ",,,", " , "} {
+		if got := SplitParentString(in); got != nil {
+			t.Errorf("SplitParentString(%q) = %v, want nil", in, got)
+		}
 	}
 }
 
