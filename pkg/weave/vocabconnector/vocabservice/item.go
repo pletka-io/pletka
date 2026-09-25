@@ -30,16 +30,26 @@ type item struct {
 // "en" is indexed directly, and an item with no exact "en" key simply gets
 // one language, deterministically.
 func labelFor(it item) domain.Translations {
-	if it.Lang == nil {
+	return narrowByLang(it.Lang, it.PrefLabel)
+}
+
+// narrowByLang applies labelFor's rule to any language-keyed map, not just an
+// item's own prefLabel. concept/{id} needs the same narrowing a second time,
+// for scopeNote: that field carries every language the concept has, exactly
+// like concept's prefLabel does, and for the same reason a stored row must
+// not carry a concept's whole language set. One rule, shared, rather than a
+// second one invented for scopeNote.
+func narrowByLang(lang *string, values map[string]string) domain.Translations {
+	if lang == nil {
 		return nil
 	}
-	value, ok := it.PrefLabel[*it.Lang]
+	value, ok := values[*lang]
 	if !ok {
 		return nil
 	}
-	labels := domain.Translations{*it.Lang: value}
-	if *it.Lang != "en" {
-		if enValue, ok := it.PrefLabel["en"]; ok {
+	labels := domain.Translations{*lang: value}
+	if *lang != "en" {
+		if enValue, ok := values["en"]; ok {
 			labels["en"] = enValue
 		}
 	}

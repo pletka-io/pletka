@@ -85,6 +85,20 @@ type suggestResponse struct {
 	Results []suggestHit `json:"results"`
 }
 
+// conceptResponse is the /concept/{id} decode: the one item shape plus the
+// fields only a concept fetch carries. altLabel is decoded and not mapped —
+// Entry has nowhere to put it, and inventing a home is out of scope for this
+// task. narrower/matches/broaderOther are not represented here at all, so
+// the decoder ignores them the same way it already ignores /suggest's
+// matched/matchedLabel/score on this endpoint.
+type conceptResponse struct {
+	item
+	AltLabel  map[string][]string `json:"altLabel"`
+	ScopeNote map[string]string   `json:"scopeNote"`
+	Broader   *string             `json:"broader"`
+	Parents   []item              `json:"parents"`
+}
+
 type vocabListResponse struct {
 	Vocabs []VocabularyInfo `json:"vocabs"`
 }
@@ -153,12 +167,12 @@ func (c *Connector) Fetch(ctx context.Context, uri string, opts vocabconnector.S
 	// key, on an unknown tag) — so, unlike v1's assumption, this must be sent.
 	params := url.Values{}
 	params.Set("lang", lang)
-	var hit suggestHit
+	var resp conceptResponse
 	endpoint := "/vocab/" + url.PathEscape(c.cfg.Vocab) + "/concept/" + url.PathEscape(id)
-	if err := c.get(ctx, endpoint, params, &hit); err != nil {
+	if err := c.get(ctx, endpoint, params, &resp); err != nil {
 		return nil, fmt.Errorf("fetch %q: %w", uri, err)
 	}
-	entry := hitToEntry(hit)
+	entry := conceptToEntry(resp)
 	return &entry, nil
 }
 
@@ -204,22 +218,38 @@ func (c *Connector) get(ctx context.Context, endpoint string, params url.Values,
 	return nil
 }
 
-// hitToEntry maps one decoded hit (a suggest result or a concept fetch — see
-// suggestHit) to an Entry. The URI is stored exactly as the service sent it:
-// v2 promises the publisher's canonical IRI, never rewritten.
+// hitToEntry maps one decoded suggest hit to an Entry. The URI is stored
+// exactly as the service sent it: v2 promises the publisher's canonical IRI,
+// never rewritten.
 func hitToEntry(hit suggestHit) vocabconnector.Entry {
+	return entryFromItem(hit.item, hit.Broader, hit.Parents)
+}
+
+// conceptToEntry maps a decoded concept fetch to an Entry: the same
+// URI/Label/broader/parents mapping hitToEntry does, plus ScopeNote, which
+// only concept/{id} carries. ScopeNote is narrowed by the same rule as
+// Label (display language plus English) — see narrowByLang.
+func conceptToEntry(resp conceptResponse) vocabconnector.Entry {
+	entry := entryFromItem(resp.item, resp.Broader, resp.Parents)
+	entry.ScopeNote = narrowByLang(resp.Lang, resp.ScopeNote)
+	return entry
+}
+
+// entryFromItem builds the URI/ExternalID/Label/broader/parents fields
+// shared by a suggest hit and a concept fetch.
+func entryFromItem(it item, broader *string, parents []item) vocabconnector.Entry {
 	entry := vocabconnector.Entry{
-		URI:        hit.URI,
-		ExternalID: hit.ID,
-		Label:      labelFor(hit.item),
+		URI:        it.URI,
+		ExternalID: it.ID,
+		Label:      labelFor(it),
 	}
-	if hit.Broader != nil {
-		entry.BroaderURI = *hit.Broader
+	if broader != nil {
+		entry.BroaderURI = *broader
 	}
-	if len(hit.Parents) > 0 {
-		entry.BroaderPath = make([]string, 0, len(hit.Parents))
-		entry.BroaderPathItems = make([]domain.VocabularyEntryRef, 0, len(hit.Parents))
-		for _, parent := range hit.Parents {
+	if len(parents) > 0 {
+		entry.BroaderPath = make([]string, 0, len(parents))
+		entry.BroaderPathItems = make([]domain.VocabularyEntryRef, 0, len(parents))
+		for _, parent := range parents {
 			entry.BroaderPath = append(entry.BroaderPath, labelText(parent))
 			entry.BroaderPathItems = append(entry.BroaderPathItems, itemToRef(parent))
 		}

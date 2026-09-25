@@ -382,6 +382,110 @@ func TestFetchReadsOneConcept(t *testing.T) {
 	}
 }
 
+// TestFetchSendsLang covers the request side for a non-English row: the
+// contract's lang param sets the display language for the concept and every
+// nested item, so it must ride on every Fetch, not just the default.
+func TestFetchSendsLang(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept","prefLabel":{"nl":"brons"},"lang":"nl"}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	if _, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "nl"}); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if !contains(gotQuery, "lang=nl") {
+		t.Errorf("query %q is missing lang=nl", gotQuery)
+	}
+}
+
+// TestFetchNarrowsTheStoredLanguages covers concept/{id}'s one real
+// difference from every other item: prefLabel there holds every language the
+// concept has (up to ~200 for TGN), not two. Storing all of them would carry
+// a concept's whole language set where every other path stores one, so
+// labelFor's narrowing (display language + English) applies here exactly as
+// it does on an item elsewhere.
+func TestFetchNarrowsTheStoredLanguages(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"en":"bronze (metal)","nl":"brons","de":"Bronze"},"lang":"nl"}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "nl"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"nl": "brons", "en": "bronze (metal)"}, map[string]string(entry.Label)); diff != "" {
+		t.Errorf("Label mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFetchReadsScopeNote covers the field the owner actually asked for:
+// scopeNote is narrowed the same way prefLabel is, for the same reason (a
+// stored row otherwise carries a concept's whole language set), rather than
+// inventing a second rule.
+func TestFetchReadsScopeNote(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"nl":"brons"},"lang":"nl",
+			"scopeNote":{"en":"a copper alloy","nl":"een koperlegering","de":"eine Kupferlegierung"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "nl"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"nl": "een koperlegering", "en": "a copper alloy"}, map[string]string(entry.ScopeNote)); diff != "" {
+		t.Errorf("ScopeNote mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFetchKeepsAncestorLanguages is the contract's own bronze example: an en
+// fetch whose third ancestor (AAT 300011014) has no English prefLabel at all,
+// so it is honestly reported in Spanish rather than stamped with the
+// requested language the way v1's parentString did.
+func TestFetchKeepsAncestorLanguages(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept","prefLabel":{"en":"bronze (metal)"},"lang":"en",
+			"broader":"http://vocab.getty.edu/aat/300010942",
+			"parents":[
+			 {"uri":"http://vocab.getty.edu/aat/300010942","id":"300010942",
+			  "kind":"concept","class":"Concept","prefLabel":{"en":"copper alloy"},"lang":"en"},
+			 {"uri":"http://vocab.getty.edu/aat/300241441","id":"300241441",
+			  "kind":"guideTerm","class":"GuideTerm","prefLabel":{"en":"<copper and copper alloy>"},"lang":"en"},
+			 {"uri":"http://vocab.getty.edu/aat/300011014","id":"300011014",
+			  "kind":"concept","class":"Concept","prefLabel":{"es":"metal no ferroso"},"lang":"es"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "en"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if len(entry.BroaderPathItems) != 3 {
+		t.Fatalf("got %d BroaderPathItems, want 3", len(entry.BroaderPathItems))
+	}
+	third := entry.BroaderPathItems[2]
+	if _, ok := third.Label["es"]; !ok {
+		t.Fatalf("third ancestor Label = %v, want it keyed \"es\"", third.Label)
+	}
+	if _, ok := third.Label["en"]; ok {
+		t.Errorf("third ancestor Label = %v, must not be stamped with the requested language \"en\"", third.Label)
+	}
+}
+
 // TestFetchOnPrefLabelNotAnObjectErrors covers a prefLabel that is not an
 // object at all (here, a JSON number): the contract guarantees prefLabel is
 // always a language-keyed object, so anything else is a real decode error,
