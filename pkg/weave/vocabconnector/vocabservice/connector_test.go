@@ -430,12 +430,14 @@ func TestFetchNarrowsTheStoredLanguages(t *testing.T) {
 	}
 }
 
-// TestFetchReadsScopeNoteInTheDisplayLanguage covers scopeNote's ordinary
-// case: the display language names one of its keys. Unlike prefLabel,
-// scopeNote does not also get an English key added alongside it — see
-// TestFetchScopeNoteFallsBackToEnglishWhenDisplayLanguageHasNone for why
-// that pairing would be the wrong rule to reuse here.
-func TestFetchReadsScopeNoteInTheDisplayLanguage(t *testing.T) {
+// TestFetchReadsScopeNoteInTheDisplayLanguagePairedWithEnglish covers
+// scopeNote's ordinary hit case: the display language names one of its
+// keys, and — like labelFor's prefLabel — the result is paired with English
+// too, when present and different, because the frontend's tr() falls back
+// requested-language-then-English-then-whatever's-there, and a note stored
+// in Dutch alone would fall all the way through to some other language for
+// a curator whose next-best language is English, not whatever is left.
+func TestFetchReadsScopeNoteInTheDisplayLanguagePairedWithEnglish(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
 			"kind":"concept","class":"Concept",
@@ -449,7 +451,29 @@ func TestFetchReadsScopeNoteInTheDisplayLanguage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	if diff := cmp.Diff(map[string]string{"nl": "een koperlegering"}, map[string]string(entry.ScopeNote)); diff != "" {
+	if diff := cmp.Diff(map[string]string{"nl": "een koperlegering", "en": "a copper alloy"}, map[string]string(entry.ScopeNote)); diff != "" {
+		t.Errorf("ScopeNote mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestFetchReadsScopeNoteInEnglishWithNoDuplicateKey covers the "and
+// differs" half of the pairing rule: an English display language must not
+// duplicate the "en" key, the same way labelFor's own English case does not.
+func TestFetchReadsScopeNoteInEnglishWithNoDuplicateKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"uri":"http://vocab.getty.edu/aat/300010957","id":"300010957",
+			"kind":"concept","class":"Concept",
+			"prefLabel":{"en":"bronze (metal)"},"lang":"en",
+			"scopeNote":{"en":"a copper alloy","nl":"een koperlegering"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	entry, err := c.Fetch(context.Background(), "https://vocab.getty.edu/aat/300010957", vocabconnector.SearchOpts{Lang: "en"})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"en": "a copper alloy"}, map[string]string(entry.ScopeNote)); diff != "" {
 		t.Errorf("ScopeNote mismatch (-want +got):\n%s", diff)
 	}
 }
