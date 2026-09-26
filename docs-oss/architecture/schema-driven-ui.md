@@ -46,6 +46,18 @@ server-owned. When the URL scheme changes, schemas emit new URLs and the fronten
 does not change. (Current scheme is `/projects/{ULID}/…`; the target
 `/{org}/{project}/…` ships with organisations. The frontend is indifferent.)
 
+**Known exception:** the vocabularies settings form's `add_vocabulary_id`
+field carries no URL of its own — no `options_url`/`create_url` distinct
+from its section's endpoint — even though `FieldDef` already has a
+`create_url` for exactly this "this field submits somewhere else" shape
+(used by `pkg/weave/collection/formschema.go` and
+`pkg/formschema/composition_sidebar.go`). Its real target is a separate
+`POST` endpoint, not the section's `PUT`; a renderer that follows this doc's
+rule and submits the field with the form's one endpoint silently loses the
+value. See
+[`vocabulary-service-contract.md`](../reference/vocabulary-service-contract.md#vocabularies-are-project-owned)
+for the full explanation. This is disclosed debt, not a pattern to copy.
+
 ## Capabilities are server-gated
 
 If the actor cannot do something, the schema omits the capability or endpoint:

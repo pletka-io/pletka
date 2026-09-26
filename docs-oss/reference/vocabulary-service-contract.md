@@ -49,6 +49,56 @@ mount). `lang` is an optional per-row default language; the connector's own
 instance's configured service and never read from the row — one service per
 instance is the point.
 
+## Vocabularies are project-owned
+
+There is no global tier and a vocabulary is never shared across projects.
+Every `weave_vocabularies` row belongs to exactly one project — `project_id`
+is `NOT NULL` (migration `013_vocabulary_project_ownership.sql`) — and
+`weave_project_vocabularies`, the join table that used to let a project pick
+from a shared pool, is dropped. Two projects that both want Getty AAT each
+create their own row against the `aat` mount and get their own cached
+entries; nothing is resolved or reused across projects.
+
+Owning the row **is** the enablement, so there is no separate "selected"
+flag to flip:
+
+- **Enable** — `POST /projects/{projectID}/settings/vocabularies` with
+  `{"mount": "<name>", "lang": "<optional>"}` creates a row with
+  `connector_type: "vocabservice"` and `config: {"vocab": "<mount>"}` (the
+  config shape above). Adding the same mount twice for the same project is
+  rejected — a unique index on `(project_id, system_name)` (migration
+  `014_vocabulary_project_system_name.sql`) turns a second add into a
+  conflict rather than a silent duplicate.
+- **Disable** — `DELETE /projects/{projectID}/settings/vocabularies/{vocabularyID}`
+  deletes the row. Its cached entries are removed with it by foreign-key
+  cascade — they simply re-resolve from the service if the mount is added
+  back. A vocabulary a concept list still points at cannot be deleted this
+  way: `weave_concept_lists.vocabulary_id` has no `ON DELETE` action, so the
+  delete comes back `409` instead of failing at the database (see
+  `Handler.DeleteVocabulary` in `pkg/weave/settings`).
+- The vocabularies settings screen offers only the mounts the instance's
+  configured vocabulary service actually serves (`GET /vocab`, below), with
+  each mount's languages shown before a curator picks one, and surfaces an
+  error rather than an empty list when the service does not answer (see
+  `ServiceVocabularyLister` / `buildServiceVocabularyOptions` in
+  `pkg/weave/settings`).
+
+**Frontend gotcha, disclosed here because nothing in the served JSON says
+it:** the vocabularies settings form's `add_vocabulary_id` field
+(`WidgetSelect`) sits in the same section as `enforce_concept_lists` and
+`concept_namespace`, but its submit target is not that section's `PUT`. The
+`PUT` (`Handler.UpdateVocabularies`) saves only `enforce_concept_lists` and
+`concept_namespace` — picking a mount in `add_vocabulary_id` and hitting the
+form's normal Save silently does nothing with it. Its real target is the
+`POST` endpoint above. `FieldDef` already has a mechanism for exactly this
+shape, a per-field `create_url` (see `pkg/weave/collection/formschema.go`,
+`pkg/formschema/composition_sidebar.go` for existing uses) — `add_vocabulary_id`
+does not set it, so a generic form renderer has no signal that this field's
+action differs from its section's endpoint. This is inherited debt from an
+earlier task in the `#3599` vocabulary-ownership work, not something this
+document is fixing: treat `add_vocabulary_id` as needing bespoke wiring
+(not a plain Save-button field) until it gets a real `create_url` contract.
+
 ## Endpoints core calls
 
 ### `GET /vocab`
