@@ -11,6 +11,49 @@ import (
 	"github.com/pletka-io/pletka/pkg/i18n"
 )
 
+// Settings section identifiers.
+const (
+	sectionGeneral          = "general"
+	sectionAbout            = "about"
+	sectionOntology         = "ontology"
+	sectionCategories       = "categories"
+	sectionMembers          = "members"
+	sectionAttributions     = "attributions"
+	sectionNamespaceBinding = "namespace-bindings"
+	sectionVocabularies     = "vocabularies"
+	sectionAutocomplete     = "autocomplete"
+	sectionIntegrations     = "integrations"
+)
+
+// Schema field kinds.
+const (
+	kindForm = "form"
+	kindList = "list"
+)
+
+// Composite pane panel identifiers.
+const (
+	panelParentInheritance = "parent-inheritance"
+	panelLinkedOntologies  = "linked-ontologies"
+)
+
+// Form entity types and methods.
+const (
+	entityProjectSettings = "project_settings"
+	entityProject         = "project"
+	methodPUT             = "PUT"
+)
+
+// Visibility and field identifiers.
+const (
+	visibilityPrivate   = "private"
+	visibilityInternal  = "internal"
+	visibilityPublic    = "public"
+	visibilityID        = "visibility"
+	parentProjectIDName = "parent_project_id"
+	topicsName          = "topics"
+)
+
 // BuildSettingsSchema constructs the settings page schema with capability-
 // based section filtering. Each section is emitted only when snap.Can()
 // grants the minimum capability needed to see it.
@@ -33,27 +76,27 @@ func BuildSettingsSchema(project *domain.Project, snap *auth.AuthSnapshot, r aut
 	}{
 		{
 			section: formschema.SettingsSection{
-				ID:        "general",
+				ID:        sectionGeneral,
 				Label:     i18n.L("project_settings.section.general", "General"),
 				Icon:      "cog-6-tooth",
-				Kind:      "form",
+				Kind:      kindForm,
 				SchemaURL: withVersion(fmt.Sprintf("/projects/%s/settings/form-schema/general", projectID)),
 			},
 			gate: releaseAwareSettingsGate(activeVersion, auth.ProjectEdit),
 		},
 		{
 			section: formschema.SettingsSection{
-				ID:        "about",
+				ID:        sectionAbout,
 				Label:     i18n.L("project_settings.section.about", "About"),
 				Icon:      "information-circle",
-				Kind:      "form",
+				Kind:      kindForm,
 				SchemaURL: withVersion(fmt.Sprintf("/projects/%s/settings/form-schema/about", projectID)),
 			},
 			gate: releaseAwareSettingsGate(activeVersion, auth.ProjectEdit),
 		},
 		{
 			section: formschema.SettingsSection{
-				ID:             "ontology",
+				ID:             sectionOntology,
 				Label:          i18n.L("project_settings.section.ontology", "Ontology"),
 				Icon:           "academic-cap",
 				Kind:           "composite",
@@ -64,57 +107,57 @@ func BuildSettingsSchema(project *domain.Project, snap *auth.AuthSnapshot, r aut
 		},
 		{
 			section: formschema.SettingsSection{
-				ID:        "categories",
+				ID:        sectionCategories,
 				Label:     i18n.L("common.categories", "Categories"),
 				Icon:      "tag",
-				Kind:      "list",
+				Kind:      kindList,
 				SchemaURL: withVersion(fmt.Sprintf("/projects/%s/categories/list-schema", projectID)),
 			},
 			gate: auth.ProjectRead,
 		},
 		{
 			section: formschema.SettingsSection{
-				ID:        "members",
+				ID:        sectionMembers,
 				Label:     i18n.L("project_settings.section.members", "Members"),
 				Icon:      "users",
-				Kind:      "list",
+				Kind:      kindList,
 				SchemaURL: withVersion(fmt.Sprintf("/projects/%s/members/list-schema", projectID)),
 			},
 			gate: auth.ProjectEdit,
 		},
 		{
 			section: formschema.SettingsSection{
-				ID:        "attributions",
+				ID:        sectionAttributions,
 				Label:     i18n.L("project_settings.section.attributions", "Credits"),
 				Icon:      "trophy",
-				Kind:      "list",
+				Kind:      kindList,
 				SchemaURL: withVersion(fmt.Sprintf("/projects/%s/settings/attributions/list-schema", projectID)),
 			},
 			gate: auth.ProjectRead,
 		},
 		{
 			section: formschema.SettingsSection{
-				ID:        "namespace-bindings",
+				ID:        sectionNamespaceBinding,
 				Label:     i18n.L("project_settings.section.namespace_bindings", "Namespace Bindings"),
 				Icon:      "at-symbol",
-				Kind:      "list",
+				Kind:      kindList,
 				SchemaURL: withVersion(fmt.Sprintf("/projects/%s/namespace-bindings/list-schema", projectID)),
 			},
 			gate: auth.ProjectEdit,
 		},
 		{
 			section: formschema.SettingsSection{
-				ID:        "vocabularies",
+				ID:        sectionVocabularies,
 				Label:     i18n.L("project_settings.section.vocabularies", "Vocabularies"),
 				Icon:      "book-open",
-				Kind:      "form",
+				Kind:      kindForm,
 				SchemaURL: withVersion(fmt.Sprintf("/projects/%s/settings/form-schema/vocabularies", projectID)),
 			},
 			gate: releaseAwareSettingsGate(activeVersion, auth.ProjectEdit),
 		},
 		{
 			section: formschema.SettingsSection{
-				ID:        "autocomplete",
+				ID:        sectionAutocomplete,
 				Label:     i18n.L("project_settings.section.autocomplete", "Autocomplete"),
 				Icon:      "magnifying-glass",
 				SchemaURL: withVersion(fmt.Sprintf("/projects/%s/settings/form-schema/autocomplete", projectID)),
@@ -126,7 +169,7 @@ func BuildSettingsSchema(project *domain.Project, snap *auth.AuthSnapshot, r aut
 		// slice-served pane when validation gets a schema-driven home.
 		{
 			section: formschema.SettingsSection{
-				ID:        "integrations",
+				ID:        sectionIntegrations,
 				Label:     i18n.L("project_settings.section.integrations", "Integrations"),
 				Icon:      "puzzle-piece",
 				Kind:      "composite",
@@ -138,7 +181,7 @@ func BuildSettingsSchema(project *domain.Project, snap *auth.AuthSnapshot, r aut
 
 	var sections []formschema.SettingsSection
 	for _, s := range allSections {
-		if activeVersion != "" && s.section.ID != "general" && s.section.ID != "about" && s.section.ID != "ontology" {
+		if activeVersion != "" && s.section.ID != sectionGeneral && s.section.ID != sectionAbout && s.section.ID != sectionOntology {
 			continue
 		}
 		if snap.Can(s.gate, r, nil) {
@@ -161,7 +204,7 @@ func BuildSettingsSchema(project *domain.Project, snap *auth.AuthSnapshot, r aut
 func BuildGeneralSettingsSchema(project *domain.Project, canFlagCoreWeave bool, lang string, languages []formschema.LanguageInfo) *formschema.FormSchema {
 	visibility := project.Visibility
 	if visibility == "" {
-		visibility = "private"
+		visibility = visibilityPrivate
 	}
 
 	curation := formschema.Section{
@@ -180,10 +223,10 @@ func BuildGeneralSettingsSchema(project *domain.Project, canFlagCoreWeave bool, 
 	}
 
 	schema := &formschema.FormSchema{
-		EntityType: "project_settings",
+		EntityType: entityProjectSettings,
 		Mode:       formschema.ModeEdit,
 		Endpoint: &formschema.SchemaEndpoint{
-			Method: "PUT",
+			Method: methodPUT,
 			URL:    fmt.Sprintf("/projects/%s/settings/general", project.ID),
 		},
 		Sections: []formschema.Section{
@@ -217,11 +260,11 @@ func BuildGeneralSettingsSchema(project *domain.Project, canFlagCoreWeave bool, 
 				},
 			},
 			{
-				ID:    "visibility",
+				ID:    visibilityID,
 				Label: i18n.L("project_settings.section.visibility", "Visibility"),
 				Fields: []formschema.FieldDef{
 					{
-						Name:     "visibility",
+						Name:     visibilityID,
 						Widget:   formschema.WidgetRadioGroup,
 						Required: true,
 						Label:    i18n.L("project_settings.fields.visibility", "Project visibility"),
@@ -229,17 +272,17 @@ func BuildGeneralSettingsSchema(project *domain.Project, canFlagCoreWeave bool, 
 						Value:    visibility,
 						Options: []formschema.SelectOption{
 							{
-								Value:       "private",
+								Value:       visibilityPrivate,
 								Label:       i18n.L("project_settings.visibility.private", "Private"),
 								Description: i18n.L("project_settings.visibility.private_help", "Only members and privileged users can view this project."),
 							},
 							{
-								Value:       "internal",
+								Value:       visibilityInternal,
 								Label:       i18n.L("project_settings.visibility.internal", "Internal"),
 								Description: i18n.L("project_settings.visibility.internal_help", "Visible to anyone in the owning institution. Hidden from anonymous visitors."),
 							},
 							{
-								Value:       "public",
+								Value:       visibilityPublic,
 								Label:       i18n.L("project_settings.visibility.public", "Public"),
 								Description: i18n.L("project_settings.visibility.public_help", "Anyone can discover and read this project."),
 							},
@@ -274,10 +317,10 @@ func BuildVocabularySettingsSchema(projectID string, vocabularyOptions []formsch
 		vocabularyIDs = append(vocabularyIDs, opt.Value)
 	}
 	return &formschema.FormSchema{
-		EntityType: "project_settings",
+		EntityType: entityProjectSettings,
 		Mode:       formschema.ModeEdit,
 		Endpoint: &formschema.SchemaEndpoint{
-			Method: "PUT",
+			Method: methodPUT,
 			URL:    fmt.Sprintf("/projects/%s/settings/vocabularies", projectID),
 		},
 		Sections: []formschema.Section{
@@ -329,10 +372,10 @@ func BuildAboutSettingsSchema(project *domain.Project, lang string, languages []
 	}
 
 	return &formschema.FormSchema{
-		EntityType: "project_settings",
+		EntityType: entityProjectSettings,
 		Mode:       formschema.ModeEdit,
 		Endpoint: &formschema.SchemaEndpoint{
-			Method: "PUT",
+			Method: methodPUT,
 			URL:    fmt.Sprintf("/projects/%s/settings/about", project.ID),
 		},
 		Sections: []formschema.Section{
@@ -348,7 +391,7 @@ func BuildAboutSettingsSchema(project *domain.Project, lang string, languages []
 						Value:  project.License,
 					},
 					{
-						Name:   "topics",
+						Name:   topicsName,
 						Widget: formschema.WidgetText,
 						Label:  i18n.L("project_settings.fields.topics", "Topics"),
 						Help:   i18n.L("project_settings.fields.topics_help", "Comma-separated keyword tags for filtering and discovery (e.g. 'heritage, photography, archive')."),
@@ -435,18 +478,18 @@ func BuildOntologySettingsSchema(project *domain.Project, allProjects []*domain.
 	}
 
 	return &formschema.FormSchema{
-		EntityType: "project_settings",
+		EntityType: entityProjectSettings,
 		Mode:       formschema.ModeEdit,
 		Endpoint: &formschema.SchemaEndpoint{
-			Method: "PUT",
+			Method: methodPUT,
 			URL:    fmt.Sprintf("/projects/%s/settings/ontology", project.ID),
 		},
 		Sections: []formschema.Section{
 			{
-				ID: "parent-inheritance",
+				ID: panelParentInheritance,
 				Fields: []formschema.FieldDef{
 					{
-						Name:    "parent_project_id",
+						Name:    parentProjectIDName,
 						Widget:  formschema.WidgetSelect,
 						Label:   i18n.L("project_settings.parent.inherit_from", "Core Weave parent"),
 						Help:    i18n.L("project_settings.parent.inherit_help", "Optionally inherit ontology configuration from a Core Weave. The parent's linked ontologies appear here as read-only entries, so this project can build on the same vocabulary without re-configuring it. Leave empty to start fresh."),
@@ -458,10 +501,10 @@ func BuildOntologySettingsSchema(project *domain.Project, allProjects []*domain.
 						Widget:            formschema.WidgetPillMultiSelect,
 						Label:             i18n.L("project_settings.parent.child_weaves", "Also inherit from child weaves"),
 						Help:              i18n.L("project_settings.parent.child_weaves_help", "Optionally inherit from specific child weaves of the chosen Core Weave."),
-						EntityType:        "project",
+						EntityType:        entityProject,
 						OptionsURL:        fmt.Sprintf("/projects/%s/settings/ontology/child-weave-options?parent_project_id={parent_project_id}", project.ID),
-						DependsOn:         []string{"parent_project_id"},
-						HiddenUntilFilled: []string{"parent_project_id"},
+						DependsOn:         []string{parentProjectIDName},
+						HiddenUntilFilled: []string{parentProjectIDName},
 						Value:             existingChildParentIDs,
 					},
 				},
@@ -493,25 +536,26 @@ func BuildOntologyPaneSchema(projectID, activeVersion string) *formschema.Compos
 		Title: i18n.L("project_settings.section.ontology", "Ontology"),
 		Panels: []formschema.CompositePanel{
 			{
-				ID:        "parent-inheritance",
+				ID:        panelParentInheritance,
 				Label:     i18n.L("project_settings.ontology.parent_panel", "Parent projects"),
-				Kind:      "list",
+				Kind:      kindList,
 				SchemaURL: withVersion(fmt.Sprintf("/projects/%s/settings/list-schema/ontology-parents", projectID)),
 			},
 			{
-				ID:    "linked-ontologies",
+				ID:    panelLinkedOntologies,
 				Label: i18n.L("project_settings.ontology.linked_panel", "Linked ontologies"),
 				// Kind dispatches the panel to a dedicated Svelte
 				// component (LinkedOntologiesPanel) that renders the
 				// grouped base + extensions UI. SchemaURL points at the
 				// PaneView endpoint the component fetches on mount.
-				Kind:      "linked-ontologies",
+				Kind:      panelLinkedOntologies,
 				SchemaURL: withVersion(fmt.Sprintf("/projects/%s/project-ontology-versions/pane", projectID)),
 			},
 		},
 	}
 }
 
+// nolint:unparam // draftCapability provides semantic flexibility for future task extensibility
 func releaseAwareSettingsGate(activeVersion string, draftCapability auth.Capability) auth.Capability {
 	if activeVersion != "" {
 		return auth.ProjectRead
