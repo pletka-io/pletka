@@ -100,7 +100,7 @@ func (s *postgresStore) GlobalVocabularyIDs(ctx context.Context) (map[string]boo
 	return out, nil
 }
 
-func (s *postgresStore) UpdateVocabularySettings(ctx context.Context, projectID string, vocabularyIDs []string, enforceConceptLists bool, conceptNamespace string) error {
+func (s *postgresStore) UpdateVocabularySettings(ctx context.Context, projectID string, enforceConceptLists bool, conceptNamespace string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin vocabulary settings update: %w", err)

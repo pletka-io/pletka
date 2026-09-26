@@ -1009,21 +1009,19 @@ SELECT
     COALESCE(v.ui_name, '{}'::jsonb) AS ui_name,
     COALESCE(v.description, '{}'::jsonb) AS description,
     v.status,
-    COALESCE(v.base_uri, '') AS base_uri,
-    COALESCE(v.connector_type, '') AS connector_type
+    COALESCE(v.base_uri, '') AS base_uri
 FROM weave_vocabularies v
 WHERE v.project_id = $1::text
 ORDER BY v.system_name ASC, v.id ASC
 `
 
 type WeaveListVocabularySettingsOptionsRow struct {
-	ID            string `json:"id"`
-	SystemName    string `json:"system_name"`
-	UiName        []byte `json:"ui_name"`
-	Description   []byte `json:"description"`
-	Status        string `json:"status"`
-	BaseUri       string `json:"base_uri"`
-	ConnectorType string `json:"connector_type"`
+	ID          string `json:"id"`
+	SystemName  string `json:"system_name"`
+	UiName      []byte `json:"ui_name"`
+	Description []byte `json:"description"`
+	Status      string `json:"status"`
+	BaseUri     string `json:"base_uri"`
 }
 
 // The vocabularies a project has, for the settings screen. Every row is
@@ -1045,7 +1043,6 @@ func (q *Queries) WeaveListVocabularySettingsOptions(ctx context.Context, projec
 			&i.Description,
 			&i.Status,
 			&i.BaseUri,
-			&i.ConnectorType,
 		); err != nil {
 			return nil, err
 		}

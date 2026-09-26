@@ -42,8 +42,7 @@ SELECT
     COALESCE(v.ui_name, '{}'::jsonb) AS ui_name,
     COALESCE(v.description, '{}'::jsonb) AS description,
     v.status,
-    COALESCE(v.base_uri, '') AS base_uri,
-    COALESCE(v.connector_type, '') AS connector_type
+    COALESCE(v.base_uri, '') AS base_uri
 FROM weave_vocabularies v
 WHERE v.project_id = @project_id::text
 ORDER BY v.system_name ASC, v.id ASC;

@@ -414,37 +414,15 @@ func (h *Handler) UpdateVocabularies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		VocabularyIDs       []string `json:"vocabulary_ids"`
-		EnforceConceptLists bool     `json:"enforce_concept_lists"`
-		ConceptNamespace    string   `json:"concept_namespace"`
+		EnforceConceptLists bool   `json:"enforce_concept_lists"`
+		ConceptNamespace    string `json:"concept_namespace"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
 		return
 	}
 
-	allowed, err := h.store.GlobalVocabularyIDs(ctx)
-	if err != nil {
-		h.log.Error("load global vocabularies for settings update", "project_id", projectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to validate vocabularies")
-		return
-	}
-	selected := make([]string, 0, len(body.VocabularyIDs))
-	seen := map[string]bool{}
-	for _, id := range body.VocabularyIDs {
-		id = strings.TrimSpace(id)
-		if id == "" || seen[id] {
-			continue
-		}
-		if !allowed[id] {
-			writeValidationErrors(w, map[string][]string{"vocabulary_ids": {"Choose vocabularies from the global vocabulary catalogue."}})
-			return
-		}
-		seen[id] = true
-		selected = append(selected, id)
-	}
-
-	if err := h.store.UpdateVocabularySettings(ctx, projectID, selected, body.EnforceConceptLists, body.ConceptNamespace); err != nil {
+	if err := h.store.UpdateVocabularySettings(ctx, projectID, body.EnforceConceptLists, body.ConceptNamespace); err != nil {
 		h.log.Error("save vocabulary settings", "project_id", projectID, "err", err)
 		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to save vocabulary settings")
 		return

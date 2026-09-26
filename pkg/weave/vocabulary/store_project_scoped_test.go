@@ -10,9 +10,11 @@ import (
 )
 
 // TestListProjectScopedVocabulariesIgnoresTheJoinTable pins the post-change
-// contract: a project's vocabularies are exactly the rows carrying its
-// project_id. A row reachable only through weave_project_vocabularies must
-// NOT appear — that reachability is what this work removes.
+// contract by going through the production path (Service.ListProjectVocabularies,
+// which calls WeaveListProjectScopedVocabularies): a project's vocabularies
+// are exactly the rows carrying its project_id. A row reachable only through
+// weave_project_vocabularies must NOT appear — that reachability is what
+// this work removes.
 func TestListProjectScopedVocabulariesIgnoresTheJoinTable(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
@@ -53,20 +55,16 @@ func TestListProjectScopedVocabulariesIgnoresTheJoinTable(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id = $1`, ownerID)
 	})
 
+	svc := NewService(pool, nil)
+
 	ids := func(projectID string) []string {
-		rows, err := pool.Query(ctx,
-			`SELECT v.id FROM weave_vocabularies v WHERE v.project_id = $1 ORDER BY v.id`, projectID)
+		views, err := svc.ListProjectVocabularies(ctx, projectID)
 		if err != nil {
-			t.Fatalf("query: %v", err)
+			t.Fatalf("ListProjectVocabularies(%s): %v", projectID, err)
 		}
-		defer rows.Close()
-		var out []string
-		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
-				t.Fatalf("scan: %v", err)
-			}
-			out = append(out, id)
+		out := make([]string, 0, len(views))
+		for _, v := range views {
+			out = append(out, v.ID)
 		}
 		return out
 	}
