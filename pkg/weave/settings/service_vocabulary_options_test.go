@@ -34,7 +34,9 @@ func localizableEnglish(v domain.Localizable) string {
 	case domain.Translations:
 		return t.Get("en")
 	case i18n.LocalizedText:
-		return t.Translations.Get("en")
+		// LocalizedText embeds domain.Translations, so Get promotes — naming
+		// the embedded field here is what staticcheck QF1008 flags.
+		return t.Get("en")
 	default:
 		return ""
 	}
