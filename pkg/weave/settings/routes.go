@@ -17,6 +17,10 @@ type Host struct {
 	Store     Store
 	Logger    *slog.Logger
 	Languages []formschema.LanguageInfo
+
+	// ServiceVocabularies lists what the configured vocabulary service serves.
+	// Nil when the instance configures no service.
+	ServiceVocabularies ServiceVocabularyLister
 }
 
 func (h Host) Validate() error {

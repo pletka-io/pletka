@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -55,6 +56,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/version"
 	"github.com/pletka-io/pletka/pkg/weave/visualization"
 	"github.com/pletka-io/pletka/pkg/weave/vocabconnector/registry"
+	"github.com/pletka-io/pletka/pkg/weave/vocabconnector/vocabservice"
 	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 	"github.com/pletka-io/pletka/pkg/weave/workspace"
 )
@@ -526,13 +528,53 @@ func buildSettingsHost(
 	weave domain.WeaveStore,
 	logger *slog.Logger,
 	languages []formschema.LanguageInfo,
+	vocabServiceURL string,
 ) settings.Host {
 	return settings.Host{
-		Weave:     weave,
-		Store:     settings.NewPostgresStore(pool),
-		Logger:    logger,
-		Languages: languages,
+		Weave:               weave,
+		Store:               settings.NewPostgresStore(pool),
+		Logger:              logger,
+		Languages:           languages,
+		ServiceVocabularies: newServiceVocabularyLister(vocabServiceURL, http.DefaultClient),
 	}
+}
+
+// serviceVocabularyLister adapts a vocabservice.Connector to
+// settings.ServiceVocabularyLister, so the settings slice can list what the
+// configured vocabulary service serves without importing vocabservice
+// concretely — see .claude/rules/service-layer.md.
+type serviceVocabularyLister struct {
+	connector *vocabservice.Connector
+}
+
+func (l serviceVocabularyLister) ServiceVocabularies(ctx context.Context) ([]settings.ServiceVocabulary, error) {
+	listing, err := l.connector.Vocabularies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]settings.ServiceVocabulary, 0, len(listing.Vocabs))
+	for _, v := range listing.Vocabs {
+		out = append(out, settings.ServiceVocabulary{
+			Name:      v.Name,
+			Label:     v.Label,
+			Concepts:  v.Concepts,
+			Languages: v.Languages,
+		})
+	}
+	return out, nil
+}
+
+// newServiceVocabularyLister returns nil when no vocabulary service is
+// configured for this instance. That nil must reach settings.Host untouched:
+// the settings screen tells "no service configured" apart from "service
+// configured but unreachable", and only a nil interface value carries that
+// distinction through to Task 5's rendering.
+func newServiceVocabularyLister(vocabServiceURL string, client *http.Client) settings.ServiceVocabularyLister {
+	vocabServiceURL = strings.TrimSpace(vocabServiceURL)
+	if vocabServiceURL == "" {
+		return nil
+	}
+	return serviceVocabularyLister{connector: vocabservice.New(vocabservice.Config{BaseURL: vocabServiceURL}, client)}
 }
 
 type coreEntityDeps struct {
