@@ -83,6 +83,17 @@ DELETE FROM weave_field_overrides WHERE id = $1;
 -- name: WeaveDeleteOverridesForEntity :exec
 DELETE FROM weave_field_overrides WHERE entity_type = $1 AND entity_id = $2;
 
+-- name: WeaveDeleteOverridesForField :exec
+-- Every override row referencing this field, whatever its entity_type.
+-- weave_field_overrides carries no foreign key to weave_fields, so nothing
+-- cascades on its own: deleting a field without this leaves its base row
+-- (entity_type '') orphaned, still carrying a category_id that the category
+-- in-use count keeps counting. Callers delete the field in the same
+-- transaction. The field's in-use guard means model/collection rows are
+-- already absent by the time a delete is allowed; matching on field_id alone
+-- keeps that a fact about the guard rather than an assumption here.
+DELETE FROM weave_field_overrides WHERE field_id = $1;
+
 -- name: WeaveListOverridesForEntity :many
 SELECT * FROM weave_field_overrides
 WHERE entity_type = $1 AND entity_id = $2
