@@ -86,7 +86,7 @@ func (h *Handler) PageSchema(w http.ResponseWriter, r *http.Request) {
 	}
 	setup := formschema.ProjectSetupState{HasOntology: len(resolved) > 0}
 
-	schema := formschema.BuildSettingsSchema(project, auth.FromContext(ctx), *res, setup, auth.ProjectVersionFromContext(ctx))
+	schema := BuildSettingsSchema(project, auth.FromContext(ctx), *res, setup, auth.ProjectVersionFromContext(ctx))
 
 	writeJSON(w, http.StatusOK, schema)
 }
@@ -134,9 +134,9 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 	switch section {
 	case "general":
 		snap := auth.FromContext(ctx)
-		schema = formschema.BuildGeneralSettingsSchema(project, snap != nil && snap.IsSuperAdmin, lang, h.languages)
+		schema = BuildGeneralSettingsSchema(project, snap != nil && snap.IsSuperAdmin, lang, h.languages)
 	case "about":
-		schema = formschema.BuildAboutSettingsSchema(project, lang, h.languages)
+		schema = BuildAboutSettingsSchema(project, lang, h.languages)
 	case "vocabularies":
 		vocabState, vocabErr := h.store.VocabularySettingsState(ctx, project.ID)
 		if vocabErr != nil {
@@ -144,7 +144,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load vocabulary settings")
 			return
 		}
-		schema = formschema.BuildVocabularySettingsSchema(project.ID, vocabularySelectOptions(vocabState.Options), vocabState.Enforce, vocabState.Namespace, lang, h.languages)
+		schema = BuildVocabularySettingsSchema(project.ID, vocabularySelectOptions(vocabState.Options), vocabState.Enforce, vocabState.Namespace, lang, h.languages)
 	case "autocomplete":
 		schema = formschema.BuildOntologyProbeSchema(lang, h.languages)
 	case "ontology":
@@ -176,7 +176,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		schema = formschema.BuildOntologySettingsSchema(project, allProjects, existingChildParents, lang, h.languages)
+		schema = BuildOntologySettingsSchema(project, allProjects, existingChildParents, lang, h.languages)
 	case "ontology-parent-add":
 		allProjects, _, listErr := h.weave.Projects().List(ctx)
 		if listErr != nil {
@@ -276,7 +276,7 @@ func (h *Handler) PaneSchema(w http.ResponseWriter, r *http.Request) {
 	var schema *formschema.CompositePaneSchema
 	switch section {
 	case "ontology":
-		schema = formschema.BuildOntologyPaneSchema(project.ID, auth.ProjectVersionFromContext(ctx))
+		schema = BuildOntologyPaneSchema(project.ID, auth.ProjectVersionFromContext(ctx))
 	default:
 		errresp.Error(w, r, http.StatusNotFound, "not_found", "No pane for section: "+section)
 		return
@@ -1359,18 +1359,6 @@ func parseTopics(raw json.RawMessage) ([]string, error) {
 	return nil, errors.New("topics must be an array of strings or a comma-separated string")
 }
 
-func vocabularySelectOptions(options []VocabularySettingsOption) []formschema.SelectOption {
-	out := make([]formschema.SelectOption, 0, len(options))
-	for _, option := range options {
-		out = append(out, formschema.SelectOption{
-			Value:       option.ID,
-			Label:       option.Label,
-			Description: option.Description,
-			Status:      option.Status,
-		})
-	}
-	return out
-}
 
 // cleanTopics trims whitespace and drops empties.
 func cleanTopics(in []string) []string {
