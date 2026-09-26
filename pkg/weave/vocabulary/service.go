@@ -213,6 +213,12 @@ func (s *Service) ListGlobalVocabularies(ctx context.Context) ([]VocabularyView,
 }
 
 func (s *Service) ListAdminVocabularies(ctx context.Context) ([]AdminVocabularyView, error) {
+	// Every vocabulary is project-owned now: there is no global tier and no
+	// join table to list against, so this lists every vocabulary in the
+	// system rather than filtering to a project_id IS NULL slice. project_id
+	// is NOT NULL, so COUNT(DISTINCT v.project_id) is always exactly 1 per
+	// vocabulary — the "Projects" column is trivial post-ownership, kept only
+	// because AdminVocabularyView/the admin screen still expose it.
 	rows, err := s.pool.Query(ctx, `
 SELECT
     v.id,
@@ -221,17 +227,15 @@ SELECT
     COALESCE(v.ui_name, '{}'::jsonb) AS ui_name,
     COALESCE(v.description, '{}'::jsonb) AS description,
     v.status,
-    COALESCE(v.project_id, '') AS project_id,
+    v.project_id,
     v.connector_type,
     COALESCE(v.base_uri, '') AS base_uri,
     v.created_at,
     v.updated_at,
     COUNT(DISTINCT ve.id) AS entry_count,
-    COUNT(DISTINCT pv.project_id) FILTER (WHERE pv.status = 'active') AS project_count
+    COUNT(DISTINCT v.project_id) AS project_count
 FROM weave_vocabularies v
 LEFT JOIN weave_vocabulary_entries ve ON ve.vocabulary_id = v.id
-LEFT JOIN weave_project_vocabularies pv ON pv.vocabulary_id = v.id
-WHERE v.project_id IS NULL
 GROUP BY v.id
 ORDER BY v.system_name ASC, v.id ASC
 `)

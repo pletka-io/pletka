@@ -35,15 +35,17 @@ func TestCreate_ProvisionsLocalVocabulary(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	var connType, pvStatus string
+	// Ownership is the project_id column itself now — there is no separate
+	// activation join table (#3599 vocabulary ownership; see
+	// vocabulary.Service.EnsureLocalVocabulary).
+	var connType, status string
 	if err := pool.QueryRow(ctx, `
-SELECT v.connector_type, pv.status
-FROM weave_vocabularies v
-JOIN weave_project_vocabularies pv ON pv.vocabulary_id = v.id AND pv.project_id = v.project_id
-WHERE v.project_id = $1 AND v.connector_type = 'local'`, "LVP").Scan(&connType, &pvStatus); err != nil {
-		t.Fatalf("local vocabulary should be provisioned + enabled: %v", err)
+SELECT connector_type, status
+FROM weave_vocabularies
+WHERE project_id = $1 AND connector_type = 'local'`, "LVP").Scan(&connType, &status); err != nil {
+		t.Fatalf("local vocabulary should be provisioned: %v", err)
 	}
-	if pvStatus != "active" {
-		t.Fatalf("local vocabulary should be active, got %q", pvStatus)
+	if status != string(domain.StatusPublished) {
+		t.Fatalf("local vocabulary should be published, got %q", status)
 	}
 }

@@ -88,18 +88,6 @@ func (s *postgresStore) VocabularySettingsState(ctx context.Context, projectID s
 	}, nil
 }
 
-func (s *postgresStore) GlobalVocabularyIDs(ctx context.Context) (map[string]bool, error) {
-	ids, err := s.queries.WeaveListGlobalVocabularyIDs(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		out[id] = true
-	}
-	return out, nil
-}
-
 func (s *postgresStore) UpdateVocabularySettings(ctx context.Context, projectID string, enforceConceptLists bool, conceptNamespace string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
