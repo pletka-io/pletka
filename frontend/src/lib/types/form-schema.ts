@@ -88,6 +88,19 @@ export interface FieldDef {
   check_url?: string;
   create_url?: string;
   create_label?: Translations;
+  /**
+   * Endpoints that make a field self-managing: its controls call these
+   * directly, and the field is excluded from the form's submit payload
+   * (FormRenderer.handleSubmit). Used where membership is a create and a
+   * delete in its own right — a project's vocabularies — rather than an
+   * attribute of the entity the form edits.
+   *
+   * item_add_url takes POST {"value": "<option value>"};
+   * item_remove_url_template is a DELETE with {id} substituted by the item's
+   * value.
+   */
+  item_add_url?: string;
+  item_remove_url_template?: string;
   visible_when?: VisibilityRule;
   entity_type?: string;
   /** Field names whose values this field depends on (cascading selects). */

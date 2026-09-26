@@ -65,14 +65,18 @@ func findVocabularyField(t *testing.T, schema *formschema.FormSchema, name strin
 // guard for the settings screen's worst failure mode: this form's single
 // endpoint is PUT /projects/{id}/settings/vocabularies, whose handler
 // (Handler.UpdateVocabularies) decodes enforce_concept_lists and
-// concept_namespace and nothing else. Any other *editable* field in this
-// schema is a control a curator can change, submit, and be told
-// {"success":true} about while the change is discarded.
+// concept_namespace and nothing else. A field a curator can change and
+// submit, and be told {"success":true} about while the change is discarded,
+// is the bug this pins.
 //
-// vocabulary_ids and add_vocabulary_id stay in the schema as display —
-// what the project owns, and what the service could serve — but must be
-// readonly, because their real targets are the POST and DELETE endpoints
-// on the same path and nothing is wired to those yet.
+// "Editable" therefore means editable AND carried by the form's submit.
+// vocabulary_ids and add_vocabulary_id are now both live controls, but they
+// are self-managing: their controls call the POST and DELETE endpoints on
+// the same path directly, and FormRenderer excludes any field carrying
+// item_add_url or item_remove_url_template from the submit payload. They are
+// exempt because the PUT never sees them, not because they are inert — the
+// property under test is that nothing reaches that PUT which it would throw
+// away.
 func TestVocabularySchemaOffersOnlyFieldsItsEndpointSaves(t *testing.T) {
 	h := &Handler{serviceVocabularies: stubLister{out: []ServiceVocabulary{
 		{Name: "fish-monument-type", Label: "FISH Monument Types", Concepts: 5009, Languages: []string{"en"}},
@@ -87,24 +91,51 @@ func TestVocabularySchemaOffersOnlyFieldsItsEndpointSaves(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var editable []string
+	var submitted []string
+	var selfManaged []string
 	for _, section := range schema.Sections {
 		for _, field := range section.Fields {
-			if !field.Readonly {
-				editable = append(editable, field.Name)
+			if field.Readonly {
+				continue
 			}
+			if field.ItemAddURL != "" || field.ItemRemoveURLTemplate != "" {
+				selfManaged = append(selfManaged, field.Name)
+				continue
+			}
+			submitted = append(submitted, field.Name)
 		}
 	}
-	sort.Strings(editable)
+	sort.Strings(submitted)
+	sort.Strings(selfManaged)
 
 	want := []string{"concept_namespace", "enforce_concept_lists"}
-	if len(editable) != len(want) {
-		t.Fatalf("editable fields = %v, want exactly %v — every editable field must be one the PUT decodes", editable, want)
+	if len(submitted) != len(want) {
+		t.Fatalf("fields carried by the PUT = %v, want exactly %v — every one must be a field the PUT decodes", submitted, want)
 	}
 	for i := range want {
-		if editable[i] != want[i] {
-			t.Fatalf("editable fields = %v, want exactly %v", editable, want)
+		if submitted[i] != want[i] {
+			t.Fatalf("fields carried by the PUT = %v, want exactly %v", submitted, want)
 		}
+	}
+
+	// The exemption has to be earned: a field is only allowed out of the
+	// payload because it has somewhere else to go. Without this, marking any
+	// field self-managing and wiring it to nothing would pass the check
+	// above while silently discarding input again.
+	wantSelfManaged := []string{"add_vocabulary_id", "vocabulary_ids"}
+	if len(selfManaged) != len(wantSelfManaged) {
+		t.Fatalf("self-managing fields = %v, want exactly %v", selfManaged, wantSelfManaged)
+	}
+	for i := range wantSelfManaged {
+		if selfManaged[i] != wantSelfManaged[i] {
+			t.Fatalf("self-managing fields = %v, want exactly %v", selfManaged, wantSelfManaged)
+		}
+	}
+	if url := findVocabularyField(t, schema, "add_vocabulary_id").ItemAddURL; url != "/projects/proj-1/settings/vocabularies" {
+		t.Errorf("add_vocabulary_id item_add_url = %q, want the project's vocabularies endpoint", url)
+	}
+	if url := findVocabularyField(t, schema, "vocabulary_ids").ItemRemoveURLTemplate; url != "/projects/proj-1/settings/vocabularies/{id}" {
+		t.Errorf("vocabulary_ids item_remove_url_template = %q, want the per-vocabulary endpoint", url)
 	}
 }
 

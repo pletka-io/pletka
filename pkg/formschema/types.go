@@ -122,8 +122,32 @@ type FieldDef struct {
 	CheckURL             string             `json:"check_url,omitempty"`
 	CreateURL            string             `json:"create_url,omitempty"`
 	CreateLabel          domain.Localizable `json:"create_label,omitempty"`
-	VisibleWhen          *VisibilityRule    `json:"visible_when,omitempty"`
-	EntityType           string             `json:"entity_type,omitempty"`
+
+	// ItemAddURL and ItemRemoveURLTemplate make a field self-managing: its
+	// controls call these endpoints directly instead of editing a value the
+	// form's submit carries.
+	//
+	// Some fields are collections whose membership is a create and a delete
+	// in their own right, not an attribute of the entity the form edits —
+	// a project's vocabularies, where adding one IS creating a row
+	// (POST) and removing one retires it (DELETE), neither of which the
+	// section's PUT can express. Before this existed such a field had to be
+	// marked readonly to stop the widget offering controls that submitted
+	// nowhere, which meant showing a curator a list they could not change.
+	//
+	// ItemAddURL takes a POST whose body is {"value": "<option value>"};
+	// ItemRemoveURLTemplate is a DELETE with {id} substituted by the item's
+	// value, the same client-side substitution ListManager already performs
+	// on capability templates (api-patterns.md).
+	//
+	// A field carrying either is EXCLUDED from the form's submit payload:
+	// its state lives on the server between those calls, and sending it
+	// back would have the PUT overwrite what the POST and DELETE just did.
+	// FormRenderer enforces this — see handleSubmit.
+	ItemAddURL            string          `json:"item_add_url,omitempty"`
+	ItemRemoveURLTemplate string          `json:"item_remove_url_template,omitempty"`
+	VisibleWhen           *VisibilityRule `json:"visible_when,omitempty"`
+	EntityType            string          `json:"entity_type,omitempty"`
 
 	// Dependent-field metadata — used by FormRenderer to wire cascading
 	// selects (e.g. ontology → version → extensions). Optional.
