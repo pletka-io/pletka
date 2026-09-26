@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -10,6 +11,11 @@ import (
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 )
+
+// langEnglish is the language key used for service-vocabulary option copy.
+// The vocabulary service's own listing carries no translations, so option
+// labels/descriptions built from it are English-only by construction.
+const langEnglish = "en"
 
 // Settings section identifiers.
 const (
@@ -594,6 +600,51 @@ func addVersionToURL(raw, activeVersion string) string {
 	q.Set("version", activeVersion)
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+// buildServiceVocabularyOptions lists what the configured vocabulary service
+// serves, for the "add a vocabulary" control.
+//
+// Three outcomes, deliberately distinct. A nil lister means this instance
+// configures no service: no options, no error. A service that answers with no
+// mounts is legal and also yields no options. A service that fails to answer
+// returns an error — unlike autocomplete, which degrades silently because a
+// curator typing has no action to take, someone on this screen is actively
+// choosing and an empty list would read as "there are none".
+func buildServiceVocabularyOptions(ctx context.Context, lister ServiceVocabularyLister) ([]formschema.SelectOption, error) {
+	if lister == nil {
+		return nil, nil
+	}
+	vocabs, err := lister.ServiceVocabularies(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list vocabulary service mounts: %w", err)
+	}
+	opts := make([]formschema.SelectOption, 0, len(vocabs))
+	for _, v := range vocabs {
+		label := v.Label
+		if label == "" {
+			label = v.Name
+		}
+		opts = append(opts, formschema.SelectOption{
+			Value:       v.Name,
+			Label:       domain.Translations{langEnglish: label},
+			Description: domain.Translations{langEnglish: describeMount(v)},
+		})
+	}
+	return opts, nil
+}
+
+// describeMount says what a curator needs at the moment of choosing: how big
+// the vocabulary is, and which languages it can answer in.
+func describeMount(v ServiceVocabulary) string {
+	parts := make([]string, 0, 2)
+	if v.Concepts > 0 {
+		parts = append(parts, fmt.Sprintf("%d concepts", v.Concepts))
+	}
+	if len(v.Languages) > 0 {
+		parts = append(parts, "languages: "+strings.Join(v.Languages, ", "))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func vocabularySelectOptions(options []VocabularySettingsOption) []formschema.SelectOption {
