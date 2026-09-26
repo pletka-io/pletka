@@ -262,7 +262,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	entitySchemaHost := buildEntitySchemaHost(weaveStore, logger, languages, langResolver, i18nManager, organizationHost, publicationReader)
 	projectPageHost := buildProjectPageHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver, i18nManager, ontologyReader, ontologyVersionReader, publicationReader, opts.ExamplesMaxNestingDepth)
 	draftsHost := buildDraftsHost(weaveStore, logger)
-	settingsHost := buildSettingsHost(opts.Pool, weaveStore, logger, languages)
+	settingsHost := buildSettingsHost(opts.Pool, weaveStore, logger, languages, opts.VocabularyServiceURL)
 	ontologySvc, ontologyAdminHost, ontologyAPIHost, ontologyPagesHost := buildOntologyHosts(
 		ontologyStore,
 		weaveStore,

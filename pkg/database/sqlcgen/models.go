@@ -864,15 +864,6 @@ type WeaveProjectOntologyVersionsArchive struct {
 	VersionNumber     string    `json:"version_number"`
 }
 
-type WeaveProjectVocabulary struct {
-	ProjectID       string    `json:"project_id"`
-	VocabularyID    string    `json:"vocabulary_id"`
-	SelectedVersion *string   `json:"selected_version"`
-	Status          string    `json:"status"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-}
-
 type WeaveProjectsArchive struct {
 	ID              string          `json:"id"`
 	CreatedAt       time.Time       `json:"created_at"`
@@ -915,7 +906,7 @@ type WeaveVocabulary struct {
 	UiName          []byte    `json:"ui_name"`
 	Description     []byte    `json:"description"`
 	Status          string    `json:"status"`
-	ProjectID       *string   `json:"project_id"`
+	ProjectID       string    `json:"project_id"`
 	ConnectorType   string    `json:"connector_type"`
 	BaseUri         *string   `json:"base_uri"`
 	Config          []byte    `json:"config"`

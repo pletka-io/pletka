@@ -17,6 +17,10 @@ type Host struct {
 	Store     Store
 	Logger    *slog.Logger
 	Languages []formschema.LanguageInfo
+
+	// ServiceVocabularies lists what the configured vocabulary service serves.
+	// Nil when the instance configures no service.
+	ServiceVocabularies ServiceVocabularyLister
 }
 
 func (h Host) Validate() error {
@@ -40,7 +44,7 @@ func Mount(parent chi.Router, host Host) {
 	if err := host.Validate(); err != nil {
 		panic(err)
 	}
-	h := NewHandler(host.Weave, host.Store, host.Languages, host.Logger)
+	h := NewHandler(host.Weave, host.Store, host.ServiceVocabularies, host.Languages, host.Logger)
 
 	mountAt(parent, "/projects/{projectID}/settings/schema", host, func(r chi.Router) {
 		r.Get("/", h.PageSchema)
@@ -62,6 +66,10 @@ func Mount(parent chi.Router, host Host) {
 	})
 	mountAt(parent, "/projects/{projectID}/settings/vocabularies", host, func(r chi.Router) {
 		r.Put("/", h.UpdateVocabularies)
+		r.Post("/", h.AddVocabulary)
+	})
+	mountAt(parent, "/projects/{projectID}/settings/vocabularies/{vocabularyID}", host, func(r chi.Router) {
+		r.Delete("/", h.DeleteVocabulary)
 	})
 	mountAt(parent, "/projects/{projectID}/settings/ontology", host, func(r chi.Router) {
 		r.Put("/", h.UpdateOntology)

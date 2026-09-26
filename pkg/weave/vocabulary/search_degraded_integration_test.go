@@ -33,11 +33,14 @@ func TestSearchVocabularyEntries_Degraded(t *testing.T) {
 	reg := registry.New(remoteDown.Client(), remoteDown.URL)
 	svc := vocabulary.NewService(pool, reg)
 
-	mustExec(t, pool, `INSERT INTO weave_vocabularies (id, connector_type, config) VALUES ('DEGSVC', 'vocabservice', '{"vocab":"aat"}'::jsonb)`)
-	mustExec(t, pool, `INSERT INTO weave_vocabularies (id, connector_type) VALUES ('DEGLOC', 'local')`)
+	mustExec(t, pool, `INSERT INTO weave_vocabularies (id, project_id, connector_type, config) VALUES ('DEGSVC', 'DEGP', 'vocabservice', '{"vocab":"aat"}'::jsonb)`)
+	mustExec(t, pool, `INSERT INTO weave_vocabularies (id, project_id, connector_type) VALUES ('DEGLOC', 'DEGP', 'local')`)
 
 	r := chi.NewRouter()
-	vocabulary.Mount(r, vocabulary.Host{Service: svc, Projects: fakeProjectReader{}})
+	// Both vocabularies are project-owned (DEGP) now that there is no global
+	// tier; "public" visibility keeps the anonymous request in this test
+	// readable, matching the pre-ownership behaviour for a global vocabulary.
+	vocabulary.Mount(r, vocabulary.Host{Service: svc, Projects: fakeProjectReader{visibility: "public"}})
 
 	search := func(vocabularyID string) (int, map[string]any) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v2/vocabularies/"+vocabularyID+"/entries/search?q=term", nil)

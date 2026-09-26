@@ -38,7 +38,7 @@ func weaveRowToVocabulary(row sqlcgen.WeaveVocabulary) *domain.Vocabulary {
 			UIName:      unmarshalDomainTranslations(row.UiName),
 			Description: unmarshalDomainTranslations(row.Description),
 			Status:      domain.Status(row.Status),
-			ProjectID:   dbutil.NilToEmpty(row.ProjectID),
+			ProjectID:   row.ProjectID,
 		},
 		ConnectorType: row.ConnectorType,
 		BaseURI:       dbutil.NilToEmpty(row.BaseUri),
@@ -77,6 +77,16 @@ func weaveRowToVocabularyEntry(row sqlcgen.WeaveVocabularyEntry) *domain.Vocabul
 
 // CreateVocabulary inserts a new vocabulary into the weave_vocabularies table.
 func (s *vocabularyStore) CreateVocabulary(ctx context.Context, vocab *domain.Vocabulary) error {
+	// weave_vocabularies.project_id is NOT NULL but carries no foreign key,
+	// so an empty owner is not rejected by the database: it inserts a row no
+	// project-scoped query can ever see and no API call can delete, and it
+	// occupies a ('', system_name) slot in migration 014's unique index.
+	// Before ownership the column was nullable and dbutil.EmptyToNil turned
+	// this into a loud constraint violation; the guard has to say it now.
+	if vocab.ProjectID == "" {
+		return errors.New("create vocabulary: project_id is required")
+	}
+
 	if vocab.ID == "" {
 		vocab.ID = ids.GenerateULID()
 	}
@@ -92,7 +102,7 @@ func (s *vocabularyStore) CreateVocabulary(ctx context.Context, vocab *domain.Vo
 		UiName:        marshalDomainTranslations(vocab.UIName),
 		Description:   marshalDomainTranslations(vocab.Description),
 		Status:        string(vocab.Status),
-		ProjectID:     dbutil.EmptyToNil(vocab.ProjectID),
+		ProjectID:     vocab.ProjectID,
 		ConnectorType: vocab.ConnectorType,
 		BaseUri:       dbutil.EmptyToNil(vocab.BaseURI),
 		Config:        vocab.Config,

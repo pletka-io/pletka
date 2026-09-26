@@ -24,7 +24,7 @@ func TestLoadProjectAndGate_HonorsOrgInheritedRole(t *testing.T) {
 	pool := testdb.Pool(t)
 	_, ownerID, projectID := seedZARCH(t, pool)
 
-	h := NewHandler(weave.NewPostgresStore(pool), NewPostgresStore(pool), nil, slog.Default())
+	h := NewHandler(weave.NewPostgresStore(pool), NewPostgresStore(pool), nil, nil, slog.Default())
 
 	// A user whose ONLY route to this project is an org-level role — no
 	// "project:<id>" entry. Pre-fix, the settings resource's empty OrgID made

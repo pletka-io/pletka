@@ -22,55 +22,41 @@ LIMIT 1;
 SELECT * FROM weave_vocabularies
 ORDER BY system_name ASC;
 
--- name: WeaveListGlobalVocabularies :many
-SELECT * FROM weave_vocabularies
-WHERE project_id IS NULL
-ORDER BY system_name ASC;
-
--- name: WeaveListGlobalVocabularyIDs :many
-SELECT id
-FROM weave_vocabularies
-WHERE project_id IS NULL;
-
 -- name: WeaveListVocabularySettingsOptions :many
+-- The vocabularies a project has, for the settings screen. Every row is
+-- owned by the project; "selected" is no longer a concept, because having
+-- the row IS the enablement.
 SELECT
     v.id,
     COALESCE(v.system_name, '') AS system_name,
     COALESCE(v.ui_name, '{}'::jsonb) AS ui_name,
     COALESCE(v.description, '{}'::jsonb) AS description,
     v.status,
-    COALESCE(v.base_uri, '') AS base_uri,
-    COALESCE((pv.status = 'active')::boolean, false)::boolean AS selected
+    COALESCE(v.base_uri, '') AS base_uri
 FROM weave_vocabularies v
-LEFT JOIN weave_project_vocabularies pv
-    ON pv.vocabulary_id = v.id
-    AND pv.project_id = @project_id::text
-WHERE v.project_id IS NULL
+WHERE v.project_id = @project_id::text
 ORDER BY v.system_name ASC, v.id ASC;
 
--- name: WeaveDeactivateProjectVocabularies :exec
-UPDATE weave_project_vocabularies
-SET status = 'inactive',
-    updated_at = NOW()
-WHERE project_id = $1;
-
--- name: WeaveUpsertActiveProjectVocabulary :exec
-INSERT INTO weave_project_vocabularies (project_id, vocabulary_id, status, created_at, updated_at)
-VALUES ($1, $2, 'active', NOW(), NOW())
-ON CONFLICT (project_id, vocabulary_id)
-DO UPDATE SET status = 'active',
-              updated_at = NOW();
-
 -- name: WeaveListProjectScopedVocabularies :many
+-- A project's vocabularies are exactly the rows carrying its project_id.
+-- There is no global tier and no join table: see
+-- docs/plans/2026-09-26-vocabulary-project-ownership-design.md.
 SELECT v.*
 FROM weave_vocabularies v
-LEFT JOIN weave_project_vocabularies pv
-    ON pv.vocabulary_id = v.id
-    AND pv.project_id = @project_id::text
-    AND pv.status = 'active'
 WHERE v.project_id = @project_id::text
-   OR pv.project_id = @project_id::text
-ORDER BY (v.project_id IS NULL) DESC, v.system_name ASC, v.id ASC;
+ORDER BY v.system_name ASC, v.id ASC;
+
+-- name: WeaveAddProjectServiceVocabulary :exec
+-- Enabling a service vocabulary for a project IS creating its row. The
+-- partial unique index on (project_id, system_name) (migration 014) rejects
+-- a second add of the same mount.
+INSERT INTO weave_vocabularies (id, project_id, system_name, ui_name, connector_type, config, status, created_at, updated_at)
+VALUES (@id::text, @project_id::text, @system_name::text, @ui_name::jsonb, 'vocabservice', @config::jsonb, 'published', NOW(), NOW());
+
+-- name: WeaveDeleteProjectVocabulary :exec
+-- Removing a vocabulary takes its cached entries with it: they re-resolve
+-- from the service if it is added again.
+DELETE FROM weave_vocabularies WHERE id = @id::text AND project_id = @project_id::text;
 
 -- name: WeaveCreateVocabularyEntry :one
 INSERT INTO weave_vocabulary_entries (

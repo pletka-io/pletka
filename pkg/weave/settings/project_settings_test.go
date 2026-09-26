@@ -1,4 +1,4 @@
-package formschema_test
+package settings
 
 import (
 	"strings"
@@ -80,7 +80,7 @@ func TestBuildSettingsSchema_UnderThreeIdentities(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := formschema.BuildSettingsSchema(p, tc.snap, res, formschema.ProjectSetupState{HasOntology: true}, "")
+			got := BuildSettingsSchema(p, tc.snap, res, formschema.ProjectSetupState{HasOntology: true}, "")
 			gotIDs := sectionIDs(got.Sections)
 			assertSameSet(t, gotIDs, tc.wantIDs)
 		})
@@ -90,7 +90,7 @@ func TestBuildSettingsSchema_UnderThreeIdentities(t *testing.T) {
 func TestBuildSettingsSchema_OwnerSeesAllSections(t *testing.T) {
 	p := &domain.Project{Entity: domain.Entity{ID: "LA", UIName: domain.Translations{"en": "LA"}}}
 	s := snap("u1", map[string]string{"project:LA": "owner"})
-	got := formschema.BuildSettingsSchema(p, s, auth.Resource{
+	got := BuildSettingsSchema(p, s, auth.Resource{
 		ScopeType: "project", ID: "LA", Visibility: "private",
 	}, formschema.ProjectSetupState{HasOntology: true}, "")
 	gotIDs := sectionIDs(got.Sections)
@@ -101,7 +101,7 @@ func TestBuildSettingsSchema_OwnerSeesAllSections(t *testing.T) {
 func TestBuildSettingsSchema_ContributorOnlySeesCategoriesAndAttributions(t *testing.T) {
 	p := &domain.Project{Entity: domain.Entity{ID: "LA", UIName: domain.Translations{"en": "LA"}}}
 	s := snap("u1", map[string]string{"project:LA": "contributor"})
-	got := formschema.BuildSettingsSchema(p, s, auth.Resource{
+	got := BuildSettingsSchema(p, s, auth.Resource{
 		ScopeType: "project", ID: "LA", Visibility: "private",
 	}, formschema.ProjectSetupState{HasOntology: true}, "")
 	gotIDs := sectionIDs(got.Sections)
@@ -119,7 +119,7 @@ func TestBuildSettingsSchema_ContributorOnlySeesCategoriesAndAttributions(t *tes
 func TestBuildSettingsSchema_AnonymousOnPrivateSeesNone(t *testing.T) {
 	p := &domain.Project{Entity: domain.Entity{ID: "LA", UIName: domain.Translations{"en": "LA"}}}
 	s := &auth.AuthSnapshot{IsAnonymous: true}
-	got := formschema.BuildSettingsSchema(p, s, auth.Resource{
+	got := BuildSettingsSchema(p, s, auth.Resource{
 		ScopeType: "project", ID: "LA", Visibility: "private",
 	}, formschema.ProjectSetupState{HasOntology: true}, "")
 	if len(got.Sections) != 0 {
@@ -130,7 +130,7 @@ func TestBuildSettingsSchema_AnonymousOnPrivateSeesNone(t *testing.T) {
 func TestBuildSettingsSchema_AnonymousOnPublicSeesCategories(t *testing.T) {
 	p := &domain.Project{Entity: domain.Entity{ID: "LA", UIName: domain.Translations{"en": "LA"}}}
 	s := &auth.AuthSnapshot{IsAnonymous: true}
-	got := formschema.BuildSettingsSchema(p, s, auth.Resource{
+	got := BuildSettingsSchema(p, s, auth.Resource{
 		ScopeType: "project", ID: "LA", Visibility: "public",
 	}, formschema.ProjectSetupState{HasOntology: true}, "")
 	gotIDs := sectionIDs(got.Sections)
@@ -149,7 +149,7 @@ func TestBuildOntologySettingsSchema_OnlyParentProjectID(t *testing.T) {
 	p := &domain.Project{
 		Entity: domain.Entity{ID: "TEST", UIName: domain.Translations{"en": "Test"}},
 	}
-	schema := formschema.BuildOntologySettingsSchema(p, nil, nil, "en", nil)
+	schema := BuildOntologySettingsSchema(p, nil, nil, "en", nil)
 	if schema == nil || len(schema.Sections) == 0 {
 		t.Fatalf("expected one section, got: %+v", schema)
 	}
@@ -164,7 +164,7 @@ func TestBuildOntologySettingsSchema_OnlyParentProjectID(t *testing.T) {
 }
 
 func TestBuildOntologyPaneSchema_ReferencesTwoPanels(t *testing.T) {
-	pane := formschema.BuildOntologyPaneSchema("LA", "")
+	pane := BuildOntologyPaneSchema("LA", "")
 	if pane == nil {
 		t.Fatal("nil pane")
 	}
@@ -219,7 +219,7 @@ func TestBuildSettingsSchema_ReleaseDraftURLGatedByEdit(t *testing.T) {
 	res := auth.Resource{ScopeType: "project", ID: "LA", Visibility: "private"}
 
 	editor := snap("u1", map[string]string{"project:LA": "maintainer"})
-	got := formschema.BuildSettingsSchema(p, editor, res, formschema.ProjectSetupState{HasOntology: true}, "1.0.0")
+	got := BuildSettingsSchema(p, editor, res, formschema.ProjectSetupState{HasOntology: true}, "1.0.0")
 	if got.Release == nil {
 		t.Fatalf("expected release view for a release version")
 	}
@@ -228,7 +228,7 @@ func TestBuildSettingsSchema_ReleaseDraftURLGatedByEdit(t *testing.T) {
 	}
 
 	nonEditor := snap("u2", map[string]string{"project:LA": "contributor"})
-	got = formschema.BuildSettingsSchema(p, nonEditor, res, formschema.ProjectSetupState{HasOntology: true}, "1.0.0")
+	got = BuildSettingsSchema(p, nonEditor, res, formschema.ProjectSetupState{HasOntology: true}, "1.0.0")
 	if got.Release == nil {
 		t.Fatalf("expected release view for a release version")
 	}
@@ -242,7 +242,7 @@ func TestBuildGeneralSettingsSchema_IncludesVisibilityChoices(t *testing.T) {
 		Entity:     domain.Entity{ID: "TPC", UIName: domain.Translations{"en": "Test Project"}},
 		Visibility: "public",
 	}
-	schema := formschema.BuildGeneralSettingsSchema(p, false, "en", nil)
+	schema := BuildGeneralSettingsSchema(p, false, "en", nil)
 	if schema == nil {
 		t.Fatal("nil schema")
 	}
@@ -278,7 +278,7 @@ func TestBuildGeneralSettingsSchema_IncludesVisibilityChoices(t *testing.T) {
 func TestBuildSettingsSchema_OntologyUsesPaneURL(t *testing.T) {
 	p := &domain.Project{Entity: domain.Entity{ID: "LA", UIName: domain.Translations{"en": "LA"}}}
 	s := snap("u1", map[string]string{"project:LA": "owner"})
-	schema := formschema.BuildSettingsSchema(p, s, auth.Resource{
+	schema := BuildSettingsSchema(p, s, auth.Resource{
 		ScopeType: "project", ID: "LA", Visibility: "private",
 	}, formschema.ProjectSetupState{HasOntology: true}, "")
 	var found *formschema.SettingsSection
@@ -299,7 +299,7 @@ func TestBuildSettingsSchema_OntologyUsesPaneURL(t *testing.T) {
 func TestBuildSettingsSchema_IncludesNamespaceBindings(t *testing.T) {
 	p := &domain.Project{Entity: domain.Entity{ID: "LA", UIName: domain.Translations{"en": "LA"}}}
 	s := snap("u1", map[string]string{"project:LA": "owner"})
-	schema := formschema.BuildSettingsSchema(p, s, auth.Resource{
+	schema := BuildSettingsSchema(p, s, auth.Resource{
 		ScopeType: "project", ID: "LA", Visibility: "private",
 	}, formschema.ProjectSetupState{HasOntology: true}, "")
 	var found *formschema.SettingsSection

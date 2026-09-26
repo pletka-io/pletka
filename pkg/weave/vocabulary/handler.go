@@ -77,16 +77,6 @@ func NewHandler(svc *Service, projects auth.ProjectReader, logger *slog.Logger, 
 	return &Handler{svc: svc, projects: projects, logger: logger, languages: languages, lang: lang}
 }
 
-func (h *Handler) ListGlobalVocabularies(w http.ResponseWriter, r *http.Request) {
-	items, err := h.svc.ListGlobalVocabularies(r.Context())
-	if err != nil {
-		h.logger.Error("list global vocabularies failed", "err", err)
-		apierror.Write(w, apierror.Internal())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": len(items)})
-}
-
 func (h *Handler) AdminVocabularyEntityListSchema(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, BuildAdminVocabularyEntityListSchema(h.requestLang(r), h.languages))
 }
@@ -448,8 +438,8 @@ func (h *Handler) SearchConceptListSourceEntries(w http.ResponseWriter, r *http.
 
 func (h *Handler) SearchVocabularyEntries(w http.ResponseWriter, r *http.Request) {
 	vocabularyID := chi.URLParam(r, "vocabularyID")
-	// A project-scoped vocabulary is only searchable by readers of its project;
-	// global (shared-authority) vocabularies stay open.
+	// Every vocabulary is project-owned (there is no global tier), so it is
+	// only searchable by readers of its project.
 	projID, found, err := h.svc.VocabularyProjectID(r.Context(), vocabularyID)
 	if err != nil {
 		apierror.Write(w, apierror.Internal())
@@ -459,7 +449,7 @@ func (h *Handler) SearchVocabularyEntries(w http.ResponseWriter, r *http.Request
 		apierror.Write(w, apierror.NotFound("vocabulary not found"))
 		return
 	}
-	if projID != "" && !h.canReadProject(r.Context(), projID) {
+	if !h.canReadProject(r.Context(), projID) {
 		apierror.Write(w, apierror.NotFound("vocabulary not found"))
 		return
 	}

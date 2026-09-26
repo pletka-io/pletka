@@ -19,6 +19,12 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
+// errCodeVocabularyServiceUnavailable distinguishes a failed vocabulary
+// service call from the generic "internal" error code used elsewhere in
+// this handler — the settings screen needs to tell a curator "the service
+// didn't answer" apart from any other failure.
+const errCodeVocabularyServiceUnavailable = "vocabulary_service_unavailable"
+
 // Handler exposes the project-settings-v2 surface as a vertical slice.
 //
 // All endpoints take a {projectID} URL parameter. Reads gate on
@@ -26,18 +32,24 @@ import (
 // stays in pkg/formschema — this handler only composes those builders
 // with the project store + auth snapshot.
 type Handler struct {
-	weave     domain.WeaveStore
-	store     Store
-	log       *slog.Logger
-	languages []formschema.LanguageInfo
+	weave domain.WeaveStore
+	store Store
+	log   *slog.Logger
+
+	// serviceVocabularies lists what the configured vocabulary service
+	// serves. Nil is legal — it means this instance configures no service —
+	// and must stay legal here just as it is in Host.
+	serviceVocabularies ServiceVocabularyLister
+	languages           []formschema.LanguageInfo
 }
 
-// NewHandler builds a Handler. nil log → slog.Default.
-func NewHandler(weave domain.WeaveStore, store Store, languages []formschema.LanguageInfo, log *slog.Logger) *Handler {
+// NewHandler builds a Handler. nil log → slog.Default. serviceVocabularies
+// may be nil (no vocabulary service configured for this instance).
+func NewHandler(weave domain.WeaveStore, store Store, serviceVocabularies ServiceVocabularyLister, languages []formschema.LanguageInfo, log *slog.Logger) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{weave: weave, store: store, log: log, languages: languages}
+	return &Handler{weave: weave, store: store, serviceVocabularies: serviceVocabularies, log: log, languages: languages}
 }
 
 // loadProjectAndGate fetches the project and verifies the caller holds
@@ -86,7 +98,7 @@ func (h *Handler) PageSchema(w http.ResponseWriter, r *http.Request) {
 	}
 	setup := formschema.ProjectSetupState{HasOntology: len(resolved) > 0}
 
-	schema := formschema.BuildSettingsSchema(project, auth.FromContext(ctx), *res, setup, auth.ProjectVersionFromContext(ctx))
+	schema := BuildSettingsSchema(project, auth.FromContext(ctx), *res, setup, auth.ProjectVersionFromContext(ctx))
 
 	writeJSON(w, http.StatusOK, schema)
 }
@@ -134,9 +146,9 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 	switch section {
 	case "general":
 		snap := auth.FromContext(ctx)
-		schema = formschema.BuildGeneralSettingsSchema(project, snap != nil && snap.IsSuperAdmin, lang, h.languages)
+		schema = BuildGeneralSettingsSchema(project, snap != nil && snap.IsSuperAdmin, lang, h.languages)
 	case "about":
-		schema = formschema.BuildAboutSettingsSchema(project, lang, h.languages)
+		schema = BuildAboutSettingsSchema(project, lang, h.languages)
 	case "vocabularies":
 		vocabState, vocabErr := h.store.VocabularySettingsState(ctx, project.ID)
 		if vocabErr != nil {
@@ -144,7 +156,17 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load vocabulary settings")
 			return
 		}
-		schema = formschema.BuildVocabularySettingsSchema(project.ID, vocabularySelectOptions(vocabState.Options), vocabState.Selected, vocabState.Enforce, vocabState.Namespace, lang, h.languages)
+		var svcErr error
+		schema, svcErr = h.vocabularySchema(ctx, project.ID, vocabState, lang)
+		if svcErr != nil {
+			// The vocabulary service failed to answer. This must read as an
+			// error to the curator, not as an empty "add from service" list —
+			// an empty list would look like "there are none" when the truth
+			// is "we couldn't ask".
+			h.log.Error("failed to list vocabulary service mounts", "project_id", project.ID, "err", svcErr)
+			errresp.Error(w, r, http.StatusInternalServerError, errCodeVocabularyServiceUnavailable, "failed to load the vocabulary service listing")
+			return
+		}
 	case "autocomplete":
 		schema = formschema.BuildOntologyProbeSchema(lang, h.languages)
 	case "ontology":
@@ -176,7 +198,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		schema = formschema.BuildOntologySettingsSchema(project, allProjects, existingChildParents, lang, h.languages)
+		schema = BuildOntologySettingsSchema(project, allProjects, existingChildParents, lang, h.languages)
 	case "ontology-parent-add":
 		allProjects, _, listErr := h.weave.Projects().List(ctx)
 		if listErr != nil {
@@ -224,6 +246,19 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, schema)
+}
+
+// vocabularySchema composes the vocabularies form schema, including what the
+// configured vocabulary service serves. Split out of FormSchema so the
+// service-lister error path — the whole point of this seam — is testable
+// without a database or an HTTP round trip: a caller gets the error back
+// directly instead of it being swallowed into an empty option list.
+func (h *Handler) vocabularySchema(ctx context.Context, projectID string, vocabState VocabularySettingsState, lang string) (*formschema.FormSchema, error) {
+	serviceOptions, err := buildServiceVocabularyOptions(ctx, h.serviceVocabularies)
+	if err != nil {
+		return nil, err
+	}
+	return BuildVocabularySettingsSchema(projectID, vocabularySelectOptions(vocabState.Options), serviceOptions, vocabState.Enforce, vocabState.Namespace, lang, h.languages), nil
 }
 
 // ListSchema returns the list schema for settings panes that are driven by
@@ -276,7 +311,7 @@ func (h *Handler) PaneSchema(w http.ResponseWriter, r *http.Request) {
 	var schema *formschema.CompositePaneSchema
 	switch section {
 	case "ontology":
-		schema = formschema.BuildOntologyPaneSchema(project.ID, auth.ProjectVersionFromContext(ctx))
+		schema = BuildOntologyPaneSchema(project.ID, auth.ProjectVersionFromContext(ctx))
 	default:
 		errresp.Error(w, r, http.StatusNotFound, "not_found", "No pane for section: "+section)
 		return
@@ -414,43 +449,101 @@ func (h *Handler) UpdateVocabularies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		VocabularyIDs       []string `json:"vocabulary_ids"`
-		EnforceConceptLists bool     `json:"enforce_concept_lists"`
-		ConceptNamespace    string   `json:"concept_namespace"`
+		EnforceConceptLists bool   `json:"enforce_concept_lists"`
+		ConceptNamespace    string `json:"concept_namespace"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
 		return
 	}
 
-	allowed, err := h.store.GlobalVocabularyIDs(ctx)
-	if err != nil {
-		h.log.Error("load global vocabularies for settings update", "project_id", projectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to validate vocabularies")
-		return
-	}
-	selected := make([]string, 0, len(body.VocabularyIDs))
-	seen := map[string]bool{}
-	for _, id := range body.VocabularyIDs {
-		id = strings.TrimSpace(id)
-		if id == "" || seen[id] {
-			continue
-		}
-		if !allowed[id] {
-			writeValidationErrors(w, map[string][]string{"vocabulary_ids": {"Choose vocabularies from the global vocabulary catalogue."}})
-			return
-		}
-		seen[id] = true
-		selected = append(selected, id)
-	}
-
-	if err := h.store.UpdateVocabularySettings(ctx, projectID, selected, body.EnforceConceptLists, body.ConceptNamespace); err != nil {
+	if err := h.store.UpdateVocabularySettings(ctx, projectID, body.EnforceConceptLists, body.ConceptNamespace); err != nil {
 		h.log.Error("save vocabulary settings", "project_id", projectID, "err", err)
 		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to save vocabulary settings")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// AddVocabulary enables a vocabulary the configured service serves for a
+// project. POST /projects/{projectID}/settings/vocabularies.
+//
+// Split out from UpdateVocabularies rather than folded into its body: adding
+// a vocabulary is a create (owning the row IS the enablement, #3599
+// vocabulary ownership), and this codebase's create/update convention is
+// POST 201 creates, PUT 200 updates in place (api-patterns.md) — the same
+// split CreateInheritance/UpdateOntology already use on the ontology
+// section. The PUT on this same path keeps owning exactly what it owns:
+// enforce_concept_lists and concept_namespace.
+func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := chi.URLParam(r, "projectID")
+
+	if _, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit); !ok {
+		return
+	}
+
+	var body struct {
+		Mount string `json:"mount"`
+		Lang  string `json:"lang"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+		return
+	}
+	body.Mount = strings.TrimSpace(body.Mount)
+	if body.Mount == "" {
+		writeValidationErrors(w, map[string][]string{"mount": {"mount is required"}})
+		return
+	}
+
+	if err := h.store.AddServiceVocabulary(ctx, projectID, body.Mount, strings.TrimSpace(body.Lang)); err != nil {
+		ae := apierror.FromError(err)
+		if ae.Code == apierror.CodeInternal {
+			h.log.Error("add service vocabulary", "project_id", projectID, "mount", body.Mount, "err", err)
+		}
+		apierror.Write(w, ae)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{"success": true})
+}
+
+// DeleteVocabulary disables a project's vocabulary by removing its row.
+// DELETE /projects/{projectID}/settings/vocabularies/{vocabularyID}.
+//
+// The cached entries go with it via
+// weave_vocabulary_entries_vocabulary_id_fkey's ON DELETE CASCADE — they
+// simply re-resolve from the service if the mount is added again, so there
+// is nothing else for this handler to clean up. A concept list bound to the
+// vocabulary is a different story: weave_concept_lists.vocabulary_id has no
+// ON DELETE clause (RESTRICT), so the store maps that violation to a typed
+// in-use error, which apierror.FromError turns into 409/in_use here — the
+// same "map typed store error -> apierror" path AddVocabulary uses for its
+// own conflict.
+func (h *Handler) DeleteVocabulary(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := chi.URLParam(r, "projectID")
+	vocabularyID := strings.TrimSpace(chi.URLParam(r, "vocabularyID"))
+	if vocabularyID == "" {
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Vocabulary ID is required")
+		return
+	}
+
+	if _, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit); !ok {
+		return
+	}
+
+	if err := h.store.RemoveVocabulary(ctx, projectID, vocabularyID); err != nil {
+		ae := apierror.FromError(err)
+		if ae.Code == apierror.CodeInternal {
+			h.log.Error("remove vocabulary", "project_id", projectID, "vocabulary_id", vocabularyID, "err", err)
+		}
+		apierror.Write(w, ae)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // UpdateOntology handles JSON updates to the ontology settings.
@@ -1379,19 +1472,6 @@ func parseTopics(raw json.RawMessage) ([]string, error) {
 	}
 
 	return nil, errors.New("topics must be an array of strings or a comma-separated string")
-}
-
-func vocabularySelectOptions(options []VocabularySettingsOption) []formschema.SelectOption {
-	out := make([]formschema.SelectOption, 0, len(options))
-	for _, option := range options {
-		out = append(out, formschema.SelectOption{
-			Value:       option.ID,
-			Label:       option.Label,
-			Description: option.Description,
-			Status:      option.Status,
-		})
-	}
-	return out
 }
 
 // cleanTopics trims whitespace and drops empties.
