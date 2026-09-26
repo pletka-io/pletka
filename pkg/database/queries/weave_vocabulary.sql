@@ -32,6 +32,7 @@ SELECT
     COALESCE(v.ui_name, '{}'::jsonb) AS ui_name,
     COALESCE(v.description, '{}'::jsonb) AS description,
     v.status,
+    v.deprecated,
     COALESCE(v.base_uri, '') AS base_uri
 FROM weave_vocabularies v
 WHERE v.project_id = @project_id::text
@@ -53,10 +54,19 @@ ORDER BY v.system_name ASC, v.id ASC;
 INSERT INTO weave_vocabularies (id, project_id, system_name, ui_name, connector_type, config, status, created_at, updated_at)
 VALUES (@id::text, @project_id::text, @system_name::text, @ui_name::jsonb, 'vocabservice', @config::jsonb, 'published', NOW(), NOW());
 
--- name: WeaveDeleteProjectVocabulary :exec
--- Removing a vocabulary takes its cached entries with it: they re-resolve
--- from the service if it is added again.
-DELETE FROM weave_vocabularies WHERE id = @id::text AND project_id = @project_id::text;
+-- name: WeaveDeprecateProjectVocabulary :exec
+-- Removing a vocabulary deprecates its row rather than deleting it.
+--
+-- A delete cannot express what removal means here. weave_vocabulary_entries
+-- cascades from weave_vocabularies, so deleting takes every pinned entry with
+-- it and empties the concept lists built on them; and weave_concept_lists has
+-- a plain foreign key with no ON DELETE action, so Postgres refuses the delete
+-- outright while any list still points at the row. Removal has to leave the
+-- row in place: the lists keep their entries and keep resolving them, and the
+-- vocabulary simply stops being offered for anything new.
+UPDATE weave_vocabularies
+SET deprecated = true, updated_at = NOW()
+WHERE id = @id::text AND project_id = @project_id::text;
 
 -- name: WeaveCreateVocabularyEntry :one
 INSERT INTO weave_vocabulary_entries (

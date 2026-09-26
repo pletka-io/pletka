@@ -911,6 +911,7 @@ type WeaveVocabulary struct {
 	BaseUri         *string   `json:"base_uri"`
 	Config          []byte    `json:"config"`
 	ConfigEncrypted []byte    `json:"config_encrypted"`
+	Deprecated      bool      `json:"deprecated"`
 }
 
 type WeaveVocabularyEntry struct {

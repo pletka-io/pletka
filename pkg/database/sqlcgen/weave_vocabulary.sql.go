@@ -160,7 +160,7 @@ INSERT INTO weave_vocabularies (
     connector_type, base_uri, config
 ) VALUES (
     $1, NOW(), NOW(), $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted
+) RETURNING id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted, deprecated
 `
 
 type WeaveCreateVocabularyParams struct {
@@ -204,6 +204,7 @@ func (q *Queries) WeaveCreateVocabulary(ctx context.Context, arg WeaveCreateVoca
 		&i.BaseUri,
 		&i.Config,
 		&i.ConfigEncrypted,
+		&i.Deprecated,
 	)
 	return i, err
 }
@@ -267,19 +268,28 @@ func (q *Queries) WeaveDeleteConceptListEntry(ctx context.Context, id string) er
 	return err
 }
 
-const weaveDeleteProjectVocabulary = `-- name: WeaveDeleteProjectVocabulary :exec
-DELETE FROM weave_vocabularies WHERE id = $1::text AND project_id = $2::text
+const weaveDeprecateProjectVocabulary = `-- name: WeaveDeprecateProjectVocabulary :exec
+UPDATE weave_vocabularies
+SET deprecated = true, updated_at = NOW()
+WHERE id = $1::text AND project_id = $2::text
 `
 
-type WeaveDeleteProjectVocabularyParams struct {
+type WeaveDeprecateProjectVocabularyParams struct {
 	ID        string `json:"id"`
 	ProjectID string `json:"project_id"`
 }
 
-// Removing a vocabulary takes its cached entries with it: they re-resolve
-// from the service if it is added again.
-func (q *Queries) WeaveDeleteProjectVocabulary(ctx context.Context, arg WeaveDeleteProjectVocabularyParams) error {
-	_, err := q.db.Exec(ctx, weaveDeleteProjectVocabulary, arg.ID, arg.ProjectID)
+// Removing a vocabulary deprecates its row rather than deleting it.
+//
+// A delete cannot express what removal means here. weave_vocabulary_entries
+// cascades from weave_vocabularies, so deleting takes every pinned entry with
+// it and empties the concept lists built on them; and weave_concept_lists has
+// a plain foreign key with no ON DELETE action, so Postgres refuses the delete
+// outright while any list still points at the row. Removal has to leave the
+// row in place: the lists keep their entries and keep resolving them, and the
+// vocabulary simply stops being offered for anything new.
+func (q *Queries) WeaveDeprecateProjectVocabulary(ctx context.Context, arg WeaveDeprecateProjectVocabularyParams) error {
+	_, err := q.db.Exec(ctx, weaveDeprecateProjectVocabulary, arg.ID, arg.ProjectID)
 	return err
 }
 
@@ -323,7 +333,7 @@ func (q *Queries) WeaveFindConceptListsByListType(ctx context.Context, listType 
 }
 
 const weaveFindVocabularyForURI = `-- name: WeaveFindVocabularyForURI :one
-SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted FROM weave_vocabularies
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted, deprecated FROM weave_vocabularies
 WHERE base_uri IS NOT NULL
   AND base_uri <> ''
   AND $1::text LIKE base_uri || '%'
@@ -348,6 +358,7 @@ func (q *Queries) WeaveFindVocabularyForURI(ctx context.Context, uri string) (We
 		&i.BaseUri,
 		&i.Config,
 		&i.ConfigEncrypted,
+		&i.Deprecated,
 	)
 	return i, err
 }
@@ -510,7 +521,7 @@ func (q *Queries) WeaveGetProjectConceptListArchive(ctx context.Context, arg Wea
 }
 
 const weaveGetVocabulary = `-- name: WeaveGetVocabulary :one
-SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted FROM weave_vocabularies WHERE id = $1
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted, deprecated FROM weave_vocabularies WHERE id = $1
 `
 
 func (q *Queries) WeaveGetVocabulary(ctx context.Context, id string) (WeaveVocabulary, error) {
@@ -530,6 +541,7 @@ func (q *Queries) WeaveGetVocabulary(ctx context.Context, id string) (WeaveVocab
 		&i.BaseUri,
 		&i.Config,
 		&i.ConfigEncrypted,
+		&i.Deprecated,
 	)
 	return i, err
 }
@@ -897,7 +909,7 @@ func (q *Queries) WeaveListConceptLists(ctx context.Context, projectID string) (
 }
 
 const weaveListProjectScopedVocabularies = `-- name: WeaveListProjectScopedVocabularies :many
-SELECT v.id, v.created_at, v.updated_at, v.semantic_id, v.system_name, v.ui_name, v.description, v.status, v.project_id, v.connector_type, v.base_uri, v.config, v.config_encrypted
+SELECT v.id, v.created_at, v.updated_at, v.semantic_id, v.system_name, v.ui_name, v.description, v.status, v.project_id, v.connector_type, v.base_uri, v.config, v.config_encrypted, v.deprecated
 FROM weave_vocabularies v
 WHERE v.project_id = $1::text
 ORDER BY v.system_name ASC, v.id ASC
@@ -929,6 +941,7 @@ func (q *Queries) WeaveListProjectScopedVocabularies(ctx context.Context, projec
 			&i.BaseUri,
 			&i.Config,
 			&i.ConfigEncrypted,
+			&i.Deprecated,
 		); err != nil {
 			return nil, err
 		}
@@ -941,7 +954,7 @@ func (q *Queries) WeaveListProjectScopedVocabularies(ctx context.Context, projec
 }
 
 const weaveListVocabularies = `-- name: WeaveListVocabularies :many
-SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted FROM weave_vocabularies
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted, deprecated FROM weave_vocabularies
 ORDER BY system_name ASC
 `
 
@@ -968,6 +981,7 @@ func (q *Queries) WeaveListVocabularies(ctx context.Context) ([]WeaveVocabulary,
 			&i.BaseUri,
 			&i.Config,
 			&i.ConfigEncrypted,
+			&i.Deprecated,
 		); err != nil {
 			return nil, err
 		}
@@ -986,6 +1000,7 @@ SELECT
     COALESCE(v.ui_name, '{}'::jsonb) AS ui_name,
     COALESCE(v.description, '{}'::jsonb) AS description,
     v.status,
+    v.deprecated,
     COALESCE(v.base_uri, '') AS base_uri
 FROM weave_vocabularies v
 WHERE v.project_id = $1::text
@@ -998,6 +1013,7 @@ type WeaveListVocabularySettingsOptionsRow struct {
 	UiName      []byte `json:"ui_name"`
 	Description []byte `json:"description"`
 	Status      string `json:"status"`
+	Deprecated  bool   `json:"deprecated"`
 	BaseUri     string `json:"base_uri"`
 }
 
@@ -1019,6 +1035,7 @@ func (q *Queries) WeaveListVocabularySettingsOptions(ctx context.Context, projec
 			&i.UiName,
 			&i.Description,
 			&i.Status,
+			&i.Deprecated,
 			&i.BaseUri,
 		); err != nil {
 			return nil, err

@@ -1097,6 +1097,15 @@ func (s *Service) searchVocabularyEntries(ctx context.Context, vocabularyID, que
 		}
 		return nil, false, fmt.Errorf("get vocabulary: %w", err)
 	}
+	// A removed vocabulary is fully read-only, which is the whole meaning of
+	// removal: a list built on it keeps every entry it already pinned and
+	// keeps resolving them, but offers nothing new to pin. Returning no
+	// candidates is how that reads to a curator — the alternative, still
+	// searching a source the project has withdrawn, is a half-live state
+	// harder to explain than a dead one.
+	if vocab.Deprecated {
+		return nil, false, nil
+	}
 	rows, err := s.queries.WeaveSearchVocabularyEntries(ctx, sqlcgen.WeaveSearchVocabularyEntriesParams{
 		VocabularyID: vocabularyID,
 		Query:        query,
@@ -1236,6 +1245,11 @@ func (s *Service) appendProjectVocabularyHits(ctx context.Context, out []Concept
 		if len(out) >= limit {
 			break
 		}
+		// A removed vocabulary is read-only: it keeps resolving the entries
+		// already pinned from it, but it no longer offers new ones.
+		if vocab.Deprecated {
+			continue
+		}
 		vocabHits, vocabDegraded, err := s.SearchVocabularyEntriesDegradable(ctx, vocab.ID, query, lang, limit-len(out), "")
 		if err != nil {
 			return nil, false, err
@@ -1307,9 +1321,16 @@ func (s *Service) validateVocabularyInProject(ctx context.Context, projectID, vo
 		return fmt.Errorf("list project vocabularies: %w", err)
 	}
 	for _, row := range rows {
-		if row.ID == vocabularyID {
-			return nil
+		if row.ID != vocabularyID {
+			continue
 		}
+		// Removed vocabularies stay listed so existing lists keep resolving
+		// against them, but a new binding to one is not a choice a curator
+		// can make — it would create a list that can never be added to.
+		if row.Deprecated {
+			return &ErrConceptListValidation{Fields: map[string][]string{"vocabulary_id": {"That vocabulary has been removed from this project."}}}
+		}
+		return nil
 	}
 	return &ErrConceptListValidation{Fields: map[string][]string{"vocabulary_id": {"Choose a vocabulary exposed to this project."}}}
 }

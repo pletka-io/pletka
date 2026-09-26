@@ -73,12 +73,18 @@ func TestAddServiceVocabularyWritesTheRow(t *testing.T) {
 	}
 }
 
-// TestRemoveVocabularyDeletesTheRowAndCascadesEntries pins the other half:
-// removing IS deleting the row, and the entries cache — which re-resolves
-// from the service — goes with it via
-// weave_vocabulary_entries_vocabulary_id_fkey's ON DELETE CASCADE, with no
-// explicit entry delete in RemoveVocabulary.
-func TestRemoveVocabularyDeletesTheRowAndCascadesEntries(t *testing.T) {
+// TestRemoveVocabularyRetiresItAndKeepsWhatWasBuiltFromIt pins the other
+// half, and it is deliberately the opposite of what this test asserted
+// before. Removing used to delete the row and let the entries cascade away;
+// the owner settled the semantics on 2026-09-26 as "the control lists remain,
+// you just can't add to it anymore".
+//
+// A delete cannot express that. weave_vocabulary_entries cascades from
+// weave_vocabularies, so deleting empties every list built on the vocabulary,
+// and weave_concept_lists.vocabulary_id carries no ON DELETE action, so
+// Postgres refuses the delete outright while a list still points at the row.
+// Removal is therefore a deprecation.
+func TestRemoveVocabularyRetiresItAndKeepsWhatWasBuiltFromIt(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	const (
@@ -118,31 +124,30 @@ func TestRemoveVocabularyDeletesTheRowAndCascadesEntries(t *testing.T) {
 		t.Fatalf("remove: %v", err)
 	}
 
-	var vocabCount int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM weave_vocabularies WHERE id = $1`, vocabID).Scan(&vocabCount); err != nil {
-		t.Fatalf("count vocabulary: %v", err)
+	var deprecated bool
+	if err := pool.QueryRow(ctx, `SELECT deprecated FROM weave_vocabularies WHERE id = $1`, vocabID).Scan(&deprecated); err != nil {
+		t.Fatalf("read back vocabulary: %v", err)
 	}
-	if vocabCount != 0 {
-		t.Errorf("vocabulary row = %d, want removed", vocabCount)
+	if !deprecated {
+		t.Error("vocabulary is not deprecated after removal")
 	}
+
 	var entryCount int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM weave_vocabulary_entries WHERE vocabulary_id = $1`, vocabID).Scan(&entryCount); err != nil {
 		t.Fatalf("count vocabulary entries: %v", err)
 	}
-	if entryCount != 0 {
-		t.Errorf("vocabulary entries = %d, want cascaded away with the row", entryCount)
+	if entryCount != 1 {
+		t.Errorf("vocabulary entries = %d, want 1 kept — removal must not unmake what was pinned from it", entryCount)
 	}
 }
 
-// TestRemoveVocabularyBoundToConceptListIsInUse pins the fix for review
-// item 1: weave_concept_lists.vocabulary_id has no ON DELETE clause
-// (RESTRICT, unlike the entries FK), so a vocabulary a concept list still
-// points at cannot simply be deleted. RemoveVocabulary must turn that
-// foreign-key violation into a typed in-use error rather than a bare wrapped
-// error, and the assertion goes through apierror.FromError — the same call
-// DeleteVocabulary makes — so it pins the actual 409/in_use response, not
-// just "some error came back".
-func TestRemoveVocabularyBoundToConceptListIsInUse(t *testing.T) {
+// TestRemoveVocabularyBoundToConceptListSucceeds is the case the previous
+// behaviour got backwards. A delete had to be refused with in_use whenever a
+// concept list pointed at the vocabulary — so the one situation where a
+// curator most wants to stop new pins, a source they have already built on,
+// was the one situation they could not act on. Retiring the row has no such
+// conflict.
+func TestRemoveVocabularyBoundToConceptListSucceeds(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	const (
@@ -175,28 +180,23 @@ func TestRemoveVocabularyBoundToConceptListIsInUse(t *testing.T) {
 		t.Fatalf("read back vocabulary id: %v", err)
 	}
 
-	// A curator later points a concept list at this project-owned
-	// vocabulary — the design doc's normal case, reachable today because
-	// validateVocabularyInProject accepts any project-scoped vocabulary
-	// regardless of connector_type.
 	if _, err := pool.Exec(ctx, `INSERT INTO weave_concept_lists (id, project_id, vocabulary_id) VALUES ($1, $2, $3)`,
 		conceptListID, projectID, vocabID); err != nil {
 		t.Fatalf("seed concept list: %v", err)
 	}
 
-	err := store.RemoveVocabulary(ctx, projectID, vocabID)
-	if err == nil {
-		t.Fatal("removing a vocabulary a concept list still points at must be rejected")
-	}
-	if ae := apierror.FromError(err); ae.Status != http.StatusConflict || ae.Code != apierror.CodeInUse {
-		t.Errorf("mapped error = status %d code %q, want 409/in_use (got: %v)", ae.Status, ae.Code, err)
+	if err := store.RemoveVocabulary(ctx, projectID, vocabID); err != nil {
+		t.Fatalf("removing a vocabulary a concept list points at must succeed: %v", err)
 	}
 
-	var vocabCount int
-	if scanErr := pool.QueryRow(ctx, `SELECT count(*) FROM weave_vocabularies WHERE id = $1`, vocabID).Scan(&vocabCount); scanErr != nil {
-		t.Fatalf("count vocabulary: %v", scanErr)
+	// The list keeps its source: it still resolves the entries it pinned,
+	// and the read-only behaviour is enforced in the vocabulary slice
+	// (TestRemovedVocabularyIsReadOnly), not by severing the reference here.
+	var boundVocab string
+	if err := pool.QueryRow(ctx, `SELECT vocabulary_id FROM weave_concept_lists WHERE id = $1`, conceptListID).Scan(&boundVocab); err != nil {
+		t.Fatalf("read back concept list: %v", err)
 	}
-	if vocabCount != 1 {
-		t.Errorf("vocabulary row = %d, want left in place after a blocked delete", vocabCount)
+	if boundVocab != vocabID {
+		t.Errorf("concept list vocabulary_id = %q, want %q kept", boundVocab, vocabID)
 	}
 }

@@ -513,15 +513,12 @@ func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
 // DeleteVocabulary disables a project's vocabulary by removing its row.
 // DELETE /projects/{projectID}/settings/vocabularies/{vocabularyID}.
 //
-// The cached entries go with it via
-// weave_vocabulary_entries_vocabulary_id_fkey's ON DELETE CASCADE — they
-// simply re-resolve from the service if the mount is added again, so there
-// is nothing else for this handler to clean up. A concept list bound to the
-// vocabulary is a different story: weave_concept_lists.vocabulary_id has no
-// ON DELETE clause (RESTRICT), so the store maps that violation to a typed
-// in-use error, which apierror.FromError turns into 409/in_use here — the
-// same "map typed store error -> apierror" path AddVocabulary uses for its
-// own conflict.
+// Removal retires the vocabulary rather than deleting it: the concept lists
+// built on it keep their pinned entries and keep resolving them, and only new
+// pins are refused (the vocabulary slice enforces that). So this handler has
+// nothing to clean up and no dependants to refuse — unlike AddVocabulary,
+// which still maps a duplicate add to 409/conflict, a removal always
+// succeeds.
 func (h *Handler) DeleteVocabulary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
