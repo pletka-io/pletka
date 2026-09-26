@@ -92,8 +92,26 @@ func (s *postgresStore) Update(ctx context.Context, f *domain.Field) error {
 }
 
 func (s *postgresStore) Delete(ctx context.Context, id string) error {
-	if err := s.queries.WeaveDeleteField(ctx, id); err != nil {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin delete field tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	q := s.queries.WithTx(tx)
+	// The field's own override rows are removed explicitly, in the same
+	// transaction as the field row — weave_field_overrides carries no FK on
+	// field_id, so nothing cascades on its own. Leaving the base row behind
+	// orphans a category_id that the category in-use count keeps counting,
+	// with no drill-down able to explain the number.
+	if err := q.WeaveDeleteOverridesForField(ctx, id); err != nil {
+		return fmt.Errorf("delete field overrides: %w", err)
+	}
+	if err := q.WeaveDeleteField(ctx, id); err != nil {
 		return fmt.Errorf("delete weave field: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit delete field tx: %w", err)
 	}
 	return nil
 }
@@ -958,7 +976,7 @@ GROUP BY fo.field_id`
 
 // BatchUsageRefs returns, for each field ID, the models and collections that
 // place it (weave_field_overrides entity_type 'model'/'collection'; base
-// rows entity_type='' are not placements). Fields with no placements are
+// rows entity_type=” are not placements). Fields with no placements are
 // absent from the map. Unlike ListUsage/CountUsage there is no
 // version-pinned (archive-table) variant here — this is a live-rows-only
 // read, deliberately, since the current project-scale consumers — including

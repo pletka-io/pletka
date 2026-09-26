@@ -280,6 +280,23 @@ func (q *Queries) WeaveDeleteOverridesForEntity(ctx context.Context, arg WeaveDe
 	return err
 }
 
+const weaveDeleteOverridesForField = `-- name: WeaveDeleteOverridesForField :exec
+DELETE FROM weave_field_overrides WHERE field_id = $1
+`
+
+// Every override row referencing this field, whatever its entity_type.
+// weave_field_overrides carries no foreign key to weave_fields, so nothing
+// cascades on its own: deleting a field without this leaves its base row
+// (entity_type ”) orphaned, still carrying a category_id that the category
+// in-use count keeps counting. Callers delete the field in the same
+// transaction. The field's in-use guard means model/collection rows are
+// already absent by the time a delete is allowed; matching on field_id alone
+// keeps that a fact about the guard rather than an assumption here.
+func (q *Queries) WeaveDeleteOverridesForField(ctx context.Context, fieldID string) error {
+	_, err := q.db.Exec(ctx, weaveDeleteOverridesForField, fieldID)
+	return err
+}
+
 const weaveGetBaseOverride = `-- name: WeaveGetBaseOverride :one
 SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides
 WHERE field_id = $1 AND project_id = $2 AND entity_type = ''

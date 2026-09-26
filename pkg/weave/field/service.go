@@ -801,7 +801,9 @@ func (s *Service) Delete(ctx context.Context, projectID, fieldID string) error {
 		if err := s.store.Delete(ctx, fieldID); err != nil {
 			return fmt.Errorf("delete field: %w", err)
 		}
-		// Base override is removed by FK cascade on weave_fields.
+		// store.Delete removes the field's override rows in the same
+		// transaction as the field row. There is no FK cascade to rely on:
+		// weave_field_overrides carries no foreign key to weave_fields.
 		return rec.Record(ctx, domain.ChangeLogEntry{
 			EntityType:      "field",
 			EntityID:        fieldID,
