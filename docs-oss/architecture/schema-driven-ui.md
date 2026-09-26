@@ -46,17 +46,31 @@ server-owned. When the URL scheme changes, schemas emit new URLs and the fronten
 does not change. (Current scheme is `/projects/{ULID}/…`; the target
 `/{org}/{project}/…` ships with organisations. The frontend is indifferent.)
 
-**Known exception:** the vocabularies settings form's `add_vocabulary_id`
-field carries no URL of its own — no `options_url`/`create_url` distinct
-from its section's endpoint — even though `FieldDef` already has a
-`create_url` for exactly this "this field submits somewhere else" shape
-(used by `pkg/weave/collection/formschema.go` and
-`pkg/formschema/composition_sidebar.go`). Its real target is a separate
-`POST` endpoint, not the section's `PUT`; a renderer that follows this doc's
-rule and submits the field with the form's one endpoint silently loses the
-value. See
+**A form has one submit endpoint.** `FieldDef` carries per-field URLs, but
+none of them is a per-field submit override:
+
+- `options_url` is a **GET**. It fetches that field's choices (optionally
+  with `{token}` substitution from other field values, via `depends_on`),
+  and says nothing about where the form submits.
+- `create_url` is a **POST**, but only for one shape: inline-create a new
+  *referenced entity* without leaving the form. The widget renders a
+  "+ Create new" button and a free-text name box, requires `entity_type`,
+  and posts a fixed body — `{type, project_id, name: {en}, ui_name: {en}}`.
+  That is why every in-tree use points at `/api/v1/drafts`. It cannot carry
+  a different body, and the entity it creates is not the form's own record.
+
+**Known gap:** enabling a vocabulary for a project is a create
+(`POST /projects/{id}/settings/vocabularies` with `{mount, lang}`), but the
+vocabularies settings form's endpoint is the `PUT` that saves
+`enforce_concept_lists` and `concept_namespace`. `create_url` cannot express
+that target: `add_vocabulary_id` picks an *existing* service mount by name,
+not a free-text new entity, and the body it needs is `{mount, lang}`. So the
+field needs bespoke wiring to that `POST` — a control of its own, not a
+`create_url`. Until that wiring exists, `add_vocabulary_id` and the owned
+`vocabulary_ids` list are `readonly` display, so the form cannot take an
+edit its one endpoint would discard. See
 [`vocabulary-service-contract.md`](../reference/vocabulary-service-contract.md#vocabularies-are-project-owned)
-for the full explanation. This is disclosed debt, not a pattern to copy.
+for the full explanation.
 
 ## Capabilities are server-gated
 

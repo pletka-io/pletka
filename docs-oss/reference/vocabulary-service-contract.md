@@ -76,28 +76,37 @@ flag to flip:
   way: `weave_concept_lists.vocabulary_id` has no `ON DELETE` action, so the
   delete comes back `409` instead of failing at the database (see
   `Handler.DeleteVocabulary` in `pkg/weave/settings`).
-- The vocabularies settings screen offers only the mounts the instance's
+- The vocabularies settings screen lists only the mounts the instance's
   configured vocabulary service actually serves (`GET /vocab`, below), with
-  each mount's languages shown before a curator picks one, and surfaces an
-  error rather than an empty list when the service does not answer (see
+  each mount's size and languages, and surfaces an error rather than an
+  empty list when the service does not answer (see
   `ServiceVocabularyLister` / `buildServiceVocabularyOptions` in
-  `pkg/weave/settings`).
+  `pkg/weave/settings`). That list is read-only today — see the frontend
+  note below.
 
-**Frontend gotcha, disclosed here because nothing in the served JSON says
-it:** the vocabularies settings form's `add_vocabulary_id` field
-(`WidgetSelect`) sits in the same section as `enforce_concept_lists` and
-`concept_namespace`, but its submit target is not that section's `PUT`. The
-`PUT` (`Handler.UpdateVocabularies`) saves only `enforce_concept_lists` and
-`concept_namespace` — picking a mount in `add_vocabulary_id` and hitting the
-form's normal Save silently does nothing with it. Its real target is the
-`POST` endpoint above. `FieldDef` already has a mechanism for exactly this
-shape, a per-field `create_url` (see `pkg/weave/collection/formschema.go`,
-`pkg/formschema/composition_sidebar.go` for existing uses) — `add_vocabulary_id`
-does not set it, so a generic form renderer has no signal that this field's
-action differs from its section's endpoint. This is inherited debt from an
-earlier task in the `#3599` vocabulary-ownership work, not something this
-document is fixing: treat `add_vocabulary_id` as needing bespoke wiring
-(not a plain Save-button field) until it gets a real `create_url` contract.
+**Frontend state, disclosed here because nothing in the served JSON says
+it:** the vocabularies settings form has one endpoint, the `PUT`
+(`Handler.UpdateVocabularies`), and it saves `enforce_concept_lists` and
+`concept_namespace` — nothing else. The two other fields in that section,
+`add_vocabulary_id` (the service's mounts) and `vocabulary_ids` (what the
+project already owns), have their real targets in the `POST` and `DELETE`
+endpoints above, which no frontend control calls yet. Both therefore ship
+`readonly`: they are display, so the form cannot accept an edit its one
+endpoint would throw away.
+
+`FieldDef`'s per-field `create_url` is **not** the mechanism for wiring them
+up, despite the name. It is an inline-create-a-new-referenced-entity
+affordance: `SelectWidget` and `PillMultiSelect` render it as a "+ Create
+new" button plus a free-text name box, it requires `entity_type`, and it
+posts a fixed body — `{type, project_id, name: {en}, ui_name: {en}}` — which
+is why every in-tree use points at `/api/v1/drafts` (see
+`pkg/formschema/composition_sidebar.go`, `pkg/formschema/field_override.go`,
+`pkg/weave/collection/formschema.go`). `add_vocabulary_id` picks an
+*existing* mount by name and needs a `{mount, lang}` body; `create_url`
+cannot express either half of that. Enabling a vocabulary needs a bespoke
+control posting to `POST /projects/{projectID}/settings/vocabularies`, and
+removing one a control calling the `DELETE` — frontend work still to come,
+not a missing `create_url`.
 
 ## Endpoints core calls
 
