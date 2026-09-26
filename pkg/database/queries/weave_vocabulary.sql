@@ -22,11 +22,6 @@ LIMIT 1;
 SELECT * FROM weave_vocabularies
 ORDER BY system_name ASC;
 
--- name: WeaveListGlobalVocabularyIDs :many
-SELECT id
-FROM weave_vocabularies
-WHERE project_id IS NULL;
-
 -- name: WeaveListVocabularySettingsOptions :many
 -- The vocabularies a project has, for the settings screen. Every row is
 -- owned by the project; "selected" is no longer a concept, because having

@@ -77,6 +77,16 @@ func weaveRowToVocabularyEntry(row sqlcgen.WeaveVocabularyEntry) *domain.Vocabul
 
 // CreateVocabulary inserts a new vocabulary into the weave_vocabularies table.
 func (s *vocabularyStore) CreateVocabulary(ctx context.Context, vocab *domain.Vocabulary) error {
+	// weave_vocabularies.project_id is NOT NULL but carries no foreign key,
+	// so an empty owner is not rejected by the database: it inserts a row no
+	// project-scoped query can ever see and no API call can delete, and it
+	// occupies a ('', system_name) slot in migration 014's unique index.
+	// Before ownership the column was nullable and dbutil.EmptyToNil turned
+	// this into a loud constraint violation; the guard has to say it now.
+	if vocab.ProjectID == "" {
+		return errors.New("create vocabulary: project_id is required")
+	}
+
 	if vocab.ID == "" {
 		vocab.ID = ids.GenerateULID()
 	}

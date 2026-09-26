@@ -896,32 +896,6 @@ func (q *Queries) WeaveListConceptLists(ctx context.Context, projectID string) (
 	return items, nil
 }
 
-const weaveListGlobalVocabularyIDs = `-- name: WeaveListGlobalVocabularyIDs :many
-SELECT id
-FROM weave_vocabularies
-WHERE project_id IS NULL
-`
-
-func (q *Queries) WeaveListGlobalVocabularyIDs(ctx context.Context) ([]string, error) {
-	rows, err := q.db.Query(ctx, weaveListGlobalVocabularyIDs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const weaveListProjectScopedVocabularies = `-- name: WeaveListProjectScopedVocabularies :many
 SELECT v.id, v.created_at, v.updated_at, v.semantic_id, v.system_name, v.ui_name, v.description, v.status, v.project_id, v.connector_type, v.base_uri, v.config, v.config_encrypted
 FROM weave_vocabularies v
