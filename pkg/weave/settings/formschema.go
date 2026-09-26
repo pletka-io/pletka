@@ -319,10 +319,16 @@ func BuildGeneralSettingsSchema(project *domain.Project, canFlagCoreWeave bool, 
 // vocabulary ownership).
 //
 // serviceVocabularyOptions is what the configured vocabulary service serves
-// (see buildServiceVocabularyOptions) — nil/empty renders the "add from
-// service" picker with no choices, which is correct for both "no service
-// configured" and "service answered with nothing"; a service error never
-// reaches here, since the caller returns it instead of calling this builder.
+// (see buildServiceVocabularyOptions) — nil/empty renders the service list
+// with no entries, which is correct for both "no service configured" and
+// "service answered with nothing"; a service error never reaches here, since
+// the caller returns it instead of calling this builder.
+//
+// Only enforce_concept_lists and concept_namespace are editable here: this
+// form has one endpoint, a PUT that saves exactly those two
+// (Handler.UpdateVocabularies). The owned list and the service list are
+// readonly display, because adding and removing a vocabulary are the POST
+// and DELETE on the same path and no frontend control is wired to them yet.
 func BuildVocabularySettingsSchema(projectID string, vocabularyOptions, serviceVocabularyOptions []formschema.SelectOption, enforceConceptLists bool, conceptNamespace string, lang string, languages []formschema.LanguageInfo) *formschema.FormSchema {
 	vocabularyIDs := make([]string, 0, len(vocabularyOptions))
 	for _, opt := range vocabularyOptions {
@@ -341,12 +347,27 @@ func BuildVocabularySettingsSchema(projectID string, vocabularyOptions, serviceV
 				Label: i18n.L("project_settings.vocabularies.exposure", "Vocabulary Exposure"),
 				Fields: []formschema.FieldDef{
 					{
-						Name:    "vocabulary_ids",
-						Widget:  formschema.WidgetPillMultiSelect,
-						Label:   i18n.L("project_settings.vocabularies.available", "Exposed vocabularies"),
-						Help:    i18n.L("project_settings.vocabularies.available_help", "Choose which global vocabulary sources this project can use for concept lists and concept pickers."),
-						Value:   vocabularyIDs,
-						Options: vocabularyOptions,
+						// Display only. This form's endpoint is a PUT that
+						// saves enforce_concept_lists and concept_namespace
+						// and nothing else (Handler.UpdateVocabularies), so
+						// an editable picker here would take a curator's
+						// deselect, answer {"success":true}, and remove
+						// nothing. Readonly makes PillMultiSelect drop its
+						// add dropdown and its per-pill remove buttons, so
+						// the value this form sends back is always the one
+						// the server rendered.
+						//
+						// Removing a vocabulary is
+						// DELETE /projects/{id}/settings/vocabularies/{vid}
+						// (Handler.DeleteVocabulary); wiring a control to it
+						// is frontend work for a follow-up task.
+						Name:     "vocabulary_ids",
+						Widget:   formschema.WidgetPillMultiSelect,
+						Readonly: true,
+						Label:    i18n.L("project_settings.vocabularies.available", "Exposed vocabularies"),
+						Help:     i18n.L("project_settings.vocabularies.available_help", "The vocabularies this project owns. Every one of them is available to this project's concept lists and concept pickers — owning the row is the enablement. Adding and removing them is not available from this screen yet."),
+						Value:    vocabularyIDs,
+						Options:  vocabularyOptions,
 					},
 					{
 						Name:   "enforce_concept_lists",
@@ -363,25 +384,32 @@ func BuildVocabularySettingsSchema(projectID string, vocabularyOptions, serviceV
 						Value:  conceptNamespace,
 					},
 					{
-						// add_vocabulary_id is a create action, not a value
-						// this section's own PUT owns — that PUT overwrites
-						// enforce_concept_lists and concept_namespace only
-						// (Handler.UpdateVocabularies). Picking a mount here
-						// is meant to POST {mount, lang} to
-						// POST /projects/{id}/settings/vocabularies
-						// (Handler.AddVocabulary), a separate create
-						// endpoint, matching this codebase's POST-201-create
-						// / PUT-200-update-in-place split (api-patterns.md)
-						// and mirroring CreateInheritance living beside
-						// UpdateOntology. Task 6 gave that endpoint a real
-						// implementation; wiring this field's "Add" action to
-						// it (rather than this form's Save Changes submit)
-						// is frontend work for a follow-up task.
-						Name:    "add_vocabulary_id",
-						Widget:  formschema.WidgetSelect,
-						Label:   i18n.L("project_settings.vocabularies.add_from_service", "Add a vocabulary from the service"),
-						Help:    i18n.L("project_settings.vocabularies.add_from_service_help", "Choose a vocabulary the configured vocabulary service serves. Each option shows its size and the languages it answers in."),
-						Options: serviceVocabularyOptions,
+						// Display only, for the same reason as
+						// vocabulary_ids: adding a vocabulary is a create
+						// (POST {mount, lang} to
+						// POST /projects/{id}/settings/vocabularies,
+						// Handler.AddVocabulary), matching this codebase's
+						// POST-201-create / PUT-200-update-in-place split
+						// (api-patterns.md) and mirroring CreateInheritance
+						// living beside UpdateOntology. This section's PUT
+						// cannot carry it. Until a control is wired to that
+						// POST, this field shows what the service serves and
+						// takes no input — an inert picker beats one that
+						// swallows a choice and reports success.
+						//
+						// It carries no create_url: that is an
+						// inline-create-a-new-referenced-entity affordance
+						// (a name box POSTing a fixed
+						// {type, project_id, name, ui_name} body, every
+						// in-tree use pointing at /api/v1/drafts), not a
+						// per-field submit override. See
+						// docs-oss/reference/vocabulary-service-contract.md.
+						Name:     "add_vocabulary_id",
+						Widget:   formschema.WidgetSelect,
+						Readonly: true,
+						Label:    i18n.L("project_settings.vocabularies.add_from_service", "Vocabularies this instance's service serves"),
+						Help:     i18n.L("project_settings.vocabularies.add_from_service_help", "What the configured vocabulary service offers, with each mount's size and the languages it answers in. Adding one to this project is not available from this screen yet."),
+						Options:  serviceVocabularyOptions,
 					},
 				},
 			},
