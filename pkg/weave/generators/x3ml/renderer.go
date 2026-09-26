@@ -660,7 +660,10 @@ func buildLinkFromPath(steps []generators.PathNode, template, rootIdent string) 
 	}
 
 	// Walk middle steps; properties → <relationship>, classes →
-	// <entity variable=...>, literal → break (only valid at terminal).
+	// <entity variable=...>, literal → stop (only valid at terminal).
+	// The label is load-bearing: a bare break here would leave the switch,
+	// not the loop, and the walk would carry on past the malformed node.
+midWalk:
 	for i, node := range mid {
 		switch node.Role {
 		case generators.PathRoleProperty:
@@ -680,7 +683,7 @@ func buildLinkFromPath(steps []generators.PathNode, template, rootIdent string) 
 		case generators.PathRoleLiteral:
 			// Literal mid-path is malformed; stop emitting and leave
 			// terminal handling to render whatever the snapshot carries.
-			break
+			break midWalk
 		}
 	}
 
