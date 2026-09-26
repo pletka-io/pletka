@@ -295,8 +295,15 @@ func BuildGeneralSettingsSchema(project *domain.Project, canFlagCoreWeave bool, 
 
 // BuildVocabularySettingsSchema builds the project's vocabulary settings form:
 // exposed source vocabularies, concept-list enforcement, and the concept
-// namespace override used for RDF/SKOS export (F4, #3599).
-func BuildVocabularySettingsSchema(projectID string, vocabularyOptions []SelectOption, selectedVocabularyIDs []string, enforceConceptLists bool, conceptNamespace string, lang string, languages []LanguageInfo) *FormSchema {
+// namespace override used for RDF/SKOS export (F4, #3599). Every listed
+// vocabulary is owned by the project, so having the option IS the
+// enablement — there is no separate "selected" concept to track (#3599
+// vocabulary ownership).
+func BuildVocabularySettingsSchema(projectID string, vocabularyOptions []SelectOption, enforceConceptLists bool, conceptNamespace string, lang string, languages []LanguageInfo) *FormSchema {
+	vocabularyIDs := make([]string, 0, len(vocabularyOptions))
+	for _, opt := range vocabularyOptions {
+		vocabularyIDs = append(vocabularyIDs, opt.Value)
+	}
 	return &FormSchema{
 		EntityType: "project_settings",
 		Mode:       ModeEdit,
@@ -314,7 +321,7 @@ func BuildVocabularySettingsSchema(projectID string, vocabularyOptions []SelectO
 						Widget:  WidgetPillMultiSelect,
 						Label:   i18n.L("project_settings.vocabularies.available", "Exposed vocabularies"),
 						Help:    i18n.L("project_settings.vocabularies.available_help", "Choose which global vocabulary sources this project can use for concept lists and concept pickers."),
-						Value:   selectedVocabularyIDs,
+						Value:   vocabularyIDs,
 						Options: vocabularyOptions,
 					},
 					{

@@ -744,22 +744,13 @@ INSERT INTO weave_concept_list_entries (
 	return s.getConceptListEntryView(ctx, list.ID, junctionID)
 }
 
-// EnsureLocalVocabulary provisions a project's local (hand-authored) vocabulary
-// and marks it active in weave_project_vocabularies, returning its id. Called
-// on project create so authoring works out of the box without a remote
-// authority (#3599). Idempotent: safe to call repeatedly.
+// EnsureLocalVocabulary provisions a project's local (hand-authored)
+// vocabulary, returning its id. Called on project create so authoring works
+// out of the box without a remote authority (#3599). Idempotent: safe to
+// call repeatedly. Ownership is the project_id column on weave_vocabularies
+// itself — there is no separate activation step (#3599 vocabulary ownership).
 func (s *Service) EnsureLocalVocabulary(ctx context.Context, projectID string) (string, error) {
-	id, err := s.ensureLocalVocabulary(ctx, projectID)
-	if err != nil {
-		return "", err
-	}
-	if err := s.queries.WeaveUpsertActiveProjectVocabulary(ctx, sqlcgen.WeaveUpsertActiveProjectVocabularyParams{
-		ProjectID:    projectID,
-		VocabularyID: id,
-	}); err != nil {
-		return "", fmt.Errorf("activate local vocabulary: %w", err)
-	}
-	return id, nil
+	return s.ensureLocalVocabulary(ctx, projectID)
 }
 
 // ensureLocalVocabulary returns the id of the project's local vocabulary,

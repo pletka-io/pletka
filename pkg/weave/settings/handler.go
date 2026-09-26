@@ -144,7 +144,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load vocabulary settings")
 			return
 		}
-		schema = formschema.BuildVocabularySettingsSchema(project.ID, vocabularySelectOptions(vocabState.Options), vocabState.Selected, vocabState.Enforce, vocabState.Namespace, lang, h.languages)
+		schema = formschema.BuildVocabularySettingsSchema(project.ID, vocabularySelectOptions(vocabState.Options), vocabState.Enforce, vocabState.Namespace, lang, h.languages)
 	case "autocomplete":
 		schema = formschema.BuildOntologyProbeSchema(lang, h.languages)
 	case "ontology":

@@ -231,18 +231,6 @@ func (q *Queries) WeaveCreateVocabularyEntry(ctx context.Context, arg WeaveCreat
 	return i, err
 }
 
-const weaveDeactivateProjectVocabularies = `-- name: WeaveDeactivateProjectVocabularies :exec
-UPDATE weave_project_vocabularies
-SET status = 'inactive',
-    updated_at = NOW()
-WHERE project_id = $1
-`
-
-func (q *Queries) WeaveDeactivateProjectVocabularies(ctx context.Context, projectID string) error {
-	_, err := q.db.Exec(ctx, weaveDeactivateProjectVocabularies, projectID)
-	return err
-}
-
 const weaveDeleteConceptListEntry = `-- name: WeaveDeleteConceptListEntry :exec
 DELETE FROM weave_concept_list_entries WHERE id = $1
 `
@@ -934,15 +922,13 @@ func (q *Queries) WeaveListGlobalVocabularyIDs(ctx context.Context) ([]string, e
 const weaveListProjectScopedVocabularies = `-- name: WeaveListProjectScopedVocabularies :many
 SELECT v.id, v.created_at, v.updated_at, v.semantic_id, v.system_name, v.ui_name, v.description, v.status, v.project_id, v.connector_type, v.base_uri, v.config, v.config_encrypted
 FROM weave_vocabularies v
-LEFT JOIN weave_project_vocabularies pv
-    ON pv.vocabulary_id = v.id
-    AND pv.project_id = $1::text
-    AND pv.status = 'active'
 WHERE v.project_id = $1::text
-   OR pv.project_id = $1::text
-ORDER BY (v.project_id IS NULL) DESC, v.system_name ASC, v.id ASC
+ORDER BY v.system_name ASC, v.id ASC
 `
 
+// A project's vocabularies are exactly the rows carrying its project_id.
+// There is no global tier and no join table: see
+// docs/plans/2026-09-26-vocabulary-project-ownership-design.md.
 func (q *Queries) WeaveListProjectScopedVocabularies(ctx context.Context, projectID string) ([]WeaveVocabulary, error) {
 	rows, err := q.db.Query(ctx, weaveListProjectScopedVocabularies, projectID)
 	if err != nil {
@@ -1024,25 +1010,25 @@ SELECT
     COALESCE(v.description, '{}'::jsonb) AS description,
     v.status,
     COALESCE(v.base_uri, '') AS base_uri,
-    COALESCE((pv.status = 'active')::boolean, false)::boolean AS selected
+    COALESCE(v.connector_type, '') AS connector_type
 FROM weave_vocabularies v
-LEFT JOIN weave_project_vocabularies pv
-    ON pv.vocabulary_id = v.id
-    AND pv.project_id = $1::text
-WHERE v.project_id IS NULL
+WHERE v.project_id = $1::text
 ORDER BY v.system_name ASC, v.id ASC
 `
 
 type WeaveListVocabularySettingsOptionsRow struct {
-	ID          string `json:"id"`
-	SystemName  string `json:"system_name"`
-	UiName      []byte `json:"ui_name"`
-	Description []byte `json:"description"`
-	Status      string `json:"status"`
-	BaseUri     string `json:"base_uri"`
-	Selected    bool   `json:"selected"`
+	ID            string `json:"id"`
+	SystemName    string `json:"system_name"`
+	UiName        []byte `json:"ui_name"`
+	Description   []byte `json:"description"`
+	Status        string `json:"status"`
+	BaseUri       string `json:"base_uri"`
+	ConnectorType string `json:"connector_type"`
 }
 
+// The vocabularies a project has, for the settings screen. Every row is
+// owned by the project; "selected" is no longer a concept, because having
+// the row IS the enablement.
 func (q *Queries) WeaveListVocabularySettingsOptions(ctx context.Context, projectID string) ([]WeaveListVocabularySettingsOptionsRow, error) {
 	rows, err := q.db.Query(ctx, weaveListVocabularySettingsOptions, projectID)
 	if err != nil {
@@ -1059,7 +1045,7 @@ func (q *Queries) WeaveListVocabularySettingsOptions(ctx context.Context, projec
 			&i.Description,
 			&i.Status,
 			&i.BaseUri,
-			&i.Selected,
+			&i.ConnectorType,
 		); err != nil {
 			return nil, err
 		}
@@ -1245,24 +1231,6 @@ type WeaveUpdateConceptListEntryOrderParams struct {
 
 func (q *Queries) WeaveUpdateConceptListEntryOrder(ctx context.Context, arg WeaveUpdateConceptListEntryOrderParams) error {
 	_, err := q.db.Exec(ctx, weaveUpdateConceptListEntryOrder, arg.ID, arg.Position)
-	return err
-}
-
-const weaveUpsertActiveProjectVocabulary = `-- name: WeaveUpsertActiveProjectVocabulary :exec
-INSERT INTO weave_project_vocabularies (project_id, vocabulary_id, status, created_at, updated_at)
-VALUES ($1, $2, 'active', NOW(), NOW())
-ON CONFLICT (project_id, vocabulary_id)
-DO UPDATE SET status = 'active',
-              updated_at = NOW()
-`
-
-type WeaveUpsertActiveProjectVocabularyParams struct {
-	ProjectID    string `json:"project_id"`
-	VocabularyID string `json:"vocabulary_id"`
-}
-
-func (q *Queries) WeaveUpsertActiveProjectVocabulary(ctx context.Context, arg WeaveUpsertActiveProjectVocabularyParams) error {
-	_, err := q.db.Exec(ctx, weaveUpsertActiveProjectVocabulary, arg.ProjectID, arg.VocabularyID)
 	return err
 }
 

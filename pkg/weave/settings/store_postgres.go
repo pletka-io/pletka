@@ -55,7 +55,6 @@ func (s *postgresStore) VocabularySettingsState(ctx context.Context, projectID s
 		return VocabularySettingsState{}, err
 	}
 	options := make([]VocabularySettingsOption, 0, len(rows))
-	selected := []string{}
 	for _, row := range rows {
 		label := settingsTranslations(row.UiName)
 		if len(label) == 0 {
@@ -72,11 +71,7 @@ func (s *postgresStore) VocabularySettingsState(ctx context.Context, projectID s
 			Description: desc,
 			Status:      row.Status,
 			BaseURI:     row.BaseUri,
-			Selected:    row.Selected,
 		})
-		if row.Selected {
-			selected = append(selected, row.ID)
-		}
 	}
 	enforce, err := s.queries.WeaveGetProjectConceptListEnforcement(ctx, projectID)
 	if err != nil {
@@ -88,7 +83,6 @@ func (s *postgresStore) VocabularySettingsState(ctx context.Context, projectID s
 	}
 	return VocabularySettingsState{
 		Options:   options,
-		Selected:  selected,
 		Enforce:   enforce,
 		Namespace: namespace,
 	}, nil
@@ -114,17 +108,6 @@ func (s *postgresStore) UpdateVocabularySettings(ctx context.Context, projectID 
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	q := s.queries.WithTx(tx)
-	if err := q.WeaveDeactivateProjectVocabularies(ctx, projectID); err != nil {
-		return fmt.Errorf("deactivate project vocabularies: %w", err)
-	}
-	for _, id := range vocabularyIDs {
-		if err := q.WeaveUpsertActiveProjectVocabulary(ctx, sqlcgen.WeaveUpsertActiveProjectVocabularyParams{
-			ProjectID:    projectID,
-			VocabularyID: id,
-		}); err != nil {
-			return fmt.Errorf("upsert project vocabulary %q: %w", id, err)
-		}
-	}
 	if err := q.WeaveUpdateProjectConceptListEnforcement(ctx, sqlcgen.WeaveUpdateProjectConceptListEnforcementParams{
 		ID:                  projectID,
 		EnforceConceptLists: enforceConceptLists,

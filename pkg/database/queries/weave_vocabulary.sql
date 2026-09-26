@@ -33,6 +33,9 @@ FROM weave_vocabularies
 WHERE project_id IS NULL;
 
 -- name: WeaveListVocabularySettingsOptions :many
+-- The vocabularies a project has, for the settings screen. Every row is
+-- owned by the project; "selected" is no longer a concept, because having
+-- the row IS the enablement.
 SELECT
     v.id,
     COALESCE(v.system_name, '') AS system_name,
@@ -40,37 +43,19 @@ SELECT
     COALESCE(v.description, '{}'::jsonb) AS description,
     v.status,
     COALESCE(v.base_uri, '') AS base_uri,
-    COALESCE((pv.status = 'active')::boolean, false)::boolean AS selected
+    COALESCE(v.connector_type, '') AS connector_type
 FROM weave_vocabularies v
-LEFT JOIN weave_project_vocabularies pv
-    ON pv.vocabulary_id = v.id
-    AND pv.project_id = @project_id::text
-WHERE v.project_id IS NULL
+WHERE v.project_id = @project_id::text
 ORDER BY v.system_name ASC, v.id ASC;
 
--- name: WeaveDeactivateProjectVocabularies :exec
-UPDATE weave_project_vocabularies
-SET status = 'inactive',
-    updated_at = NOW()
-WHERE project_id = $1;
-
--- name: WeaveUpsertActiveProjectVocabulary :exec
-INSERT INTO weave_project_vocabularies (project_id, vocabulary_id, status, created_at, updated_at)
-VALUES ($1, $2, 'active', NOW(), NOW())
-ON CONFLICT (project_id, vocabulary_id)
-DO UPDATE SET status = 'active',
-              updated_at = NOW();
-
 -- name: WeaveListProjectScopedVocabularies :many
+-- A project's vocabularies are exactly the rows carrying its project_id.
+-- There is no global tier and no join table: see
+-- docs/plans/2026-09-26-vocabulary-project-ownership-design.md.
 SELECT v.*
 FROM weave_vocabularies v
-LEFT JOIN weave_project_vocabularies pv
-    ON pv.vocabulary_id = v.id
-    AND pv.project_id = @project_id::text
-    AND pv.status = 'active'
 WHERE v.project_id = @project_id::text
-   OR pv.project_id = @project_id::text
-ORDER BY (v.project_id IS NULL) DESC, v.system_name ASC, v.id ASC;
+ORDER BY v.system_name ASC, v.id ASC;
 
 -- name: WeaveCreateVocabularyEntry :one
 INSERT INTO weave_vocabulary_entries (

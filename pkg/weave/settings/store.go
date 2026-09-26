@@ -13,12 +13,10 @@ type VocabularySettingsOption struct {
 	Description domain.Translations
 	Status      string
 	BaseURI     string
-	Selected    bool
 }
 
 type VocabularySettingsState struct {
 	Options   []VocabularySettingsOption
-	Selected  []string
 	Enforce   bool
 	Namespace string // concept namespace override (F4, #3599); "" = platform default
 }
