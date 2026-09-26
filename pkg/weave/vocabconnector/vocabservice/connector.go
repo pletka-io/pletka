@@ -140,7 +140,12 @@ type VocabularyInfo struct {
 // from a genuine no-match.
 func (c *Connector) Search(ctx context.Context, query string, opts vocabconnector.SearchOpts) ([]vocabconnector.Entry, error) {
 	query = strings.TrimSpace(query)
-	if query == "" {
+	// An empty query with a parent is a browse, not a no-op: the service
+	// answers q=&under=<id> with the parent's subtree, which is how a curator
+	// picks a root term and sees what sits below it. Only bail when there is
+	// neither a query nor a parent to scope by — the same condition the aat
+	// connector uses.
+	if query == "" && strings.TrimSpace(opts.ParentURI) == "" {
 		return nil, nil
 	}
 	if c.cfg.Vocab == "" {

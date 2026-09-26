@@ -813,3 +813,61 @@ func indexOf(haystack, needle string) int {
 	}
 	return -1
 }
+
+// TestSearchWithNoQueryBrowsesUnderTheParent is the regression gate for a
+// half-ported guard. The v2 connector bailed on an empty query before it ever
+// looked at ParentURI, so "pick a parent term and show me what is under it"
+// — which the aat connector supports, and which the service answers as
+// q=&under=<id> — returned nothing at all. The picker already issues that
+// request on load, so the feature was silently dead rather than absent.
+func TestSearchWithNoQueryBrowsesUnderTheParent(t *testing.T) {
+	var called bool
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called, gotQuery = true, r.URL.RawQuery
+		_, _ = w.Write([]byte(`{"results":[{"uri":"http://vocab.getty.edu/aat/300448875","id":"300448875","prefLabel":{"en":"cèyàng"},"lang":"en"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	got, err := c.Search(context.Background(), "", vocabconnector.SearchOpts{
+		Lang: "en", Limit: 20, ParentURI: "http://vocab.getty.edu/aat/300054196",
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if !called {
+		t.Fatal("no request reached the service — the empty query short-circuited before the parent was consulted")
+	}
+	if !contains(gotQuery, "under=300054196") {
+		t.Errorf("query %q is missing under=300054196", gotQuery)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d entries, want the parent's one child", len(got))
+	}
+}
+
+// TestSearchWithNeitherQueryNorParentStaysANoOp pins the other half of the
+// same condition: with nothing to search for and nothing to scope by, the
+// connector must still not call the service. Without this, widening the guard
+// above would turn every idle picker into an unscoped fetch.
+func TestSearchWithNeitherQueryNorParentStaysANoOp(t *testing.T) {
+	var called bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	got, err := c.Search(context.Background(), "   ", vocabconnector.SearchOpts{Lang: "en", Limit: 20})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if called {
+		t.Error("the service was called with neither a query nor a parent")
+	}
+	if got != nil {
+		t.Errorf("got %v, want nil", got)
+	}
+}
