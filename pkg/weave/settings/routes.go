@@ -44,7 +44,7 @@ func Mount(parent chi.Router, host Host) {
 	if err := host.Validate(); err != nil {
 		panic(err)
 	}
-	h := NewHandler(host.Weave, host.Store, host.Languages, host.Logger)
+	h := NewHandler(host.Weave, host.Store, host.ServiceVocabularies, host.Languages, host.Logger)
 
 	mountAt(parent, "/projects/{projectID}/settings/schema", host, func(r chi.Router) {
 		r.Get("/", h.PageSchema)

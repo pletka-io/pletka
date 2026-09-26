@@ -317,7 +317,13 @@ func BuildGeneralSettingsSchema(project *domain.Project, canFlagCoreWeave bool, 
 // vocabulary is owned by the project, so having the option IS the
 // enablement — there is no separate "selected" concept to track (#3599
 // vocabulary ownership).
-func BuildVocabularySettingsSchema(projectID string, vocabularyOptions []formschema.SelectOption, enforceConceptLists bool, conceptNamespace string, lang string, languages []formschema.LanguageInfo) *formschema.FormSchema {
+//
+// serviceVocabularyOptions is what the configured vocabulary service serves
+// (see buildServiceVocabularyOptions) — nil/empty renders the "add from
+// service" picker with no choices, which is correct for both "no service
+// configured" and "service answered with nothing"; a service error never
+// reaches here, since the caller returns it instead of calling this builder.
+func BuildVocabularySettingsSchema(projectID string, vocabularyOptions, serviceVocabularyOptions []formschema.SelectOption, enforceConceptLists bool, conceptNamespace string, lang string, languages []formschema.LanguageInfo) *formschema.FormSchema {
 	vocabularyIDs := make([]string, 0, len(vocabularyOptions))
 	for _, opt := range vocabularyOptions {
 		vocabularyIDs = append(vocabularyIDs, opt.Value)
@@ -355,6 +361,13 @@ func BuildVocabularySettingsSchema(projectID string, vocabularyOptions []formsch
 						Label:  i18n.L("project_settings.vocabularies.namespace", "Concept namespace"),
 						Help:   i18n.L("project_settings.vocabularies.namespace_help", "Base IRI that this project's local concept identifiers expand to in RDF/SKOS exports. Leave blank for the platform default (https://vocab.pletka.io/)."),
 						Value:  conceptNamespace,
+					},
+					{
+						Name:    "add_vocabulary_id",
+						Widget:  formschema.WidgetSelect,
+						Label:   i18n.L("project_settings.vocabularies.add_from_service", "Add a vocabulary from the service"),
+						Help:    i18n.L("project_settings.vocabularies.add_from_service_help", "Choose a vocabulary the configured vocabulary service serves. Each option shows its size and the languages it answers in."),
+						Options: serviceVocabularyOptions,
 					},
 				},
 			},

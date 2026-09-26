@@ -19,6 +19,12 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
+// errCodeVocabularyServiceUnavailable distinguishes a failed vocabulary
+// service call from the generic "internal" error code used elsewhere in
+// this handler — the settings screen needs to tell a curator "the service
+// didn't answer" apart from any other failure.
+const errCodeVocabularyServiceUnavailable = "vocabulary_service_unavailable"
+
 // Handler exposes the project-settings-v2 surface as a vertical slice.
 //
 // All endpoints take a {projectID} URL parameter. Reads gate on
@@ -26,18 +32,24 @@ import (
 // stays in pkg/formschema — this handler only composes those builders
 // with the project store + auth snapshot.
 type Handler struct {
-	weave     domain.WeaveStore
-	store     Store
-	log       *slog.Logger
-	languages []formschema.LanguageInfo
+	weave domain.WeaveStore
+	store Store
+	log   *slog.Logger
+
+	// serviceVocabularies lists what the configured vocabulary service
+	// serves. Nil is legal — it means this instance configures no service —
+	// and must stay legal here just as it is in Host.
+	serviceVocabularies ServiceVocabularyLister
+	languages           []formschema.LanguageInfo
 }
 
-// NewHandler builds a Handler. nil log → slog.Default.
-func NewHandler(weave domain.WeaveStore, store Store, languages []formschema.LanguageInfo, log *slog.Logger) *Handler {
+// NewHandler builds a Handler. nil log → slog.Default. serviceVocabularies
+// may be nil (no vocabulary service configured for this instance).
+func NewHandler(weave domain.WeaveStore, store Store, serviceVocabularies ServiceVocabularyLister, languages []formschema.LanguageInfo, log *slog.Logger) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Handler{weave: weave, store: store, log: log, languages: languages}
+	return &Handler{weave: weave, store: store, serviceVocabularies: serviceVocabularies, log: log, languages: languages}
 }
 
 // loadProjectAndGate fetches the project and verifies the caller holds
@@ -144,7 +156,17 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load vocabulary settings")
 			return
 		}
-		schema = BuildVocabularySettingsSchema(project.ID, vocabularySelectOptions(vocabState.Options), vocabState.Enforce, vocabState.Namespace, lang, h.languages)
+		var svcErr error
+		schema, svcErr = h.vocabularySchema(ctx, project.ID, vocabState, lang)
+		if svcErr != nil {
+			// The vocabulary service failed to answer. This must read as an
+			// error to the curator, not as an empty "add from service" list —
+			// an empty list would look like "there are none" when the truth
+			// is "we couldn't ask".
+			h.log.Error("failed to list vocabulary service mounts", "project_id", project.ID, "err", svcErr)
+			errresp.Error(w, r, http.StatusInternalServerError, errCodeVocabularyServiceUnavailable, "failed to load the vocabulary service listing")
+			return
+		}
 	case "autocomplete":
 		schema = formschema.BuildOntologyProbeSchema(lang, h.languages)
 	case "ontology":
@@ -224,6 +246,19 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, schema)
+}
+
+// vocabularySchema composes the vocabularies form schema, including what the
+// configured vocabulary service serves. Split out of FormSchema so the
+// service-lister error path — the whole point of this seam — is testable
+// without a database or an HTTP round trip: a caller gets the error back
+// directly instead of it being swallowed into an empty option list.
+func (h *Handler) vocabularySchema(ctx context.Context, projectID string, vocabState VocabularySettingsState, lang string) (*formschema.FormSchema, error) {
+	serviceOptions, err := buildServiceVocabularyOptions(ctx, h.serviceVocabularies)
+	if err != nil {
+		return nil, err
+	}
+	return BuildVocabularySettingsSchema(projectID, vocabularySelectOptions(vocabState.Options), serviceOptions, vocabState.Enforce, vocabState.Namespace, lang, h.languages), nil
 }
 
 // ListSchema returns the list schema for settings panes that are driven by
