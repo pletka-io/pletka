@@ -61,4 +61,11 @@ jobs:
         working-directory: frontend
       - uses: actions/setup-go@v7
         with: { go-version: '1.26.6' }
+      # REQUIRE_DB turns internal/testdb's skip into a failure. Without it this
+      # lane reports "ok" having run nothing whenever the fixtures submodule is
+      # missing or Docker is unavailable — a green tick on no evidence, which is
+      # worse than a red one. In CI both are always meant to be present, so a
+      # skip here means the lane is broken, not that there was nothing to run.
       - run: make test-integration
+        env:
+          REQUIRE_DB: '1'
