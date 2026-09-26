@@ -1474,7 +1474,6 @@ func parseTopics(raw json.RawMessage) ([]string, error) {
 	return nil, errors.New("topics must be an array of strings or a comma-separated string")
 }
 
-
 // cleanTopics trims whitespace and drops empties.
 func cleanTopics(in []string) []string {
 	out := make([]string, 0, len(in))

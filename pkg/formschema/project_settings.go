@@ -37,11 +37,9 @@ type SettingsWarning struct {
 	ActionLabel domain.Localizable `json:"action_label,omitempty"`
 }
 
-
 func withVersionQuery(raw, activeVersion string) string {
 	if activeVersion == "" {
 		return raw
 	}
 	return addVersionToURL(raw, activeVersion)
 }
-
