@@ -171,16 +171,17 @@ func ensureTemplate(ctx context.Context, maintDSN string) error {
 		return fmt.Errorf("check template existence: %w", err)
 	}
 	if exists {
-		valid, err := templateHasSentinel(ctx, maintDSN)
+		valid, reason, err := templateIsCurrent(ctx, maintDSN)
 		if err != nil {
 			return err
 		}
 		if valid {
 			return nil
 		}
-		// Poisoned shell: drop and fall through to rebuild.
-		slog.Warn("testdb: reusing container held an invalid (schema-less) template; dropping and rebuilding",
-			"template", templateDBName)
+		// Poisoned shell, or a template built before a migration this binary
+		// carries: drop and fall through to rebuild.
+		slog.Warn("testdb: reusing container held an unusable template; dropping and rebuilding",
+			"template", templateDBName, "reason", reason)
 		if _, err := conn.ExecContext(ctx,
 			"DROP DATABASE IF EXISTS "+quoteIdent(templateDBName)+" WITH (FORCE)"); err != nil {
 			return fmt.Errorf("drop invalid template: %w", err)
@@ -190,27 +191,68 @@ func ensureTemplate(ctx context.Context, maintDSN string) error {
 	return buildTemplate(ctx, conn, maintDSN)
 }
 
-// templateHasSentinel reports whether the existing template contains the
-// sentinel table, i.e. whether it was fully migrated. It opens a dedicated
-// handle to the template DB (information_schema is per-database) and closes it
-// before returning, so it leaves no session that would block a later rename.
-func templateHasSentinel(ctx context.Context, maintDSN string) (bool, error) {
+// templateIsCurrent reports whether the existing template is safe to clone,
+// and when it is not, why — the reason is logged before the rebuild.
+//
+// Two conditions, and the second is the one that matters on a long-lived box.
+// The sentinel table proves the template was migrated at all (an empty shell
+// from a build that died before migrating is not). The goose version proves it
+// was migrated by a binary carrying the same migrations as this one: the
+// container is reused by name across runs and even across checkouts, so a
+// template built yesterday can predate a migration added today. Keying on a
+// table's presence cannot see that — weave_projects has existed since the
+// baseline — and the stale schema is then cloned into every package, where a
+// test either fails confusingly or passes while asserting nothing about the
+// new schema.
+//
+// It opens a dedicated handle to the template DB (information_schema and
+// goose_db_version are both per-database) and closes it before returning, so
+// it leaves no session that would block a later rename.
+func templateIsCurrent(ctx context.Context, maintDSN string) (bool, string, error) {
 	tmplDSN, err := withDatabase(maintDSN, templateDBName)
 	if err != nil {
-		return false, fmt.Errorf("derive template dsn: %w", err)
+		return false, "", fmt.Errorf("derive template dsn: %w", err)
 	}
-	tdb, err := sql.Open("pgx", tmplDSN)
+	return databaseIsCurrent(ctx, tmplDSN)
+}
+
+// databaseIsCurrent is templateIsCurrent's check against an arbitrary
+// database, split out so both verdicts can be exercised against a scratch
+// database rather than only against whichever template the container happens
+// to hold.
+func databaseIsCurrent(ctx context.Context, dsn string) (bool, string, error) {
+	want, err := database.LatestMigrationVersion()
 	if err != nil {
-		return false, fmt.Errorf("open template db: %w", err)
+		return false, "", fmt.Errorf("read expected migration version: %w", err)
 	}
-	defer tdb.Close()
+
+	tdb, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return false, "", fmt.Errorf("open template db: %w", err)
+	}
+	defer func() { _ = tdb.Close() }()
 
 	var found bool
 	if err := tdb.QueryRowContext(ctx,
 		"SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = $1)", sentinelTable).Scan(&found); err != nil {
-		return false, fmt.Errorf("check template sentinel: %w", err)
+		return false, "", fmt.Errorf("check template sentinel: %w", err)
 	}
-	return found, nil
+	if !found {
+		return false, "template has no schema (missing " + sentinelTable + ")", nil
+	}
+
+	// A template with the sentinel table but no goose_db_version is not a
+	// shape this code produces; treat it as stale rather than guessing.
+	var got sql.NullInt64
+	if err := tdb.QueryRowContext(ctx,
+		"SELECT max(version_id) FROM goose_db_version WHERE is_applied").Scan(&got); err != nil {
+		return false, fmt.Sprintf("template has no readable goose_db_version (%v)", err), nil
+	}
+	if !got.Valid || got.Int64 != want {
+		return false, fmt.Sprintf("template is at migration %d, this binary carries %d", got.Int64, want), nil
+	}
+
+	return true, "", nil
 }
 
 // buildTemplate (re)builds the template under a temp name and promotes it
