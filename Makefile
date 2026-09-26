@@ -327,7 +327,9 @@ update-fixtures: build ## Regenerate real-project fixtures (AME, LA, ING) from P
 # ---------------------------------------------------------------------------
 # Static analysis — all via `go tool` so the versions pinned in go.mod are used
 # on every machine and in CI (no separate installs, no toolchain drift; the
-# tool is built with the local Go, so it always matches the go 1.26 config).
+# tool is built with the local Go, so it always matches the toolchain in use —
+# keep the pin current, because a golangci-lint older than the Go release
+# panics inside staticcheck's IR builder rather than reporting anything).
 # golangci-lint v2 aggregates staticcheck + ~18 linters (.golangci.yml) in one
 # fast parallel pass (~9s cold, ~1-2s warm). govulncheck scans for known vulns.
 # ---------------------------------------------------------------------------
