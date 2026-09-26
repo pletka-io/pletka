@@ -66,6 +66,10 @@ func Mount(parent chi.Router, host Host) {
 	})
 	mountAt(parent, "/projects/{projectID}/settings/vocabularies", host, func(r chi.Router) {
 		r.Put("/", h.UpdateVocabularies)
+		r.Post("/", h.AddVocabulary)
+	})
+	mountAt(parent, "/projects/{projectID}/settings/vocabularies/{vocabularyID}", host, func(r chi.Router) {
+		r.Delete("/", h.DeleteVocabulary)
 	})
 	mountAt(parent, "/projects/{projectID}/settings/ontology", host, func(r chi.Router) {
 		r.Put("/", h.UpdateOntology)

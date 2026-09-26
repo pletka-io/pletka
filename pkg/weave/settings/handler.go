@@ -466,6 +466,78 @@ func (h *Handler) UpdateVocabularies(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
+// AddVocabulary enables a vocabulary the configured service serves for a
+// project. POST /projects/{projectID}/settings/vocabularies.
+//
+// Split out from UpdateVocabularies rather than folded into its body: adding
+// a vocabulary is a create (owning the row IS the enablement, #3599
+// vocabulary ownership), and this codebase's create/update convention is
+// POST 201 creates, PUT 200 updates in place (api-patterns.md) — the same
+// split CreateInheritance/UpdateOntology already use on the ontology
+// section. The PUT on this same path keeps owning exactly what it owns:
+// enforce_concept_lists and concept_namespace.
+func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := chi.URLParam(r, "projectID")
+
+	if _, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit); !ok {
+		return
+	}
+
+	var body struct {
+		Mount string `json:"mount"`
+		Lang  string `json:"lang"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+		return
+	}
+	body.Mount = strings.TrimSpace(body.Mount)
+	if body.Mount == "" {
+		writeValidationErrors(w, map[string][]string{"mount": {"mount is required"}})
+		return
+	}
+
+	if err := h.store.AddServiceVocabulary(ctx, projectID, body.Mount, strings.TrimSpace(body.Lang)); err != nil {
+		ae := apierror.FromError(err)
+		if ae.Code == apierror.CodeInternal {
+			h.log.Error("add service vocabulary", "project_id", projectID, "mount", body.Mount, "err", err)
+		}
+		apierror.Write(w, ae)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{"success": true})
+}
+
+// DeleteVocabulary disables a project's vocabulary by removing its row.
+// DELETE /projects/{projectID}/settings/vocabularies/{vocabularyID}.
+//
+// The cached entries go with it via
+// weave_vocabulary_entries_vocabulary_id_fkey's ON DELETE CASCADE — they
+// simply re-resolve from the service if the mount is added again, so there
+// is nothing else for this handler to clean up.
+func (h *Handler) DeleteVocabulary(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := chi.URLParam(r, "projectID")
+	vocabularyID := strings.TrimSpace(chi.URLParam(r, "vocabularyID"))
+	if vocabularyID == "" {
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Vocabulary ID is required")
+		return
+	}
+
+	if _, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit); !ok {
+		return
+	}
+
+	if err := h.store.RemoveVocabulary(ctx, projectID, vocabularyID); err != nil {
+		h.log.Error("remove vocabulary", "project_id", projectID, "vocabulary_id", vocabularyID, "err", err)
+		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to remove vocabulary")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // UpdateOntology handles JSON updates to the ontology settings.
 // Accepts {"parent_project_id": string|null}. Cycle detection walks the
 // ancestor chain (bounded depth 10); if the current project appears,

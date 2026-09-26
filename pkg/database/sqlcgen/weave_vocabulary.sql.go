@@ -11,6 +11,33 @@ import (
 	"time"
 )
 
+const weaveAddProjectServiceVocabulary = `-- name: WeaveAddProjectServiceVocabulary :exec
+INSERT INTO weave_vocabularies (id, project_id, system_name, ui_name, connector_type, config, status, created_at, updated_at)
+VALUES ($1::text, $2::text, $3::text, $4::jsonb, 'vocabservice', $5::jsonb, 'published', NOW(), NOW())
+`
+
+type WeaveAddProjectServiceVocabularyParams struct {
+	ID         string          `json:"id"`
+	ProjectID  string          `json:"project_id"`
+	SystemName string          `json:"system_name"`
+	UiName     json.RawMessage `json:"ui_name"`
+	Config     json.RawMessage `json:"config"`
+}
+
+// Enabling a service vocabulary for a project IS creating its row. The
+// partial unique index on (project_id, system_name) (migration 014) rejects
+// a second add of the same mount.
+func (q *Queries) WeaveAddProjectServiceVocabulary(ctx context.Context, arg WeaveAddProjectServiceVocabularyParams) error {
+	_, err := q.db.Exec(ctx, weaveAddProjectServiceVocabulary,
+		arg.ID,
+		arg.ProjectID,
+		arg.SystemName,
+		arg.UiName,
+		arg.Config,
+	)
+	return err
+}
+
 const weaveConceptURIInLists = `-- name: WeaveConceptURIInLists :one
 SELECT EXISTS (
     SELECT 1
@@ -237,6 +264,22 @@ DELETE FROM weave_concept_list_entries WHERE id = $1
 
 func (q *Queries) WeaveDeleteConceptListEntry(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, weaveDeleteConceptListEntry, id)
+	return err
+}
+
+const weaveDeleteProjectVocabulary = `-- name: WeaveDeleteProjectVocabulary :exec
+DELETE FROM weave_vocabularies WHERE id = $1::text AND project_id = $2::text
+`
+
+type WeaveDeleteProjectVocabularyParams struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id"`
+}
+
+// Removing a vocabulary takes its cached entries with it: they re-resolve
+// from the service if it is added again.
+func (q *Queries) WeaveDeleteProjectVocabulary(ctx context.Context, arg WeaveDeleteProjectVocabularyParams) error {
+	_, err := q.db.Exec(ctx, weaveDeleteProjectVocabulary, arg.ID, arg.ProjectID)
 	return err
 }
 

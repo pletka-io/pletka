@@ -8,11 +8,19 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/ids"
 )
+
+// vocabularyProjectSystemNameIndex is the unique index (migration 014) that
+// rejects a second add of the same mount for a project. Named so the
+// constraint-name check in AddServiceVocabulary reads as intent, not a
+// magic string.
+const vocabularyProjectSystemNameIndex = "idx_wv_project_system_name"
 
 type postgresStore struct {
 	pool    *pgxpool.Pool
@@ -114,6 +122,77 @@ func (s *postgresStore) UpdateVocabularySettings(ctx context.Context, projectID 
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit vocabulary settings update: %w", err)
+	}
+	return nil
+}
+
+// vocabularyConfig is the shape stored in weave_vocabularies.config for a
+// service-backed row: enough to re-resolve entries from the configured
+// vocabulary service. Lang is omitted when empty rather than stored as "".
+type vocabularyConfig struct {
+	Vocab string `json:"vocab"`
+	Lang  string `json:"lang,omitempty"`
+}
+
+// errVocabularyAlreadyAdded reports that a project already owns a service
+// vocabulary at this mount. Implements apierror.Conflicter so
+// apierror.FromError maps it to a 409, turning the raw unique-index
+// violation into a message a curator can read instead of a raw constraint
+// failure.
+type errVocabularyAlreadyAdded struct {
+	mount string
+}
+
+func (e *errVocabularyAlreadyAdded) Error() string {
+	return fmt.Sprintf("vocabulary %q is already added to this project", e.mount)
+}
+
+func (e *errVocabularyAlreadyAdded) ConflictMessage() string { return e.Error() }
+
+// AddServiceVocabulary enables a vocabulary the configured service serves:
+// owning the row IS the enablement (#3599 vocabulary ownership), so this is
+// nothing more than inserting the row. mount becomes both the system_name
+// and the "vocab" the resolved config names; lang is optional.
+func (s *postgresStore) AddServiceVocabulary(ctx context.Context, projectID, mount, lang string) error {
+	mount = strings.TrimSpace(mount)
+	if mount == "" {
+		return fmt.Errorf("add service vocabulary: mount is required")
+	}
+	uiName, err := json.Marshal(domain.Translations{"en": mount})
+	if err != nil {
+		return fmt.Errorf("encode vocabulary label: %w", err)
+	}
+	config, err := json.Marshal(vocabularyConfig{Vocab: mount, Lang: strings.TrimSpace(lang)})
+	if err != nil {
+		return fmt.Errorf("encode vocabulary config: %w", err)
+	}
+	if err := s.queries.WeaveAddProjectServiceVocabulary(ctx, sqlcgen.WeaveAddProjectServiceVocabularyParams{
+		ID:         ids.GenerateULID(),
+		ProjectID:  projectID,
+		SystemName: mount,
+		UiName:     uiName,
+		Config:     config,
+	}); err != nil {
+		var pgerr *pgconn.PgError
+		if errors.As(err, &pgerr) && pgerr.ConstraintName == vocabularyProjectSystemNameIndex {
+			return &errVocabularyAlreadyAdded{mount: mount}
+		}
+		return fmt.Errorf("add service vocabulary: %w", err)
+	}
+	return nil
+}
+
+// RemoveVocabulary disables a project's vocabulary by deleting its row.
+// Its cached entries go with it via
+// weave_vocabulary_entries_vocabulary_id_fkey's ON DELETE CASCADE — no
+// explicit entry delete is needed; they simply re-resolve if the mount is
+// added again.
+func (s *postgresStore) RemoveVocabulary(ctx context.Context, projectID, vocabularyID string) error {
+	if err := s.queries.WeaveDeleteProjectVocabulary(ctx, sqlcgen.WeaveDeleteProjectVocabularyParams{
+		ID:        vocabularyID,
+		ProjectID: projectID,
+	}); err != nil {
+		return fmt.Errorf("remove vocabulary: %w", err)
 	}
 	return nil
 }

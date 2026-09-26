@@ -363,6 +363,20 @@ func BuildVocabularySettingsSchema(projectID string, vocabularyOptions, serviceV
 						Value:  conceptNamespace,
 					},
 					{
+						// add_vocabulary_id is a create action, not a value
+						// this section's own PUT owns — that PUT overwrites
+						// enforce_concept_lists and concept_namespace only
+						// (Handler.UpdateVocabularies). Picking a mount here
+						// is meant to POST {mount, lang} to
+						// POST /projects/{id}/settings/vocabularies
+						// (Handler.AddVocabulary), a separate create
+						// endpoint, matching this codebase's POST-201-create
+						// / PUT-200-update-in-place split (api-patterns.md)
+						// and mirroring CreateInheritance living beside
+						// UpdateOntology. Task 6 gave that endpoint a real
+						// implementation; wiring this field's "Add" action to
+						// it (rather than this form's Save Changes submit)
+						// is frontend work for a follow-up task.
 						Name:    "add_vocabulary_id",
 						Widget:  formschema.WidgetSelect,
 						Label:   i18n.L("project_settings.vocabularies.add_from_service", "Add a vocabulary from the service"),

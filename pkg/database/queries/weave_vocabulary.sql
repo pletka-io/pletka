@@ -51,6 +51,18 @@ FROM weave_vocabularies v
 WHERE v.project_id = @project_id::text
 ORDER BY v.system_name ASC, v.id ASC;
 
+-- name: WeaveAddProjectServiceVocabulary :exec
+-- Enabling a service vocabulary for a project IS creating its row. The
+-- partial unique index on (project_id, system_name) (migration 014) rejects
+-- a second add of the same mount.
+INSERT INTO weave_vocabularies (id, project_id, system_name, ui_name, connector_type, config, status, created_at, updated_at)
+VALUES (@id::text, @project_id::text, @system_name::text, @ui_name::jsonb, 'vocabservice', @config::jsonb, 'published', NOW(), NOW());
+
+-- name: WeaveDeleteProjectVocabulary :exec
+-- Removing a vocabulary takes its cached entries with it: they re-resolve
+-- from the service if it is added again.
+DELETE FROM weave_vocabularies WHERE id = @id::text AND project_id = @project_id::text;
+
 -- name: WeaveCreateVocabularyEntry :one
 INSERT INTO weave_vocabulary_entries (
     id, vocabulary_id, uri, label, scope_note,
