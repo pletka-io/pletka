@@ -119,7 +119,9 @@ func staticAssetFilesystems(d rootDependencies) []fs.FS {
 func setupGlobalMiddleware(r *chi.Mux, d rootDependencies) {
 	r.Use(chimiddleware.RedirectSlashes)
 	r.Use(chimiddleware.RequestID)
-	r.Use(chimiddleware.RealIP)
+	// Not chimiddleware.RealIP: it trusts the leftmost X-Forwarded-For entry,
+	// which the client supplies. See trustedProxyIP.
+	r.Use(trustedProxyIP)
 	if d.ObsMiddleware != nil {
 		r.Use(d.ObsMiddleware) // request metrics; outer so it times the full chain
 	}
