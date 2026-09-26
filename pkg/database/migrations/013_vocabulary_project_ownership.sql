@@ -63,5 +63,10 @@ CREATE TABLE IF NOT EXISTS weave_project_vocabularies (
     status text NOT NULL DEFAULT 'active',
     created_at timestamptz NOT NULL DEFAULT NOW(),
     updated_at timestamptz NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (project_id, vocabulary_id)
+    PRIMARY KEY (project_id, vocabulary_id),
+    CONSTRAINT weave_project_vocabularies_project_id_fkey
+        FOREIGN KEY (project_id) REFERENCES weave_projects(id) ON DELETE CASCADE,
+    CONSTRAINT weave_project_vocabularies_vocabulary_id_fkey
+        FOREIGN KEY (vocabulary_id) REFERENCES weave_vocabularies(id) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS idx_wpv_vocabulary ON weave_project_vocabularies (vocabulary_id);

@@ -143,7 +143,7 @@ type WeaveCreateVocabularyParams struct {
 	UiName        []byte  `json:"ui_name"`
 	Description   []byte  `json:"description"`
 	Status        string  `json:"status"`
-	ProjectID     *string `json:"project_id"`
+	ProjectID     string  `json:"project_id"`
 	ConnectorType string  `json:"connector_type"`
 	BaseUri       *string `json:"base_uri"`
 	Config        []byte  `json:"config"`
@@ -842,46 +842,6 @@ func (q *Queries) WeaveListConceptLists(ctx context.Context, projectID string) (
 			&i.ListType,
 			&i.VocabularyID,
 			&i.IsClosed,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const weaveListGlobalVocabularies = `-- name: WeaveListGlobalVocabularies :many
-SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted FROM weave_vocabularies
-WHERE project_id IS NULL
-ORDER BY system_name ASC
-`
-
-func (q *Queries) WeaveListGlobalVocabularies(ctx context.Context) ([]WeaveVocabulary, error) {
-	rows, err := q.db.Query(ctx, weaveListGlobalVocabularies)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []WeaveVocabulary{}
-	for rows.Next() {
-		var i WeaveVocabulary
-		if err := rows.Scan(
-			&i.ID,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.SemanticID,
-			&i.SystemName,
-			&i.UiName,
-			&i.Description,
-			&i.Status,
-			&i.ProjectID,
-			&i.ConnectorType,
-			&i.BaseUri,
-			&i.Config,
-			&i.ConfigEncrypted,
 		); err != nil {
 			return nil, err
 		}

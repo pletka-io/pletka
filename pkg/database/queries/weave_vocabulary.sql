@@ -22,11 +22,6 @@ LIMIT 1;
 SELECT * FROM weave_vocabularies
 ORDER BY system_name ASC;
 
--- name: WeaveListGlobalVocabularies :many
-SELECT * FROM weave_vocabularies
-WHERE project_id IS NULL
-ORDER BY system_name ASC;
-
 -- name: WeaveListGlobalVocabularyIDs :many
 SELECT id
 FROM weave_vocabularies
