@@ -516,7 +516,12 @@ func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
 // The cached entries go with it via
 // weave_vocabulary_entries_vocabulary_id_fkey's ON DELETE CASCADE — they
 // simply re-resolve from the service if the mount is added again, so there
-// is nothing else for this handler to clean up.
+// is nothing else for this handler to clean up. A concept list bound to the
+// vocabulary is a different story: weave_concept_lists.vocabulary_id has no
+// ON DELETE clause (RESTRICT), so the store maps that violation to a typed
+// in-use error, which apierror.FromError turns into 409/in_use here — the
+// same "map typed store error -> apierror" path AddVocabulary uses for its
+// own conflict.
 func (h *Handler) DeleteVocabulary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
@@ -531,8 +536,11 @@ func (h *Handler) DeleteVocabulary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.RemoveVocabulary(ctx, projectID, vocabularyID); err != nil {
-		h.log.Error("remove vocabulary", "project_id", projectID, "vocabulary_id", vocabularyID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to remove vocabulary")
+		ae := apierror.FromError(err)
+		if ae.Code == apierror.CodeInternal {
+			h.log.Error("remove vocabulary", "project_id", projectID, "vocabulary_id", vocabularyID, "err", err)
+		}
+		apierror.Write(w, ae)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

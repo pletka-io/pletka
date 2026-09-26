@@ -22,6 +22,15 @@ import (
 // magic string.
 const vocabularyProjectSystemNameIndex = "idx_wv_project_system_name"
 
+// vocabularyConceptListFKConstraint is weave_concept_lists.vocabulary_id's
+// foreign key (migration 013's own comment already flags it: "has no ON
+// DELETE action, so the delete below would simply fail without this" — that
+// clause describes the global-tier cleanup migration 013 performs itself,
+// not a guarantee that a project-owned vocabulary can always be deleted).
+// It carries no ON DELETE clause, i.e. RESTRICT: a concept list bound to a
+// vocabulary blocks deleting that vocabulary at the database level.
+const vocabularyConceptListFKConstraint = "weave_concept_lists_vocabulary_id_fkey"
+
 type postgresStore struct {
 	pool    *pgxpool.Pool
 	queries *sqlcgen.Queries
@@ -149,6 +158,22 @@ func (e *errVocabularyAlreadyAdded) Error() string {
 
 func (e *errVocabularyAlreadyAdded) ConflictMessage() string { return e.Error() }
 
+// errVocabularyInUse reports that a vocabulary can't be removed because a
+// concept list still references it (weave_concept_lists_vocabulary_id_fkey
+// has no ON DELETE clause, i.e. RESTRICT). Implements apierror.InUser so
+// apierror.FromError maps it to a 409 with code "in_use" — the shape
+// api-patterns.md specifies for a delete blocked by dependents — instead of
+// the raw foreign-key violation surfacing as a 500. Naming the specific
+// concept list would need a second query on this error path; "used by a
+// concept list" is the cheap, honest message.
+type errVocabularyInUse struct{}
+
+func (e *errVocabularyInUse) Error() string {
+	return "this vocabulary is used by a concept list and cannot be removed"
+}
+
+func (e *errVocabularyInUse) InUseMessage() string { return e.Error() }
+
 // AddServiceVocabulary enables a vocabulary the configured service serves:
 // owning the row IS the enablement (#3599 vocabulary ownership), so this is
 // nothing more than inserting the row. mount becomes both the system_name
@@ -192,6 +217,10 @@ func (s *postgresStore) RemoveVocabulary(ctx context.Context, projectID, vocabul
 		ID:        vocabularyID,
 		ProjectID: projectID,
 	}); err != nil {
+		var pgerr *pgconn.PgError
+		if errors.As(err, &pgerr) && pgerr.ConstraintName == vocabularyConceptListFKConstraint {
+			return &errVocabularyInUse{}
+		}
 		return fmt.Errorf("remove vocabulary: %w", err)
 	}
 	return nil
