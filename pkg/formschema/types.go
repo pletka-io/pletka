@@ -195,6 +195,12 @@ type SelectOption struct {
 	Label       domain.Localizable `json:"label"`
 	Description domain.Localizable `json:"description,omitempty"`
 	Status      string             `json:"status,omitempty"`
+	// Locked marks an item a self-managing field may not remove, so the
+	// widget renders no remove control for it. The server refuses the
+	// removal regardless — this only stops offering an action that cannot
+	// succeed. A project's local-terms vocabulary is the case: every project
+	// needs one, and a concept list with no source resolves against it.
+	Locked bool `json:"locked,omitempty"`
 	// SemanticID is the entity's human-readable id (e.g. "TPE.CAT.1").
 	// Populated for category/model/collection options so dropdowns can
 	// render a stable badge alongside the label.

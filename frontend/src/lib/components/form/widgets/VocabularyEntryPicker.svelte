@@ -32,6 +32,9 @@
     broader_path?: string[];
     broader_path_items?: VocabularyEntryRef[];
     external_id?: string;
+    /** Direct children, when the source reported it. 0 means this term cannot
+     *  usefully be a parent; undefined means the count is not known. */
+    narrower_total?: number;
   };
 
   let query = $state('');
@@ -97,6 +100,7 @@
       broader_path: entry.broader_path,
       broader_path_items: entry.broader_path_items,
       external_id: entry.external_id,
+      narrower_total: entry.narrower_total,
     };
   }
 
@@ -270,6 +274,15 @@
                 <div class="mt-1 truncate text-xs text-gray-500">{broaderPathLabel(entry)}</div>
               {/if}
               <div class="mt-1 flex flex-wrap items-center gap-2">
+                {#if entry.narrower_total === 0}
+                  <span
+                    class="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700"
+                    title="Nothing sits under this term, so a list scoped to it would be empty"
+                  >no narrower terms</span>
+                {:else if entry.narrower_total}
+                  <span class="rounded bg-green-50 px-1.5 py-0.5 text-[11px] font-medium text-green-700"
+                  >{entry.narrower_total} narrower</span>
+                {/if}
                 {#if entry.external_id}
                   <span class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] text-gray-600">{entry.external_id}</span>
                 {/if}

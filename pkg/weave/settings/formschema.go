@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/auth"
@@ -691,8 +693,22 @@ func buildServiceVocabularyOptions(ctx context.Context, lister ServiceVocabulary
 		labelCounts[firstNonEmpty(v.Label, v.Name)]++
 	}
 
-	opts := make([]formschema.SelectOption, 0, len(vocabs))
-	for _, v := range vocabs {
+	// Mounts suitable for a controlled list come first. The service tags each
+	// mount's purpose: an authority file like ULAN or TGN is something you
+	// resolve a name against, not something you enumerate into a list, so
+	// offering it first invites a curator to build "a list of every artist".
+	// They stay in the list — a project may legitimately own one for a
+	// field's value source — they just stop leading it. A mount the service
+	// did not tag sorts with the list-suitable ones: unknown means "offer it
+	// everywhere", never "hide it".
+	ordered := make([]ServiceVocabulary, len(vocabs))
+	copy(ordered, vocabs)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return suitableForLists(ordered[i]) && !suitableForLists(ordered[j])
+	})
+
+	opts := make([]formschema.SelectOption, 0, len(ordered))
+	for _, v := range ordered {
 		label := firstNonEmpty(v.Label, v.Name)
 		if labelCounts[label] > 1 {
 			label = fmt.Sprintf("%s (%s)", label, v.Name)
@@ -709,9 +725,12 @@ func buildServiceVocabularyOptions(ctx context.Context, lister ServiceVocabulary
 // describeMount says what a curator needs at the moment of choosing: how big
 // the vocabulary is, and which languages it can answer in.
 func describeMount(v ServiceVocabulary) string {
-	parts := make([]string, 0, 2)
+	parts := make([]string, 0, 3)
+	if purpose := describeUsage(v); purpose != "" {
+		parts = append(parts, purpose)
+	}
 	if v.Concepts > 0 {
-		parts = append(parts, fmt.Sprintf("%d concepts", v.Concepts))
+		parts = append(parts, fmt.Sprintf("%s concepts", humanizeCount(v.Concepts)))
 	}
 	if len(v.Languages) > 0 {
 		parts = append(parts, "languages: "+strings.Join(v.Languages, ", "))
@@ -727,7 +746,71 @@ func vocabularySelectOptions(options []VocabularySettingsOption) []formschema.Se
 			Label:       option.Label,
 			Description: option.Description,
 			Status:      option.Status,
+			Locked:      option.Locked,
 		})
 	}
 	return out
 }
+
+// suitableForLists reports whether a mount is one a curator would pin terms
+// from into a controlled list. An untagged mount counts as suitable: the
+// service's contract is that a missing usage key means unknown, and the
+// consumer rule is to offer rather than hide.
+func suitableForLists(v ServiceVocabulary) bool {
+	if len(v.Usage) == 0 {
+		return true
+	}
+	for _, u := range v.Usage {
+		if u == usageControlList {
+			return true
+		}
+	}
+	return false
+}
+
+// describeUsage says what the mount is for, in the words a curator needs at
+// the moment of choosing. Silent when the service did not tag it, rather than
+// guessing.
+func describeUsage(v ServiceVocabulary) string {
+	var list, authority bool
+	for _, u := range v.Usage {
+		switch u {
+		case usageControlList:
+			list = true
+		case usageAuthority:
+			authority = true
+		}
+	}
+	switch {
+	case list && authority:
+		return "thesaurus and authority file"
+	case list:
+		return "thesaurus"
+	case authority:
+		return "authority file — for looking names up, not for listing"
+	default:
+		return ""
+	}
+}
+
+// humanizeCount groups thousands, because "5775923 concepts" is not a number
+// anyone reads at a glance in a dropdown.
+func humanizeCount(n int) string {
+	s := strconv.Itoa(n)
+	if len(s) <= 3 {
+		return s
+	}
+	var out []byte
+	for i, digit := range []byte(s) {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, digit)
+	}
+	return string(out)
+}
+
+const (
+	usageControlList = "control-list"
+	usageAuthority   = "authority"
+)

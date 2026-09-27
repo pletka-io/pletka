@@ -131,6 +131,12 @@ type VocabularyInfo struct {
 	Name     string `json:"name"`
 	Label    string `json:"label,omitempty"`
 	Concepts int    `json:"concepts,omitempty"`
+	// Usage says what a mount is for: "control-list" for a thesaurus whose
+	// terms a curator would pin into a controlled list, "authority" for a
+	// file you resolve a name against rather than enumerate. A mount can
+	// carry both. Absent means unknown, which consumers must read as "offer
+	// it everywhere" rather than "hide it".
+	Usage []string `json:"usage,omitempty"`
 	// Scheme is the vocabulary's base IRI (e.g. http://vocab.getty.edu/aat/).
 	// Stored as a vocabulary row's base_uri when a project adds the mount, so
 	// URI-to-vocabulary lookups resolve without a second call to the service.
@@ -281,9 +287,10 @@ func conceptToEntry(resp conceptResponse) vocabconnector.Entry {
 // shared by a suggest hit and a concept fetch.
 func entryFromItem(it item, broader *string, parents []item) vocabconnector.Entry {
 	entry := vocabconnector.Entry{
-		URI:        it.URI,
-		ExternalID: it.ID,
-		Label:      labelFor(it),
+		URI:           it.URI,
+		ExternalID:    it.ID,
+		Label:         labelFor(it),
+		NarrowerTotal: it.NarrowerTotal,
 	}
 	if broader != nil {
 		entry.BroaderURI = *broader

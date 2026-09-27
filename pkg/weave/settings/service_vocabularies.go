@@ -9,6 +9,10 @@ type ServiceVocabulary struct {
 	Name     string `json:"name"`
 	Label    string `json:"label,omitempty"`
 	Concepts int    `json:"concepts,omitempty"`
+	// Usage is what the service says the mount is for — "control-list",
+	// "authority", or both. Empty means the service did not say, and is
+	// read as "suitable for anything" rather than "suitable for nothing".
+	Usage []string `json:"usage,omitempty"`
 	// Scheme is the mount's base IRI, stored as the vocabulary row's
 	// base_uri when a project adds it.
 	Scheme    string   `json:"scheme,omitempty"`

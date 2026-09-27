@@ -28,6 +28,16 @@ type Entry struct {
 	BroaderPath      []string                    `json:"broader_path,omitempty"`
 	BroaderPathItems []domain.VocabularyEntryRef `json:"broader_path_items,omitempty"`
 	ExternalID       string                      `json:"external_id,omitempty"`
+	// NarrowerTotal is how many terms sit directly under this one. It is what
+	// lets a parent-term picker say "this cannot be a parent": a concept with
+	// none is a leaf, and a controlled list scoped to it browses empty.
+	//
+	// A pointer, because nil and zero say different things and a plain int
+	// cannot hold the difference — nil is "this source does not count", zero
+	// is "counted, and there are none". Only the vocabulary service reports
+	// it; the local, csv, sparql and aat connectors leave it nil, and a
+	// picker must not mark their terms as leaves for it.
+	NarrowerTotal *int `json:"narrower_total,omitempty"`
 }
 
 type SearchOpts struct {

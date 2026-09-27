@@ -871,3 +871,45 @@ func TestSearchWithNeitherQueryNorParentStaysANoOp(t *testing.T) {
 		t.Errorf("got %v, want nil", got)
 	}
 }
+
+// TestNarrowerTotalTellsALeafFromAnUnknown is the regression gate for a bug
+// this connector shipped for about an hour: narrowerTotal was an int with
+// omitempty, so a leaf's zero was erased on the way back out and arrived at
+// the picker as absent — indistinguishable from a source that does not count
+// at all. The parent-term picker marks the first and must stay silent about
+// the second, so collapsing them defeats the feature.
+//
+// Verified against the live service before the fix: `q=gender` returned
+// `gender identity` with 15 and `gender (sociological concept)` with no
+// narrower_total key at all, when it has exactly zero.
+func TestNarrowerTotalTellsALeafFromAnUnknown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"results":[
+			{"uri":"http://vocab.getty.edu/aat/300445640","id":"300445640","prefLabel":{"en":"gender identity"},"lang":"en","narrowerTotal":15},
+			{"uri":"http://vocab.getty.edu/aat/300411835","id":"300411835","prefLabel":{"en":"gender (sociological concept)"},"lang":"en","narrowerTotal":0},
+			{"uri":"http://vocab.getty.edu/aat/300999999","id":"300999999","prefLabel":{"en":"uncounted"},"lang":"en"}
+		]}`))
+	}))
+	defer srv.Close()
+
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	got, err := c.Search(context.Background(), "gender", vocabconnector.SearchOpts{Lang: "en", Limit: 10})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d entries, want 3", len(got))
+	}
+
+	if got[0].NarrowerTotal == nil || *got[0].NarrowerTotal != 15 {
+		t.Errorf("a parent's count = %v, want 15", got[0].NarrowerTotal)
+	}
+	if got[1].NarrowerTotal == nil {
+		t.Error("a leaf's count is nil — zero was erased, so the picker cannot tell it from an uncounted term")
+	} else if *got[1].NarrowerTotal != 0 {
+		t.Errorf("a leaf's count = %d, want 0", *got[1].NarrowerTotal)
+	}
+	if got[2].NarrowerTotal != nil {
+		t.Errorf("an uncounted term's count = %v, want nil — the service said nothing about it", *got[2].NarrowerTotal)
+	}
+}
