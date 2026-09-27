@@ -476,6 +476,36 @@ func (h *Handler) UpdateVocabularies(w http.ResponseWriter, r *http.Request) {
 // split CreateInheritance/UpdateOntology already use on the ontology
 // section. The PUT on this same path keeps owning exactly what it owns:
 // enforce_concept_lists and concept_namespace.
+// decodeAddVocabularyBody reads the request body of an add, accepting both
+// spellings, and returns per-field errors rather than writing them.
+//
+// `value` is the generic self-managing-field contract: FieldDef.ItemAddURL
+// takes {"value": "<option value>"}, because the widget posting it is a
+// plain select that knows nothing about vocabularies. `mount` is what this
+// endpoint asked for before any control was wired to it, and it names the
+// domain concept, so it stays valid for anyone calling the endpoint directly.
+//
+// Split out from the handler so the seam can be tested without an auth
+// context: the two sides of it disagreed once already — the widget posted
+// `value` to a handler reading only `mount`, every add failed with 422, and
+// neither the schema test nor svelte-check could see it, because each
+// checked only its own side.
+func decodeAddVocabularyBody(r *http.Request) (mount, lang string, fieldErrs map[string][]string) {
+	var body struct {
+		Value string `json:"value"`
+		Mount string `json:"mount"`
+		Lang  string `json:"lang"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return "", "", map[string][]string{"body": {"invalid JSON body"}}
+	}
+	mount = firstNonEmpty(strings.TrimSpace(body.Value), strings.TrimSpace(body.Mount))
+	if mount == "" {
+		return "", "", map[string][]string{"value": {"a vocabulary is required"}}
+	}
+	return mount, strings.TrimSpace(body.Lang), nil
+}
+
 func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
@@ -484,19 +514,15 @@ func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		Mount string `json:"mount"`
-		Lang  string `json:"lang"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+	mount, lang, fieldErrs := decodeAddVocabularyBody(r)
+	if fieldErrs != nil {
+		writeValidationErrors(w, fieldErrs)
 		return
 	}
-	body.Mount = strings.TrimSpace(body.Mount)
-	if body.Mount == "" {
-		writeValidationErrors(w, map[string][]string{"mount": {"mount is required"}})
-		return
-	}
+	body := struct {
+		Mount string
+		Lang  string
+	}{Mount: mount, Lang: lang}
 
 	if err := h.store.AddServiceVocabulary(ctx, projectID, body.Mount, strings.TrimSpace(body.Lang)); err != nil {
 		ae := apierror.FromError(err)
