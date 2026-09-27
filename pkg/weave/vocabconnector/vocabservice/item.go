@@ -12,9 +12,11 @@ import (
 // repo, the contract's authority.
 type item struct {
 	URI string `json:"uri"`
-	// NarrowerTotal is present on every item in contract v2.4+, and is the
-	// count of direct children — not of the whole subtree.
-	NarrowerTotal int               `json:"narrowerTotal,omitempty"`
+	// NarrowerTotal is the count of direct children — not of the whole
+	// subtree. Contract v2.4+ sends it on every item; a pointer because zero
+	// is a meaningful answer ("this is a leaf") that omitempty would erase on
+	// the way back out.
+	NarrowerTotal *int              `json:"narrowerTotal,omitempty"`
 	ID            string            `json:"id"`
 	Kind          string            `json:"kind"`
 	Class         string            `json:"class"`
