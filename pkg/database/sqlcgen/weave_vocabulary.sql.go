@@ -294,10 +294,17 @@ func (q *Queries) WeaveDeleteConceptListEntry(ctx context.Context, id string) er
 	return err
 }
 
-const weaveDeprecateProjectVocabulary = `-- name: WeaveDeprecateProjectVocabulary :exec
+const weaveDeprecateProjectVocabulary = `-- name: WeaveDeprecateProjectVocabulary :one
 UPDATE weave_vocabularies
 SET deprecated = true, updated_at = NOW()
 WHERE id = $1::text AND project_id = $2::text
+  -- The project's local-terms row is not removable. It is the fallback for
+  -- terms no thesaurus has, every project needs one, and a concept list with
+  -- no source vocabulary resolves against it — retiring it would leave a
+  -- curator unable to add a term anywhere. Enforced here rather than only in
+  -- the UI, so the endpoint cannot be asked to do it directly.
+  AND connector_type <> 'local'
+RETURNING id
 `
 
 type WeaveDeprecateProjectVocabularyParams struct {
@@ -314,9 +321,11 @@ type WeaveDeprecateProjectVocabularyParams struct {
 // outright while any list still points at the row. Removal has to leave the
 // row in place: the lists keep their entries and keep resolving them, and the
 // vocabulary simply stops being offered for anything new.
-func (q *Queries) WeaveDeprecateProjectVocabulary(ctx context.Context, arg WeaveDeprecateProjectVocabularyParams) error {
-	_, err := q.db.Exec(ctx, weaveDeprecateProjectVocabulary, arg.ID, arg.ProjectID)
-	return err
+func (q *Queries) WeaveDeprecateProjectVocabulary(ctx context.Context, arg WeaveDeprecateProjectVocabularyParams) (string, error) {
+	row := q.db.QueryRow(ctx, weaveDeprecateProjectVocabulary, arg.ID, arg.ProjectID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
 }
 
 const weaveFindConceptListsByListType = `-- name: WeaveFindConceptListsByListType :many

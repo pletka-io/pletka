@@ -416,3 +416,71 @@ func TestRemovedVocabularyReportsItselfRemoved(t *testing.T) {
 		t.Errorf("status after removal = %q, want %q", got, vocabularyStatusRemoved)
 	}
 }
+
+// TestTheLocalTermsVocabularyCannotBeRemoved guards the one row a project
+// must always have. Local terms is the fallback for terms no thesaurus
+// carries, and a concept list with no source vocabulary resolves against it —
+// retiring it would leave a curator unable to add a term anywhere.
+//
+// The settings pane rendered a remove button on it for a while, so this is
+// enforced in the store rather than only hidden in the UI: the endpoint must
+// refuse it even when asked directly.
+func TestTheLocalTermsVocabularyCannotBeRemoved(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := context.Background()
+	const (
+		ownerID   = "tstloc_owner"
+		projectID = "TSTLOC"
+		localID   = "voc_tstloc_local"
+	)
+
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_actors (id, display_name, slug) VALUES ($1,$2,$3)
+		ON CONFLICT (id) DO NOTHING`, ownerID, "TSTLOC Owner", ownerID); err != nil {
+		t.Fatalf("seed owner actor: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_projects (id, owner_id) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, projectID, ownerID); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_vocabularies (id, project_id, system_name, connector_type, status)
+		VALUES ($1, $2, 'local_terms', 'local', 'published')`, localID, projectID); err != nil {
+		t.Fatalf("seed local vocabulary: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_vocabularies WHERE project_id = $1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_projects WHERE id = $1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id = $1`, ownerID)
+	})
+
+	store := NewPostgresStore(pool)
+	err := store.RemoveVocabulary(ctx, projectID, localID)
+	if err == nil {
+		t.Fatal("removing the local terms vocabulary must be refused")
+	}
+	if ae := apierror.FromError(err); ae.Status != http.StatusConflict {
+		t.Errorf("mapped error = status %d, want 409 (got: %v)", ae.Status, err)
+	}
+
+	var deprecated bool
+	if scanErr := pool.QueryRow(ctx, `SELECT deprecated FROM weave_vocabularies WHERE id = $1`, localID).Scan(&deprecated); scanErr != nil {
+		t.Fatalf("read back local vocabulary: %v", scanErr)
+	}
+	if deprecated {
+		t.Error("the local terms vocabulary was retired despite the refusal")
+	}
+
+	// A service-backed vocabulary in the same project is still removable —
+	// without this, a guard that refused everything would pass the check above
+	// while breaking removal entirely.
+	if err := store.AddServiceVocabulary(ctx, projectID, ServiceMount{Name: "aat", Label: "AAT"}); err != nil {
+		t.Fatalf("add service vocabulary: %v", err)
+	}
+	var serviceID string
+	if err := pool.QueryRow(ctx,
+		`SELECT id FROM weave_vocabularies WHERE project_id = $1 AND system_name = 'aat'`, projectID).Scan(&serviceID); err != nil {
+		t.Fatalf("read back service vocabulary: %v", err)
+	}
+	if err := store.RemoveVocabulary(ctx, projectID, serviceID); err != nil {
+		t.Errorf("removing a service vocabulary must still work: %v", err)
+	}
+}

@@ -163,6 +163,19 @@ func (e *errVocabularyAlreadyAdded) Error() string {
 
 func (e *errVocabularyAlreadyAdded) ConflictMessage() string { return e.Error() }
 
+// errVocabularyNotRemovable reports that a vocabulary cannot be retired.
+// Only the local-terms row qualifies: it is every project's fallback for
+// terms no thesaurus has, and a concept list with no source resolves against
+// it. Implements apierror.Conflicter so this reads as a 409 with a reason
+// rather than a bare failure.
+type errVocabularyNotRemovable struct{}
+
+func (e *errVocabularyNotRemovable) Error() string {
+	return "the local terms vocabulary cannot be removed from a project"
+}
+
+func (e *errVocabularyNotRemovable) ConflictMessage() string { return e.Error() }
+
 // AddServiceVocabulary enables a vocabulary the configured service serves:
 // owning the row IS the enablement (#3599 vocabulary ownership), so this is
 // nothing more than inserting the row. mount becomes both the system_name
@@ -221,10 +234,17 @@ func (s *postgresStore) AddServiceVocabulary(ctx context.Context, projectID stri
 // so the one case where a curator most wants to stop new pins — a source they
 // have already built on — was the one case they could not act on.
 func (s *postgresStore) RemoveVocabulary(ctx context.Context, projectID, vocabularyID string) error {
-	if err := s.queries.WeaveDeprecateProjectVocabulary(ctx, sqlcgen.WeaveDeprecateProjectVocabularyParams{
+	if _, err := s.queries.WeaveDeprecateProjectVocabulary(ctx, sqlcgen.WeaveDeprecateProjectVocabularyParams{
 		ID:        vocabularyID,
 		ProjectID: projectID,
 	}); err != nil {
+		// No row means the id did not match a removable vocabulary of this
+		// project — in practice, the local-terms row, which the query
+		// refuses. Reported as a conflict rather than a 404: the vocabulary
+		// exists, it just cannot be retired.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &errVocabularyNotRemovable{}
+		}
 		return fmt.Errorf("remove vocabulary: %w", err)
 	}
 	return nil

@@ -76,7 +76,7 @@ DO UPDATE SET
 WHERE weave_vocabularies.deprecated
 RETURNING id;
 
--- name: WeaveDeprecateProjectVocabulary :exec
+-- name: WeaveDeprecateProjectVocabulary :one
 -- Removing a vocabulary deprecates its row rather than deleting it.
 --
 -- A delete cannot express what removal means here. weave_vocabulary_entries
@@ -88,7 +88,14 @@ RETURNING id;
 -- vocabulary simply stops being offered for anything new.
 UPDATE weave_vocabularies
 SET deprecated = true, updated_at = NOW()
-WHERE id = @id::text AND project_id = @project_id::text;
+WHERE id = @id::text AND project_id = @project_id::text
+  -- The project's local-terms row is not removable. It is the fallback for
+  -- terms no thesaurus has, every project needs one, and a concept list with
+  -- no source vocabulary resolves against it — retiring it would leave a
+  -- curator unable to add a term anywhere. Enforced here rather than only in
+  -- the UI, so the endpoint cannot be asked to do it directly.
+  AND connector_type <> 'local'
+RETURNING id;
 
 -- name: WeaveCreateVocabularyEntry :one
 INSERT INTO weave_vocabulary_entries (
