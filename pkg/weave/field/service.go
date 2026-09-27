@@ -16,6 +16,7 @@ import (
 
 type versionedFieldReader interface {
 	GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Field, error)
+	GetByIdentifierVersion(ctx context.Context, projectID, identifier, version string) (*domain.Field, error)
 	ListVersion(ctx context.Context, projectID, version string, opts ...domain.QueryOption) ([]*domain.Field, int64, error)
 	UsageVersion(ctx context.Context, projectID, fieldID, version string) (UsageReport, error)
 }
@@ -382,6 +383,16 @@ func (s *Service) Get(ctx context.Context, projectID, id string) (*domain.Field,
 func (s *Service) GetByIdentifier(ctx context.Context, projectID, identifier string) (*domain.Field, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
+	}
+	// Honor a pinned version, the same way Get does. Without this branch a
+	// caller asking for a release got the live draft with no signal that it
+	// had — the MCP surface reaches a field through this method, so an agent
+	// reasoning about release 0.1.0 was handed today's working state
+	// (Redmine #3610).
+	if version := auth.ProjectVersionFromContext(ctx); version != "" {
+		if vr, ok := s.store.(versionedFieldReader); ok {
+			return vr.GetByIdentifierVersion(ctx, projectID, identifier, version)
+		}
 	}
 	return s.store.GetByIdentifier(ctx, projectID, identifier)
 }
