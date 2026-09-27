@@ -205,6 +205,39 @@ func (s *postgresStore) GetByIDVersion(ctx context.Context, projectID, id, versi
 	return field, nil
 }
 
+// GetByIdentifierVersion resolves an identifier against the archive for one
+// release, rather than resolving it live and then reading the archived row.
+//
+// Resolving live first would be wrong in both directions: a field renamed
+// since the release would be found by its CURRENT system name and not by the
+// name the release actually carried, and a field deleted since the release
+// would not be found at all even though the release contains it. The archive
+// is the authority for what a release holds, including its identifiers.
+//
+// Mirrors WeaveGetFieldByIdentifier's three-way match (semantic_id, system_name
+// or id) against weave_fields_archive. Hand-written rather than generated
+// because the archive columns are a subset and scanArchivedField already reads
+// exactly that shape.
+func (s *postgresStore) GetByIdentifierVersion(ctx context.Context, projectID, identifier, version string) (*domain.Field, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT
+			id, created_at, updated_at, semantic_id, system_name, ui_name, description,
+			status, project_id, ontology_scope, ontology_path, path_elements,
+			expected_value_type, examples, staging_id, deprecated, version_number
+		FROM weave_fields_archive
+		WHERE (semantic_id = $1 OR system_name = $1 OR id = $1)
+		  AND project_id = $2 AND version_number = $3
+	`, identifier, projectID, version)
+	field, err := scanArchivedField(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get archived weave field by identifier: %w", err)
+	}
+	return field, nil
+}
+
 func (s *postgresStore) GetByIdentifier(ctx context.Context, projectID, identifier string) (*domain.Field, error) {
 	row, err := s.queries.WeaveGetFieldByIdentifier(ctx, sqlcgen.WeaveGetFieldByIdentifierParams{
 		SemanticID: dbutil.EmptyToNil(identifier),
