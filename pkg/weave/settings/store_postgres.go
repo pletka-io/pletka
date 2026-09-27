@@ -20,6 +20,12 @@ import (
 // rejects a second add of the same mount for a project. Named so the
 // constraint-name check in AddServiceVocabulary reads as intent, not a
 // magic string.
+// vocabularyStatusRemoved is the status a retired vocabulary reports to the
+// settings screen. It is a presentation value, not a domain.Status: removal
+// sets weave_vocabularies.deprecated, the axis domain-model.md defines for
+// "retired, references intact, excluded from pickers".
+const vocabularyStatusRemoved = "removed"
+
 const vocabularyProjectSystemNameIndex = "idx_wv_project_system_name"
 
 type postgresStore struct {
@@ -72,12 +78,20 @@ func (s *postgresStore) VocabularySettingsState(ctx context.Context, projectID s
 		if len(desc) == 0 && row.BaseUri != "" {
 			desc = domain.Translations{"en": row.BaseUri}
 		}
+		// A removed vocabulary stays in the list — its concept lists still
+		// resolve against it — so the status is what tells a curator it is
+		// retired. Without this it renders identically to a live one and
+		// "removed" is invisible, which is worse than not offering removal.
+		status := row.Status
+		if row.Deprecated {
+			status = vocabularyStatusRemoved
+		}
 		options = append(options, VocabularySettingsOption{
 			ID:          row.ID,
 			SystemName:  row.SystemName,
 			Label:       label,
 			Description: desc,
-			Status:      row.Status,
+			Status:      status,
 			BaseURI:     row.BaseUri,
 		})
 	}
@@ -153,16 +167,20 @@ func (e *errVocabularyAlreadyAdded) ConflictMessage() string { return e.Error() 
 // owning the row IS the enablement (#3599 vocabulary ownership), so this is
 // nothing more than inserting the row. mount becomes both the system_name
 // and the "vocab" the resolved config names; lang is optional.
-func (s *postgresStore) AddServiceVocabulary(ctx context.Context, projectID, mount, lang string) error {
-	mount = strings.TrimSpace(mount)
-	if mount == "" {
+func (s *postgresStore) AddServiceVocabulary(ctx context.Context, projectID string, mount ServiceMount) error {
+	name := strings.TrimSpace(mount.Name)
+	if name == "" {
 		return fmt.Errorf("add service vocabulary: mount is required")
 	}
-	uiName, err := json.Marshal(domain.Translations{"en": mount})
+	// Label the row the way the service labels the mount. Falling back to the
+	// mount name keeps a row that the service could not describe readable
+	// rather than blank.
+	label := firstNonEmpty(strings.TrimSpace(mount.Label), name)
+	uiName, err := json.Marshal(domain.Translations{"en": label})
 	if err != nil {
 		return fmt.Errorf("encode vocabulary label: %w", err)
 	}
-	config, err := json.Marshal(vocabularyConfig{Vocab: mount, Lang: strings.TrimSpace(lang)})
+	config, err := json.Marshal(vocabularyConfig{Vocab: name, Lang: strings.TrimSpace(mount.Lang)})
 	if err != nil {
 		return fmt.Errorf("encode vocabulary config: %w", err)
 	}
@@ -172,16 +190,17 @@ func (s *postgresStore) AddServiceVocabulary(ctx context.Context, projectID, mou
 	if _, err := s.queries.WeaveAddProjectServiceVocabulary(ctx, sqlcgen.WeaveAddProjectServiceVocabularyParams{
 		ID:         ids.GenerateULID(),
 		ProjectID:  projectID,
-		SystemName: mount,
+		SystemName: name,
 		UiName:     uiName,
+		BaseUri:    strings.TrimSpace(mount.BaseURI),
 		Config:     config,
 	}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return &errVocabularyAlreadyAdded{mount: mount}
+			return &errVocabularyAlreadyAdded{mount: name}
 		}
 		var pgerr *pgconn.PgError
 		if errors.As(err, &pgerr) && pgerr.ConstraintName == vocabularyProjectSystemNameIndex {
-			return &errVocabularyAlreadyAdded{mount: mount}
+			return &errVocabularyAlreadyAdded{mount: name}
 		}
 		return fmt.Errorf("add service vocabulary: %w", err)
 	}

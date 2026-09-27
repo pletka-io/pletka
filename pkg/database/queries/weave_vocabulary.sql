@@ -63,13 +63,14 @@ ORDER BY v.system_name ASC, v.id ASC;
 -- mount that is genuinely still there updates nothing and returns no row —
 -- which the store maps to the 409 conflict. The conflict target repeats the
 -- index's predicate so Postgres can infer the partial index.
-INSERT INTO weave_vocabularies (id, project_id, system_name, ui_name, connector_type, config, status, created_at, updated_at)
-VALUES (@id::text, @project_id::text, @system_name::text, @ui_name::jsonb, 'vocabservice', @config::jsonb, 'published', NOW(), NOW())
+INSERT INTO weave_vocabularies (id, project_id, system_name, ui_name, base_uri, connector_type, config, status, created_at, updated_at)
+VALUES (@id::text, @project_id::text, @system_name::text, @ui_name::jsonb, NULLIF(@base_uri::text, ''), 'vocabservice', @config::jsonb, 'published', NOW(), NOW())
 ON CONFLICT (project_id, system_name) WHERE system_name IS NOT NULL AND system_name <> ''
 DO UPDATE SET
     deprecated = false,
     status = 'published',
     ui_name = EXCLUDED.ui_name,
+    base_uri = EXCLUDED.base_uri,
     config = EXCLUDED.config,
     updated_at = NOW()
 WHERE weave_vocabularies.deprecated

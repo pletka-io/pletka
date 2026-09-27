@@ -12,13 +12,14 @@ import (
 )
 
 const weaveAddProjectServiceVocabulary = `-- name: WeaveAddProjectServiceVocabulary :one
-INSERT INTO weave_vocabularies (id, project_id, system_name, ui_name, connector_type, config, status, created_at, updated_at)
-VALUES ($1::text, $2::text, $3::text, $4::jsonb, 'vocabservice', $5::jsonb, 'published', NOW(), NOW())
+INSERT INTO weave_vocabularies (id, project_id, system_name, ui_name, base_uri, connector_type, config, status, created_at, updated_at)
+VALUES ($1::text, $2::text, $3::text, $4::jsonb, NULLIF($5::text, ''), 'vocabservice', $6::jsonb, 'published', NOW(), NOW())
 ON CONFLICT (project_id, system_name) WHERE system_name IS NOT NULL AND system_name <> ''
 DO UPDATE SET
     deprecated = false,
     status = 'published',
     ui_name = EXCLUDED.ui_name,
+    base_uri = EXCLUDED.base_uri,
     config = EXCLUDED.config,
     updated_at = NOW()
 WHERE weave_vocabularies.deprecated
@@ -30,6 +31,7 @@ type WeaveAddProjectServiceVocabularyParams struct {
 	ProjectID  string          `json:"project_id"`
 	SystemName string          `json:"system_name"`
 	UiName     json.RawMessage `json:"ui_name"`
+	BaseUri    string          `json:"base_uri"`
 	Config     json.RawMessage `json:"config"`
 }
 
@@ -54,6 +56,7 @@ func (q *Queries) WeaveAddProjectServiceVocabulary(ctx context.Context, arg Weav
 		arg.ProjectID,
 		arg.SystemName,
 		arg.UiName,
+		arg.BaseUri,
 		arg.Config,
 	)
 	var id string

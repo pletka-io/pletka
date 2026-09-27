@@ -32,7 +32,7 @@ type Store interface {
 	// "aat"); lang may be empty. Returns a *apierror.Error-compatible
 	// conflict (via apierror.FromError) when the project already has this
 	// mount — see the unique index added in migration 014.
-	AddServiceVocabulary(ctx context.Context, projectID, mount, lang string) error
+	AddServiceVocabulary(ctx context.Context, projectID string, mount ServiceMount) error
 	// RemoveVocabulary disables a project's vocabulary by deleting its row.
 	// Its cached entries go with it via
 	// weave_vocabulary_entries_vocabulary_id_fkey's ON DELETE CASCADE —

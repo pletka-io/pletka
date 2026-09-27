@@ -38,7 +38,7 @@ func TestAddServiceVocabularyWritesTheRow(t *testing.T) {
 	})
 
 	store := NewPostgresStore(pool)
-	if err := store.AddServiceVocabulary(ctx, projectID, "aat", "nl"); err != nil {
+	if err := store.AddServiceVocabulary(ctx, projectID, ServiceMount{Name: "aat", Lang: "nl"}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestAddServiceVocabularyWritesTheRow(t *testing.T) {
 	// `err == nil` check would not notice. Going through apierror.FromError
 	// — the same call the handler makes — pins the actual "clean 409, not a
 	// raw constraint failure" requirement.
-	err := store.AddServiceVocabulary(ctx, projectID, "aat", "nl")
+	err := store.AddServiceVocabulary(ctx, projectID, ServiceMount{Name: "aat", Lang: "nl"})
 	if err == nil {
 		t.Fatal("adding the same mount twice must be rejected")
 	}
@@ -107,7 +107,7 @@ func TestRemoveVocabularyRetiresItAndKeepsWhatWasBuiltFromIt(t *testing.T) {
 	})
 
 	store := NewPostgresStore(pool)
-	if err := store.AddServiceVocabulary(ctx, projectID, "fish-monument-type", ""); err != nil {
+	if err := store.AddServiceVocabulary(ctx, projectID, ServiceMount{Name: "fish-monument-type"}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 
@@ -172,7 +172,7 @@ func TestRemoveVocabularyBoundToConceptListSucceeds(t *testing.T) {
 	})
 
 	store := NewPostgresStore(pool)
-	if err := store.AddServiceVocabulary(ctx, projectID, "aat", ""); err != nil {
+	if err := store.AddServiceVocabulary(ctx, projectID, ServiceMount{Name: "aat"}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	var vocabID string
@@ -233,7 +233,7 @@ func TestAddingARemovedVocabularyRevivesIt(t *testing.T) {
 	})
 
 	store := NewPostgresStore(pool)
-	if err := store.AddServiceVocabulary(ctx, projectID, "aat", ""); err != nil {
+	if err := store.AddServiceVocabulary(ctx, projectID, ServiceMount{Name: "aat"}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	var vocabID string
@@ -246,7 +246,7 @@ func TestAddingARemovedVocabularyRevivesIt(t *testing.T) {
 	}
 
 	// Adding a vocabulary that is genuinely still here is a conflict.
-	if err := store.AddServiceVocabulary(ctx, projectID, "aat", ""); err == nil {
+	if err := store.AddServiceVocabulary(ctx, projectID, ServiceMount{Name: "aat"}); err == nil {
 		t.Fatal("adding a live vocabulary again must conflict")
 	} else if ae := apierror.FromError(err); ae.Status != http.StatusConflict {
 		t.Errorf("mapped error = status %d, want 409 (got: %v)", ae.Status, err)
@@ -257,7 +257,7 @@ func TestAddingARemovedVocabularyRevivesIt(t *testing.T) {
 	}
 
 	// ...and adding it after removal brings the same row back.
-	if err := store.AddServiceVocabulary(ctx, projectID, "aat", ""); err != nil {
+	if err := store.AddServiceVocabulary(ctx, projectID, ServiceMount{Name: "aat"}); err != nil {
 		t.Fatalf("re-adding a removed vocabulary must succeed, not conflict: %v", err)
 	}
 
@@ -283,5 +283,136 @@ func TestAddingARemovedVocabularyRevivesIt(t *testing.T) {
 	}
 	if entries != 1 {
 		t.Errorf("entries = %d, want the pinned one to come back with the row", entries)
+	}
+}
+
+// TestAddStoresTheServicesLabelAndBaseURI pins two fields an added row used
+// to go without. The row was labelled with the raw mount name, so the
+// settings screen read "fish-monument-type" beside "Art & Architecture
+// Thesaurus", and it carried no base_uri, so URI-to-vocabulary lookups had
+// nothing to match a concept's IRI against.
+//
+// The fallback is pinned too: a mount the service could not describe is
+// still labelled by its name rather than left blank.
+func TestAddStoresTheServicesLabelAndBaseURI(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := context.Background()
+	const (
+		ownerID   = "tstlbl_owner"
+		projectID = "TSTLBL"
+	)
+
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_actors (id, display_name, slug) VALUES ($1,$2,$3)
+		ON CONFLICT (id) DO NOTHING`, ownerID, "TSTLBL Owner", ownerID); err != nil {
+		t.Fatalf("seed owner actor: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_projects (id, owner_id) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, projectID, ownerID); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_vocabularies WHERE project_id = $1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_projects WHERE id = $1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id = $1`, ownerID)
+	})
+
+	store := NewPostgresStore(pool)
+	if err := store.AddServiceVocabulary(ctx, projectID, ServiceMount{
+		Name:    "aat",
+		Label:   "Art & Architecture Thesaurus",
+		BaseURI: "http://vocab.getty.edu/aat/",
+	}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	var uiName []byte
+	var baseURI *string
+	if err := pool.QueryRow(ctx,
+		`SELECT ui_name, base_uri FROM weave_vocabularies WHERE project_id = $1 AND system_name = 'aat'`,
+		projectID).Scan(&uiName, &baseURI); err != nil {
+		t.Fatalf("read back vocabulary: %v", err)
+	}
+	if got := settingsTranslations(uiName).Get("en"); got != "Art & Architecture Thesaurus" {
+		t.Errorf("label = %q, want the service's label", got)
+	}
+	if baseURI == nil || *baseURI != "http://vocab.getty.edu/aat/" {
+		t.Errorf("base_uri = %v, want the mount's scheme", baseURI)
+	}
+
+	// A mount the service could not describe still gets a readable label.
+	if err := store.AddServiceVocabulary(ctx, projectID, ServiceMount{Name: "undescribed"}); err != nil {
+		t.Fatalf("add undescribed: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT ui_name FROM weave_vocabularies WHERE project_id = $1 AND system_name = 'undescribed'`,
+		projectID).Scan(&uiName); err != nil {
+		t.Fatalf("read back undescribed vocabulary: %v", err)
+	}
+	if got := settingsTranslations(uiName).Get("en"); got != "undescribed" {
+		t.Errorf("fallback label = %q, want the mount name", got)
+	}
+}
+
+// TestRemovedVocabularyReportsItselfRemoved pins what the settings screen
+// needs to draw the difference. A retired vocabulary stays in the list —
+// its concept lists still resolve against it — so if it reported the same
+// status as a live one, removal would be invisible on the screen that
+// offers it.
+func TestRemovedVocabularyReportsItselfRemoved(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := context.Background()
+	const (
+		ownerID   = "tstrst_owner"
+		projectID = "TSTRST"
+	)
+
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_actors (id, display_name, slug) VALUES ($1,$2,$3)
+		ON CONFLICT (id) DO NOTHING`, ownerID, "TSTRST Owner", ownerID); err != nil {
+		t.Fatalf("seed owner actor: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_projects (id, owner_id) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, projectID, ownerID); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_vocabularies WHERE project_id = $1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_projects WHERE id = $1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id = $1`, ownerID)
+	})
+
+	store := NewPostgresStore(pool)
+	if err := store.AddServiceVocabulary(ctx, projectID, ServiceMount{Name: "aat", Label: "AAT"}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	statusOf := func() string {
+		t.Helper()
+		state, err := store.VocabularySettingsState(ctx, projectID)
+		if err != nil {
+			t.Fatalf("read vocabulary settings: %v", err)
+		}
+		for _, opt := range state.Options {
+			if opt.SystemName == "aat" {
+				return opt.Status
+			}
+		}
+		t.Fatal("aat is missing from the settings options — a removed vocabulary must stay listed")
+		return ""
+	}
+
+	if got := statusOf(); got == vocabularyStatusRemoved {
+		t.Fatalf("status = %q before removal", got)
+	}
+
+	var vocabID string
+	if err := pool.QueryRow(ctx, `SELECT id FROM weave_vocabularies WHERE project_id = $1`, projectID).Scan(&vocabID); err != nil {
+		t.Fatalf("read back vocabulary id: %v", err)
+	}
+	if err := store.RemoveVocabulary(ctx, projectID, vocabID); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+
+	if got := statusOf(); got != vocabularyStatusRemoved {
+		t.Errorf("status after removal = %q, want %q", got, vocabularyStatusRemoved)
 	}
 }

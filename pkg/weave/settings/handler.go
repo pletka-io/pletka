@@ -506,6 +506,36 @@ func decodeAddVocabularyBody(r *http.Request) (mount, lang string, fieldErrs map
 	return mount, strings.TrimSpace(body.Lang), nil
 }
 
+// describeMount looks the mount up in the service's own listing so the row a
+// project stores carries the service's label and base IRI rather than just
+// the mount name.
+//
+// Every failure is non-fatal and falls back to the name alone: no service
+// configured, a service that will not answer, or a mount it does not list.
+// Adding a vocabulary must not depend on the listing being reachable at that
+// instant — the row is keyed by the mount name, and a plainer label is a
+// cosmetic loss, not a broken vocabulary.
+func (h *Handler) describeMount(ctx context.Context, name, lang string) ServiceMount {
+	mount := ServiceMount{Name: name, Lang: strings.TrimSpace(lang)}
+	if h.serviceVocabularies == nil {
+		return mount
+	}
+	listing, err := h.serviceVocabularies.ServiceVocabularies(ctx)
+	if err != nil {
+		h.log.Warn("describe vocabulary mount: service listing unavailable, storing the mount name alone",
+			"mount", name, "err", err)
+		return mount
+	}
+	for _, v := range listing {
+		if v.Name == name {
+			mount.Label = v.Label
+			mount.BaseURI = v.Scheme
+			break
+		}
+	}
+	return mount
+}
+
 func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
@@ -524,7 +554,7 @@ func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
 		Lang  string
 	}{Mount: mount, Lang: lang}
 
-	if err := h.store.AddServiceVocabulary(ctx, projectID, body.Mount, strings.TrimSpace(body.Lang)); err != nil {
+	if err := h.store.AddServiceVocabulary(ctx, projectID, h.describeMount(ctx, body.Mount, body.Lang)); err != nil {
 		ae := apierror.FromError(err)
 		if ae.Code == apierror.CodeInternal {
 			h.log.Error("add service vocabulary", "project_id", projectID, "mount", body.Mount, "err", err)

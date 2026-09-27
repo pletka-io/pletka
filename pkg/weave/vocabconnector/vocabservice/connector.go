@@ -128,9 +128,13 @@ type VocabularyListing struct {
 // Dutch project pointed at an English-only mount will only ever answer in
 // English.
 type VocabularyInfo struct {
-	Name      string   `json:"name"`
-	Label     string   `json:"label,omitempty"`
-	Concepts  int      `json:"concepts,omitempty"`
+	Name     string `json:"name"`
+	Label    string `json:"label,omitempty"`
+	Concepts int    `json:"concepts,omitempty"`
+	// Scheme is the vocabulary's base IRI (e.g. http://vocab.getty.edu/aat/).
+	// Stored as a vocabulary row's base_uri when a project adds the mount, so
+	// URI-to-vocabulary lookups resolve without a second call to the service.
+	Scheme    string   `json:"scheme,omitempty"`
 	Languages []string `json:"languages,omitempty"`
 }
 
