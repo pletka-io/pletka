@@ -168,3 +168,56 @@ func helpText(t *testing.T, field formschema.FieldDef) string {
 	}
 	return lt.Translations["en"]
 }
+
+// TestCollidingServiceLabelsCarryTheirMountName pins the disambiguation. The
+// service labels four GeoNames mounts and two Iconclass mounts identically,
+// differing only by mount name and size, and a native select shows only the
+// label — so without this a curator picking between them is choosing blind.
+//
+// Unique labels must stay clean: annotating every option would make the
+// common case noisier to fix the rare one.
+func TestCollidingServiceLabelsCarryTheirMountName(t *testing.T) {
+	h := &Handler{serviceVocabularies: stubLister{out: []ServiceVocabulary{
+		{Name: "geonames", Label: "GeoNames", Concepts: 5775923},
+		{Name: "geonames-water", Label: "GeoNames", Concepts: 3155630},
+		{Name: "aat", Label: "Art & Architecture Thesaurus", Concepts: 59300},
+		{Name: "unlabelled-mount"},
+	}}}
+
+	schema, err := h.vocabularySchema(context.Background(), "proj-1", VocabularySettingsState{}, "en")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	labels := map[string]string{}
+	for _, opt := range findVocabularyField(t, schema, "add_vocabulary_id").Options {
+		labels[opt.Value] = tr(t, opt.Label)
+	}
+
+	if got := labels["geonames"]; got != "GeoNames (geonames)" {
+		t.Errorf("geonames label = %q, want the mount name appended", got)
+	}
+	if got := labels["geonames-water"]; got != "GeoNames (geonames-water)" {
+		t.Errorf("geonames-water label = %q, want the mount name appended", got)
+	}
+	if got := labels["aat"]; got != "Art & Architecture Thesaurus" {
+		t.Errorf("aat label = %q, want it left clean — its label does not collide", got)
+	}
+	if got := labels["unlabelled-mount"]; got != "unlabelled-mount" {
+		t.Errorf("unlabelled mount label = %q, want the mount name", got)
+	}
+}
+
+// tr reads an option's English label, whichever localizable shape it carries.
+func tr(t *testing.T, label domain.Localizable) string {
+	t.Helper()
+	switch v := label.(type) {
+	case domain.Translations:
+		return v.Get("en")
+	case i18n.LocalizedText:
+		return v.Translations["en"]
+	default:
+		t.Fatalf("label = %#v, want a known localizable shape", label)
+		return ""
+	}
+}

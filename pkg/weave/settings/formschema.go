@@ -680,11 +680,22 @@ func buildServiceVocabularyOptions(ctx context.Context, lister ServiceVocabulary
 	if err != nil {
 		return nil, fmt.Errorf("list vocabulary service mounts: %w", err)
 	}
+	// The service labels several distinct mounts identically — four GeoNames
+	// subsets, two Iconclass ones, differing only by mount name and size — so
+	// a colliding label has to carry its mount name or a curator cannot tell
+	// which of them they are choosing. A native select shows only the label,
+	// so the description cannot do this job. Only collisions are annotated;
+	// appending the name to every option would be noise.
+	labelCounts := make(map[string]int, len(vocabs))
+	for _, v := range vocabs {
+		labelCounts[firstNonEmpty(v.Label, v.Name)]++
+	}
+
 	opts := make([]formschema.SelectOption, 0, len(vocabs))
 	for _, v := range vocabs {
-		label := v.Label
-		if label == "" {
-			label = v.Name
+		label := firstNonEmpty(v.Label, v.Name)
+		if labelCounts[label] > 1 {
+			label = fmt.Sprintf("%s (%s)", label, v.Name)
 		}
 		opts = append(opts, formschema.SelectOption{
 			Value:       v.Name,
