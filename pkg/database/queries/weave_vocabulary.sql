@@ -32,6 +32,7 @@ SELECT
     COALESCE(v.ui_name, '{}'::jsonb) AS ui_name,
     COALESCE(v.description, '{}'::jsonb) AS description,
     v.status,
+    v.deprecated,
     COALESCE(v.base_uri, '') AS base_uri
 FROM weave_vocabularies v
 WHERE v.project_id = @project_id::text
@@ -46,17 +47,55 @@ FROM weave_vocabularies v
 WHERE v.project_id = @project_id::text
 ORDER BY v.system_name ASC, v.id ASC;
 
--- name: WeaveAddProjectServiceVocabulary :exec
--- Enabling a service vocabulary for a project IS creating its row. The
--- partial unique index on (project_id, system_name) (migration 014) rejects
--- a second add of the same mount.
-INSERT INTO weave_vocabularies (id, project_id, system_name, ui_name, connector_type, config, status, created_at, updated_at)
-VALUES (@id::text, @project_id::text, @system_name::text, @ui_name::jsonb, 'vocabservice', @config::jsonb, 'published', NOW(), NOW());
+-- name: WeaveAddProjectServiceVocabulary :one
+-- Enabling a service vocabulary for a project IS creating its row.
+--
+-- Adding a mount the project removed earlier REVIVES that row rather than
+-- inserting a second one. Removal deprecates rather than deletes, so the old
+-- row still holds (project_id, system_name) in the partial unique index from
+-- migration 014 — without the upsert, removing a vocabulary would be a
+-- one-way door, and the add would fail with "already added to this project"
+-- while the screen showed it as removed. Reviving also brings back the
+-- entries cached under that row, which is what a curator re-adding a source
+-- they had pinned terms from would expect.
+--
+-- The DO UPDATE is guarded on the existing row being deprecated, so adding a
+-- mount that is genuinely still there updates nothing and returns no row —
+-- which the store maps to the 409 conflict. The conflict target repeats the
+-- index's predicate so Postgres can infer the partial index.
+INSERT INTO weave_vocabularies (id, project_id, system_name, ui_name, base_uri, connector_type, config, status, created_at, updated_at)
+VALUES (@id::text, @project_id::text, @system_name::text, @ui_name::jsonb, NULLIF(@base_uri::text, ''), 'vocabservice', @config::jsonb, 'published', NOW(), NOW())
+ON CONFLICT (project_id, system_name) WHERE system_name IS NOT NULL AND system_name <> ''
+DO UPDATE SET
+    deprecated = false,
+    status = 'published',
+    ui_name = EXCLUDED.ui_name,
+    base_uri = EXCLUDED.base_uri,
+    config = EXCLUDED.config,
+    updated_at = NOW()
+WHERE weave_vocabularies.deprecated
+RETURNING id;
 
--- name: WeaveDeleteProjectVocabulary :exec
--- Removing a vocabulary takes its cached entries with it: they re-resolve
--- from the service if it is added again.
-DELETE FROM weave_vocabularies WHERE id = @id::text AND project_id = @project_id::text;
+-- name: WeaveDeprecateProjectVocabulary :one
+-- Removing a vocabulary deprecates its row rather than deleting it.
+--
+-- A delete cannot express what removal means here. weave_vocabulary_entries
+-- cascades from weave_vocabularies, so deleting takes every pinned entry with
+-- it and empties the concept lists built on them; and weave_concept_lists has
+-- a plain foreign key with no ON DELETE action, so Postgres refuses the delete
+-- outright while any list still points at the row. Removal has to leave the
+-- row in place: the lists keep their entries and keep resolving them, and the
+-- vocabulary simply stops being offered for anything new.
+UPDATE weave_vocabularies
+SET deprecated = true, updated_at = NOW()
+WHERE id = @id::text AND project_id = @project_id::text
+  -- The project's local-terms row is not removable. It is the fallback for
+  -- terms no thesaurus has, every project needs one, and a concept list with
+  -- no source vocabulary resolves against it — retiring it would leave a
+  -- curator unable to add a term anywhere. Enforced here rather than only in
+  -- the UI, so the endpoint cannot be asked to do it directly.
+  AND connector_type <> 'local'
+RETURNING id;
 
 -- name: WeaveCreateVocabularyEntry :one
 INSERT INTO weave_vocabulary_entries (

@@ -16,6 +16,58 @@
 
   let options = $state<SelectOption[]>([]);
   let loadingOptions = $state(false);
+  // Self-managing: choosing an option is a create against this field's own
+  // endpoint, not a value the form's submit carries. The select acts as a
+  // command and resets itself; the result shows up wherever the server
+  // renders it (for vocabularies, in the exposed-vocabularies pills).
+  let adding = $state(false);
+  let addError = $state('');
+
+  // Enter applies the current choice. Arrow keys navigate the list and must
+  // not commit — that is the whole reason this is not on `change` — but a
+  // keyboard user who has arrowed to the row they want expects Enter to
+  // apply it, not to have to Tab to the button. The button stays for the
+  // mouse; this is the same action from the keyboard.
+  function commitOnEnter(event: KeyboardEvent) {
+    if (event.key !== 'Enter') return;
+    // The select is inside the settings form; without this, Enter submits it.
+    event.preventDefault();
+    void addSelected();
+  }
+
+  // Committed by the Add button, never by the select's change event: a
+  // focused native select fires `change` on every arrow key while its
+  // dropdown is closed, so acting on change POSTed whichever option the
+  // first keypress landed on and reloaded the page — the control could not
+  // be navigated by keyboard at all. The select now just holds a choice
+  // (excluded from the form's payload, like every self-managing field) and
+  // this commits it.
+  async function addSelected() {
+    const chosen = value ?? '';
+    if (!chosen || !field.item_add_url || adding) return;
+    adding = true;
+    addError = '';
+    try {
+      const res = await fetch(field.item_add_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        body: JSON.stringify({ value: chosen }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        addError = data?.message || data?.error || `Could not add (${res.status})`;
+        return;
+      }
+      // The server now owns this membership; reload so every part of the
+      // pane that renders it agrees, rather than patching one widget's
+      // local state and leaving the rest stale.
+      window.location.reload();
+    } catch {
+      addError = 'Could not reach the server';
+    } finally {
+      adding = false;
+    }
+  }
   let abortController: AbortController | null = null;
   // Tracks whether we've already fetched options_url for this field. The
   // server may legitimately return [] (e.g. a project with no categories
@@ -179,7 +231,8 @@
   <select
     id={field.name}
     bind:value
-    disabled={field.readonly || loadingOptions}
+    onkeydown={field.item_add_url ? commitOnEnter : undefined}
+    disabled={field.readonly || loadingOptions || adding}
     class="block w-full rounded-md border-gray-300 shadow-sm focus:border-pletka-primary focus:ring-pletka-primary sm:text-sm
       {field.readonly ? 'bg-gray-50' : ''} {errors.length ? 'border-red-300' : ''}"
   >
@@ -201,6 +254,23 @@
       <option value={option.value}>{tr(option.label, lang)}{option.source_project_id ? ` (${option.source_project_label || option.source_project_id})` : ''}</option>
     {/each}
   </select>
+
+  {#if field.item_add_url}
+    <button
+      type="button"
+      onclick={addSelected}
+      disabled={!value || adding}
+      class="mt-2 rounded-md bg-pletka-primary px-3 py-1.5 text-sm font-medium text-white
+        hover:bg-pletka-secondary focus:outline-none focus:ring-2 focus:ring-pletka-primary
+        focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {adding ? 'Adding…' : tr(field.create_label, lang) || 'Add'}
+    </button>
+  {/if}
+
+  {#if addError}
+    <p class="mt-1 text-xs text-red-600">{addError}</p>
+  {/if}
 
   {#if value && options.find(o => o.value === value)?.hint}
     <p class="mt-1 text-xs text-gray-600 font-mono">{options.find(o => o.value === value)?.hint}</p>

@@ -101,6 +101,19 @@
   }
 
   /** Compute the set of field names that should be hidden given current values. */
+  // Fields that maintain themselves through their own endpoints, and so must
+  // never travel in the form's submit payload. Derived from the schema rather
+  // than hardcoded: any field the server marks this way is excluded.
+  let selfManagedFields = $derived.by(() => {
+    const names = new Set<string>();
+    for (const section of schema?.sections ?? []) {
+      for (const field of section.fields) {
+        if (field.item_add_url || field.item_remove_url_template) names.add(field.name);
+      }
+    }
+    return names;
+  });
+
   function computeHidden(currentSchema: FormSchema | null, currentValues: Record<string, any>): Set<string> {
     const hidden = new Set<string>();
     if (!currentSchema) return hidden;
@@ -285,9 +298,18 @@
 
     try {
       // Do not submit hidden fields — their dependencies are unsatisfied.
+      //
+      // Nor self-managing ones. A field carrying item_add_url or
+      // item_remove_url_template maintains itself through those endpoints,
+      // and its state lives on the server between those calls; including it
+      // here would have this PUT overwrite what the POST or DELETE just did.
+      // Readonly alone never stopped a field being posted — that is how a
+      // pair of dead keys reached this endpoint before — so the exclusion
+      // keys on the endpoints, not on readonly.
       const payload: Record<string, any> = {};
       for (const [k, v] of Object.entries(formValues)) {
         if (hiddenFields.has(k)) continue;
+        if (selfManagedFields.has(k)) continue;
         payload[k] = v;
       }
 

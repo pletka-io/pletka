@@ -9,8 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/internal/testdb"
+	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/weave"
 )
 

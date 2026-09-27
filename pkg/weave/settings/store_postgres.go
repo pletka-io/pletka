@@ -20,16 +20,13 @@ import (
 // rejects a second add of the same mount for a project. Named so the
 // constraint-name check in AddServiceVocabulary reads as intent, not a
 // magic string.
-const vocabularyProjectSystemNameIndex = "idx_wv_project_system_name"
+// vocabularyStatusRemoved is the status a retired vocabulary reports to the
+// settings screen. It is a presentation value, not a domain.Status: removal
+// sets weave_vocabularies.deprecated, the axis domain-model.md defines for
+// "retired, references intact, excluded from pickers".
+const vocabularyStatusRemoved = "removed"
 
-// vocabularyConceptListFKConstraint is weave_concept_lists.vocabulary_id's
-// foreign key (migration 013's own comment already flags it: "has no ON
-// DELETE action, so the delete below would simply fail without this" — that
-// clause describes the global-tier cleanup migration 013 performs itself,
-// not a guarantee that a project-owned vocabulary can always be deleted).
-// It carries no ON DELETE clause, i.e. RESTRICT: a concept list bound to a
-// vocabulary blocks deleting that vocabulary at the database level.
-const vocabularyConceptListFKConstraint = "weave_concept_lists_vocabulary_id_fkey"
+const vocabularyProjectSystemNameIndex = "idx_wv_project_system_name"
 
 type postgresStore struct {
 	pool    *pgxpool.Pool
@@ -81,12 +78,20 @@ func (s *postgresStore) VocabularySettingsState(ctx context.Context, projectID s
 		if len(desc) == 0 && row.BaseUri != "" {
 			desc = domain.Translations{"en": row.BaseUri}
 		}
+		// A removed vocabulary stays in the list — its concept lists still
+		// resolve against it — so the status is what tells a curator it is
+		// retired. Without this it renders identically to a live one and
+		// "removed" is invisible, which is worse than not offering removal.
+		status := row.Status
+		if row.Deprecated {
+			status = vocabularyStatusRemoved
+		}
 		options = append(options, VocabularySettingsOption{
 			ID:          row.ID,
 			SystemName:  row.SystemName,
 			Label:       label,
 			Description: desc,
-			Status:      row.Status,
+			Status:      status,
 			BaseURI:     row.BaseUri,
 		})
 	}
@@ -158,68 +163,87 @@ func (e *errVocabularyAlreadyAdded) Error() string {
 
 func (e *errVocabularyAlreadyAdded) ConflictMessage() string { return e.Error() }
 
-// errVocabularyInUse reports that a vocabulary can't be removed because a
-// concept list still references it (weave_concept_lists_vocabulary_id_fkey
-// has no ON DELETE clause, i.e. RESTRICT). Implements apierror.InUser so
-// apierror.FromError maps it to a 409 with code "in_use" — the shape
-// api-patterns.md specifies for a delete blocked by dependents — instead of
-// the raw foreign-key violation surfacing as a 500. Naming the specific
-// concept list would need a second query on this error path; "used by a
-// concept list" is the cheap, honest message.
-type errVocabularyInUse struct{}
+// errVocabularyNotRemovable reports that a vocabulary cannot be retired.
+// Only the local-terms row qualifies: it is every project's fallback for
+// terms no thesaurus has, and a concept list with no source resolves against
+// it. Implements apierror.Conflicter so this reads as a 409 with a reason
+// rather than a bare failure.
+type errVocabularyNotRemovable struct{}
 
-func (e *errVocabularyInUse) Error() string {
-	return "this vocabulary is used by a concept list and cannot be removed"
+func (e *errVocabularyNotRemovable) Error() string {
+	return "the local terms vocabulary cannot be removed from a project"
 }
 
-func (e *errVocabularyInUse) InUseMessage() string { return e.Error() }
+func (e *errVocabularyNotRemovable) ConflictMessage() string { return e.Error() }
 
 // AddServiceVocabulary enables a vocabulary the configured service serves:
 // owning the row IS the enablement (#3599 vocabulary ownership), so this is
 // nothing more than inserting the row. mount becomes both the system_name
 // and the "vocab" the resolved config names; lang is optional.
-func (s *postgresStore) AddServiceVocabulary(ctx context.Context, projectID, mount, lang string) error {
-	mount = strings.TrimSpace(mount)
-	if mount == "" {
+func (s *postgresStore) AddServiceVocabulary(ctx context.Context, projectID string, mount ServiceMount) error {
+	name := strings.TrimSpace(mount.Name)
+	if name == "" {
 		return fmt.Errorf("add service vocabulary: mount is required")
 	}
-	uiName, err := json.Marshal(domain.Translations{"en": mount})
+	// Label the row the way the service labels the mount. Falling back to the
+	// mount name keeps a row that the service could not describe readable
+	// rather than blank.
+	label := firstNonEmpty(strings.TrimSpace(mount.Label), name)
+	uiName, err := json.Marshal(domain.Translations{"en": label})
 	if err != nil {
 		return fmt.Errorf("encode vocabulary label: %w", err)
 	}
-	config, err := json.Marshal(vocabularyConfig{Vocab: mount, Lang: strings.TrimSpace(lang)})
+	config, err := json.Marshal(vocabularyConfig{Vocab: name, Lang: strings.TrimSpace(mount.Lang)})
 	if err != nil {
 		return fmt.Errorf("encode vocabulary config: %w", err)
 	}
-	if err := s.queries.WeaveAddProjectServiceVocabulary(ctx, sqlcgen.WeaveAddProjectServiceVocabularyParams{
+	// The query upserts: a mount this project removed earlier is revived,
+	// and a mount that is genuinely still here updates nothing and returns
+	// no row — which is the conflict.
+	if _, err := s.queries.WeaveAddProjectServiceVocabulary(ctx, sqlcgen.WeaveAddProjectServiceVocabularyParams{
 		ID:         ids.GenerateULID(),
 		ProjectID:  projectID,
-		SystemName: mount,
+		SystemName: name,
 		UiName:     uiName,
+		BaseUri:    strings.TrimSpace(mount.BaseURI),
 		Config:     config,
 	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &errVocabularyAlreadyAdded{mount: name}
+		}
 		var pgerr *pgconn.PgError
 		if errors.As(err, &pgerr) && pgerr.ConstraintName == vocabularyProjectSystemNameIndex {
-			return &errVocabularyAlreadyAdded{mount: mount}
+			return &errVocabularyAlreadyAdded{mount: name}
 		}
 		return fmt.Errorf("add service vocabulary: %w", err)
 	}
 	return nil
 }
 
-// RemoveVocabulary disables a project's vocabulary by deleting its row.
-// Its cached entries go with it via
-// weave_vocabulary_entries_vocabulary_id_fkey's ON DELETE CASCADE — no
-// explicit entry delete is needed; they simply re-resolve if the mount is
-// added again.
+// RemoveVocabulary disables a project's vocabulary by deprecating its row.
+//
+// It is deliberately not a delete. Removal means "this project can no longer
+// add from this source", not "unmake what was already built from it": the
+// concept lists keep their pinned entries and keep resolving them, and only
+// new work is refused. A delete cannot express that — the entries cascade
+// away with the row, and weave_concept_lists' plain foreign key would refuse
+// the delete anyway while any list still points at it.
+//
+// Deprecating also makes removal total rather than conditional. The previous
+// delete returned in_use whenever a concept list referenced the vocabulary,
+// so the one case where a curator most wants to stop new pins — a source they
+// have already built on — was the one case they could not act on.
 func (s *postgresStore) RemoveVocabulary(ctx context.Context, projectID, vocabularyID string) error {
-	if err := s.queries.WeaveDeleteProjectVocabulary(ctx, sqlcgen.WeaveDeleteProjectVocabularyParams{
+	if _, err := s.queries.WeaveDeprecateProjectVocabulary(ctx, sqlcgen.WeaveDeprecateProjectVocabularyParams{
 		ID:        vocabularyID,
 		ProjectID: projectID,
 	}); err != nil {
-		var pgerr *pgconn.PgError
-		if errors.As(err, &pgerr) && pgerr.ConstraintName == vocabularyConceptListFKConstraint {
-			return &errVocabularyInUse{}
+		// No row means the id did not match a removable vocabulary of this
+		// project — in practice, the local-terms row, which the query
+		// refuses. Reported as a conflict rather than a 404: the vocabulary
+		// exists, it just cannot be retired.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &errVocabularyNotRemovable{}
 		}
 		return fmt.Errorf("remove vocabulary: %w", err)
 	}

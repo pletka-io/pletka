@@ -665,7 +665,7 @@ func TestVocabulariesReadsTheListing(t *testing.T) {
 		t.Errorf("Version = %d, want 2", got.Version)
 	}
 	want := []VocabularyInfo{
-		{Name: "aat", Label: "Art & Architecture Thesaurus", Concepts: 58996, Languages: []string{"ar", "en", "nl"}},
+		{Name: "aat", Label: "Art & Architecture Thesaurus", Concepts: 58996, Scheme: "http://vocab.getty.edu/aat/", Languages: []string{"ar", "en", "nl"}},
 		{Name: "tgn", Label: "Getty Thesaurus of Geographic Names", Concepts: 2991143, Languages: []string{"en"}},
 		{Name: "ulan", Concepts: 404637, Languages: []string{"en"}},
 	}

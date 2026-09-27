@@ -476,6 +476,66 @@ func (h *Handler) UpdateVocabularies(w http.ResponseWriter, r *http.Request) {
 // split CreateInheritance/UpdateOntology already use on the ontology
 // section. The PUT on this same path keeps owning exactly what it owns:
 // enforce_concept_lists and concept_namespace.
+// decodeAddVocabularyBody reads the request body of an add, accepting both
+// spellings, and returns per-field errors rather than writing them.
+//
+// `value` is the generic self-managing-field contract: FieldDef.ItemAddURL
+// takes {"value": "<option value>"}, because the widget posting it is a
+// plain select that knows nothing about vocabularies. `mount` is what this
+// endpoint asked for before any control was wired to it, and it names the
+// domain concept, so it stays valid for anyone calling the endpoint directly.
+//
+// Split out from the handler so the seam can be tested without an auth
+// context: the two sides of it disagreed once already — the widget posted
+// `value` to a handler reading only `mount`, every add failed with 422, and
+// neither the schema test nor svelte-check could see it, because each
+// checked only its own side.
+func decodeAddVocabularyBody(r *http.Request) (mount, lang string, fieldErrs map[string][]string) {
+	var body struct {
+		Value string `json:"value"`
+		Mount string `json:"mount"`
+		Lang  string `json:"lang"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return "", "", map[string][]string{"body": {"invalid JSON body"}}
+	}
+	mount = firstNonEmpty(strings.TrimSpace(body.Value), strings.TrimSpace(body.Mount))
+	if mount == "" {
+		return "", "", map[string][]string{"value": {"a vocabulary is required"}}
+	}
+	return mount, strings.TrimSpace(body.Lang), nil
+}
+
+// describeMount looks the mount up in the service's own listing so the row a
+// project stores carries the service's label and base IRI rather than just
+// the mount name.
+//
+// Every failure is non-fatal and falls back to the name alone: no service
+// configured, a service that will not answer, or a mount it does not list.
+// Adding a vocabulary must not depend on the listing being reachable at that
+// instant — the row is keyed by the mount name, and a plainer label is a
+// cosmetic loss, not a broken vocabulary.
+func (h *Handler) describeMount(ctx context.Context, name, lang string) ServiceMount {
+	mount := ServiceMount{Name: name, Lang: strings.TrimSpace(lang)}
+	if h.serviceVocabularies == nil {
+		return mount
+	}
+	listing, err := h.serviceVocabularies.ServiceVocabularies(ctx)
+	if err != nil {
+		h.log.Warn("describe vocabulary mount: service listing unavailable, storing the mount name alone",
+			"mount", name, "err", err)
+		return mount
+	}
+	for _, v := range listing {
+		if v.Name == name {
+			mount.Label = v.Label
+			mount.BaseURI = v.Scheme
+			break
+		}
+	}
+	return mount
+}
+
 func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
@@ -484,21 +544,17 @@ func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
-		Mount string `json:"mount"`
-		Lang  string `json:"lang"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+	mount, lang, fieldErrs := decodeAddVocabularyBody(r)
+	if fieldErrs != nil {
+		writeValidationErrors(w, fieldErrs)
 		return
 	}
-	body.Mount = strings.TrimSpace(body.Mount)
-	if body.Mount == "" {
-		writeValidationErrors(w, map[string][]string{"mount": {"mount is required"}})
-		return
-	}
+	body := struct {
+		Mount string
+		Lang  string
+	}{Mount: mount, Lang: lang}
 
-	if err := h.store.AddServiceVocabulary(ctx, projectID, body.Mount, strings.TrimSpace(body.Lang)); err != nil {
+	if err := h.store.AddServiceVocabulary(ctx, projectID, h.describeMount(ctx, body.Mount, body.Lang)); err != nil {
 		ae := apierror.FromError(err)
 		if ae.Code == apierror.CodeInternal {
 			h.log.Error("add service vocabulary", "project_id", projectID, "mount", body.Mount, "err", err)
@@ -513,15 +569,12 @@ func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
 // DeleteVocabulary disables a project's vocabulary by removing its row.
 // DELETE /projects/{projectID}/settings/vocabularies/{vocabularyID}.
 //
-// The cached entries go with it via
-// weave_vocabulary_entries_vocabulary_id_fkey's ON DELETE CASCADE — they
-// simply re-resolve from the service if the mount is added again, so there
-// is nothing else for this handler to clean up. A concept list bound to the
-// vocabulary is a different story: weave_concept_lists.vocabulary_id has no
-// ON DELETE clause (RESTRICT), so the store maps that violation to a typed
-// in-use error, which apierror.FromError turns into 409/in_use here — the
-// same "map typed store error -> apierror" path AddVocabulary uses for its
-// own conflict.
+// Removal retires the vocabulary rather than deleting it: the concept lists
+// built on it keep their pinned entries and keep resolving them, and only new
+// pins are refused (the vocabulary slice enforces that). So this handler has
+// nothing to clean up and no dependants to refuse — unlike AddVocabulary,
+// which still maps a duplicate add to 409/conflict, a removal always
+// succeeds.
 func (h *Handler) DeleteVocabulary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")

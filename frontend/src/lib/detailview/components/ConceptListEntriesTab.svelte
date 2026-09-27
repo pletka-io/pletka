@@ -133,12 +133,67 @@
     }
   }
 
+  // Index of the keyboard-highlighted result, -1 for none. The list is a
+  // combobox popup: arrows move this, Enter adds the highlighted row, Escape
+  // closes. Without it the only way to reach a result was to Tab through
+  // every row's Add button in turn.
+  let activeIndex = $state(-1);
+
   function handleQueryInput(event: Event) {
     const next = (event.target as HTMLInputElement).value.trim();
     if (completedQuery !== next) {
       pending = true;
       searchError = '';
       results = [];
+    }
+    // A new query invalidates the highlight: keeping an index into a list
+    // that is about to be replaced would add whatever landed in that slot.
+    activeIndex = -1;
+  }
+
+  function moveActive(delta: number) {
+    if (results.length === 0) return;
+    const next = activeIndex + delta;
+    // Clamp rather than wrap: wrapping from the last result back to the
+    // first, silently, is how a keyboard user adds the wrong concept.
+    activeIndex = Math.max(0, Math.min(results.length - 1, next < 0 ? 0 : next));
+    scrollActiveIntoView();
+  }
+
+  function scrollActiveIntoView() {
+    if (activeIndex < 0) return;
+    requestAnimationFrame(() => {
+      document.getElementById(`concept-list-option-${activeIndex}`)
+        ?.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  function handleSearchKeydown(event: KeyboardEvent) {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        open = true;
+        moveActive(activeIndex < 0 ? 0 : 1);
+        return;
+      case 'ArrowUp':
+        event.preventDefault();
+        moveActive(-1);
+        return;
+      case 'Enter': {
+        if (activeIndex < 0 || activeIndex >= results.length) return;
+        // Enter with a highlighted row adds it. preventDefault so the
+        // surrounding page does not treat it as a submit.
+        event.preventDefault();
+        const result = results[activeIndex];
+        if (!resultSelected(result)) void addEntry(result);
+        return;
+      }
+      case 'Escape':
+        event.preventDefault();
+        open = false;
+        activeIndex = -1;
+        return;
+      default:
     }
   }
 
@@ -459,11 +514,21 @@
             placeholder={`Search ${sourceName || 'the source vocabulary'}…`}
             bind:value={query}
             oninput={handleQueryInput}
+            onkeydown={handleSearchKeydown}
             onfocus={() => (open = true)}
+            role="combobox"
+            aria-expanded={open}
+            aria-controls="concept-list-options"
+            aria-activedescendant={activeIndex >= 0 ? `concept-list-option-${activeIndex}` : undefined}
+            aria-autocomplete="list"
           />
         </div>
         {#if open}
-          <div class="mt-3 max-h-72 divide-y divide-gray-200 overflow-y-auto rounded-md border border-gray-200 bg-white">
+          <div
+            id="concept-list-options"
+            role="listbox"
+            class="mt-3 max-h-72 divide-y divide-gray-200 overflow-y-auto rounded-md border border-gray-200 bg-white"
+          >
             {#if searching || pending || completedQuery !== query.trim()}
               <div class="px-4 py-3 text-sm text-gray-500">Searching {sourceName || 'source'}…</div>
             {:else if searchError}
@@ -485,8 +550,20 @@
                 {/if}
               </div>
             {:else}
-              {#each results as result (result.vocabulary_entry_id || result.entry.uri)}
-                <div class="flex items-start justify-between gap-4 px-4 py-3">
+              <!-- Focus stays on the search input and aria-activedescendant
+                   points at the active option — the combobox pattern — so an
+                   option is never a tab stop of its own. -->
+              {#each results as result, i (result.vocabulary_entry_id || result.entry.uri)}
+                <div
+                  id={`concept-list-option-${i}`}
+                  role="option"
+                  aria-selected={i === activeIndex}
+                  tabindex={-1}
+                  class="flex items-start justify-between gap-4 px-4 py-3 {i === activeIndex
+                    ? 'bg-pletka-primary/10 ring-1 ring-inset ring-pletka-primary'
+                    : ''}"
+                  onmouseenter={() => (activeIndex = i)}
+                >
                   <div class="min-w-0">
                     <div class="flex flex-wrap items-center gap-2">
                       <p class="text-sm font-medium text-gray-900">{resultLabel(result)}</p>

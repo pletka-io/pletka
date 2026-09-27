@@ -558,6 +558,7 @@ func (l serviceVocabularyLister) ServiceVocabularies(ctx context.Context) ([]set
 			Name:      v.Name,
 			Label:     v.Label,
 			Concepts:  v.Concepts,
+			Scheme:    v.Scheme,
 			Languages: v.Languages,
 		})
 	}
