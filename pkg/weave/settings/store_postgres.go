@@ -26,6 +26,10 @@ import (
 // "retired, references intact, excluded from pickers".
 const vocabularyStatusRemoved = "removed"
 
+// connectorTypeLocal names the project's own terms vocabulary, the one row a
+// project may not remove.
+const connectorTypeLocal = "local"
+
 const vocabularyProjectSystemNameIndex = "idx_wv_project_system_name"
 
 type postgresStore struct {
@@ -93,6 +97,7 @@ func (s *postgresStore) VocabularySettingsState(ctx context.Context, projectID s
 			Description: desc,
 			Status:      status,
 			BaseURI:     row.BaseUri,
+			Locked:      row.ConnectorType == connectorTypeLocal,
 		})
 	}
 	enforce, err := s.queries.WeaveGetProjectConceptListEnforcement(ctx, projectID)

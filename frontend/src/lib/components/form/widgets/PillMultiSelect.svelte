@@ -19,6 +19,7 @@
     label: string;
     isDraft: boolean;
     isRemoved: boolean;
+    isLocked: boolean;
     id: string;
     sourceProjectId: string;
     sourceProjectLabel: string;
@@ -38,6 +39,9 @@
         // A removed item stays in the list because things still reference
         // it; the pill has to say so, or removal looks like it did nothing.
         isRemoved: opt?.status === 'removed',
+        // Locked items cannot be removed at all — the server refuses it, so
+        // offering the control would only produce an error.
+        isLocked: opt?.locked === true,
         id: ref,
         sourceProjectId: opt?.source_project_id ?? '',
         sourceProjectLabel: opt?.source_project_label ?? '',
@@ -290,7 +294,7 @@
         {#if pill.sourceProjectId}
           <span class="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700">from {pill.sourceProjectLabel || pill.sourceProjectId}</span>
         {/if}
-        {#if !field.readonly && !pill.isRemoved}
+        {#if !field.readonly && !pill.isRemoved && !pill.isLocked}
           <button
             type="button"
             disabled={removing === pill.ref}

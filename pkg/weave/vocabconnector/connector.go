@@ -28,6 +28,13 @@ type Entry struct {
 	BroaderPath      []string                    `json:"broader_path,omitempty"`
 	BroaderPathItems []domain.VocabularyEntryRef `json:"broader_path_items,omitempty"`
 	ExternalID       string                      `json:"external_id,omitempty"`
+	// NarrowerTotal is how many terms sit directly under this one. It is what
+	// makes a parent-term picker able to say "this cannot be a parent": a
+	// concept with none is a leaf, and a controlled list scoped to it browses
+	// empty. Zero also means "not reported" for connectors that cannot count,
+	// so a consumer must not read 0 as proof of a leaf without knowing the
+	// connector supplies it.
+	NarrowerTotal int `json:"narrower_total,omitempty"`
 }
 
 type SearchOpts struct {

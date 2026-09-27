@@ -13,6 +13,10 @@ type VocabularySettingsOption struct {
 	Description domain.Translations
 	Status      string
 	BaseURI     string
+	// Locked marks a vocabulary the project may not remove — its
+	// local-terms row. Carried to the schema so the pill renders without a
+	// remove button; RemoveVocabulary refuses it either way.
+	Locked bool
 }
 
 type VocabularySettingsState struct {

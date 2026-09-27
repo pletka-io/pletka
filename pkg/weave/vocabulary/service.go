@@ -96,9 +96,17 @@ type VocabularyEntryView struct {
 	BroaderPath      []string                    `json:"broader_path,omitempty"`
 	BroaderPathItems []domain.VocabularyEntryRef `json:"broader_path_items,omitempty"`
 	ExternalID       string                      `json:"external_id,omitempty"`
-	Hydrated         bool                        `json:"hydrated"`
-	CreatedAt        time.Time                   `json:"created_at,omitempty"`
-	UpdatedAt        time.Time                   `json:"updated_at,omitempty"`
+	// NarrowerTotal is how many terms sit directly under this one, when the
+	// source reported it. A parent-term picker uses it to mark a concept that
+	// cannot be a parent: scoping a list to a term with no narrower terms
+	// browses empty, which is the single most confusing thing about building
+	// a list against AAT. Only set on entries that came from a connector this
+	// request — a stored row does not carry the count, so its absence means
+	// "not known now", never "this is a leaf".
+	NarrowerTotal int       `json:"narrower_total,omitempty"`
+	Hydrated      bool      `json:"hydrated"`
+	CreatedAt     time.Time `json:"created_at,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at,omitempty"`
 }
 
 type ConceptListView struct {
@@ -1742,6 +1750,7 @@ func connectorEntryView(vocabularyID string, entry vocabconnector.Entry) Vocabul
 		BroaderPath:      entry.BroaderPath,
 		BroaderPathItems: entry.BroaderPathItems,
 		ExternalID:       entry.ExternalID,
+		NarrowerTotal:    entry.NarrowerTotal,
 		Hydrated:         true,
 	}
 }

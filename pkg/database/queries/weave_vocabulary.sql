@@ -33,6 +33,7 @@ SELECT
     COALESCE(v.description, '{}'::jsonb) AS description,
     v.status,
     v.deprecated,
+    v.connector_type,
     COALESCE(v.base_uri, '') AS base_uri
 FROM weave_vocabularies v
 WHERE v.project_id = @project_id::text

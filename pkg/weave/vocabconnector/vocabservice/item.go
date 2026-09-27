@@ -1,18 +1,25 @@
 package vocabservice
 
-import "github.com/pletka-io/pletka/pkg/domain"
+import (
+	"strings"
+
+	"github.com/pletka-io/pletka/pkg/domain"
+)
 
 // item is v2's one concept reference shape: a suggest hit, an entry of
 // parents, of narrower, of children, and the concept fetch itself all decode
 // into this. See docs/vocab-service.md "The one item shape" in the kakugo
 // repo, the contract's authority.
 type item struct {
-	URI       string            `json:"uri"`
-	ID        string            `json:"id"`
-	Kind      string            `json:"kind"`
-	Class     string            `json:"class"`
-	PrefLabel map[string]string `json:"prefLabel"`
-	Lang      *string           `json:"lang"`
+	URI string `json:"uri"`
+	// NarrowerTotal is present on every item in contract v2.4+, and is the
+	// count of direct children — not of the whole subtree.
+	NarrowerTotal int               `json:"narrowerTotal,omitempty"`
+	ID            string            `json:"id"`
+	Kind          string            `json:"kind"`
+	Class         string            `json:"class"`
+	PrefLabel     map[string]string `json:"prefLabel"`
+	Lang          *string           `json:"lang"`
 }
 
 // labelFor returns the language it.Lang names, plus "en" when the item has
@@ -59,6 +66,26 @@ func labelFor(it item) domain.Translations {
 		return nil
 	}
 	labels := domain.Translations{*it.Lang: value}
+	// A regional resolution is also stored under its primary subtag, so a
+	// label the service answered as en-US is findable as en.
+	//
+	// The service matches by primary subtag (v2.5), so asking for en can
+	// legitimately resolve to en-US — the key it then names is the exact one
+	// it used, which is honest but not what anything looks it up by: the
+	// frontend's tr() and Translations.Get() ask for the plain language. A
+	// label stored only as en-US renders blank to a curator working in en.
+	//
+	// Only an alias, never an overwrite: a concept that has its own value for
+	// the primary subtag keeps it, because that value is the language's own
+	// label rather than a region's. And only when the subtags match, which
+	// they do by construction here — a resolution whose primary subtag
+	// differs from the request is a fallback, and aliasing that onto the
+	// requested language is exactly the mislabelling to avoid.
+	if base, _, regional := strings.Cut(*it.Lang, "-"); regional && base != "" {
+		if _, ok := it.PrefLabel[base]; !ok {
+			labels[base] = value
+		}
+	}
 	if *it.Lang != "en" {
 		if enValue, ok := it.PrefLabel["en"]; ok {
 			labels["en"] = enValue

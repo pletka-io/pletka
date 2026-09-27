@@ -221,3 +221,66 @@ func tr(t *testing.T, label domain.Localizable) string {
 		return ""
 	}
 }
+
+// TestListSuitableMountsComeFirst pins the ordering and the wording. ULAN and
+// TGN are authority files — you resolve a name against them rather than
+// enumerate them — so leading the picker with one invites a curator to build
+// "a list of every artist who ever lived". They stay offered, because a
+// project may legitimately own one for a field's value source; they just stop
+// leading.
+//
+// An untagged mount sorts with the list-suitable ones. The service's contract
+// is that a missing usage key means unknown, and the consumer rule is to offer
+// rather than hide — a mount the service has not classified must not be
+// demoted for it.
+func TestListSuitableMountsComeFirst(t *testing.T) {
+	h := &Handler{serviceVocabularies: stubLister{out: []ServiceVocabulary{
+		{Name: "ulan", Label: "Union List of Artist Names", Usage: []string{"authority"}, Concepts: 404637},
+		{Name: "aat", Label: "Art & Architecture Thesaurus", Usage: []string{"control-list"}, Concepts: 59300},
+		{Name: "untagged", Label: "Untagged Mount", Concepts: 12},
+		{Name: "iconclass", Label: "Iconclass", Usage: []string{"control-list", "authority"}, Concepts: 40712},
+	}}}
+
+	schema, err := h.vocabularySchema(context.Background(), "proj-1", VocabularySettingsState{}, "en")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	options := findVocabularyField(t, schema, "add_vocabulary_id").Options
+
+	order := make([]string, 0, len(options))
+	for _, opt := range options {
+		order = append(order, opt.Value)
+	}
+	// Stable within each group, so the service's own order is preserved among
+	// equals: aat, untagged and iconclass keep their relative order, ulan
+	// moves to the back.
+	want := []string{"aat", "untagged", "iconclass", "ulan"}
+	if len(order) != len(want) {
+		t.Fatalf("option order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("option order = %v, want %v", order, want)
+		}
+	}
+
+	descriptions := map[string]string{}
+	for _, opt := range options {
+		descriptions[opt.Value] = tr(t, opt.Description)
+	}
+	if got := descriptions["ulan"]; !strings.Contains(got, "authority file") {
+		t.Errorf("ulan description = %q, want it to say what an authority file is for", got)
+	}
+	if got := descriptions["aat"]; !strings.Contains(got, "thesaurus") {
+		t.Errorf("aat description = %q, want it to say thesaurus", got)
+	}
+	// The count is the other thing a curator needs at the moment of choosing,
+	// and it has to be readable: 404637 is not a number anyone parses in a
+	// dropdown.
+	if got := descriptions["ulan"]; !strings.Contains(got, "404,637 concepts") {
+		t.Errorf("ulan description = %q, want a grouped concept count", got)
+	}
+	if got := descriptions["untagged"]; strings.Contains(got, "thesaurus") || strings.Contains(got, "authority") {
+		t.Errorf("untagged description = %q, want no claim about a purpose the service did not state", got)
+	}
+}

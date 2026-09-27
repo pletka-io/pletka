@@ -131,6 +131,8 @@ export interface SelectOption {
   label: Translations;
   description?: Translations;
   status?: string;
+  /** The item cannot be removed; a self-managing field renders no remove control for it. */
+  locked?: boolean;
   semantic_id?: string;
   /** IDPrefix of the ancestor project an inherited option came from
    *  (e.g. "LA"). Empty for options in the current project. Pickers
