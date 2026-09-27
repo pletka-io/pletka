@@ -200,3 +200,88 @@ func TestRemoveVocabularyBoundToConceptListSucceeds(t *testing.T) {
 		t.Errorf("concept list vocabulary_id = %q, want %q kept", boundVocab, vocabID)
 	}
 }
+
+// TestAddingARemovedVocabularyRevivesIt closes a one-way door found by
+// clicking it on alpha: removal deprecates the row rather than deleting it,
+// so the row keeps holding (project_id, system_name) in migration 014's
+// partial unique index. Before the upsert, re-adding a mount the project had
+// removed failed with 409 "already added to this project" — an error that
+// also contradicted the screen, which showed it as removed.
+//
+// Reviving is also the behaviour a curator would expect: the entries cached
+// under that row come back with it, so terms they had pinned are still there.
+func TestAddingARemovedVocabularyRevivesIt(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := context.Background()
+	const (
+		ownerID   = "tstrev_owner"
+		projectID = "TSTREV"
+	)
+
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_actors (id, display_name, slug) VALUES ($1,$2,$3)
+		ON CONFLICT (id) DO NOTHING`, ownerID, "TSTREV Owner", ownerID); err != nil {
+		t.Fatalf("seed owner actor: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_projects (id, owner_id) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, projectID, ownerID); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_vocabularies WHERE project_id = $1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_projects WHERE id = $1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id = $1`, ownerID)
+	})
+
+	store := NewPostgresStore(pool)
+	if err := store.AddServiceVocabulary(ctx, projectID, "aat", ""); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	var vocabID string
+	if err := pool.QueryRow(ctx, `SELECT id FROM weave_vocabularies WHERE project_id = $1`, projectID).Scan(&vocabID); err != nil {
+		t.Fatalf("read back vocabulary id: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_vocabulary_entries (id, vocabulary_id, uri, label)
+		VALUES ($1, $2, 'urn:tstrev:1', '{"en":"Pinned"}'::jsonb)`, "entry_tstrev", vocabID); err != nil {
+		t.Fatalf("seed vocabulary entry: %v", err)
+	}
+
+	// Adding a vocabulary that is genuinely still here is a conflict.
+	if err := store.AddServiceVocabulary(ctx, projectID, "aat", ""); err == nil {
+		t.Fatal("adding a live vocabulary again must conflict")
+	} else if ae := apierror.FromError(err); ae.Status != http.StatusConflict {
+		t.Errorf("mapped error = status %d, want 409 (got: %v)", ae.Status, err)
+	}
+
+	if err := store.RemoveVocabulary(ctx, projectID, vocabID); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+
+	// ...and adding it after removal brings the same row back.
+	if err := store.AddServiceVocabulary(ctx, projectID, "aat", ""); err != nil {
+		t.Fatalf("re-adding a removed vocabulary must succeed, not conflict: %v", err)
+	}
+
+	var rows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM weave_vocabularies WHERE project_id = $1`, projectID).Scan(&rows); err != nil {
+		t.Fatalf("count vocabularies: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("vocabulary rows = %d, want 1 — reviving must not insert a duplicate", rows)
+	}
+
+	var deprecated bool
+	if err := pool.QueryRow(ctx, `SELECT deprecated FROM weave_vocabularies WHERE id = $1`, vocabID).Scan(&deprecated); err != nil {
+		t.Fatalf("read back vocabulary: %v", err)
+	}
+	if deprecated {
+		t.Error("vocabulary is still deprecated after being re-added")
+	}
+
+	var entries int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM weave_vocabulary_entries WHERE vocabulary_id = $1`, vocabID).Scan(&entries); err != nil {
+		t.Fatalf("count entries: %v", err)
+	}
+	if entries != 1 {
+		t.Errorf("entries = %d, want the pinned one to come back with the row", entries)
+	}
+}

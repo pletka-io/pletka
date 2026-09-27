@@ -11,9 +11,18 @@ import (
 	"time"
 )
 
-const weaveAddProjectServiceVocabulary = `-- name: WeaveAddProjectServiceVocabulary :exec
+const weaveAddProjectServiceVocabulary = `-- name: WeaveAddProjectServiceVocabulary :one
 INSERT INTO weave_vocabularies (id, project_id, system_name, ui_name, connector_type, config, status, created_at, updated_at)
 VALUES ($1::text, $2::text, $3::text, $4::jsonb, 'vocabservice', $5::jsonb, 'published', NOW(), NOW())
+ON CONFLICT (project_id, system_name) WHERE system_name IS NOT NULL AND system_name <> ''
+DO UPDATE SET
+    deprecated = false,
+    status = 'published',
+    ui_name = EXCLUDED.ui_name,
+    config = EXCLUDED.config,
+    updated_at = NOW()
+WHERE weave_vocabularies.deprecated
+RETURNING id
 `
 
 type WeaveAddProjectServiceVocabularyParams struct {
@@ -24,18 +33,32 @@ type WeaveAddProjectServiceVocabularyParams struct {
 	Config     json.RawMessage `json:"config"`
 }
 
-// Enabling a service vocabulary for a project IS creating its row. The
-// partial unique index on (project_id, system_name) (migration 014) rejects
-// a second add of the same mount.
-func (q *Queries) WeaveAddProjectServiceVocabulary(ctx context.Context, arg WeaveAddProjectServiceVocabularyParams) error {
-	_, err := q.db.Exec(ctx, weaveAddProjectServiceVocabulary,
+// Enabling a service vocabulary for a project IS creating its row.
+//
+// Adding a mount the project removed earlier REVIVES that row rather than
+// inserting a second one. Removal deprecates rather than deletes, so the old
+// row still holds (project_id, system_name) in the partial unique index from
+// migration 014 — without the upsert, removing a vocabulary would be a
+// one-way door, and the add would fail with "already added to this project"
+// while the screen showed it as removed. Reviving also brings back the
+// entries cached under that row, which is what a curator re-adding a source
+// they had pinned terms from would expect.
+//
+// The DO UPDATE is guarded on the existing row being deprecated, so adding a
+// mount that is genuinely still there updates nothing and returns no row —
+// which the store maps to the 409 conflict. The conflict target repeats the
+// index's predicate so Postgres can infer the partial index.
+func (q *Queries) WeaveAddProjectServiceVocabulary(ctx context.Context, arg WeaveAddProjectServiceVocabularyParams) (string, error) {
+	row := q.db.QueryRow(ctx, weaveAddProjectServiceVocabulary,
 		arg.ID,
 		arg.ProjectID,
 		arg.SystemName,
 		arg.UiName,
 		arg.Config,
 	)
-	return err
+	var id string
+	err := row.Scan(&id)
+	return id, err
 }
 
 const weaveConceptURIInLists = `-- name: WeaveConceptURIInLists :one

@@ -166,13 +166,19 @@ func (s *postgresStore) AddServiceVocabulary(ctx context.Context, projectID, mou
 	if err != nil {
 		return fmt.Errorf("encode vocabulary config: %w", err)
 	}
-	if err := s.queries.WeaveAddProjectServiceVocabulary(ctx, sqlcgen.WeaveAddProjectServiceVocabularyParams{
+	// The query upserts: a mount this project removed earlier is revived,
+	// and a mount that is genuinely still here updates nothing and returns
+	// no row — which is the conflict.
+	if _, err := s.queries.WeaveAddProjectServiceVocabulary(ctx, sqlcgen.WeaveAddProjectServiceVocabularyParams{
 		ID:         ids.GenerateULID(),
 		ProjectID:  projectID,
 		SystemName: mount,
 		UiName:     uiName,
 		Config:     config,
 	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &errVocabularyAlreadyAdded{mount: mount}
+		}
 		var pgerr *pgconn.PgError
 		if errors.As(err, &pgerr) && pgerr.ConstraintName == vocabularyProjectSystemNameIndex {
 			return &errVocabularyAlreadyAdded{mount: mount}
