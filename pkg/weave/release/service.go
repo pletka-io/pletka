@@ -523,4 +523,21 @@ var snapshotStatements = []string{
 	JOIN weave_vocabularies v ON v.id = e.vocabulary_id
 	WHERE v.project_id = $1
 	ON CONFLICT (id, version_number) DO NOTHING`,
+	// This table carries its own project_id, so the filter is direct rather
+	// than a join. The live unique key is (model_id, category_id,
+	// collection_id), not (model_id, version_number) — that composite is what
+	// allows more than one collection in the same category on the same model,
+	// so the archive keeps the bigserial id as its key half.
+	`INSERT INTO weave_collection_placements_archive (
+		id, project_id, model_id, category_id, collection_id,
+		is_required, min_occurs, max_occurs, is_hidden,
+		created_at, updated_at, version_number
+	)
+	SELECT
+		id, project_id, model_id, category_id, collection_id,
+		is_required, min_occurs, max_occurs, is_hidden,
+		created_at, updated_at, $2
+	FROM weave_collection_placements
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 }
