@@ -324,7 +324,8 @@ var snapshotStatements = []string{
 		id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END, project_id, canonical_order, deprecated, $2
 	FROM weave_categories
-	WHERE project_id = $1`,
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 	`INSERT INTO weave_fields_archive (
 		id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 		status, project_id, ontology_scope, ontology_path, path_elements,
@@ -335,7 +336,8 @@ var snapshotStatements = []string{
 		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END, project_id, ontology_scope, ontology_path, path_elements,
 		expected_value_type, examples, staging_id, deprecated, $2
 	FROM weave_fields
-	WHERE project_id = $1`,
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 	`INSERT INTO weave_models_archive (
 		id, created_at, updated_at, system_name, ui_name, description,
 		status, project_id, ontology_scope, staging_id, deprecated, version_number
@@ -344,7 +346,8 @@ var snapshotStatements = []string{
 		id, created_at, updated_at, system_name, ui_name, description,
 		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END, project_id, ontology_scope, staging_id, deprecated, $2
 	FROM weave_models
-	WHERE project_id = $1`,
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 	`INSERT INTO weave_collections_archive (
 		id, created_at, updated_at, system_name, ui_name, description,
 		status, project_id, ontology_scope, collection_number,
@@ -355,7 +358,8 @@ var snapshotStatements = []string{
 		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END, project_id, ontology_scope, collection_number,
 		canonical_collection_order, staging_id, deprecated, default_category_id, $2
 	FROM weave_collections
-	WHERE project_id = $1`,
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 	`INSERT INTO weave_concept_lists_archive (
 		id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 		status, project_id, list_type, vocabulary_id, is_closed, version_number
@@ -401,7 +405,8 @@ var snapshotStatements = []string{
 		expected_value_type, set_value, is_required, min_occurs, max_occurs,
 		is_hidden, visibility, staging_id, created_at, updated_at, content_hash, $2
 	FROM weave_field_overrides
-	WHERE project_id = $1`,
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 	snapshotProjectChainCTE + `
 	INSERT INTO weave_project_ontology_versions_archive (
 		project_id, ontology_version_id, added_at, added_by_id, is_primary, usage_notes, version_number
@@ -440,7 +445,8 @@ var snapshotStatements = []string{
 		r.override_id, r.ref_type, r.target_id, r.semantic_id, r.position, o.project_id, $2
 	FROM weave_override_refs r
 	JOIN weave_field_overrides o ON o.id = r.override_id
-	WHERE o.project_id = $1`,
+	WHERE o.project_id = $1
+	ON CONFLICT (override_id, ref_type, "position", version_number) DO NOTHING`,
 	`INSERT INTO weave_adoptions_archive (
 		project_id, context_entity_type, context_entity_id, entity_type,
 		source_project_id, source_entity_id, source_version, adopted_at, created_by_id, version_number
@@ -464,4 +470,103 @@ var snapshotStatements = []string{
 	FROM weave_entity_forks
 	WHERE project_id = $1
 	ON CONFLICT (project_id, entity_type, fork_entity_id, version_number) DO NOTHING`,
+	// weave_examples.status is a validation vocabulary (draft/valid/
+	// has_issues), not the draft/published entity vocabulary the CASE WHEN
+	// pattern elsewhere in this list normalizes — copied verbatim rather than
+	// stamped 'published'.
+	`INSERT INTO weave_examples_archive (
+		id, project_id, entity_type, entity_id, title, description, status,
+		created_at, updated_at, version_number
+	)
+	SELECT
+		id, project_id, entity_type, entity_id, title, description, status,
+		created_at, updated_at, $2
+	FROM weave_examples
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
+	// Values follow their example, so the project filter is a join rather
+	// than a column on this table.
+	`INSERT INTO weave_example_values_archive (
+		id, example_id, override_id, field_id, part_of_collection_id,
+		occurrence_index, value_kind, value_payload, text_value, number_value,
+		date_value, uri_value, concept_uri, linked_example_id, slot_path,
+		created_at, updated_at, version_number
+	)
+	SELECT
+		v.id, v.example_id, v.override_id, v.field_id, v.part_of_collection_id,
+		v.occurrence_index, v.value_kind, v.value_payload, v.text_value, v.number_value,
+		v.date_value, v.uri_value, v.concept_uri, v.linked_example_id, v.slot_path,
+		v.created_at, v.updated_at, $2
+	FROM weave_example_values v
+	JOIN weave_examples e ON e.id = v.example_id
+	WHERE e.project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
+	`INSERT INTO weave_vocabularies_archive (
+		id, project_id, semantic_id, system_name, ui_name, description,
+		status, connector_type, base_uri, config, deprecated,
+		created_at, updated_at, version_number
+	)
+	SELECT
+		id, project_id, semantic_id, system_name, ui_name, description,
+		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END,
+		connector_type, base_uri, config, deprecated,
+		created_at, updated_at, $2
+	FROM weave_vocabularies
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
+	// Entries follow their vocabulary, so the project filter is a join rather
+	// than a column on this table — the same shape as example values.
+	`INSERT INTO weave_vocabulary_entries_archive (
+		id, vocabulary_id, uri, label, scope_note, broader_uri,
+		broader_path, broader_path_items, external_id,
+		created_at, updated_at, version_number
+	)
+	SELECT
+		e.id, e.vocabulary_id, e.uri, e.label, e.scope_note, e.broader_uri,
+		e.broader_path, e.broader_path_items, e.external_id,
+		e.created_at, e.updated_at, $2
+	FROM weave_vocabulary_entries e
+	JOIN weave_vocabularies v ON v.id = e.vocabulary_id
+	WHERE v.project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
+	// This table carries its own project_id, so the filter is direct rather
+	// than a join. The live unique key is (model_id, category_id,
+	// collection_id), not (model_id, version_number) — that composite is what
+	// allows more than one collection in the same category on the same model,
+	// so the archive keeps the bigserial id as its key half.
+	`INSERT INTO weave_collection_placements_archive (
+		id, project_id, model_id, category_id, collection_id,
+		is_required, min_occurs, max_occurs, is_hidden,
+		created_at, updated_at, version_number
+	)
+	SELECT
+		id, project_id, model_id, category_id, collection_id,
+		is_required, min_occurs, max_occurs, is_hidden,
+		created_at, updated_at, $2
+	FROM weave_collection_placements
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
+	// A release is citable, so who was credited at that release is part of
+	// what is cited. Neither live table has an id — see the archive
+	// migration's comment for the composite-key deviation this deliberately
+	// takes instead of inventing a surrogate id. The ON CONFLICT targets are
+	// the live primary keys plus version_number, in full: dropping "position"
+	// or "role" would let a legitimately distinct live row collide and
+	// silently vanish from the snapshot.
+	`INSERT INTO weave_project_attributions_archive (
+		project_id, actor_id, kind, "position", note, created_at, version_number
+	)
+	SELECT
+		project_id, actor_id, kind, "position", note, created_at, $2
+	FROM weave_project_attributions
+	WHERE project_id = $1
+	ON CONFLICT (project_id, actor_id, kind, "position", version_number) DO NOTHING`,
+	`INSERT INTO weave_project_actors_archive (
+		project_id, actor_id, role, created_at, version_number
+	)
+	SELECT
+		project_id, actor_id, role, created_at, $2
+	FROM weave_project_actors
+	WHERE project_id = $1
+	ON CONFLICT (project_id, actor_id, role, version_number) DO NOTHING`,
 }
