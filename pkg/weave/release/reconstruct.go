@@ -86,9 +86,16 @@ type TableReport struct {
 	// HasUpdatedAt is false for the two credit tables, whose rows can only
 	// be classified as exact or excluded.
 	HasUpdatedAt bool
-	// AlreadyArchived reports that this table already holds rows for this
-	// release — the release was cut after the archives shipped, so its
-	// content is authoritative and no reconstruction is attempted.
+	// AlreadyArchived reports that this table already holds at least one row
+	// for this release, so no reconstruction is attempted.
+	//
+	// It is NOT a statement that the archive is complete. A release cut after
+	// the archives shipped was snapshotted natively and is authoritative; a
+	// release filled by an earlier --apply --accept-ambiguous is missing
+	// every row that run classified ambiguous, and nothing here distinguishes
+	// the two. The ambiguous rows were listed in that run's report and are
+	// not repeated, so that report is the only record of what a partially
+	// reconstructed release is missing. Render says so in the output.
 	AlreadyArchived bool
 	Exact           int
 	Excluded        int
@@ -173,6 +180,10 @@ func exactPredicate(prefix, param string, hasUpdatedAt bool) string {
 
 // scopeByProject is the WHERE fragment for the archives whose live table
 // carries project_id directly; the joined ones qualify it with an alias.
+// liveProjectAttributions is named because the reorder caveat in Render
+// keys on this specific table.
+const liveProjectAttributions = "weave_project_attributions"
+
 const scopeByProject = "project_id = $1"
 
 var reconstructTables = []reconstructTable{
@@ -286,7 +297,7 @@ var reconstructTables = []reconstructTable{
 	// is that key in full plus version_number. A narrower target would let a
 	// legitimately distinct row collide and vanish.
 	{
-		live: "weave_project_attributions", archive: "weave_project_attributions_archive",
+		live: liveProjectAttributions, archive: "weave_project_attributions_archive",
 		hasUpdatedAt: false,
 		identity:     `actor_id || '/' || kind || '/' || "position"::text`,
 		from:         "weave_project_attributions",
@@ -554,7 +565,10 @@ func (r *ReconstructReport) Render(w io.Writer, applyRequested bool) error {
 		fmt.Fprintf(&b, "%s @ %s  (released %s)\n", rel.ProjectID, rel.Version, rel.CreatedAt.UTC().Format(time.RFC3339))
 		for _, t := range rel.Tables {
 			if t.AlreadyArchived {
-				fmt.Fprintf(&b, "  %-32s already archived — skipped\n", t.LiveTable)
+				fmt.Fprintf(&b, "  %-32s already archived — skipped (not a completeness statement:\n", t.LiveTable)
+				fmt.Fprintln(&b, "      this says rows exist for the version, not that none were left out. If an")
+				fmt.Fprintln(&b, "      earlier --apply --accept-ambiguous filled it, the omitted rows were listed")
+				fmt.Fprintln(&b, "      in THAT run's report and are not repeated here.)")
 				continue
 			}
 			ambiguous := fmt.Sprintf("%d", len(t.Ambiguous))
@@ -566,10 +580,19 @@ func (r *ReconstructReport) Render(w io.Writer, applyRequested bool) error {
 				fmt.Fprintf(&b, "  (archived %d)", t.Inserted)
 			}
 			fmt.Fprintln(&b)
-			if !t.HasUpdatedAt {
+			// The caveat is printed only when the table actually contributed
+			// rows: at fleet scale an unconditional three-line block per
+			// release buries the ambiguous rows it sits next to.
+			if !t.HasUpdatedAt && t.Exact > 0 {
 				fmt.Fprintf(&b, "      CAVEAT: %s has no updated_at column. An edit to a row that\n", t.LiveTable)
 				fmt.Fprintln(&b, "      already existed at the release is invisible here; created-before is")
 				fmt.Fprintln(&b, "      the only signal, so such a row is archived with its CURRENT content.")
+				if t.LiveTable == liveProjectAttributions {
+					fmt.Fprintln(&b, "      That includes \"position\": the settings reorder handler rewrites it in")
+					fmt.Fprintln(&b, "      place and leaves created_at alone, so a credit reordered since the")
+					fmt.Fprintln(&b, "      release is archived at its CURRENT position. The archived ordering")
+					fmt.Fprintln(&b, "      can therefore be a post-release ordering, not only post-release notes.")
+				}
 			}
 			for _, a := range t.Ambiguous {
 				fmt.Fprintf(&b, "      ambiguous: %s  created %s  updated %s\n",

@@ -25,14 +25,14 @@ func TestSnapshotIncludesCollectionPlacements(t *testing.T) {
 
 	seedProject(t, pool, projectID)
 	// The model/category/collections referenced by the placements live under
-	// a separate fixture project id, not projectID: weave_models_archive,
-	// weave_categories_archive and weave_collections_archive have no ON
-	// CONFLICT clause (same pre-existing non-idempotency the examples test
-	// works around for fields/overrides), so seeding them under projectID
-	// would make the "re-run is a no-op" subtest below fail on THOSE
-	// statements, not on the one this task adds. weave_collection_placements
-	// itself carries no FK to weave_models/weave_categories/weave_collections,
-	// so the mismatch is harmless.
+	// a separate fixture project id, not projectID, so the "re-run is a
+	// no-op" subtest below stays scoped to the placement statement this test
+	// covers. Originally this was load-bearing — weave_models_archive,
+	// weave_categories_archive and weave_collections_archive had no ON
+	// CONFLICT clause — but 3640a35 gave all six a conflict target, so it is
+	// now only the narrower, clearer scope. weave_collection_placements
+	// carries no FK to weave_models/weave_categories/weave_collections, so
+	// the mismatch is harmless.
 	mustExec(t, pool, `INSERT INTO weave_models (id, project_id, ui_name, status)
 		VALUES ('SNAPPLACEM.1', $1, '{"en":"A model"}'::jsonb, 'draft')`, placementFixtureProject)
 	mustExec(t, pool, `INSERT INTO weave_collections (id, project_id, ui_name, status)

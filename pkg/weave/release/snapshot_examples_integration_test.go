@@ -43,8 +43,10 @@ func TestSnapshotIncludesExamples(t *testing.T) {
 	var examples, values int
 	mustScan(t, pool, `SELECT count(*) FROM weave_examples_archive WHERE project_id=$1 AND version_number=$2`,
 		[]any{projectID, version}, &examples)
-	mustScan(t, pool, `SELECT count(*) FROM weave_example_values_archive WHERE version_number=$1`,
-		[]any{version}, &values)
+	mustScan(t, pool, `SELECT count(*) FROM weave_example_values_archive v
+		JOIN weave_examples e ON e.id = v.example_id
+		WHERE e.project_id=$1 AND v.version_number=$2`,
+		[]any{projectID, version}, &values)
 	if examples != 2 || values != 1 {
 		t.Errorf("archived %d examples and %d values, want 2 and 1", examples, values)
 	}
@@ -117,15 +119,18 @@ func seedProject(t *testing.T, pool *pgxpool.Pool, projectID string) {
 	})
 }
 
-// exampleFieldFixtureProject is deliberately not projectID: weave_fields and
-// weave_field_overrides carry no FK to weave_projects, and the existing
-// weave_fields_archive / weave_field_overrides_archive snapshot statements
-// have no ON CONFLICT clause (they rely on Create only ever archiving a
-// given version once — see the sibling statements in service.go). Housing
-// the fixture field/override under a project id runSnapshotStatements never
-// archives keeps the "re-run is a no-op" subtest below scoped to the two
-// example statements this task adds, instead of tripping over that
-// pre-existing, unrelated non-idempotency.
+// exampleFieldFixtureProject is deliberately not projectID: it keeps the
+// "re-run is a no-op" subtest below scoped to the two example statements
+// this test covers, rather than also exercising the field and override
+// statements.
+//
+// Originally this separation was load-bearing: weave_fields_archive and
+// weave_field_overrides_archive had no ON CONFLICT clause, so seeding them
+// under projectID made the subtest fail on THOSE statements. Commit 3640a35
+// gave all six such statements a conflict target, so the workaround is no
+// longer required — it is kept only because the narrower scope is the
+// clearer test. weave_fields and weave_field_overrides carry no FK to
+// weave_projects, so the fixture project need not exist.
 const exampleFieldFixtureProject = "SNAPEXFX"
 
 // seedExampleField creates a minimal field and base override so a

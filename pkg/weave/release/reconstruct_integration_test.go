@@ -235,8 +235,26 @@ func TestReconstructClassifiesRowsAgainstReleaseTimestamp(t *testing.T) {
 	}
 
 	// --- apply with --accept-ambiguous ----------------------------------
-	if _, err := Reconstruct(ctx, pool, ReconstructOptions{ProjectID: projectID, Apply: true, AcceptAmbiguous: true}); err != nil {
+	applied, err := Reconstruct(ctx, pool, ReconstructOptions{ProjectID: projectID, Apply: true, AcceptAmbiguous: true})
+	if err != nil {
 		t.Fatalf("apply: %v", err)
+	}
+	if !applied.Applied {
+		t.Fatalf("report says Applied=false after a successful --apply")
+	}
+	// Inserted is what the report tells an operator was written. Assert it
+	// against the rows the run actually classified exact, so a report that
+	// under- or over-states the write is a failure rather than decoration.
+	for _, rel := range applied.Releases {
+		for _, tr := range rel.Tables {
+			if tr.AlreadyArchived {
+				t.Errorf("%s: skipped as already archived on the FIRST apply", tr.LiveTable)
+				continue
+			}
+			if tr.Inserted != int64(tr.Exact) {
+				t.Errorf("%s: report says %d inserted but %d exact", tr.LiveTable, tr.Inserted, tr.Exact)
+			}
+		}
 	}
 
 	archived := []struct {
@@ -286,15 +304,33 @@ func TestReconstructClassifiesRowsAgainstReleaseTimestamp(t *testing.T) {
 		}
 	}
 
-	// --- re-running --apply is idempotent -------------------------------
-	if _, err := Reconstruct(ctx, pool, ReconstructOptions{ProjectID: projectID, Apply: true, AcceptAmbiguous: true}); err != nil {
+	// --- re-running --apply changes nothing ------------------------------
+	//
+	// Note what this does and does not prove. The second run takes the
+	// AlreadyArchived skip path for every table, so no reconstruction INSERT
+	// executes and the ON CONFLICT clauses are NOT what makes the re-run
+	// safe — the skip is. That is the real user-facing property, so it is
+	// what gets asserted; claiming "the inserts are idempotent" here would be
+	// claiming something this run never exercised.
+	second, err := Reconstruct(ctx, pool, ReconstructOptions{ProjectID: projectID, Apply: true, AcceptAmbiguous: true})
+	if err != nil {
 		t.Fatalf("second apply: %v", err)
+	}
+	for _, rel := range second.Releases {
+		for _, tr := range rel.Tables {
+			if !tr.AlreadyArchived {
+				t.Errorf("%s: second apply did not skip an already-archived table", tr.LiveTable)
+			}
+			if tr.Inserted != 0 {
+				t.Errorf("%s: second apply reported %d inserted, want 0", tr.LiveTable, tr.Inserted)
+			}
+		}
 	}
 	for _, c := range archived {
 		var n int
 		mustScan(t, pool, c.query, c.args, &n)
 		if n != c.want {
-			t.Errorf("after re-run, %s: %d archive row(s), want %d — the inserts are not idempotent", c.name, n, c.want)
+			t.Errorf("after re-run, %s: %d archive row(s), want %d", c.name, n, c.want)
 		}
 	}
 }
