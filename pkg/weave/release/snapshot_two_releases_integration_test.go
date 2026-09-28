@@ -5,6 +5,7 @@ package release
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/pletka-io/pletka/internal/testdb"
 )
@@ -28,6 +29,11 @@ func TestSnapshotSecondReleaseIsIndependent(t *testing.T) {
 	const projectID = "SNAPTWO"
 	const v1, v2 = "1.0.0", "1.1.0"
 	const actorID = "unite" // pre-seeded fixture actor, see internal/testdb/fixture_identities.go
+
+	// Fixed timestamps rather than now(), so the pre/post-edit assertion on
+	// weave_project_actors.created_at compares exact values.
+	actorCreatedV1 := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	actorCreatedV2 := time.Date(2026, 6, 7, 8, 9, 10, 0, time.UTC)
 
 	const (
 		fieldID    = "SNAPTWOF.1"
@@ -65,8 +71,10 @@ func TestSnapshotSecondReleaseIsIndependent(t *testing.T) {
 
 	mustExec(t, pool, `INSERT INTO weave_project_attributions (project_id, actor_id, kind, "position", note)
 		VALUES ($1, $2, 'author', 0, 'wrote it')`, projectID, actorID)
-	mustExec(t, pool, `INSERT INTO weave_project_actors (project_id, actor_id, role)
-		VALUES ($1, $2, 'contributor')`, projectID, actorID)
+	// role is part of this table's key, so it is deliberately NOT the column
+	// edited before the second snapshot — see the update block below.
+	mustExec(t, pool, `INSERT INTO weave_project_actors (project_id, actor_id, role, created_at)
+		VALUES ($1, $2, 'contributor', $3)`, projectID, actorID, actorCreatedV1)
 
 	// weave_vocabulary_entries has an FK to weave_vocabularies with ON DELETE
 	// CASCADE, so only the vocabulary's own live row needs an explicit
@@ -119,8 +127,14 @@ func TestSnapshotSecondReleaseIsIndependent(t *testing.T) {
 		projectID, modelID, categoryID, collID)
 	mustExec(t, pool, `UPDATE weave_project_attributions SET note='rewrote it'
 		WHERE project_id=$1 AND actor_id=$2 AND kind='author' AND "position"=0`, projectID, actorID)
-	mustExec(t, pool, `UPDATE weave_project_actors SET role='lead'
-		WHERE project_id=$1 AND actor_id=$2 AND role='contributor'`, projectID, actorID)
+	// weave_project_actors keys on (project_id, actor_id, role), so editing
+	// role would move the row to a different key tuple and the two snapshots
+	// would never contend for the same key — the assertion would then pass
+	// whether or not version_number is part of the archive key, which is the
+	// one defect this test exists to catch. created_at is the table's only
+	// non-key column, so it is what gets edited.
+	mustExec(t, pool, `UPDATE weave_project_actors SET created_at=$3
+		WHERE project_id=$1 AND actor_id=$2 AND role='contributor'`, projectID, actorID, actorCreatedV2)
 
 	if err := runSnapshotStatements(ctx, pool, projectID, v2); err != nil {
 		t.Fatalf("second snapshot (%s): %v", v2, err)
@@ -206,12 +220,22 @@ func TestSnapshotSecondReleaseIsIndependent(t *testing.T) {
 		t.Errorf("attribution note: %s=%q %s=%q, want %q and %q", v1, note1, v2, note2, "wrote it", "rewrote it")
 	}
 
+	// Both versions keep role='contributor' — the row stays on one key tuple,
+	// so the two snapshots genuinely contend for the same archive key and the
+	// created_at assertion below fails if version_number is not part of it.
 	var role1, role2 string
-	mustScan(t, pool, `SELECT role FROM weave_project_actors_archive WHERE project_id=$1 AND actor_id=$2 AND version_number=$3`,
-		[]any{projectID, actorID, v1}, &role1)
-	mustScan(t, pool, `SELECT role FROM weave_project_actors_archive WHERE project_id=$1 AND actor_id=$2 AND version_number=$3`,
-		[]any{projectID, actorID, v2}, &role2)
-	if role1 != "contributor" || role2 != "lead" {
-		t.Errorf("project actor role: %s=%q %s=%q, want %q and %q", v1, role1, v2, role2, "contributor", "lead")
+	var created1, created2 time.Time
+	mustScan(t, pool, `SELECT role, created_at FROM weave_project_actors_archive
+		WHERE project_id=$1 AND actor_id=$2 AND role='contributor' AND version_number=$3`,
+		[]any{projectID, actorID, v1}, &role1, &created1)
+	mustScan(t, pool, `SELECT role, created_at FROM weave_project_actors_archive
+		WHERE project_id=$1 AND actor_id=$2 AND role='contributor' AND version_number=$3`,
+		[]any{projectID, actorID, v2}, &role2, &created2)
+	if role1 != "contributor" || role2 != "contributor" {
+		t.Errorf("project actor role: %s=%q %s=%q, want %q in both", v1, role1, v2, role2, "contributor")
+	}
+	if !created1.Equal(actorCreatedV1) || !created2.Equal(actorCreatedV2) {
+		t.Errorf("project actor created_at: %s=%s %s=%s, want %s and %s",
+			v1, created1, v2, created2, actorCreatedV1, actorCreatedV2)
 	}
 }
