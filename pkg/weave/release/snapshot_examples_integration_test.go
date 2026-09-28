@@ -29,6 +29,12 @@ func TestSnapshotIncludesExamples(t *testing.T) {
 	mustExec(t, pool, `INSERT INTO weave_example_values
 		(example_id, override_id, field_id, occurrence_index, value_kind, value_payload, text_value, version_number, slot_path)
 		VALUES ('ex1', $1, 'SNAPEXF.1', 0, 'string', '{"text":"hello"}'::jsonb, 'hello', '', 'root')`, overrideID)
+	// A second example with a different validation status: weave_examples.status
+	// is a validation vocabulary (draft/valid/has_issues), not the
+	// draft/published entity vocabulary — the snapshot statement must copy it
+	// verbatim, not normalize it to a single stamped value.
+	mustExec(t, pool, `INSERT INTO weave_examples (id, project_id, entity_type, entity_id, title, status, version_number)
+		VALUES ('ex2', $1, 'model', 'SNAPEXM.1', '{"en":"An example with issues"}'::jsonb, 'has_issues', '')`, projectID)
 
 	if err := runSnapshotStatements(ctx, pool, projectID, version); err != nil {
 		t.Fatalf("snapshot: %v", err)
@@ -39,8 +45,18 @@ func TestSnapshotIncludesExamples(t *testing.T) {
 		[]any{projectID, version}, &examples)
 	mustScan(t, pool, `SELECT count(*) FROM weave_example_values_archive WHERE version_number=$1`,
 		[]any{version}, &values)
-	if examples != 1 || values != 1 {
-		t.Errorf("archived %d examples and %d values, want 1 and 1", examples, values)
+	if examples != 2 || values != 1 {
+		t.Errorf("archived %d examples and %d values, want 2 and 1", examples, values)
+	}
+
+	var ex1Status, ex2Status string
+	mustScan(t, pool, `SELECT status FROM weave_examples_archive WHERE id='ex1' AND project_id=$1 AND version_number=$2`,
+		[]any{projectID, version}, &ex1Status)
+	mustScan(t, pool, `SELECT status FROM weave_examples_archive WHERE id='ex2' AND project_id=$1 AND version_number=$2`,
+		[]any{projectID, version}, &ex2Status)
+	if ex1Status != "valid" || ex2Status != "has_issues" {
+		t.Errorf("archived statuses ex1=%q ex2=%q, want ex1=%q ex2=%q — a row-count-only check would pass even if both were stamped 'published'",
+			ex1Status, ex2Status, "valid", "has_issues")
 	}
 
 	t.Run("a project with no examples snapshots cleanly", func(t *testing.T) {
@@ -58,8 +74,8 @@ func TestSnapshotIncludesExamples(t *testing.T) {
 		var again int
 		mustScan(t, pool, `SELECT count(*) FROM weave_examples_archive WHERE project_id=$1 AND version_number=$2`,
 			[]any{projectID, version}, &again)
-		if again != 1 {
-			t.Errorf("archived %d examples after a re-run, want 1 — the statement is not idempotent", again)
+		if again != 2 {
+			t.Errorf("archived %d examples after a re-run, want 2 — the statement is not idempotent", again)
 		}
 	})
 }

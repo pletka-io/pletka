@@ -464,13 +464,16 @@ var snapshotStatements = []string{
 	FROM weave_entity_forks
 	WHERE project_id = $1
 	ON CONFLICT (project_id, entity_type, fork_entity_id, version_number) DO NOTHING`,
+	// weave_examples.status is a validation vocabulary (draft/valid/
+	// has_issues), not the draft/published entity vocabulary the CASE WHEN
+	// pattern elsewhere in this list normalizes — copied verbatim rather than
+	// stamped 'published'.
 	`INSERT INTO weave_examples_archive (
 		id, project_id, entity_type, entity_id, title, description, status,
 		created_at, updated_at, version_number
 	)
 	SELECT
-		id, project_id, entity_type, entity_id, title, description,
-		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END,
+		id, project_id, entity_type, entity_id, title, description, status,
 		created_at, updated_at, $2
 	FROM weave_examples
 	WHERE project_id = $1
