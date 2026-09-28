@@ -324,7 +324,8 @@ var snapshotStatements = []string{
 		id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END, project_id, canonical_order, deprecated, $2
 	FROM weave_categories
-	WHERE project_id = $1`,
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 	`INSERT INTO weave_fields_archive (
 		id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 		status, project_id, ontology_scope, ontology_path, path_elements,
@@ -335,7 +336,8 @@ var snapshotStatements = []string{
 		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END, project_id, ontology_scope, ontology_path, path_elements,
 		expected_value_type, examples, staging_id, deprecated, $2
 	FROM weave_fields
-	WHERE project_id = $1`,
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 	`INSERT INTO weave_models_archive (
 		id, created_at, updated_at, system_name, ui_name, description,
 		status, project_id, ontology_scope, staging_id, deprecated, version_number
@@ -344,7 +346,8 @@ var snapshotStatements = []string{
 		id, created_at, updated_at, system_name, ui_name, description,
 		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END, project_id, ontology_scope, staging_id, deprecated, $2
 	FROM weave_models
-	WHERE project_id = $1`,
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 	`INSERT INTO weave_collections_archive (
 		id, created_at, updated_at, system_name, ui_name, description,
 		status, project_id, ontology_scope, collection_number,
@@ -355,7 +358,8 @@ var snapshotStatements = []string{
 		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END, project_id, ontology_scope, collection_number,
 		canonical_collection_order, staging_id, deprecated, default_category_id, $2
 	FROM weave_collections
-	WHERE project_id = $1`,
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 	`INSERT INTO weave_concept_lists_archive (
 		id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 		status, project_id, list_type, vocabulary_id, is_closed, version_number
@@ -401,7 +405,8 @@ var snapshotStatements = []string{
 		expected_value_type, set_value, is_required, min_occurs, max_occurs,
 		is_hidden, visibility, staging_id, created_at, updated_at, content_hash, $2
 	FROM weave_field_overrides
-	WHERE project_id = $1`,
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 	snapshotProjectChainCTE + `
 	INSERT INTO weave_project_ontology_versions_archive (
 		project_id, ontology_version_id, added_at, added_by_id, is_primary, usage_notes, version_number
@@ -440,7 +445,8 @@ var snapshotStatements = []string{
 		r.override_id, r.ref_type, r.target_id, r.semantic_id, r.position, o.project_id, $2
 	FROM weave_override_refs r
 	JOIN weave_field_overrides o ON o.id = r.override_id
-	WHERE o.project_id = $1`,
+	WHERE o.project_id = $1
+	ON CONFLICT (override_id, ref_type, "position", version_number) DO NOTHING`,
 	`INSERT INTO weave_adoptions_archive (
 		project_id, context_entity_type, context_entity_id, entity_type,
 		source_project_id, source_entity_id, source_version, adopted_at, created_by_id, version_number
