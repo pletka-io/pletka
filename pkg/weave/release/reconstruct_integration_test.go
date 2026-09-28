@@ -309,7 +309,7 @@ type ambiguousExpectation struct {
 // set of ambiguous row identities the report carries for one release.
 func assertReconstructClassification(t *testing.T, rep *ReconstructReport, projectID, version string, want map[string]ambiguousExpectation) {
 	t.Helper()
-	var rel *ReleaseReport
+	var rel *VersionReport
 	for i := range rep.Releases {
 		if rep.Releases[i].ProjectID == projectID && rep.Releases[i].Version == version {
 			rel = &rep.Releases[i]

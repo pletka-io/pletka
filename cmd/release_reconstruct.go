@@ -65,7 +65,7 @@ func runReleaseReconstruct(cmd *cobra.Command, _ []string) error {
 	if rrApply && cmd.Flags().Changed("dry-run") && rrDryRun {
 		return errors.New("--apply and --dry-run are mutually exclusive")
 	}
-	// --dry-run is honoured, not merely declared: an operator who reads
+	// --dry-run is honored, not merely declared: an operator who reads
 	// `--dry-run=false` as "this will write" is not being unreasonable, and a
 	// flag that silently means nothing is worse than no flag. Either spelling
 	// writes; the default (dry-run true, apply false) does not.
@@ -87,7 +87,13 @@ func runReleaseReconstruct(cmd *cobra.Command, _ []string) error {
 		AcceptAmbiguous: rrAcceptAmbiguous,
 	})
 	if report != nil {
-		report.Render(os.Stdout, apply)
+		// A failed render is reported, not swallowed: the ambiguous rows are
+		// the whole point of the output, and a truncated report that looks
+		// complete is how an operator applies without seeing what was left
+		// out. It does not mask the run's own error below.
+		if rerr := report.Render(os.Stdout, apply); rerr != nil && err == nil {
+			return fmt.Errorf("write report: %w", rerr)
+		}
 	}
 	switch {
 	case errors.Is(err, release.ErrAmbiguousRows):

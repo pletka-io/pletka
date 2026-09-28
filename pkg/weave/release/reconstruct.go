@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -104,8 +105,9 @@ type TableReport struct {
 	insert string
 }
 
-// ReleaseReport is one release's reconstruction across all seven tables.
-type ReleaseReport struct {
+// VersionReport is one release — one (project, version) — reconstructed
+// across all seven tables.
+type VersionReport struct {
 	ProjectID string
 	Version   string
 	CreatedAt time.Time
@@ -115,7 +117,7 @@ type ReleaseReport struct {
 // ReconstructReport is a whole run.
 type ReconstructReport struct {
 	Applied  bool
-	Releases []ReleaseReport
+	Releases []VersionReport
 }
 
 // Totals sums the three classes across every release and table in the run.
@@ -169,12 +171,16 @@ func exactPredicate(prefix, param string, hasUpdatedAt bool) string {
 	return fmt.Sprintf("%screated_at <= %s AND %supdated_at <= %s", prefix, param, prefix, param)
 }
 
+// scopeByProject is the WHERE fragment for the archives whose live table
+// carries project_id directly; the joined ones qualify it with an alias.
+const scopeByProject = "project_id = $1"
+
 var reconstructTables = []reconstructTable{
 	{
 		live: "weave_examples", archive: "weave_examples_archive",
 		hasUpdatedAt: true, identity: "id",
 		from:  "weave_examples",
-		scope: "project_id = $1",
+		scope: scopeByProject,
 		exists: `SELECT EXISTS (SELECT 1 FROM weave_examples_archive
 			WHERE project_id = $1 AND version_number = $2)`,
 		insert: `INSERT INTO weave_examples_archive (
@@ -216,7 +222,7 @@ var reconstructTables = []reconstructTable{
 		live: "weave_vocabularies", archive: "weave_vocabularies_archive",
 		hasUpdatedAt: true, identity: "id",
 		from:  "weave_vocabularies",
-		scope: "project_id = $1",
+		scope: scopeByProject,
 		exists: `SELECT EXISTS (SELECT 1 FROM weave_vocabularies_archive
 			WHERE project_id = $1 AND version_number = $2)`,
 		insert: `INSERT INTO weave_vocabularies_archive (
@@ -259,7 +265,7 @@ var reconstructTables = []reconstructTable{
 		live: "weave_collection_placements", archive: "weave_collection_placements_archive",
 		hasUpdatedAt: true, identity: "id::text",
 		from:  "weave_collection_placements",
-		scope: "project_id = $1",
+		scope: scopeByProject,
 		exists: `SELECT EXISTS (SELECT 1 FROM weave_collection_placements_archive
 			WHERE project_id = $1 AND version_number = $2)`,
 		insert: `INSERT INTO weave_collection_placements_archive (
@@ -284,7 +290,7 @@ var reconstructTables = []reconstructTable{
 		hasUpdatedAt: false,
 		identity:     `actor_id || '/' || kind || '/' || "position"::text`,
 		from:         "weave_project_attributions",
-		scope:        "project_id = $1",
+		scope:        scopeByProject,
 		exists: `SELECT EXISTS (SELECT 1 FROM weave_project_attributions_archive
 			WHERE project_id = $1 AND version_number = $2)`,
 		insert: `INSERT INTO weave_project_attributions_archive (
@@ -301,7 +307,7 @@ var reconstructTables = []reconstructTable{
 		hasUpdatedAt: false,
 		identity:     `actor_id || '/' || role`,
 		from:         "weave_project_actors",
-		scope:        "project_id = $1",
+		scope:        scopeByProject,
 		exists: `SELECT EXISTS (SELECT 1 FROM weave_project_actors_archive
 			WHERE project_id = $1 AND version_number = $2)`,
 		insert: `INSERT INTO weave_project_actors_archive (
@@ -316,7 +322,7 @@ var reconstructTables = []reconstructTable{
 }
 
 // classifySQL builds the classification query for one table: every live row
-// in the project, labelled exact / excluded / ambiguous against $2, the
+// in the project, labeled exact / excluded / ambiguous against $2, the
 // release's created_at. The exact branch reuses exactPredicate, the same
 // expression the insert filters on.
 //
@@ -371,7 +377,7 @@ func Reconstruct(ctx context.Context, pool *pgxpool.Pool, opts ReconstructOption
 
 	report := &ReconstructReport{}
 	for _, rel := range releases {
-		rr := ReleaseReport{ProjectID: rel.ProjectID, Version: rel.Version, CreatedAt: rel.CreatedAt}
+		rr := VersionReport{ProjectID: rel.ProjectID, Version: rel.Version, CreatedAt: rel.CreatedAt}
 		for _, tbl := range reconstructTables {
 			tr, err := classifyTable(ctx, pool, tbl, rel)
 			if err != nil {
@@ -522,7 +528,13 @@ Rows DELETED since a release are unrecoverable and invisible to this method.
 // Render writes the run's report. Every ambiguous row is listed individually
 // with its identity and both timestamps: the counts alone would let an
 // operator fill the archives without ever seeing what was left out.
-func (r *ReconstructReport) Render(w io.Writer, applyRequested bool) {
+//
+// The report is built in memory and written once, so a short write or a
+// closed pipe is reported rather than leaving the operator with a truncated
+// report that looks complete.
+func (r *ReconstructReport) Render(w io.Writer, applyRequested bool) error {
+	var b strings.Builder
+
 	mode := "dry run — nothing written"
 	if applyRequested {
 		mode = "apply"
@@ -530,52 +542,46 @@ func (r *ReconstructReport) Render(w io.Writer, applyRequested bool) {
 			mode = "apply — REFUSED, nothing written"
 		}
 	}
-	fmt.Fprintf(w, "release content reconstruction (%s)\n\n%s\n", mode, reconstructPreamble)
+	fmt.Fprintf(&b, "release content reconstruction (%s)\n\n%s\n", mode, reconstructPreamble)
 
 	if len(r.Releases) == 0 {
-		fmt.Fprintln(w, "No releases matched — nothing to reconstruct.")
-		return
+		fmt.Fprintln(&b, "No releases matched — nothing to reconstruct.")
+		_, err := io.WriteString(w, b.String())
+		return err
 	}
 
 	for _, rel := range r.Releases {
-		fmt.Fprintf(w, "%s @ %s  (released %s)\n", rel.ProjectID, rel.Version, rel.CreatedAt.UTC().Format(time.RFC3339))
+		fmt.Fprintf(&b, "%s @ %s  (released %s)\n", rel.ProjectID, rel.Version, rel.CreatedAt.UTC().Format(time.RFC3339))
 		for _, t := range rel.Tables {
 			if t.AlreadyArchived {
-				fmt.Fprintf(w, "  %-32s already archived — skipped\n", t.LiveTable)
+				fmt.Fprintf(&b, "  %-32s already archived — skipped\n", t.LiveTable)
 				continue
 			}
 			ambiguous := fmt.Sprintf("%d", len(t.Ambiguous))
 			if !t.HasUpdatedAt {
 				ambiguous = "n/a"
 			}
-			fmt.Fprintf(w, "  %-32s exact %-5d excluded %-5d ambiguous %s", t.LiveTable, t.Exact, t.Excluded, ambiguous)
+			fmt.Fprintf(&b, "  %-32s exact %-5d excluded %-5d ambiguous %s", t.LiveTable, t.Exact, t.Excluded, ambiguous)
 			if r.Applied {
-				fmt.Fprintf(w, "  (archived %d)", t.Inserted)
+				fmt.Fprintf(&b, "  (archived %d)", t.Inserted)
 			}
-			fmt.Fprintln(w)
+			fmt.Fprintln(&b)
 			if !t.HasUpdatedAt {
-				fmt.Fprintf(w, "      CAVEAT: %s has no updated_at column. An edit to a row that\n", t.LiveTable)
-				fmt.Fprintln(w, "      already existed at the release is invisible here; created-before is")
-				fmt.Fprintln(w, "      the only signal, so such a row is archived with its CURRENT content.")
+				fmt.Fprintf(&b, "      CAVEAT: %s has no updated_at column. An edit to a row that\n", t.LiveTable)
+				fmt.Fprintln(&b, "      already existed at the release is invisible here; created-before is")
+				fmt.Fprintln(&b, "      the only signal, so such a row is archived with its CURRENT content.")
 			}
 			for _, a := range t.Ambiguous {
-				fmt.Fprintf(w, "      ambiguous: %s  created %s  updated %s\n",
+				fmt.Fprintf(&b, "      ambiguous: %s  created %s  updated %s\n",
 					a.Identity, a.CreatedAt.UTC().Format(time.RFC3339), a.UpdatedAt.UTC().Format(time.RFC3339))
 			}
 		}
-		fmt.Fprintln(w)
+		fmt.Fprintln(&b)
 	}
 
 	exact, excluded, ambiguous := r.Totals()
-	fmt.Fprintf(w, "totals: %d exact, %d excluded, %d ambiguous\n", exact, excluded, ambiguous)
-}
+	fmt.Fprintf(&b, "totals: %d exact, %d excluded, %d ambiguous\n", exact, excluded, ambiguous)
 
-// reconstructInsertStatements exposes the seven insert statements for the
-// drift guard in reconstruct_test.go.
-func reconstructInsertStatements() []string {
-	out := make([]string, 0, len(reconstructTables))
-	for _, t := range reconstructTables {
-		out = append(out, t.insert)
-	}
-	return out
+	_, err := io.WriteString(w, b.String())
+	return err
 }
