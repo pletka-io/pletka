@@ -546,4 +546,24 @@ var snapshotStatements = []string{
 	FROM weave_collection_placements
 	WHERE project_id = $1
 	ON CONFLICT (id, version_number) DO NOTHING`,
+	// A release is citable, so who was credited at that release is part of
+	// what is cited. Neither live table has an id — see the archive
+	// migration's comment for the composite-key deviation this deliberately
+	// takes instead of inventing a surrogate id.
+	`INSERT INTO weave_project_attributions_archive (
+		project_id, actor_id, kind, position, note, created_at, version_number
+	)
+	SELECT
+		project_id, actor_id, kind, position, note, created_at, $2
+	FROM weave_project_attributions
+	WHERE project_id = $1
+	ON CONFLICT (project_id, actor_id, kind, version_number) DO NOTHING`,
+	`INSERT INTO weave_project_actors_archive (
+		project_id, actor_id, role, created_at, version_number
+	)
+	SELECT
+		project_id, actor_id, role, created_at, $2
+	FROM weave_project_actors
+	WHERE project_id = $1
+	ON CONFLICT (project_id, actor_id, version_number) DO NOTHING`,
 }
