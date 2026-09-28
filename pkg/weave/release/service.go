@@ -464,4 +464,32 @@ var snapshotStatements = []string{
 	FROM weave_entity_forks
 	WHERE project_id = $1
 	ON CONFLICT (project_id, entity_type, fork_entity_id, version_number) DO NOTHING`,
+	`INSERT INTO weave_examples_archive (
+		id, project_id, entity_type, entity_id, title, description, status,
+		created_at, updated_at, version_number
+	)
+	SELECT
+		id, project_id, entity_type, entity_id, title, description,
+		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END,
+		created_at, updated_at, $2
+	FROM weave_examples
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
+	// Values follow their example, so the project filter is a join rather
+	// than a column on this table.
+	`INSERT INTO weave_example_values_archive (
+		id, example_id, override_id, field_id, part_of_collection_id,
+		occurrence_index, value_kind, value_payload, text_value, number_value,
+		date_value, uri_value, concept_uri, linked_example_id, slot_path,
+		created_at, updated_at, version_number
+	)
+	SELECT
+		v.id, v.example_id, v.override_id, v.field_id, v.part_of_collection_id,
+		v.occurrence_index, v.value_kind, v.value_payload, v.text_value, v.number_value,
+		v.date_value, v.uri_value, v.concept_uri, v.linked_example_id, v.slot_path,
+		v.created_at, v.updated_at, $2
+	FROM weave_example_values v
+	JOIN weave_examples e ON e.id = v.example_id
+	WHERE e.project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 }
