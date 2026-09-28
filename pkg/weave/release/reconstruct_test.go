@@ -1,7 +1,6 @@
 package release
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -120,19 +119,22 @@ func conflictTarget(stmt string) (string, bool) {
 	return strings.Join(strings.Fields(target), " "), true
 }
 
-// selectAliasPrefix matches a table-alias qualifier on a column reference.
-// The reconstruction SELECTs are the snapshot SELECTs with join aliases
-// added ("v.id" for "id") — stripping the qualifier is what makes the two
-// comparable. In a SELECT list of column references and CASE expressions
-// nothing else carries a dot.
-var selectAliasPrefix = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*\.`)
-
 // selectList returns an INSERT's SELECT list — everything between SELECT and
-// the first FROM — normalized so the snapshot and reconstruction forms of the
-// same statement compare equal: alias qualifiers stripped, the version
-// placeholder normalized ($3 is the release timestamp in the reconstruction
-// inserts, so a SELECT-list $3 would be a genuine difference; $2 is the
-// version in both), and whitespace collapsed.
+// the first FROM — with whitespace collapsed, and nothing else normalized.
+//
+// Alias qualifiers are deliberately NOT stripped. The snapshot and
+// reconstruction SELECTs already carry the same join aliases, so stripping
+// bought nothing and cost the guard its point: in the two joined statements
+// both tables have same-named created_at/updated_at columns, so "e.created_at"
+// and "v.created_at" normalize to the same text once the qualifier is gone.
+// Reading the joined parent's timestamps instead of the row's own is a real
+// content bug that a stripping comparison passes silently — exactly the class
+// this guard exists to catch.
+//
+// The version placeholder is likewise left alone: $2 is the version in both
+// statement sets, and $3 (the release timestamp) appears only in the
+// reconstruction's WHERE clause, so a $3 reaching a SELECT list would be
+// genuine drift worth failing on.
 //
 // None of the seven SELECT lists contains a nested FROM, so cutting at the
 // first one is exact for this statement set.
@@ -157,6 +159,6 @@ func selectList(stmt string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	list = selectAliasPrefix.ReplaceAllString(list, "")
+
 	return strings.Join(strings.Fields(list), " "), true
 }
