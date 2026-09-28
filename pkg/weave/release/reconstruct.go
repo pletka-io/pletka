@@ -43,6 +43,17 @@ import (
 // silently skipping rows they were never told about.
 var ErrAmbiguousRows = errors.New("ambiguous rows found: re-run with --accept-ambiguous to archive the unambiguous rows and leave these out")
 
+// ErrNoSuchProject and ErrProjectHasNoReleases are returned when an explicit
+// ProjectID selects nothing. An explicit project that matches nothing is a
+// mistyped argument far more often than it is an empty result, and a silent
+// exit 0 on a mistyped instance or project name has already cost this fleet
+// one production outage. An omitted ProjectID that finds nothing stays a
+// clean, non-error empty run.
+var (
+	ErrNoSuchProject        = errors.New("no such project")
+	ErrProjectHasNoReleases = errors.New("project has no releases")
+)
+
 // ReconstructOptions selects what a reconstruction run covers and whether it
 // writes. The zero value is a dry run over every project that has releases.
 type ReconstructOptions struct {
@@ -84,6 +95,13 @@ type TableReport struct {
 	// Inserted is the number of rows actually written. Zero on a dry run,
 	// and zero on a re-run where every exact row is already archived.
 	Inserted int64
+	// insert is this table's archive INSERT, carried here rather than looked
+	// up by position in reconstructTables at apply time. The apply loop used
+	// to index the global slice by the report entry's position, which held
+	// only while classification appended exactly one report per table in
+	// order — a `continue` added to that loop would have silently run one
+	// table's insert against another table's report.
+	insert string
 }
 
 // ReleaseReport is one release's reconstruction across all seven tables.
@@ -301,6 +319,13 @@ var reconstructTables = []reconstructTable{
 // in the project, labelled exact / excluded / ambiguous against $2, the
 // release's created_at. The exact branch reuses exactPredicate, the same
 // expression the insert filters on.
+//
+// For a table with no updated_at the two branches are exact complements
+// (created_at > cutoff, created_at <= cutoff, over a NOT NULL column), which
+// is what makes the ambiguous class unreachable there rather than merely
+// empty. Break that complement and such rows fall through to 'ambiguous' —
+// which is the safe direction (reported, not archived), but it is a symptom
+// of a broken predicate, not a real classification.
 func (t reconstructTable) classifySQL() string {
 	updated := "NULL::timestamptz"
 	if t.hasUpdatedAt {
@@ -332,6 +357,16 @@ func Reconstruct(ctx context.Context, pool *pgxpool.Pool, opts ReconstructOption
 	releases, err := listReleasesForReconstruct(ctx, pool, opts.ProjectID)
 	if err != nil {
 		return nil, err
+	}
+	if len(releases) == 0 && opts.ProjectID != "" {
+		exists, err := projectExists(ctx, pool, opts.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		if !exists {
+			return nil, fmt.Errorf("%w: %s", ErrNoSuchProject, opts.ProjectID)
+		}
+		return nil, fmt.Errorf("%w: %s", ErrProjectHasNoReleases, opts.ProjectID)
 	}
 
 	report := &ReconstructReport{}
@@ -366,10 +401,10 @@ func Reconstruct(ctx context.Context, pool *pgxpool.Pool, opts ReconstructOption
 			if rel.Tables[j].AlreadyArchived {
 				continue
 			}
-			tag, err := tx.Exec(ctx, reconstructTables[j].insert, rel.ProjectID, rel.Version, rel.CreatedAt)
+			tag, err := tx.Exec(ctx, rel.Tables[j].insert, rel.ProjectID, rel.Version, rel.CreatedAt)
 			if err != nil {
 				return report, fmt.Errorf("archive %s for %s@%s: %w",
-					reconstructTables[j].live, rel.ProjectID, rel.Version, err)
+					rel.Tables[j].LiveTable, rel.ProjectID, rel.Version, err)
 			}
 			rel.Tables[j].Inserted = tag.RowsAffected()
 		}
@@ -409,13 +444,28 @@ func listReleasesForReconstruct(ctx context.Context, pool *pgxpool.Pool, project
 	return out, rows.Err()
 }
 
+func projectExists(ctx context.Context, pool *pgxpool.Pool, projectID string) (bool, error) {
+	var exists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM weave_projects WHERE id = $1)`, projectID).Scan(&exists); err != nil {
+		return false, fmt.Errorf("look up project %s: %w", projectID, err)
+	}
+	return exists, nil
+}
+
 func classifyTable(ctx context.Context, pool *pgxpool.Pool, tbl reconstructTable, rel releaseRef) (TableReport, error) {
 	tr := TableReport{
 		LiveTable:    tbl.live,
 		ArchiveTable: tbl.archive,
 		HasUpdatedAt: tbl.hasUpdatedAt,
+		insert:       tbl.insert,
 	}
 
+	// The two joined EXISTS queries reach the archive through its LIVE parent
+	// (examples, vocabularies), so an archived child whose live parent has
+	// since been deleted reads as "not archived" and the table is classified
+	// again. That is harmless — the re-run inserts nothing, because the
+	// classification walks the same live parent — but it is why this is an
+	// optimisation and a report-noise fix, never a correctness guarantee.
 	var archived bool
 	if err := pool.QueryRow(ctx, tbl.exists, rel.ProjectID, rel.Version).Scan(&archived); err != nil {
 		return tr, err

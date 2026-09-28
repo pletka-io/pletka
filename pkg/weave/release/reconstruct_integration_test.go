@@ -26,6 +26,11 @@ import (
 //	ambiguous  created_at <= release, updated_at >  release — reported,
 //	                                                          never archived
 //
+// A fourth row per table sits at EXACTLY the release timestamp. The predicate
+// is <=, not <, so that row belongs to the release and must be archived — the
+// sharpest case in the brief, and the one a later <= -> < slip would break
+// while every before/after fixture kept passing.
+//
 // The column that moves a row between classes is updated_at, which is NOT
 // part of any of these archives' primary keys — the three rows of a table
 // are separate rows with distinct key tuples, so an assertion here cannot
@@ -53,21 +58,25 @@ func TestReconstructClassifiesRowsAgainstReleaseTimestamp(t *testing.T) {
 		exExact  = "RECON1EX_EXACT"
 		exExcl   = "RECON1EX_EXCLUDED"
 		exAmb    = "RECON1EX_AMBIGUOUS"
+		exEq     = "RECON1EX_EQUAL"
 		entityID = "RECON1M.1"
 
 		vocExact = "recon1voc_exact"
 		vocExcl  = "recon1voc_excluded"
 		vocAmb   = "recon1voc_ambiguous"
+		vocEq    = "recon1voc_equal"
 
 		entryExact = "recon1voce_exact"
 		entryExcl  = "recon1voce_excluded"
 		entryAmb   = "recon1voce_ambiguous"
+		entryEq    = "recon1voce_equal"
 
 		modelID    = "RECON1PM.1"
 		categoryID = "RECON1PCAT.1"
 		collExact  = "RECON1PC_EXACT"
 		collExcl   = "RECON1PC_EXCLUDED"
 		collAmb    = "RECON1PC_AMBIGUOUS"
+		collEq     = "RECON1PC_EQUAL"
 	)
 
 	seedProject(t, pool, projectID)
@@ -85,6 +94,7 @@ func TestReconstructClassifiesRowsAgainstReleaseTimestamp(t *testing.T) {
 		{exExact, before, before, "valid"},
 		{exExcl, after, after, "valid"},
 		{exAmb, before, after, "has_issues"},
+		{exEq, released, released, "valid"}, // created_at == release.created_at
 	} {
 		mustExec(t, pool, `INSERT INTO weave_examples
 			(id, project_id, entity_type, entity_id, title, status, created_at, updated_at, version_number)
@@ -99,6 +109,7 @@ func TestReconstructClassifiesRowsAgainstReleaseTimestamp(t *testing.T) {
 	valExact := insertExampleValue(t, pool, exExact, overrideID, fieldID, 0, "root", "exact", before, before)
 	valExcl := insertExampleValue(t, pool, exExact, overrideID, fieldID, 1, "root/excluded", "excluded", after, after)
 	valAmb := insertExampleValue(t, pool, exExact, overrideID, fieldID, 2, "root/ambiguous", "ambiguous", before, after)
+	valEq := insertExampleValue(t, pool, exExact, overrideID, fieldID, 3, "root/equal", "equal", released, released)
 
 	// --- weave_vocabularies ---------------------------------------------
 	for _, row := range []struct {
@@ -108,6 +119,7 @@ func TestReconstructClassifiesRowsAgainstReleaseTimestamp(t *testing.T) {
 		{vocExact, before, before},
 		{vocExcl, after, after},
 		{vocAmb, before, after},
+		{vocEq, released, released},
 	} {
 		mustExec(t, pool, `INSERT INTO weave_vocabularies
 			(id, project_id, system_name, connector_type, status, base_uri, created_at, updated_at)
@@ -123,6 +135,7 @@ func TestReconstructClassifiesRowsAgainstReleaseTimestamp(t *testing.T) {
 		{entryExact, before, before},
 		{entryExcl, after, after},
 		{entryAmb, before, after},
+		{entryEq, released, released},
 	} {
 		mustExec(t, pool, `INSERT INTO weave_vocabulary_entries
 			(id, vocabulary_id, uri, label, created_at, updated_at)
@@ -141,6 +154,7 @@ func TestReconstructClassifiesRowsAgainstReleaseTimestamp(t *testing.T) {
 		{collExact, before, before},
 		{collExcl, after, after},
 		{collAmb, before, after},
+		{collEq, released, released},
 	} {
 		var id int64
 		if err := pool.QueryRow(ctx, `INSERT INTO weave_collection_placements
@@ -165,6 +179,11 @@ func TestReconstructClassifiesRowsAgainstReleaseTimestamp(t *testing.T) {
 		VALUES ($1, $2, 'contributor', $3)`, projectID, actorID, before)
 	mustExec(t, pool, `INSERT INTO weave_project_actors (project_id, actor_id, role, created_at)
 		VALUES ($1, $2, 'reviewer', $3)`, projectID, actorID, after)
+	// The boundary rows: created_at exactly equal to the release timestamp.
+	mustExec(t, pool, `INSERT INTO weave_project_attributions (project_id, actor_id, kind, "position", note, created_at)
+		VALUES ($1, $2, 'author', 2, 'joined at the release', $3)`, projectID, actorID, released)
+	mustExec(t, pool, `INSERT INTO weave_project_actors (project_id, actor_id, role, created_at)
+		VALUES ($1, $2, 'boundary', $3)`, projectID, actorID, released)
 
 	t.Cleanup(func() {
 		bg := context.Background()
@@ -193,13 +212,15 @@ func TestReconstructClassifiesRowsAgainstReleaseTimestamp(t *testing.T) {
 		t.Fatalf("dry run: %v", err)
 	}
 	assertReconstructClassification(t, dry, projectID, version, map[string]ambiguousExpectation{
-		"weave_examples":              {exact: 1, excluded: 1, ambiguous: []string{exAmb}},
-		"weave_example_values":        {exact: 1, excluded: 1, ambiguous: []string{strconv.FormatInt(valAmb, 10)}},
-		"weave_vocabularies":          {exact: 1, excluded: 1, ambiguous: []string{vocAmb}},
-		"weave_vocabulary_entries":    {exact: 1, excluded: 1, ambiguous: []string{entryAmb}},
-		"weave_collection_placements": {exact: 1, excluded: 1, ambiguous: []string{strconv.FormatInt(placementIDs[collAmb], 10)}},
-		"weave_project_attributions":  {exact: 1, excluded: 1, ambiguous: nil},
-		"weave_project_actors":        {exact: 1, excluded: 1, ambiguous: nil},
+		// exact is 2 per table: the created-before row and the boundary row
+		// whose created_at equals the release timestamp exactly.
+		"weave_examples":              {exact: 2, excluded: 1, ambiguous: []string{exAmb}},
+		"weave_example_values":        {exact: 2, excluded: 1, ambiguous: []string{strconv.FormatInt(valAmb, 10)}},
+		"weave_vocabularies":          {exact: 2, excluded: 1, ambiguous: []string{vocAmb}},
+		"weave_vocabulary_entries":    {exact: 2, excluded: 1, ambiguous: []string{entryAmb}},
+		"weave_collection_placements": {exact: 2, excluded: 1, ambiguous: []string{strconv.FormatInt(placementIDs[collAmb], 10)}},
+		"weave_project_attributions":  {exact: 2, excluded: 1, ambiguous: nil},
+		"weave_project_actors":        {exact: 2, excluded: 1, ambiguous: nil},
 	})
 	if n := countArchivedForVersion(t, pool, projectID, version, exExact, vocExact, actorID); n != 0 {
 		t.Fatalf("dry run wrote %d archive row(s); a dry run must write nothing", n)
@@ -227,28 +248,35 @@ func TestReconstructClassifiesRowsAgainstReleaseTimestamp(t *testing.T) {
 		{"example exact", `SELECT count(*) FROM weave_examples_archive WHERE id=$1 AND version_number=$2`, []any{exExact, version}, 1},
 		{"example excluded", `SELECT count(*) FROM weave_examples_archive WHERE id=$1 AND version_number=$2`, []any{exExcl, version}, 0},
 		{"example ambiguous", `SELECT count(*) FROM weave_examples_archive WHERE id=$1 AND version_number=$2`, []any{exAmb, version}, 0},
+		{"example at the release timestamp", `SELECT count(*) FROM weave_examples_archive WHERE id=$1 AND version_number=$2`, []any{exEq, version}, 1},
 
 		{"example value exact", `SELECT count(*) FROM weave_example_values_archive WHERE id=$1 AND version_number=$2`, []any{valExact, version}, 1},
 		{"example value excluded", `SELECT count(*) FROM weave_example_values_archive WHERE id=$1 AND version_number=$2`, []any{valExcl, version}, 0},
 		{"example value ambiguous", `SELECT count(*) FROM weave_example_values_archive WHERE id=$1 AND version_number=$2`, []any{valAmb, version}, 0},
+		{"example value at the release timestamp", `SELECT count(*) FROM weave_example_values_archive WHERE id=$1 AND version_number=$2`, []any{valEq, version}, 1},
 
 		{"vocabulary exact", `SELECT count(*) FROM weave_vocabularies_archive WHERE id=$1 AND version_number=$2`, []any{vocExact, version}, 1},
 		{"vocabulary excluded", `SELECT count(*) FROM weave_vocabularies_archive WHERE id=$1 AND version_number=$2`, []any{vocExcl, version}, 0},
 		{"vocabulary ambiguous", `SELECT count(*) FROM weave_vocabularies_archive WHERE id=$1 AND version_number=$2`, []any{vocAmb, version}, 0},
+		{"vocabulary at the release timestamp", `SELECT count(*) FROM weave_vocabularies_archive WHERE id=$1 AND version_number=$2`, []any{vocEq, version}, 1},
 
 		{"vocabulary entry exact", `SELECT count(*) FROM weave_vocabulary_entries_archive WHERE id=$1 AND version_number=$2`, []any{entryExact, version}, 1},
 		{"vocabulary entry excluded", `SELECT count(*) FROM weave_vocabulary_entries_archive WHERE id=$1 AND version_number=$2`, []any{entryExcl, version}, 0},
 		{"vocabulary entry ambiguous", `SELECT count(*) FROM weave_vocabulary_entries_archive WHERE id=$1 AND version_number=$2`, []any{entryAmb, version}, 0},
+		{"vocabulary entry at the release timestamp", `SELECT count(*) FROM weave_vocabulary_entries_archive WHERE id=$1 AND version_number=$2`, []any{entryEq, version}, 1},
 
 		{"placement exact", `SELECT count(*) FROM weave_collection_placements_archive WHERE project_id=$1 AND collection_id=$2 AND version_number=$3`, []any{projectID, collExact, version}, 1},
 		{"placement excluded", `SELECT count(*) FROM weave_collection_placements_archive WHERE project_id=$1 AND collection_id=$2 AND version_number=$3`, []any{projectID, collExcl, version}, 0},
 		{"placement ambiguous", `SELECT count(*) FROM weave_collection_placements_archive WHERE project_id=$1 AND collection_id=$2 AND version_number=$3`, []any{projectID, collAmb, version}, 0},
+		{"placement at the release timestamp", `SELECT count(*) FROM weave_collection_placements_archive WHERE project_id=$1 AND collection_id=$2 AND version_number=$3`, []any{projectID, collEq, version}, 1},
 
 		{"attribution exact", `SELECT count(*) FROM weave_project_attributions_archive WHERE project_id=$1 AND actor_id=$2 AND kind='author' AND "position"=0 AND version_number=$3`, []any{projectID, actorID, version}, 1},
 		{"attribution excluded", `SELECT count(*) FROM weave_project_attributions_archive WHERE project_id=$1 AND actor_id=$2 AND kind='author' AND "position"=1 AND version_number=$3`, []any{projectID, actorID, version}, 0},
+		{"attribution at the release timestamp", `SELECT count(*) FROM weave_project_attributions_archive WHERE project_id=$1 AND actor_id=$2 AND kind='author' AND "position"=2 AND version_number=$3`, []any{projectID, actorID, version}, 1},
 
 		{"project actor exact", `SELECT count(*) FROM weave_project_actors_archive WHERE project_id=$1 AND actor_id=$2 AND role='contributor' AND version_number=$3`, []any{projectID, actorID, version}, 1},
 		{"project actor excluded", `SELECT count(*) FROM weave_project_actors_archive WHERE project_id=$1 AND actor_id=$2 AND role='reviewer' AND version_number=$3`, []any{projectID, actorID, version}, 0},
+		{"project actor at the release timestamp", `SELECT count(*) FROM weave_project_actors_archive WHERE project_id=$1 AND actor_id=$2 AND role='boundary' AND version_number=$3`, []any{projectID, actorID, version}, 1},
 	}
 	for _, c := range archived {
 		var n int
@@ -364,4 +392,30 @@ func countArchivedForVersion(t *testing.T, pool *pgxpool.Pool, projectID, versio
 		(SELECT count(*) FROM weave_project_actors_archive WHERE project_id=$1 AND actor_id=$5 AND version_number=$2)`,
 		[]any{projectID, version, exampleID, vocabID, actorID}, &n)
 	return n
+}
+
+// TestReconstructExplicitProjectMustMatch pins that an explicit --project
+// selecting nothing is an error, not a quiet success. This fleet has already
+// lost production API keys to a command that no-opped silently on a mistyped
+// instance name; a reconstruction that prints "nothing to reconstruct" and
+// exits 0 because the project id was misspelled is the same shape of failure.
+//
+// The two cases are distinguished, because the operator's next move differs:
+// a misspelling needs a different id, an empty project needs a release first.
+// An OMITTED project that finds nothing stays a clean, non-error empty run.
+func TestReconstructExplicitProjectMustMatch(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := context.Background()
+
+	const missingID = "RECONSTRUCT_NO_SUCH_PROJECT"
+	const emptyID = "RECONSTRUCT_NO_RELEASES"
+
+	if _, err := Reconstruct(ctx, pool, ReconstructOptions{ProjectID: missingID}); !errors.Is(err, ErrNoSuchProject) {
+		t.Errorf("unknown project: err = %v, want ErrNoSuchProject", err)
+	}
+
+	seedProject(t, pool, emptyID)
+	if _, err := Reconstruct(ctx, pool, ReconstructOptions{ProjectID: emptyID}); !errors.Is(err, ErrProjectHasNoReleases) {
+		t.Errorf("project without releases: err = %v, want ErrProjectHasNoReleases", err)
+	}
 }

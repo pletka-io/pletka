@@ -48,15 +48,16 @@ unrecoverable and invisible.
 Dry run by default. --apply writes, and refuses with a non-zero exit if any
 ambiguous row was found unless --accept-ambiguous is also given — an operator
 must not be able to fill the archives while silently skipping rows they were
-never told about. The inserts are idempotent, so --apply is safe to re-run.`,
+never told about. The inserts are idempotent, so a writing run is safe to
+re-run. --dry-run=false writes exactly as --apply does.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE:         runReleaseReconstruct,
 	}
 	cmd.Flags().StringVar(&rrProject, "project", "", "limit to one project id (default: every project with releases)")
-	cmd.Flags().BoolVar(&rrDryRun, "dry-run", true, "classify and report without writing anything")
+	cmd.Flags().BoolVar(&rrDryRun, "dry-run", true, "classify and report without writing anything; --dry-run=false writes, exactly as --apply does")
 	cmd.Flags().BoolVar(&rrApply, "apply", false, "write the exact rows into the archives")
-	cmd.Flags().BoolVar(&rrAcceptAmbiguous, "accept-ambiguous", false, "with --apply: proceed despite ambiguous rows, archiving only the unambiguous ones")
+	cmd.Flags().BoolVar(&rrAcceptAmbiguous, "accept-ambiguous", false, "when writing: proceed despite ambiguous rows, archiving only the unambiguous ones")
 	return cmd
 }
 
@@ -64,8 +65,13 @@ func runReleaseReconstruct(cmd *cobra.Command, _ []string) error {
 	if rrApply && cmd.Flags().Changed("dry-run") && rrDryRun {
 		return errors.New("--apply and --dry-run are mutually exclusive")
 	}
-	if rrAcceptAmbiguous && !rrApply {
-		return errors.New("--accept-ambiguous only means something with --apply")
+	// --dry-run is honoured, not merely declared: an operator who reads
+	// `--dry-run=false` as "this will write" is not being unreasonable, and a
+	// flag that silently means nothing is worse than no flag. Either spelling
+	// writes; the default (dry-run true, apply false) does not.
+	apply := rrApply || !rrDryRun
+	if rrAcceptAmbiguous && !apply {
+		return errors.New("--accept-ambiguous only means something on a writing run (--apply or --dry-run=false)")
 	}
 
 	ctx := context.Background()
@@ -77,15 +83,20 @@ func runReleaseReconstruct(cmd *cobra.Command, _ []string) error {
 
 	report, err := release.Reconstruct(ctx, pool, release.ReconstructOptions{
 		ProjectID:       rrProject,
-		Apply:           rrApply,
+		Apply:           apply,
 		AcceptAmbiguous: rrAcceptAmbiguous,
 	})
 	if report != nil {
-		report.Render(os.Stdout, rrApply)
+		report.Render(os.Stdout, apply)
 	}
-	if errors.Is(err, release.ErrAmbiguousRows) {
+	switch {
+	case errors.Is(err, release.ErrAmbiguousRows):
 		// Non-zero exit, with the ambiguous rows already printed above.
 		return fmt.Errorf("%w — nothing was written", err)
+	case errors.Is(err, release.ErrNoSuchProject):
+		return fmt.Errorf("%w — check the spelling of --project; nothing was written", err)
+	case errors.Is(err, release.ErrProjectHasNoReleases):
+		return fmt.Errorf("%w — there is nothing to reconstruct for it; nothing was written", err)
 	}
 	return err
 }
