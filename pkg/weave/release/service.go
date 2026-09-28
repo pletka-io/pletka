@@ -495,4 +495,32 @@ var snapshotStatements = []string{
 	JOIN weave_examples e ON e.id = v.example_id
 	WHERE e.project_id = $1
 	ON CONFLICT (id, version_number) DO NOTHING`,
+	`INSERT INTO weave_vocabularies_archive (
+		id, project_id, semantic_id, system_name, ui_name, description,
+		status, connector_type, base_uri, config, deprecated,
+		created_at, updated_at, version_number
+	)
+	SELECT
+		id, project_id, semantic_id, system_name, ui_name, description,
+		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END,
+		connector_type, base_uri, config, deprecated,
+		created_at, updated_at, $2
+	FROM weave_vocabularies
+	WHERE project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
+	// Entries follow their vocabulary, so the project filter is a join rather
+	// than a column on this table — the same shape as example values.
+	`INSERT INTO weave_vocabulary_entries_archive (
+		id, vocabulary_id, uri, label, scope_note, broader_uri,
+		broader_path, broader_path_items, external_id,
+		created_at, updated_at, version_number
+	)
+	SELECT
+		e.id, e.vocabulary_id, e.uri, e.label, e.scope_note, e.broader_uri,
+		e.broader_path, e.broader_path_items, e.external_id,
+		e.created_at, e.updated_at, $2
+	FROM weave_vocabulary_entries e
+	JOIN weave_vocabularies v ON v.id = e.vocabulary_id
+	WHERE v.project_id = $1
+	ON CONFLICT (id, version_number) DO NOTHING`,
 }
