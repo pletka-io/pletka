@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -79,7 +80,11 @@ func TestReplaceForEntityKeepsIDs(t *testing.T) {
 		t.Fatalf("save changed ids: got %d, %d want %d, %d", overrides[0].ID, overrides[1].ID, id5, id6)
 	}
 
-	list, err := store.ListForEntity(ctx, replaceTestEntityType, replaceTestEntityID)
+	r, err := store.At(auth.Draft())
+	if err != nil {
+		t.Fatalf("At(Draft): %v", err)
+	}
+	list, err := r.ListForEntity(ctx, replaceTestEntityType, replaceTestEntityID)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -154,7 +159,11 @@ func TestReplaceForEntityRemovesOnlyDropped(t *testing.T) {
 		t.Fatalf("kept row changed id: got %d want %d", keep[0].ID, id6)
 	}
 
-	got, err := store.GetByID(ctx, id5)
+	r, err := store.At(auth.Draft())
+	if err != nil {
+		t.Fatalf("At(Draft): %v", err)
+	}
+	got, err := r.GetByID(ctx, id5)
 	if err != nil {
 		t.Fatalf("get dropped row: %v", err)
 	}
@@ -265,7 +274,11 @@ func TestDeletingOverrideKeepsExampleValues(t *testing.T) {
 		t.Fatalf("second save: %v", err)
 	}
 
-	got, err := store.GetByID(ctx, overrideID)
+	r, err := store.At(auth.Draft())
+	if err != nil {
+		t.Fatalf("At(Draft): %v", err)
+	}
+	got, err := r.GetByID(ctx, overrideID)
 	if err != nil {
 		t.Fatalf("get dropped override: %v", err)
 	}

@@ -34,19 +34,25 @@ func ProjectVersionFromContext(ctx context.Context) string {
 }
 
 // WithProjectVersionContext attaches the ?version= query value to context and
-// rejects mutating requests when a released version is in scope.
+// rejects mutating requests when a released version is in scope. It always
+// installs a ReadScope — Release(version) when one was requested, Draft()
+// otherwise — so routes that carry this middleware but not
+// ResolveContentVersion (e.g. mountAt in pkg/weave/project/routes.go) still
+// give downstream reads a valid scope instead of the invalid zero value.
 func WithProjectVersionContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		version := r.URL.Query().Get("version")
 		if version == "" {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(WithReadScope(r.Context(), Draft())))
 			return
 		}
 		if !isSafeMethod(r.Method) {
 			errresp.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "versioned project views are read-only")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(WithProjectVersion(r.Context(), version)))
+		ctx := WithProjectVersion(r.Context(), version)
+		ctx = WithReadScope(ctx, Release(version))
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -85,23 +91,25 @@ func ResolveContentVersion(reader LatestReleaseReader) func(http.Handler) http.H
 			}
 			project := ProjectFromContext(ctx)
 			if project == nil || project.Visibility != domain.VisibilityPublic {
-				next.ServeHTTP(w, r)
+				next.ServeHTTP(w, r.WithContext(WithReadScope(ctx, Draft())))
 				return
 			}
 			snap := FromContext(ctx)
 			if snap.Can(ProjectEdit, ProjectResource(project), nil) {
-				next.ServeHTTP(w, r) // editor: hot
+				next.ServeHTTP(w, r.WithContext(WithReadScope(ctx, Draft()))) // editor: hot
 				return
 			}
 			latest, err := reader.LatestReleaseVersion(ctx, project.ID)
 			if err != nil {
 				slog.Default().ErrorContext(ctx, "resolve content version: latest release lookup failed; serving hot", "project", project.ID, "err", err)
-				next.ServeHTTP(w, r) // fail safe to hot, never 500
+				next.ServeHTTP(w, r.WithContext(WithReadScope(ctx, Draft()))) // fail safe to hot, never 500
 				return
 			}
-			if v := ResolveEffectiveVersion(snap, project, "", latest); v != "" {
+			v := ResolveEffectiveVersion(snap, project, "", latest)
+			if v != "" {
 				ctx = WithProjectVersion(ctx, v)
 			}
+			ctx = WithReadScope(ctx, Release(v))
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

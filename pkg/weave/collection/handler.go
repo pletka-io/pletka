@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
@@ -425,7 +426,8 @@ func (h *Handler) CategoriesOptions(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListOverrides(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	collectionID := chi.URLParam(r, "collectionID")
-	rows, err := h.svc.ListOverrides(r.Context(), projectID, collectionID)
+	scope := auth.ReadScopeFromContext(r.Context())
+	rows, err := h.svc.ListOverrides(r.Context(), scope, projectID, collectionID)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return

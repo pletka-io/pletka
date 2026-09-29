@@ -776,17 +776,12 @@ func (h *Handler) getFieldHeader(ctx context.Context, projectID, fieldID, versio
 	return nil, nil
 }
 
-// getFieldBaseOverride loads the field's base override (entity_type is
-// empty) scoped to projectID. When version is non-empty it reads the archived
-// row for that release instead of the hot row — a nil result there is a
-// legitimate "no base override existed at that version" and is not a
-// signal to fall back to hot (unlike the header getters above, which
-// fall back for the cross-project case).
-func (h *Handler) getFieldBaseOverride(ctx context.Context, fieldID, projectID, version string) (*pkgdomain.FieldOverride, error) {
-	if version != "" {
-		return h.weave.Overrides().GetBaseVersion(ctx, fieldID, projectID, version)
-	}
-	return h.weave.Overrides().GetBase(ctx, fieldID, projectID)
+// getFieldBaseOverride loads the field's base override at the request's
+// scope. A nil result under a release scope is a legitimate "no base
+// override was archived at that version" and never a reason to fall back to
+// the working state.
+func (h *Handler) getFieldBaseOverride(ctx context.Context, scope auth.ReadScope, fieldID, projectID string) (*pkgdomain.FieldOverride, error) {
+	return h.weave.Overrides().GetBase(ctx, scope, fieldID, projectID)
 }
 
 func (h *Handler) buildModel(ctx context.Context, projectID, modelID string) (*Response, error) {
@@ -1177,7 +1172,10 @@ func (h *Handler) buildField(ctx context.Context, projectID, fieldID string) (*R
 	// the resolved release, not the hot draft.
 	categoryID := ""
 	setValue := ""
-	base, _ := h.getFieldBaseOverride(ctx, fieldID, projectID, activeVersion)
+	base, err := h.getFieldBaseOverride(ctx, auth.ReadScopeFromContext(ctx), fieldID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("get field base override: %w", err)
+	}
 	if base != nil {
 		categoryID = base.CategoryID
 		setValue = base.SetValue

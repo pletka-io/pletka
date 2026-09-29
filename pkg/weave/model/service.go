@@ -424,14 +424,14 @@ func (s *Service) View(ctx context.Context, projectID, id string) (*domain.Model
 // ListOverrides returns the flat list of model-context override rows
 // (entity_type='model', entity_id=modelID). Frontend groups into the
 // nested category→items shape per the override editor design.
-func (s *Service) ListOverrides(ctx context.Context, projectID, modelID string) ([]domain.FieldOverride, error) {
+func (s *Service) ListOverrides(ctx context.Context, scope auth.ReadScope, projectID, modelID string) ([]domain.FieldOverride, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
 	if _, err := s.requireOwn(ctx, projectID, modelID); err != nil {
 		return nil, err
 	}
-	return s.overrides.ListForEntity(ctx, projectID, "model", modelID)
+	return s.overrides.ListForEntity(ctx, scope, projectID, "model", modelID)
 }
 
 // SaveOverrides bulk-replaces the model's override list with desired,
@@ -578,7 +578,10 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceModelID s
 		_ = s.store.Delete(ctx, created.ID)
 	}
 
-	cloned, err := s.overrides.ListForEntity(ctx, projectID, "model", source.ID)
+	// Fork reads the working state, whatever the request is scoped to: this is
+	// a write path, and copying a release's archived overrides into live rows
+	// would be a silent corruption.
+	cloned, err := s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "model", source.ID)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("load source model overrides: %w", err)
@@ -612,7 +615,10 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceModelID s
 		return nil, fmt.Errorf("persist forked model overrides: %w", err)
 	}
 
-	sourceOverrides, err := s.overrides.ListForEntity(ctx, projectID, "model", source.ID)
+	// Fork reads the working state, whatever the request is scoped to: this is
+	// a write path, and copying a release's archived overrides into live rows
+	// would be a silent corruption.
+	sourceOverrides, err := s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "model", source.ID)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("load source override refs: %w", err)
@@ -621,7 +627,9 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceModelID s
 		if i >= len(saved) {
 			break
 		}
-		refs, err := s.overrides.GetRefs(ctx, projectID, sourceOverrides[i].ID)
+		// Same as above: refs are copied from the working state, never a
+		// release archive.
+		refs, err := s.overrides.GetRefs(ctx, auth.Draft(), projectID, sourceOverrides[i].ID)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("load source override refs: %w", err)

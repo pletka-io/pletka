@@ -3,6 +3,7 @@ package field
 import (
 	"context"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	schemaregistry "github.com/pletka-io/pletka/pkg/schemaui/registry"
@@ -13,7 +14,7 @@ type SchemaStore interface {
 }
 
 type SchemaOverrideStore interface {
-	GetBase(ctx context.Context, fieldID, projectID string) (*domain.FieldOverride, error)
+	GetBase(ctx context.Context, scope domain.ReadScope, fieldID, projectID string) (*domain.FieldOverride, error)
 	GetRefs(ctx context.Context, overrideID int64) ([]domain.OverrideRef, error)
 }
 
@@ -55,7 +56,11 @@ func (p *SchemaProvider) composedFieldInput(ctx context.Context, field *domain.F
 	}
 	var overrideInput *formschema.FieldOverrideInput
 	if p.overrides != nil {
-		base, err := p.overrides.GetBase(ctx, field.ID, projectID)
+		// The edit/view form always composes the current editable state:
+		// FormRequest carries no version, and there is no such thing as
+		// editing an archived release. Draft() is the only correct scope
+		// here, not a stopgap.
+		base, err := p.overrides.GetBase(ctx, auth.Draft(), field.ID, projectID)
 		if err != nil {
 			return nil, err
 		}

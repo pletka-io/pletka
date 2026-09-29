@@ -409,14 +409,16 @@ func (s *Service) View(ctx context.Context, projectID, id string) ([]domain.Reso
 // Override editing — delegates to override.Service
 // ---------------------------------------------------------------------------
 
-func (s *Service) ListOverrides(ctx context.Context, projectID, collectionID string) ([]domain.FieldOverride, error) {
+// ListOverrides returns the flat list of collection-context override rows
+// (entity_type='collection', entity_id=collectionID), read at scope.
+func (s *Service) ListOverrides(ctx context.Context, scope auth.ReadScope, projectID, collectionID string) ([]domain.FieldOverride, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
 	if _, err := s.requireOwn(ctx, projectID, collectionID); err != nil {
 		return nil, err
 	}
-	return s.overrides.ListForEntity(ctx, projectID, "collection", collectionID)
+	return s.overrides.ListForEntity(ctx, scope, projectID, "collection", collectionID)
 }
 
 func (s *Service) SaveOverrides(ctx context.Context, projectID, collectionID string, desired []domain.FieldOverride, commitMessage string) ([]domain.FieldOverride, override.Diff, error) {
@@ -485,7 +487,10 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceCollectio
 	// rewritten consistently from source-project semantic IDs onto the
 	// current project's local equivalents (adopt/adapt implementation
 	// task 3).
-	srcOverridesForRemap, err := s.overrides.ListForEntity(ctx, projectID, "collection", source.ID)
+	// Fork reads the working state, whatever the request is scoped to: this is
+	// a write path, and copying a release's archived overrides into live rows
+	// would be a silent corruption.
+	srcOverridesForRemap, err := s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "collection", source.ID)
 	if err != nil {
 		return nil, fmt.Errorf("load source overrides for remap: %w", err)
 	}
@@ -545,7 +550,10 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceCollectio
 		return nil, fmt.Errorf("persist forked collection overrides: %w", err)
 	}
 
-	sourceOverrides, err := s.overrides.ListForEntity(ctx, projectID, "collection", source.ID)
+	// Fork reads the working state, whatever the request is scoped to: this is
+	// a write path, and copying a release's archived overrides into live rows
+	// would be a silent corruption.
+	sourceOverrides, err := s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "collection", source.ID)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("load source collection overrides: %w", err)
@@ -554,7 +562,9 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceCollectio
 		if i >= len(saved) {
 			break
 		}
-		refs, err := s.overrides.GetRefs(ctx, projectID, sourceOverrides[i].ID)
+		// Same as above: refs are copied from the working state, never a
+		// release archive.
+		refs, err := s.overrides.GetRefs(ctx, auth.Draft(), projectID, sourceOverrides[i].ID)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("load source override refs: %w", err)

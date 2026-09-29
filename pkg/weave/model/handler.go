@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
@@ -473,7 +474,8 @@ func (h *Handler) ScopeClassesOptions(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListOverrides(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	modelID := chi.URLParam(r, "modelID")
-	rows, err := h.svc.ListOverrides(r.Context(), projectID, modelID)
+	scope := auth.ReadScopeFromContext(r.Context())
+	rows, err := h.svc.ListOverrides(r.Context(), scope, projectID, modelID)
 	if err != nil {
 		h.writeServiceError(w, err)
 		return

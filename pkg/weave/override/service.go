@@ -42,6 +42,21 @@ func NewService(store Store, log *slog.Logger, runner domain.ChangeLogRunner) *S
 	return &Service{store: store, log: log, runner: runner}
 }
 
+// draft resolves the Store.At(auth.Draft()) reader used by the internal,
+// mutation-adjacent reads below (CloneFromCollection's source read,
+// SaveForEntity's existing-set read, SetRefs' ownership check,
+// EntityFingerprint). Task 5 threaded auth.ReadScope through Service's four
+// exported read methods (ListForEntity, GetByID, ListForField, GetRefs),
+// which now take the caller's scope directly instead of going through this
+// helper. The call sites below stay on Draft() permanently: they sit on
+// mutation paths that run hot and always need the live rows. auth.Draft()
+// is always Valid(), so the error return can never actually fire — callers
+// still check it because every site already returns an error and a silent
+// type assertion here would be the wrong place to assume that invariant.
+func (s *Service) draft() (Reader, error) {
+	return s.store.At(auth.Draft())
+}
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -73,20 +88,28 @@ func IsNotFound(err error) bool { return errors.Is(err, errNotFound) }
 // ---------------------------------------------------------------------------
 
 // ListForEntity returns the ordered override set attached to a parent
-// (model or collection). Hot path for editor load.
-func (s *Service) ListForEntity(ctx context.Context, projectID, entityType, entityID string) ([]domain.FieldOverride, error) {
+// (model or collection), at scope. Hot path for editor load.
+func (s *Service) ListForEntity(ctx context.Context, scope auth.ReadScope, projectID, entityType, entityID string) ([]domain.FieldOverride, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	return s.store.ListForEntity(ctx, entityType, entityID)
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
+	return r.ListForEntity(ctx, entityType, entityID)
 }
 
-// GetByID returns a single override or (nil, nil) when not found.
-func (s *Service) GetByID(ctx context.Context, projectID string, id int64) (*domain.FieldOverride, error) {
+// GetByID returns a single override at scope, or (nil, nil) when not found.
+func (s *Service) GetByID(ctx context.Context, scope auth.ReadScope, projectID string, id int64) (*domain.FieldOverride, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	o, err := s.store.GetByID(ctx, id)
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
+	o, err := r.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -100,20 +123,28 @@ func (s *Service) GetByID(ctx context.Context, projectID string, id int64) (*dom
 }
 
 // ListForField returns every override that references fieldID across all
-// entity types. Used by the field-usage modal.
-func (s *Service) ListForField(ctx context.Context, projectID, fieldID string) ([]domain.FieldOverride, error) {
+// entity types, at scope. Used by the field-usage modal.
+func (s *Service) ListForField(ctx context.Context, scope auth.ReadScope, projectID, fieldID string) ([]domain.FieldOverride, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	return s.store.ListForField(ctx, fieldID)
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
+	return r.ListForField(ctx, fieldID)
 }
 
-// GetRefs returns the ref-set attached to overrideID.
-func (s *Service) GetRefs(ctx context.Context, projectID string, overrideID int64) ([]domain.OverrideRef, error) {
+// GetRefs returns the ref-set attached to overrideID, at scope.
+func (s *Service) GetRefs(ctx context.Context, scope auth.ReadScope, projectID string, overrideID int64) ([]domain.OverrideRef, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	return s.store.GetRefs(ctx, overrideID)
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
+	return r.GetRefs(ctx, overrideID)
 }
 
 // CloneFromCollection returns a draft slice of overrides for use when
@@ -159,7 +190,11 @@ func (s *Service) CloneFromCollection(
 		}}
 	}
 
-	src, err := s.store.ListForEntity(ctx, "collection", collectionID)
+	r, err := s.draft()
+	if err != nil {
+		return nil, err
+	}
+	src, err := r.ListForEntity(ctx, "collection", collectionID)
 	if err != nil {
 		return nil, fmt.Errorf("load collection overrides: %w", err)
 	}
@@ -222,7 +257,11 @@ func (s *Service) SaveForEntity(
 		desired[i].ProjectID = projectID
 	}
 
-	existing, err := s.store.ListForEntity(ctx, entityType, entityID)
+	r, err := s.draft()
+	if err != nil {
+		return nil, Diff{}, err
+	}
+	existing, err := r.ListForEntity(ctx, entityType, entityID)
 	if err != nil {
 		return nil, Diff{}, fmt.Errorf("load existing overrides: %w", err)
 	}
@@ -283,7 +322,11 @@ func (s *Service) SetRefs(ctx context.Context, projectID string, overrideID int6
 	}
 
 	// Confirm override belongs to the project before mutating.
-	o, err := s.store.GetByID(ctx, overrideID)
+	r, err := s.draft()
+	if err != nil {
+		return err
+	}
+	o, err := r.GetByID(ctx, overrideID)
 	if err != nil {
 		return err
 	}
@@ -416,7 +459,11 @@ func (s *Service) requireProjectWrite(ctx context.Context, projectID string) err
 // projectID and performs no permission check — the caller has already
 // authorized the read.
 func (s *Service) EntityFingerprint(ctx context.Context, entityType, entityID string) (string, error) {
-	rows, err := s.store.ListForEntity(ctx, entityType, entityID)
+	r, err := s.draft()
+	if err != nil {
+		return "", err
+	}
+	rows, err := r.ListForEntity(ctx, entityType, entityID)
 	if err != nil {
 		return "", fmt.Errorf("load overrides: %w", err)
 	}

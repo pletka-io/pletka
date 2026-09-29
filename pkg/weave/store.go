@@ -253,10 +253,102 @@ func (a *collectionStoreAdapter) ListReferenceAdopted(ctx context.Context, proje
 }
 
 // Overrides returns an OverrideStore backed by the pkg/weave/override
-// slice store. Same interface as domain.OverrideStore — no method
-// adaptation needed.
+// slice store, through overrideStoreAdapter — override.Store's reads now
+// live behind Store.At(scope) rather than directly on Store (see
+// pkg/weave/override's scoped reader), so this legacy facade can no longer
+// pass the slice store through unchanged the way Collections/Models do.
 func (s *PostgresStore) Overrides() domain.OverrideStore {
-	return weaveoverride.NewPostgresStore(s.pool)
+	return &overrideStoreAdapter{inner: weaveoverride.NewPostgresStore(s.pool)}
+}
+
+// overrideStoreAdapter wraps the pkg/weave/override slice store to satisfy
+// the legacy domain.OverrideStore interface, which still declares its reads
+// directly rather than through a scope-bound Reader. Every read here is
+// hardcoded to weaveauth.Draft() — a stopgap pending this facade's own scope
+// threading, same shape as the ones already applied inside
+// pkg/weave/field/service.go. GetBase is the exception: it takes the
+// caller's scope directly. Mutations forward unchanged.
+type overrideStoreAdapter struct {
+	inner weaveoverride.Store
+}
+
+func (a *overrideStoreAdapter) Create(ctx context.Context, o *domain.FieldOverride) error {
+	return a.inner.Create(ctx, o)
+}
+
+func (a *overrideStoreAdapter) Update(ctx context.Context, o *domain.FieldOverride) error {
+	return a.inner.Update(ctx, o)
+}
+
+func (a *overrideStoreAdapter) Delete(ctx context.Context, id int64) error {
+	return a.inner.Delete(ctx, id)
+}
+
+func (a *overrideStoreAdapter) GetByID(ctx context.Context, id int64) (*domain.FieldOverride, error) {
+	r, err := a.inner.At(weaveauth.Draft())
+	if err != nil {
+		return nil, err
+	}
+	return r.GetByID(ctx, id)
+}
+
+// GetBase reads the base override at the caller's scope — unlike this
+// adapter's other reads, it is not a Draft() stopgap: the caller already
+// names a scope, so this passes its version straight to
+// Store.At(auth.Release(scope.Version())), which resolves to the archived
+// row for a release scope, or the live row for draft. scope.Valid() is
+// checked explicitly first, because reconstructing via
+// Release(scope.Version()) alone would silently turn an unresolved
+// (zero-value) scope into a valid draft read.
+func (a *overrideStoreAdapter) GetBase(ctx context.Context, scope domain.ReadScope, fieldID, projectID string) (*domain.FieldOverride, error) {
+	if !scope.Valid() {
+		return nil, fmt.Errorf("weave: GetBase called with an unresolved read scope")
+	}
+	r, err := a.inner.At(weaveauth.Release(scope.Version()))
+	if err != nil {
+		return nil, err
+	}
+	return r.GetBase(ctx, fieldID, projectID)
+}
+
+func (a *overrideStoreAdapter) ListForEntity(ctx context.Context, entityType, entityID string) ([]domain.FieldOverride, error) {
+	r, err := a.inner.At(weaveauth.Draft())
+	if err != nil {
+		return nil, err
+	}
+	return r.ListForEntity(ctx, entityType, entityID)
+}
+
+func (a *overrideStoreAdapter) ListForField(ctx context.Context, fieldID string) ([]domain.FieldOverride, error) {
+	r, err := a.inner.At(weaveauth.Draft())
+	if err != nil {
+		return nil, err
+	}
+	return r.ListForField(ctx, fieldID)
+}
+
+func (a *overrideStoreAdapter) ListByProjectAndType(ctx context.Context, projectID, entityType string) ([]domain.FieldOverride, error) {
+	r, err := a.inner.At(weaveauth.Draft())
+	if err != nil {
+		return nil, err
+	}
+	return r.ListByProjectAndType(ctx, projectID, entityType)
+}
+
+func (a *overrideStoreAdapter) ReplaceForEntity(ctx context.Context, entityType, entityID string, overrides []domain.FieldOverride) error {
+	return a.inner.ReplaceForEntity(ctx, entityType, entityID, overrides)
+}
+
+func (a *overrideStoreAdapter) SetRefs(ctx context.Context, overrideID int64, refs []domain.OverrideRef) error {
+	return a.inner.SetRefs(ctx, overrideID, refs)
+}
+
+func (a *overrideStoreAdapter) GetRefs(ctx context.Context, overrideID int64) ([]domain.OverrideRef, error) {
+	r, err := a.inner.At(weaveauth.Draft())
+	if err != nil {
+		return nil, err
+	}
+	return r.GetRefs(ctx, overrideID)
 }
 
 // Adoptions returns an AdoptionStore backed by weave_adoptions.

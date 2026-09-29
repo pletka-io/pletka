@@ -471,16 +471,31 @@ type AuthStore interface {
 	BumpPermsVersion(ctx context.Context, actorID string) error
 }
 
+// ReadScope is the version a read is served at (draft or one named
+// release). It exists in this package, rather than importing auth.ReadScope
+// directly, because pkg/auth already imports pkg/domain — an import the
+// other direction would cycle. auth.ReadScope satisfies this interface
+// structurally, so a caller holding one passes it straight through with no
+// conversion.
+type ReadScope interface {
+	// Version is the release version, or "" for the working state.
+	Version() string
+	// Valid reports whether a scope was actually chosen. A read that
+	// receives an invalid scope should fail rather than default to draft.
+	Valid() bool
+}
+
 // OverrideStore handles CRUD and queries for field overrides.
 type OverrideStore interface {
 	Create(ctx context.Context, override *FieldOverride) error
 	Update(ctx context.Context, override *FieldOverride) error
 	Delete(ctx context.Context, id int64) error
 	GetByID(ctx context.Context, id int64) (*FieldOverride, error)
-	GetBase(ctx context.Context, fieldID, projectID string) (*FieldOverride, error)
-	// GetBaseVersion is the version-aware sibling of GetBase — reads the
-	// archived base override at a specific release version.
-	GetBaseVersion(ctx context.Context, fieldID, projectID, version string) (*FieldOverride, error)
+	// GetBase loads the field's base override (entity_type is empty) at
+	// scope — draft for the working state, or the archived row for a named
+	// release. A nil result under a release scope is a legitimate "no base
+	// override was archived at that version," never a fallback signal.
+	GetBase(ctx context.Context, scope ReadScope, fieldID, projectID string) (*FieldOverride, error)
 	ListForEntity(ctx context.Context, entityType, entityID string) ([]FieldOverride, error)
 	ListForField(ctx context.Context, fieldID string) ([]FieldOverride, error)
 	ListByProjectAndType(ctx context.Context, projectID, entityType string) ([]FieldOverride, error)
