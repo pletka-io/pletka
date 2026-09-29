@@ -1172,7 +1172,10 @@ func (h *Handler) buildField(ctx context.Context, projectID, fieldID string) (*R
 	// the resolved release, not the hot draft.
 	categoryID := ""
 	setValue := ""
-	base, _ := h.getFieldBaseOverride(ctx, auth.ReadScopeFromContext(ctx), fieldID, projectID)
+	base, err := h.getFieldBaseOverride(ctx, auth.ReadScopeFromContext(ctx), fieldID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("get field base override: %w", err)
+	}
 	if base != nil {
 		categoryID = base.CategoryID
 		setValue = base.SetValue

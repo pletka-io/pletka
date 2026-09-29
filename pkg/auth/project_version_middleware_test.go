@@ -146,13 +146,14 @@ func TestResolveContentVersion_PrivateMemberGET_ServesHot(t *testing.T) {
 	}
 }
 
-// TestResolveContentVersion_InstallsReadScope covers every outcome of the
-// version-resolution chain (WithProjectVersionContext + ResolveContentVersion)
-// and asserts the ReadScope each one installs on the context. The three
-// Draft() cases (non-public, public editor, lookup failure) are the ones a
-// caller reading through ReadScopeFromContext instead of
-// ProjectVersionFromContext would previously see as the invalid zero value —
-// this is what makes them load-bearing rather than incidental coverage.
+// TestResolveContentVersion_InstallsReadScope drives ResolveContentVersion
+// alone — no WithProjectVersionContext upstream — and asserts the ReadScope
+// each outcome installs on the context. The three Draft() cases (non-public
+// project, public editor, latest-release lookup failure) are what makes this
+// genuinely load-bearing: with no outer middleware filling the gap, deleting
+// any one of ResolveContentVersion's own Draft() insertions makes the
+// corresponding subtest observe the invalid zero-value ReadScope through
+// readScopeEchoHandler, and fail.
 func TestResolveContentVersion_InstallsReadScope(t *testing.T) {
 	publicProject := &domain.Project{Entity: domain.Entity{ID: "P"}, OwnerID: "P", Visibility: "public"}
 	privateProject := &domain.Project{Entity: domain.Entity{ID: "P"}, OwnerID: "OWNER", Visibility: "private"}
@@ -165,14 +166,6 @@ func TestResolveContentVersion_InstallsReadScope(t *testing.T) {
 		reader  *fakeReleaseReader
 		want    string
 	}{
-		{
-			name:    "explicit version",
-			target:  "/x?version=0.1.0",
-			project: publicProject,
-			snap:    &AuthSnapshot{IsAnonymous: true},
-			reader:  &fakeReleaseReader{failIfCalled: t},
-			want:    "release 0.1.0",
-		},
 		{
 			name:    "non-public project",
 			target:  "/x",
@@ -212,7 +205,7 @@ func TestResolveContentVersion_InstallsReadScope(t *testing.T) {
 			req := newRequestWithContext(t, http.MethodGet, c.target, c.project, c.snap)
 			w := httptest.NewRecorder()
 
-			WithProjectVersionContext(ResolveContentVersion(c.reader)(readScopeEchoHandler())).ServeHTTP(w, req)
+			ResolveContentVersion(c.reader)(readScopeEchoHandler()).ServeHTTP(w, req)
 
 			if w.Code != http.StatusOK {
 				t.Fatalf("status = %d, want 200", w.Code)
@@ -221,6 +214,32 @@ func TestResolveContentVersion_InstallsReadScope(t *testing.T) {
 				t.Errorf("ReadScope = %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// TestProjectVersionChain_InstallsReadScope exercises the real production
+// wiring — WithProjectVersionContext(ResolveContentVersion(...)), the way
+// every production mount pairs them — for the one outcome
+// ResolveContentVersion does not itself insert a scope for: an explicit
+// ?version= query, where it deliberately leaves the request "as-is". This
+// proves the scope WithProjectVersionContext installed upstream survives the
+// chain untouched; it is not redundant with the unchained test above, which
+// covers only ResolveContentVersion's own insertions.
+func TestProjectVersionChain_InstallsReadScope(t *testing.T) {
+	publicProject := &domain.Project{Entity: domain.Entity{ID: "P"}, OwnerID: "P", Visibility: "public"}
+	snap := &AuthSnapshot{IsAnonymous: true}
+	reader := &fakeReleaseReader{failIfCalled: t}
+
+	req := newRequestWithContext(t, http.MethodGet, "/x?version=0.1.0", publicProject, snap)
+	w := httptest.NewRecorder()
+
+	WithProjectVersionContext(ResolveContentVersion(reader)(readScopeEchoHandler())).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if got := w.Body.String(); got != "release 0.1.0" {
+		t.Errorf("ReadScope = %q, want %q", got, "release 0.1.0")
 	}
 }
 

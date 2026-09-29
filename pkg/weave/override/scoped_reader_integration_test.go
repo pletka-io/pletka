@@ -25,8 +25,10 @@ func TestScopedReader_ReadsTheRightTable(t *testing.T) {
 	const projectID, entityID, version = "ZSCOPE", "ZSCOPEM.1", "1.0.0"
 
 	// Seed: two overrides live, but only ONE archived at 1.0.0 — so the two
-	// scopes cannot return the same rows by accident.
-	seedScopeFixture(t, pool, projectID, entityID, version)
+	// scopes cannot return the same rows by accident. f1LiveID is the live
+	// (never-archived-by-that-id) override that also carries one live ref
+	// row, used below to prove a release scope does not fall back to it.
+	f1LiveID := seedScopeFixture(t, pool, projectID, entityID, version)
 
 	t.Run("draft reads live", func(t *testing.T) {
 		r, err := store.At(auth.Draft())
@@ -96,16 +98,50 @@ func TestScopedReader_ReadsTheRightTable(t *testing.T) {
 			t.Errorf("got %d refs, want 0", len(refs))
 		}
 	})
+
+	// Review Focus 5 (no-fallback proof): the subtest above shows "no error,
+	// empty result" — it cannot show the reader "never falls back to the
+	// live refs" because seedScopeFixture archives no refs at all, so a
+	// reader that did fall back would also see zero. f1LiveID carries
+	// exactly one live ref and zero archived ones, so a release scope that
+	// wrongly fell back would return 1, not 0.
+	t.Run("a release never falls back to an override's live refs", func(t *testing.T) {
+		draftR, err := store.At(auth.Draft())
+		if err != nil {
+			t.Fatalf("At(Draft): %v", err)
+		}
+		draftRefs, err := draftR.GetRefs(ctx, f1LiveID)
+		if err != nil {
+			t.Fatalf("GetRefs (draft): %v", err)
+		}
+		if len(draftRefs) != 1 {
+			t.Fatalf("draft scope returned %d refs, want 1 (the live ref) — fixture broken", len(draftRefs))
+		}
+
+		releaseR, err := store.At(auth.Release(version))
+		if err != nil {
+			t.Fatalf("At(Release): %v", err)
+		}
+		releaseRefs, err := releaseR.GetRefs(ctx, f1LiveID)
+		if err != nil {
+			t.Fatalf("GetRefs (release): %v", err)
+		}
+		if len(releaseRefs) != 0 {
+			t.Errorf("release scope returned %d refs for a live-only ref, want 0 — it fell back to the live table", len(releaseRefs))
+		}
+	})
 }
 
 // seedScopeFixture creates a scratch project (with its own owner actor, since
 // weave_projects.owner_id is NOT NULL and FK-enforced), two live override
-// rows on (model, entityID), and exactly one archived override row for the
-// same entity at version — so a draft read and a release read cannot agree
-// by accident. Registers t.Cleanup scoped by projectID; never by version
-// alone, since this package's fixtures share one database and several tests
-// reuse version "1.0.0".
-func seedScopeFixture(t *testing.T, pool *pgxpool.Pool, projectID, entityID, version string) {
+// rows on (model, entityID), one live ref row on the first of those, and
+// exactly one archived override row for the same entity at version — so a
+// draft read and a release read cannot agree by accident. Registers
+// t.Cleanup scoped by projectID; never by version alone, since this
+// package's fixtures share one database and several tests reuse version
+// "1.0.0". Returns the live id of the first override (f1), which carries
+// the one live ref row and is never itself archived under that id.
+func seedScopeFixture(t *testing.T, pool *pgxpool.Pool, projectID, entityID, version string) int64 {
 	t.Helper()
 	ownerID := projectID + "_OWNER"
 
@@ -121,12 +157,25 @@ func seedScopeFixture(t *testing.T, pool *pgxpool.Pool, projectID, entityID, ver
 		VALUES ($1, $2::jsonb, $2::jsonb, 'draft', $3, 'private', NOW(), NOW())
 		ON CONFLICT (id) DO NOTHING`, projectID, string(uiName), ownerID)
 
-	// Two live overrides on (model, entityID).
+	// Two live overrides on (model, entityID). f1's id is captured via
+	// RETURNING so a live ref row can be attached to it below.
+	var f1ID int64
+	err = pool.QueryRow(context.Background(), `INSERT INTO weave_field_overrides
+			(field_id, project_id, entity_type, entity_id, position)
+		VALUES ($1 || '.f1', $1, 'model', $2, 0)
+		RETURNING id`, projectID, entityID).Scan(&f1ID)
+	if err != nil {
+		t.Fatalf("insert f1 override: %v", err)
+	}
 	mustScopeExec(t, pool, `INSERT INTO weave_field_overrides
 			(field_id, project_id, entity_type, entity_id, position)
-		VALUES
-			($1 || '.f1', $1, 'model', $2, 0),
-			($1 || '.f2', $1, 'model', $2, 1)`, projectID, entityID)
+		VALUES ($1 || '.f2', $1, 'model', $2, 1)`, projectID, entityID)
+
+	// One live ref on f1, and no archived counterpart anywhere — used to
+	// prove a release scope never falls back to the live refs table.
+	mustScopeExec(t, pool, `INSERT INTO weave_override_refs
+			(override_id, ref_type, target_id, semantic_id, position)
+		VALUES ($1, 'resource_model', $2, $2, 0)`, f1ID, entityID)
 
 	// Exactly one archived override for the same entity, at version. Its id
 	// comes from the shared weave_field_overrides_id_seq so it can never
@@ -156,6 +205,8 @@ func seedScopeFixture(t *testing.T, pool *pgxpool.Pool, projectID, entityID, ver
 			}
 		}
 	})
+
+	return f1ID
 }
 
 // archivedOverrideIDWithoutRefs returns the id of the single archived
