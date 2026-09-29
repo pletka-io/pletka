@@ -62,6 +62,7 @@ a closure gap. Safe to run repeatedly — a clean tree is a no-op.`,
 	projectCmd.AddCommand(reconcileCmd)
 	projectCmd.AddCommand(newReleaseBaselineCommand())
 	projectCmd.AddCommand(newProjectDeleteCommand())
+	projectCmd.AddCommand(newProjectRepinCommand())
 	initGitCmd.Flags().StringVar(&initGitOutputDir, "output-dir", "",
 		"directory for the project working tree (default: ./data/git-projects/<projectID>)")
 	initGitCmd.Flags().BoolVar(&initGitSelfContained, "self-contained", false,
