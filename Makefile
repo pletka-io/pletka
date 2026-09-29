@@ -362,10 +362,24 @@ vuln:
 
 # Fast pre-push gate: compile everything, vet, lint only the diff, run tests.
 # govulncheck is intentionally separate (downloads the advisory DB — slower).
+.PHONY: sqlc-diff
+sqlc-diff:
+	@echo "$(YELLOW)sqlc drift (generated vs queries + migrations)...$(NC)"
+	@go tool sqlc diff || { \
+		echo "$(RED)sqlcgen is out of date — run: go tool sqlc generate$(NC)"; \
+		exit 1; \
+	}
+
+.PHONY: sqlc-generate
+sqlc-generate:
+	@go tool sqlc generate
+	@echo "$(GREEN)sqlcgen regenerated — commit pkg/database/sqlcgen/$(NC)"
+
 .PHONY: check
 check:
 	@echo "$(YELLOW)build...$(NC)" && go build ./...
 	@$(MAKE) --no-print-directory vet
+	@$(MAKE) --no-print-directory sqlc-diff
 	@$(MAKE) --no-print-directory lint-new
 	@$(MAKE) --no-print-directory test
 	@echo "$(GREEN)check passed$(NC)"

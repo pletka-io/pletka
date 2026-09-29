@@ -22,6 +22,17 @@ jobs:
       - uses: actions/setup-go@v7
         with: { go-version: '1.26.6' }
       - run: go build ./...
+      # Generated-code gate — sqlc's own drift check, via `go tool` so the
+      # version pinned in go.mod is used. Exits non-zero when
+      # pkg/database/sqlcgen/ does not match what pkg/database/queries/*.sql
+      # and the migrations would generate, i.e. when someone edited a query
+      # (or a migration) and did not run `go tool sqlc generate`.
+      #
+      # This is here because it already happened: migrations 017-020 merged in
+      # PR #115 without regenerating, so sqlcgen sat a week behind the schema
+      # and the drift only surfaced when an unrelated branch regenerated and
+      # picked up seven archive structs nobody expected in its diff.
+      - run: go tool sqlc diff
       # Lint gate — golangci-lint v2 (staticcheck + suite, .golangci.yml) via
       # `go tool` so the version pinned in go.mod is used, matching local dev.
       # --new-from-merge-base blocks only issues this branch introduces vs main;
