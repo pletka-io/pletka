@@ -23,6 +23,9 @@ type Host struct {
 	// ConceptValueChecker validates a field's set_value against its bound
 	// control list(s) on override save (#3599). Optional — nil skips it.
 	ConceptValueChecker ConceptListValueChecker
+	// OrgResolver resolves a project owner sent as an org slug to the org's
+	// actor id on create. Optional — nil leaves the value as sent.
+	OrgResolver OrgResolver
 }
 
 func (h Host) Validate() error {
@@ -51,6 +54,7 @@ func Mount(parent chi.Router, host Host) {
 	}
 	h := NewHandler(host.Service, host.Overrides, host.Weave, host.Logger, host.Languages, host.LangResolver)
 	h.SetConceptListValueChecker(host.ConceptValueChecker)
+	h.SetOrgResolver(host.OrgResolver)
 
 	// POST /projects → create. Coexists with the pages slice's GET /projects
 	// on the same path.
