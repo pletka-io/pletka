@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/advisorylock"
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // lockTimeout bounds the TOTAL time a WithAdvisoryLock caller waits to
@@ -755,7 +755,6 @@ func derefStr(p *string) string {
 	}
 	return *p
 }
-
 
 func derefBool(p *bool) bool {
 	if p == nil {
