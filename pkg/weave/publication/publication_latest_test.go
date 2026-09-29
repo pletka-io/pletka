@@ -64,3 +64,51 @@ func TestLatestReleaseVersion(t *testing.T) {
 		t.Errorf("got %q want empty for a project with no release", got)
 	}
 }
+
+// TestLatestReleaseVersion_SkipsArchived pins that archiving a release
+// actually retires it. Before this, archiving changed nothing observable: the
+// archived release stayed "latest", so it kept deciding what a public
+// non-editor was served and kept supplying the created_at that every entity's
+// state is derived against. A release cut by mistake made the whole draft
+// render as "published" and archiving it did not move the baseline back.
+func TestLatestReleaseVersion_SkipsArchived(t *testing.T) {
+	pool := testPool(t)
+	seedLatestReleaseFixture(t, pool)
+	r := NewReader(pool)
+	ctx := context.Background()
+
+	// Sanity: 0.10.0 is latest while nothing is archived. Without this the
+	// assertion below could pass because the fixture never had 0.10.0.
+	if got, err := r.LatestReleaseVersion(ctx, "TEST_LATEST"); err != nil || got != "0.10.0" {
+		t.Fatalf("precondition: got %q err %v, want 0.10.0", got, err)
+	}
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE weave_releases SET archived_at = NOW(), archived_message = 'cut by mistake'
+		 WHERE project_id = 'TEST_LATEST' AND version = '0.10.0'`); err != nil {
+		t.Fatalf("archive 0.10.0: %v", err)
+	}
+
+	got, err := r.LatestReleaseVersion(ctx, "TEST_LATEST")
+	if err != nil {
+		t.Fatalf("LatestReleaseVersion after archiving: %v", err)
+	}
+	if got != "0.9.0" {
+		t.Errorf("got %q, want 0.9.0 — an archived release must not remain latest", got)
+	}
+
+	// Every release archived reads the same as no release at all: callers
+	// fall back to the working state rather than to a retired snapshot.
+	if _, err := pool.Exec(ctx,
+		`UPDATE weave_releases SET archived_at = NOW(), archived_message = 'cut by mistake'
+		 WHERE project_id = 'TEST_LATEST'`); err != nil {
+		t.Fatalf("archive all: %v", err)
+	}
+	got, err = r.LatestReleaseVersion(ctx, "TEST_LATEST")
+	if err != nil {
+		t.Fatalf("LatestReleaseVersion all archived: %v", err)
+	}
+	if got != "" {
+		t.Errorf("got %q, want empty when every release is archived", got)
+	}
+}

@@ -93,11 +93,23 @@ func specFor(entityType string) (entitySpec, error) {
 
 // latestReleaseCTE selects the highest-semver release for $1, tolerating an
 // optional -prerelease / +build suffix by comparing only the numeric core.
+//
+// Archived releases are excluded. Archiving is the one lifecycle change a
+// release has and it means retired, so a retired release must not remain the
+// project's latest. Without this filter archiving changed nothing an operator
+// could observe: a retired release still decided what a public non-editor was
+// served, and still supplied the created_at that every entity's
+// draft/new/modified/published state is derived against. A release cut by
+// mistake therefore made a project's entire draft render as "published", and
+// archiving it did not move the baseline back.
+//
+// When every release is archived this yields no row, exactly as for a project
+// with no releases, and callers fall back to the working state.
 const latestReleaseCTE = `
 rel AS (
   SELECT version, created_at
   FROM weave_releases
-  WHERE project_id = $1
+  WHERE project_id = $1 AND archived_at IS NULL
   ORDER BY string_to_array(split_part(split_part(version, '-', 1), '+', 1), '.')::int[] DESC,
            created_at DESC
   LIMIT 1
