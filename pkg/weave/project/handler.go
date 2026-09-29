@@ -57,6 +57,11 @@ type Handler struct {
 	// conceptCheck validates a field's set_value against its bound control
 	// list(s) on override save (#3599). Optional — nil skips the check.
 	conceptCheck ConceptListValueChecker
+	// orgs resolves an owner sent as an org slug to the org's actor id on
+	// create. The owner select emits org slugs (BrowseItem.ID is the slug,
+	// used for slug-addressed org links), but weave_projects.owner_id is an
+	// FK to weave_actors.id. Optional — nil leaves the value as sent.
+	orgs OrgResolver
 }
 
 // ConceptListValueChecker reports whether a concept URI is a member of the
@@ -68,6 +73,32 @@ type ConceptListValueChecker interface {
 // SetConceptListValueChecker wires the optional set_value control-list
 // validator (#3599). Hosts call this after Mount builds the handler.
 func (h *Handler) SetConceptListValueChecker(c ConceptListValueChecker) { h.conceptCheck = c }
+
+// OrgResolver resolves an organization slug to its domain record (whose ID is
+// the org's actor id). Satisfied by organization.Service.
+type OrgResolver interface {
+	GetBySlug(ctx context.Context, slug string) (*domain.Organization, error)
+}
+
+// SetOrgResolver wires the optional owner slug→actor-id resolver used on
+// create. Hosts call this after Mount builds the handler.
+func (h *Handler) SetOrgResolver(o OrgResolver) { h.orgs = o }
+
+// resolveOwnerID maps an owner sent as an org slug to the org's actor id. The
+// auth snapshot keys orgs by slug, but weave_projects.owner_id is an FK to
+// weave_actors.id, so an unresolved slug would violate fk_wp_owner. A value
+// that isn't an org slug (a bare actor id, personal workspace) resolves to nil
+// and is returned unchanged.
+func (h *Handler) resolveOwnerID(ctx context.Context, requested string) string {
+	if h.orgs == nil {
+		return requested
+	}
+	org, err := h.orgs.GetBySlug(ctx, requested)
+	if err != nil || org == nil || org.ID == "" {
+		return requested
+	}
+	return org.ID
+}
 
 // NewHandler constructs a Handler. nil log → slog.Default; nil lang → "en".
 func NewHandler(svc *Service, overrides *overridepkg.Service, weave domain.WeaveStore, log *slog.Logger, languages []formschema.LanguageInfo, lang LangResolver) *Handler {
@@ -427,7 +458,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusForbidden, "forbidden: requires org.project_create on org:"+requested)
 			return
 		}
-		ownerID = requested
+		ownerID = h.resolveOwnerID(r.Context(), requested)
 	}
 
 	created, err := h.svc.Create(r.Context(), CreateInput{

@@ -45,6 +45,7 @@ export interface RowAction {
   label: Translations;
   style?: string;
   url_template?: string;
+  form_schema_url_template?: string;
   method?: string;
   visible_when?: string;
 }

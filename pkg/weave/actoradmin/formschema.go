@@ -80,6 +80,14 @@ func BuildUserEntityListSchema(lang string, languages []formschema.LanguageInfo)
 				FormSchemaURLTemplate: "/admin/users/form-schema?mode=edit&entity_id={id}",
 			},
 		},
+		RowActions: []formschema.RowAction{
+			{
+				ID:                    "reset-password",
+				Icon:                  "key",
+				Label:                 i18n.L("admin.users.reset_password", "Reset password"),
+				FormSchemaURLTemplate: "/admin/users/{id}/password-form-schema",
+			},
+		},
 		UI: formschema.SchemaUI{
 			Languages:   languages,
 			PrimaryLang: lang,

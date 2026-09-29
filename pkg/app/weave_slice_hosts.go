@@ -210,6 +210,7 @@ func buildProjectHost(
 		Languages:           languages,
 		LangResolver:        langResolver,
 		ConceptValueChecker: vocabulary.NewService(pool, nil), // set_value must be a control-list member (#3599)
+		OrgResolver:         organization.NewService(organization.NewPostgresStore(pool), pool, logger),
 	}
 }
 

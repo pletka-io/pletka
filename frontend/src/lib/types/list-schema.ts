@@ -78,6 +78,11 @@ export interface RowAction {
    *  frontend POSTs/etc here on click instead of using the built-in
    *  default for action.id. */
   url_template?: string;
+  /** Optional form-schema URL template — substitute {id} with row id. When
+   *  set, clicking the action opens the form view pointed at that
+   *  self-describing form (which posts to its own endpoint) instead of
+   *  firing a direct fetch. Used by admin "reset password". */
+  form_schema_url_template?: string;
   /** HTTP verb to use with url_template. Default varies by action.id. */
   method?: string;
   /** Simple expression evaluated against the row payload to gate
