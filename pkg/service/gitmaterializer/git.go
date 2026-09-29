@@ -130,12 +130,37 @@ func (g *gitRunner) RevParseHead(ctx context.Context) (string, error) {
 	return strings.TrimSpace(out.String()), nil
 }
 
+// noAutoGC disables git's automatic garbage collection for every command this
+// runner issues.
+//
+// git runs `gc --auto` after a commit, and with gc.autoDetach (the default)
+// it forks a BACKGROUND process that keeps writing to .git/objects after the
+// foreground command has exited. exec's Run() waits for the command, not for
+// that child — so the work outlives the call.
+//
+// In tests that surfaces as a flaky failure with no bad assertion: the test
+// body passes, then t.TempDir's RemoveAll races the detached gc and reports
+// "unlinkat .../.git/objects: directory not empty". It bit CI on the AME
+// self-contained snapshot, which vendors five parent projects and their
+// ontologies and so writes enough loose objects to cross gc.auto's threshold.
+//
+// It is the right default in production too. These repos are rewritten
+// constantly by the materializer, and an unscheduled gc means unpredictable
+// latency and I/O on the app box at a moment nothing chose. Repacking, if it
+// is ever wanted, belongs in a maintenance job that can be reasoned about.
+// It is injected through GIT_CONFIG_* rather than "-c" so the command's argv
+// is untouched: the error messages below quote args verbatim, and gosec reads
+// an appended argv as tainted input.
+var noAutoGC = []string{
+	"GIT_CONFIG_COUNT=1",
+	"GIT_CONFIG_KEY_0=gc.auto",
+	"GIT_CONFIG_VALUE_0=0",
+}
+
 func (g *gitRunner) run(ctx context.Context, extraEnv []string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = g.workDir
-	if len(extraEnv) > 0 {
-		cmd.Env = append(os.Environ(), extraEnv...)
-	}
+	cmd.Env = append(append(os.Environ(), noAutoGC...), extraEnv...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
