@@ -101,6 +101,7 @@ func ResolveContentVersion(reader LatestReleaseReader) func(http.Handler) http.H
 			}
 			if v := ResolveEffectiveVersion(snap, project, "", latest); v != "" {
 				ctx = WithProjectVersion(ctx, v)
+				ctx = WithReadScope(ctx, Release(v))
 			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
