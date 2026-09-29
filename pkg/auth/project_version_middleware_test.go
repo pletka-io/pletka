@@ -35,6 +35,13 @@ func versionEchoHandler() http.Handler {
 	})
 }
 
+func readScopeEchoHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(ReadScopeFromContext(r.Context()).String()))
+	})
+}
+
 func newRequestWithContext(t *testing.T, method, target string, project *domain.Project, snap *AuthSnapshot) *http.Request {
 	t.Helper()
 	req := httptest.NewRequestWithContext(context.Background(), method, target, nil)
@@ -136,6 +143,84 @@ func TestResolveContentVersion_PrivateMemberGET_ServesHot(t *testing.T) {
 	}
 	if got := w.Body.String(); got != "" {
 		t.Fatalf("body = %q, want empty (hot)", got)
+	}
+}
+
+// TestResolveContentVersion_InstallsReadScope covers every outcome of the
+// version-resolution chain (WithProjectVersionContext + ResolveContentVersion)
+// and asserts the ReadScope each one installs on the context. The three
+// Draft() cases (non-public, public editor, lookup failure) are the ones a
+// caller reading through ReadScopeFromContext instead of
+// ProjectVersionFromContext would previously see as the invalid zero value —
+// this is what makes them load-bearing rather than incidental coverage.
+func TestResolveContentVersion_InstallsReadScope(t *testing.T) {
+	publicProject := &domain.Project{Entity: domain.Entity{ID: "P"}, OwnerID: "P", Visibility: "public"}
+	privateProject := &domain.Project{Entity: domain.Entity{ID: "P"}, OwnerID: "OWNER", Visibility: "private"}
+
+	cases := []struct {
+		name    string
+		target  string
+		project *domain.Project
+		snap    *AuthSnapshot
+		reader  *fakeReleaseReader
+		want    string
+	}{
+		{
+			name:    "explicit version",
+			target:  "/x?version=0.1.0",
+			project: publicProject,
+			snap:    &AuthSnapshot{IsAnonymous: true},
+			reader:  &fakeReleaseReader{failIfCalled: t},
+			want:    "release 0.1.0",
+		},
+		{
+			name:    "non-public project",
+			target:  "/x",
+			project: privateProject,
+			snap:    &AuthSnapshot{Roles: map[string]string{"project:P": "contributor"}},
+			reader:  &fakeReleaseReader{failIfCalled: t},
+			want:    "draft",
+		},
+		{
+			name:    "public editor",
+			target:  "/x",
+			project: publicProject,
+			snap:    &AuthSnapshot{OwnedProjectIDs: map[string]struct{}{"P": {}}},
+			reader:  &fakeReleaseReader{version: "1.2.0"},
+			want:    "draft",
+		},
+		{
+			name:    "latest release lookup fails",
+			target:  "/x",
+			project: publicProject,
+			snap:    &AuthSnapshot{IsAnonymous: true},
+			reader:  &fakeReleaseReader{err: errReaderBoom},
+			want:    "draft",
+		},
+		{
+			name:    "public non-editor with a release",
+			target:  "/x",
+			project: publicProject,
+			snap:    &AuthSnapshot{IsAnonymous: true},
+			reader:  &fakeReleaseReader{version: "1.2.0"},
+			want:    "release 1.2.0",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := newRequestWithContext(t, http.MethodGet, c.target, c.project, c.snap)
+			w := httptest.NewRecorder()
+
+			WithProjectVersionContext(ResolveContentVersion(c.reader)(readScopeEchoHandler())).ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", w.Code)
+			}
+			if got := w.Body.String(); got != c.want {
+				t.Errorf("ReadScope = %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 
