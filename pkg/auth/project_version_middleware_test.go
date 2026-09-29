@@ -224,6 +224,39 @@ func TestResolveContentVersion_InstallsReadScope(t *testing.T) {
 	}
 }
 
+// TestWithProjectVersionContext_InstallsReadScopeAlone covers the routes
+// that carry WithProjectVersionContext but never carry ResolveContentVersion
+// — e.g. pkg/weave/project/routes.go's mountAt, which the override slice's
+// own routes go through. On those routes a request without ?version= must
+// still see Draft(), not the invalid zero value: ResolveContentVersion is
+// not there to fill the gap.
+func TestWithProjectVersionContext_InstallsReadScopeAlone(t *testing.T) {
+	cases := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{"no explicit version", "/x", "draft"},
+		{"explicit version", "/x?version=0.1.0", "release 0.1.0"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, c.target, nil)
+			w := httptest.NewRecorder()
+
+			WithProjectVersionContext(readScopeEchoHandler()).ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", w.Code)
+			}
+			if got := w.Body.String(); got != c.want {
+				t.Errorf("ReadScope = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestResolveContentVersion_ReaderError_FailsSafeToHot(t *testing.T) {
 	project := &domain.Project{Entity: domain.Entity{ID: "P"}, OwnerID: "P", Visibility: "public"}
 	snap := &AuthSnapshot{IsAnonymous: true}

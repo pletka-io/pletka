@@ -34,12 +34,16 @@ func ProjectVersionFromContext(ctx context.Context) string {
 }
 
 // WithProjectVersionContext attaches the ?version= query value to context and
-// rejects mutating requests when a released version is in scope.
+// rejects mutating requests when a released version is in scope. It always
+// installs a ReadScope — Release(version) when one was requested, Draft()
+// otherwise — so routes that carry this middleware but not
+// ResolveContentVersion (e.g. mountAt in pkg/weave/project/routes.go) still
+// give downstream reads a valid scope instead of the invalid zero value.
 func WithProjectVersionContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		version := r.URL.Query().Get("version")
 		if version == "" {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(WithReadScope(r.Context(), Draft())))
 			return
 		}
 		if !isSafeMethod(r.Method) {
