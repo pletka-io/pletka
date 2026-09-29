@@ -57,6 +57,9 @@
   let editingId = $state<string | null>(null);
   let deletingItem = $state<any | null>(null);
   let statsId = $state<string | null>(null);
+  // Set when a row action opens a self-describing form (e.g. reset password)
+  // instead of the row's edit form. Cleared on backToList.
+  let customFormUrl = $state('');
 
   // Filter drawer state + lazy options cache (shared with ActiveFiltersBar).
   let drawerOpen = $state(false);
@@ -373,7 +376,7 @@
   }
 
   function showAdd() { view = 'add'; }
-  function backToList() { view = 'list'; editingId = null; onitemchange?.(null); }
+  function backToList() { view = 'list'; editingId = null; customFormUrl = ''; onitemchange?.(null); }
 
   // A save can move the item out of the current view (a draft becomes valid
   // under a status=draft filter, #3575). If the saved item is missing after
@@ -430,6 +433,17 @@
 
   async function handleSchemaAction(actionId: string, item: any) {
     const action = findRowAction(actionId);
+    // A row action carrying a form_schema_url_template opens the form view
+    // pointed at that self-describing form (which posts to its own endpoint),
+    // rather than firing a direct fetch. Used by admin "reset password".
+    if (action?.form_schema_url_template) {
+      if (readOnlyReleaseMode) return;
+      customFormUrl = buildActionURL(action.form_schema_url_template.replace('{id}', item.id));
+      editingId = item.id;
+      view = 'edit';
+      onitemchange?.(item.id);
+      return;
+    }
     if (!action?.url_template) return;
     const url = buildActionURL(action.url_template.replace('{id}', item.id));
     const method = (action.method || 'POST').toUpperCase();
@@ -782,7 +796,9 @@
         <FormRenderer
           schemaUrl={view === 'add'
             ? buildActionURL(effectiveCreateAction!.form_schema_url)
-            : buildActionURL(effectiveEditCap!.form_schema_url_template.replace('{id}', editingId!))}
+            : customFormUrl
+              ? customFormUrl
+              : buildActionURL(effectiveEditCap!.form_schema_url_template.replace('{id}', editingId!))}
           {lang}
           onsuccess={handleFormSuccess}
           oncancel={backToList}

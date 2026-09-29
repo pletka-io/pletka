@@ -132,6 +132,12 @@ type RowAction struct {
 	// action ID (e.g., delete uses Caps.Delete.URLTemplate).
 	URLTemplate string `json:"url_template,omitempty"`
 
+	// FormSchemaURLTemplate, when set, makes the action open the form view
+	// pointed at that self-describing form-schema URL (which posts to its own
+	// endpoint) instead of firing a direct fetch on URLTemplate. Substitute
+	// {id} with the row's ID. Used by admin "reset password".
+	FormSchemaURLTemplate string `json:"form_schema_url_template,omitempty"`
+
 	// Method is the HTTP verb to use when invoking URLTemplate. Defaults
 	// vary by action ID — lifecycle actions are typically POST.
 	Method string `json:"method,omitempty"`
