@@ -251,27 +251,35 @@ func TestVendorSnapshotIncludesDefaultsOntology(t *testing.T) {
 		t.Cleanup(func() { cleanup() })
 
 		// The fixture-hydrated template always carries a real "defaults"
-		// ontology now (see the doc comment on the parent test), so exercising
-		// the true no-defaults / backward-compatible path requires removing it
-		// from this package's own clone first. This is safe and isolated:
-		// internal/testdb.Setup cuts one disposable clone per package, and no
-		// other test in this package (pkg/service/gitmaterializer) reads or
-		// depends on the defaults ontology — this subtest's "present" sibling
-		// runs first (t.Run order within the parent Test function) and does
-		// not depend on the defaults ontology surviving into this one.
-		if defaultsOntology, err := queries.WeaveGetOntologyByPrefix(ctx, "defaults"); err == nil {
-			if defaultsVersion, verr := queries.WeaveGetActiveOntologyVersion(ctx, defaultsOntology.ID); verr == nil {
-				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_relations r USING weave_ontology_classes c WHERE r.source_id = c.id AND c.ontology_version_id = $1`, defaultsVersion.ID)
-				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_classes WHERE ontology_version_id = $1`, defaultsVersion.ID)
-			} else if !errors.Is(verr, pgx.ErrNoRows) {
-				t.Fatalf("look up active version of defaults ontology: %v", verr)
+		// ontology (see the doc comment on the parent test), so exercising the
+		// true no-defaults / backward-compatible path requires making it
+		// invisible to this subtest first.
+		//
+		// It is PARKED, not deleted. Production finds it with one lookup —
+		// WeaveGetOntologyByPrefix(ctx, "defaults") at vendor_snapshot.go:218
+		// — so renaming the prefix reproduces "no defaults in this DB"
+		// exactly, while leaving the ontology, its version, its classes and
+		// its relations intact and restorable in one statement.
+		//
+		// Deleting it used to be argued safe because the clone is disposable
+		// and the sibling subtest runs first. That holds for ONE run: the
+		// clone is cut once per package, so under `go test -count=2` the
+		// second iteration's sibling found no defaults ontology and failed
+		// with "expected template clone to carry a real defaults ontology".
+		// A test that cannot run twice cannot be re-run to chase a flake,
+		// which is exactly what we wanted it for.
+		const parkedPrefix = "defaults-parked-by-test"
+		if _, err := queries.WeaveGetOntologyByPrefix(ctx, "defaults"); err == nil {
+			if _, err := pool.Exec(ctx,
+				`UPDATE weave_ontologies SET prefix = $1 WHERE prefix = 'defaults'`, parkedPrefix); err != nil {
+				t.Fatalf("park defaults ontology: %v", err)
 			}
-			if _, err := pool.Exec(ctx, `DELETE FROM weave_ontology_versions WHERE ontology_id = $1`, defaultsOntology.ID); err != nil {
-				t.Fatalf("delete defaults ontology versions: %v", err)
-			}
-			if _, err := pool.Exec(ctx, `DELETE FROM weave_ontologies WHERE id = $1`, defaultsOntology.ID); err != nil {
-				t.Fatalf("delete defaults ontology: %v", err)
-			}
+			t.Cleanup(func() {
+				if _, err := pool.Exec(context.Background(),
+					`UPDATE weave_ontologies SET prefix = 'defaults' WHERE prefix = $1`, parkedPrefix); err != nil {
+					t.Errorf("restore defaults ontology prefix: %v", err)
+				}
+			})
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			t.Fatalf("look up defaults ontology: %v", err)
 		}
