@@ -243,3 +243,37 @@ WHERE field_id = $1 AND project_id = $2 AND entity_type IN ('model', 'collection
 SELECT entity_type, entity_id, field_id
 FROM weave_field_overrides
 WHERE id = $1 AND project_id = $2;
+
+-- name: WeaveListOverridesForEntityVersion :many
+-- Version-aware sibling of WeaveListOverridesForEntity: the overrides an
+-- entity carried at a release, from the archive. Ordering matches the live
+-- query so a caller cannot tell the two apart by row order.
+SELECT * FROM weave_field_overrides_archive
+WHERE entity_type = $1 AND entity_id = $2 AND version_number = $3
+ORDER BY position;
+
+-- name: WeaveListOverridesForFieldVersion :many
+-- Version-aware sibling of WeaveListOverridesForField.
+SELECT * FROM weave_field_overrides_archive
+WHERE field_id = $1 AND version_number = $2
+ORDER BY CASE entity_type WHEN 'model' THEN 0 WHEN 'collection' THEN 1 ELSE 2 END, position;
+
+-- name: WeaveListOverridesByProjectAndTypeVersion :many
+-- Version-aware sibling of WeaveListOverridesByProjectAndType.
+SELECT * FROM weave_field_overrides_archive
+WHERE project_id = $1 AND entity_type = $2 AND version_number = $3
+ORDER BY entity_id, position;
+
+-- name: WeaveGetOverrideRefsVersion :many
+-- Version-aware sibling of WeaveGetOverrideRefs. weave_override_refs_archive
+-- keys on (override_id, ref_type, position, version_number) — it has no id of
+-- its own, because the live table's identity is that composite.
+SELECT * FROM weave_override_refs_archive
+WHERE override_id = $1 AND version_number = $2
+ORDER BY ref_type, position;
+
+-- name: WeaveGetOverrideByIDVersion :one
+-- Version-aware sibling of WeaveGetOverrideByID: one archived override row
+-- by id at a release version.
+SELECT * FROM weave_field_overrides_archive
+WHERE id = $1 AND version_number = $2;

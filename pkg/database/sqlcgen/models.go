@@ -254,6 +254,21 @@ type WeaveCollectionPlacement struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+type WeaveCollectionPlacementsArchive struct {
+	ID            int64     `json:"id"`
+	ProjectID     string    `json:"project_id"`
+	ModelID       string    `json:"model_id"`
+	CategoryID    string    `json:"category_id"`
+	CollectionID  string    `json:"collection_id"`
+	IsRequired    bool      `json:"is_required"`
+	MinOccurs     int32     `json:"min_occurs"`
+	MaxOccurs     *int32    `json:"max_occurs"`
+	IsHidden      bool      `json:"is_hidden"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	VersionNumber string    `json:"version_number"`
+}
+
 type WeaveCollectionsArchive struct {
 	ID                       string    `json:"id"`
 	CreatedAt                time.Time `json:"created_at"`
@@ -422,6 +437,40 @@ type WeaveExampleValue struct {
 	UpdatedAt          time.Time       `json:"updated_at"`
 	VersionNumber      string          `json:"version_number"`
 	SlotPath           string          `json:"slot_path"`
+}
+
+type WeaveExampleValuesArchive struct {
+	ID                 int64           `json:"id"`
+	ExampleID          string          `json:"example_id"`
+	OverrideID         int64           `json:"override_id"`
+	FieldID            string          `json:"field_id"`
+	PartOfCollectionID *string         `json:"part_of_collection_id"`
+	OccurrenceIndex    int32           `json:"occurrence_index"`
+	ValueKind          string          `json:"value_kind"`
+	ValuePayload       json.RawMessage `json:"value_payload"`
+	TextValue          *string         `json:"text_value"`
+	NumberValue        pgtype.Numeric  `json:"number_value"`
+	DateValue          pgtype.Date     `json:"date_value"`
+	UriValue           *string         `json:"uri_value"`
+	ConceptUri         *string         `json:"concept_uri"`
+	LinkedExampleID    *string         `json:"linked_example_id"`
+	SlotPath           string          `json:"slot_path"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
+	VersionNumber      string          `json:"version_number"`
+}
+
+type WeaveExamplesArchive struct {
+	ID            string    `json:"id"`
+	ProjectID     string    `json:"project_id"`
+	EntityType    string    `json:"entity_type"`
+	EntityID      string    `json:"entity_id"`
+	Title         []byte    `json:"title"`
+	Description   []byte    `json:"description"`
+	Status        string    `json:"status"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	VersionNumber string    `json:"version_number"`
 }
 
 type WeaveField struct {
@@ -801,6 +850,14 @@ type WeaveProjectActor struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type WeaveProjectActorsArchive struct {
+	ProjectID     string    `json:"project_id"`
+	ActorID       string    `json:"actor_id"`
+	Role          string    `json:"role"`
+	CreatedAt     time.Time `json:"created_at"`
+	VersionNumber string    `json:"version_number"`
+}
+
 type WeaveProjectAttribution struct {
 	ProjectID string    `json:"project_id"`
 	ActorID   string    `json:"actor_id"`
@@ -808,6 +865,16 @@ type WeaveProjectAttribution struct {
 	Position  int32     `json:"position"`
 	Note      string    `json:"note"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type WeaveProjectAttributionsArchive struct {
+	ProjectID     string    `json:"project_id"`
+	ActorID       string    `json:"actor_id"`
+	Kind          string    `json:"kind"`
+	Position      int32     `json:"position"`
+	Note          string    `json:"note"`
+	CreatedAt     time.Time `json:"created_at"`
+	VersionNumber string    `json:"version_number"`
 }
 
 type WeaveProjectInheritance struct {
@@ -897,6 +964,23 @@ type WeaveRelease struct {
 	ArchivedMessage string             `json:"archived_message"`
 }
 
+type WeaveVocabulariesArchive struct {
+	ID            string    `json:"id"`
+	ProjectID     string    `json:"project_id"`
+	SemanticID    *string   `json:"semantic_id"`
+	SystemName    *string   `json:"system_name"`
+	UiName        []byte    `json:"ui_name"`
+	Description   []byte    `json:"description"`
+	Status        string    `json:"status"`
+	ConnectorType string    `json:"connector_type"`
+	BaseUri       *string   `json:"base_uri"`
+	Config        []byte    `json:"config"`
+	Deprecated    bool      `json:"deprecated"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	VersionNumber string    `json:"version_number"`
+}
+
 type WeaveVocabulary struct {
 	ID              string    `json:"id"`
 	CreatedAt       time.Time `json:"created_at"`
@@ -912,6 +996,21 @@ type WeaveVocabulary struct {
 	Config          []byte    `json:"config"`
 	ConfigEncrypted []byte    `json:"config_encrypted"`
 	Deprecated      bool      `json:"deprecated"`
+}
+
+type WeaveVocabularyEntriesArchive struct {
+	ID               string          `json:"id"`
+	VocabularyID     string          `json:"vocabulary_id"`
+	Uri              string          `json:"uri"`
+	Label            json.RawMessage `json:"label"`
+	ScopeNote        []byte          `json:"scope_note"`
+	BroaderUri       *string         `json:"broader_uri"`
+	BroaderPath      json.RawMessage `json:"broader_path"`
+	BroaderPathItems json.RawMessage `json:"broader_path_items"`
+	ExternalID       *string         `json:"external_id"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
+	VersionNumber    string          `json:"version_number"`
 }
 
 type WeaveVocabularyEntry struct {
