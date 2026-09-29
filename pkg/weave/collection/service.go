@@ -416,7 +416,7 @@ func (s *Service) ListOverrides(ctx context.Context, projectID, collectionID str
 	if _, err := s.requireOwn(ctx, projectID, collectionID); err != nil {
 		return nil, err
 	}
-	return s.overrides.ListForEntity(ctx, projectID, "collection", collectionID)
+	return s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "collection", collectionID)
 }
 
 func (s *Service) SaveOverrides(ctx context.Context, projectID, collectionID string, desired []domain.FieldOverride, commitMessage string) ([]domain.FieldOverride, override.Diff, error) {
@@ -485,7 +485,7 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceCollectio
 	// rewritten consistently from source-project semantic IDs onto the
 	// current project's local equivalents (adopt/adapt implementation
 	// task 3).
-	srcOverridesForRemap, err := s.overrides.ListForEntity(ctx, projectID, "collection", source.ID)
+	srcOverridesForRemap, err := s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "collection", source.ID)
 	if err != nil {
 		return nil, fmt.Errorf("load source overrides for remap: %w", err)
 	}
@@ -545,7 +545,7 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceCollectio
 		return nil, fmt.Errorf("persist forked collection overrides: %w", err)
 	}
 
-	sourceOverrides, err := s.overrides.ListForEntity(ctx, projectID, "collection", source.ID)
+	sourceOverrides, err := s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "collection", source.ID)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("load source collection overrides: %w", err)
@@ -554,7 +554,7 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceCollectio
 		if i >= len(saved) {
 			break
 		}
-		refs, err := s.overrides.GetRefs(ctx, projectID, sourceOverrides[i].ID)
+		refs, err := s.overrides.GetRefs(ctx, auth.Draft(), projectID, sourceOverrides[i].ID)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("load source override refs: %w", err)

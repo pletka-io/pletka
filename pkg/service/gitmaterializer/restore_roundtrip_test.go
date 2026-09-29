@@ -260,7 +260,7 @@ func TestServerCreatedProjectRoundTrip(t *testing.T) {
 	collectionCountBefore := countProjectRows(t, ctx, pool, "weave_collections", projectID)
 	overrideCountBefore := countProjectRows(t, ctx, pool, "weave_field_overrides", projectID)
 
-	overridesBefore, err := overrideSvc.ListForEntity(ctx, projectID, "model", mdl.ID)
+	overridesBefore, err := overrideSvc.ListForEntity(ctx, weaveauth.Draft(), projectID, "model", mdl.ID)
 	if err != nil {
 		t.Fatalf("list overrides before: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestServerCreatedProjectRoundTrip(t *testing.T) {
 		t.Fatalf("override count mismatch: before=%d after=%d", overrideCountBefore, got)
 	}
 
-	overridesAfter, err := overrideSvc.ListForEntity(ctx, projectID, "model", modelID)
+	overridesAfter, err := overrideSvc.ListForEntity(ctx, weaveauth.Draft(), projectID, "model", modelID)
 	if err != nil {
 		t.Fatalf("list overrides after: %v", err)
 	}

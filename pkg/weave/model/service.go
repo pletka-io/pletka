@@ -431,7 +431,7 @@ func (s *Service) ListOverrides(ctx context.Context, projectID, modelID string) 
 	if _, err := s.requireOwn(ctx, projectID, modelID); err != nil {
 		return nil, err
 	}
-	return s.overrides.ListForEntity(ctx, projectID, "model", modelID)
+	return s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "model", modelID)
 }
 
 // SaveOverrides bulk-replaces the model's override list with desired,
@@ -578,7 +578,7 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceModelID s
 		_ = s.store.Delete(ctx, created.ID)
 	}
 
-	cloned, err := s.overrides.ListForEntity(ctx, projectID, "model", source.ID)
+	cloned, err := s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "model", source.ID)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("load source model overrides: %w", err)
@@ -612,7 +612,7 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceModelID s
 		return nil, fmt.Errorf("persist forked model overrides: %w", err)
 	}
 
-	sourceOverrides, err := s.overrides.ListForEntity(ctx, projectID, "model", source.ID)
+	sourceOverrides, err := s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "model", source.ID)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("load source override refs: %w", err)
@@ -621,7 +621,7 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceModelID s
 		if i >= len(saved) {
 			break
 		}
-		refs, err := s.overrides.GetRefs(ctx, projectID, sourceOverrides[i].ID)
+		refs, err := s.overrides.GetRefs(ctx, auth.Draft(), projectID, sourceOverrides[i].ID)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("load source override refs: %w", err)
