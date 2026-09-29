@@ -264,10 +264,10 @@ func (s *PostgresStore) Overrides() domain.OverrideStore {
 // overrideStoreAdapter wraps the pkg/weave/override slice store to satisfy
 // the legacy domain.OverrideStore interface, which still declares its reads
 // directly rather than through a scope-bound Reader. Every read here is
-// hardcoded to weaveauth.Draft() (or, for GetBaseVersion, to the caller's
-// own version) — a stopgap pending this facade's own scope threading, same
-// shape as the ones already applied inside pkg/weave/field/service.go.
-// Mutations forward unchanged.
+// hardcoded to weaveauth.Draft() — a stopgap pending this facade's own scope
+// threading, same shape as the ones already applied inside
+// pkg/weave/field/service.go. GetBase is the exception: it takes the
+// caller's scope directly. Mutations forward unchanged.
 type overrideStoreAdapter struct {
 	inner weaveoverride.Store
 }
@@ -292,20 +292,19 @@ func (a *overrideStoreAdapter) GetByID(ctx context.Context, id int64) (*domain.F
 	return r.GetByID(ctx, id)
 }
 
-func (a *overrideStoreAdapter) GetBase(ctx context.Context, fieldID, projectID string) (*domain.FieldOverride, error) {
-	r, err := a.inner.At(weaveauth.Draft())
-	if err != nil {
-		return nil, err
-	}
-	return r.GetBase(ctx, fieldID, projectID)
-}
-
-// GetBaseVersion reads the archived base override at version — unlike this
+// GetBase reads the base override at the caller's scope — unlike this
 // adapter's other reads, it is not a Draft() stopgap: the caller already
-// names a version, so this passes it straight to Store.At(auth.Release(version)),
-// which is the same archive lookup the pre-split GetBaseVersion performed.
-func (a *overrideStoreAdapter) GetBaseVersion(ctx context.Context, fieldID, projectID, version string) (*domain.FieldOverride, error) {
-	r, err := a.inner.At(weaveauth.Release(version))
+// names a scope, so this passes its version straight to
+// Store.At(auth.Release(scope.Version())), which resolves to the archived
+// row for a release scope, or the live row for draft. scope.Valid() is
+// checked explicitly first, because reconstructing via
+// Release(scope.Version()) alone would silently turn an unresolved
+// (zero-value) scope into a valid draft read.
+func (a *overrideStoreAdapter) GetBase(ctx context.Context, scope domain.ReadScope, fieldID, projectID string) (*domain.FieldOverride, error) {
+	if !scope.Valid() {
+		return nil, fmt.Errorf("weave: GetBase called with an unresolved read scope")
+	}
+	r, err := a.inner.At(weaveauth.Release(scope.Version()))
 	if err != nil {
 		return nil, err
 	}

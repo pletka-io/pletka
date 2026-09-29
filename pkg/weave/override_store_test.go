@@ -6,11 +6,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
 	"github.com/pletka-io/pletka/pkg/weave"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 // overrideTestSetup holds shared test fixtures.
@@ -85,7 +87,7 @@ func TestOverrideStore_CreateAndGetBase(t *testing.T) {
 	}
 
 	// GetBase should return the same override.
-	got, err := s.overrides.GetBase(ctx, s.fieldID, s.projectID)
+	got, err := s.overrides.GetBase(ctx, auth.Draft(), s.fieldID, s.projectID)
 	if err != nil {
 		t.Fatalf("GetBase: %v", err)
 	}
@@ -117,7 +119,7 @@ func TestOverrideStore_CreateAndGetBase(t *testing.T) {
 	}
 
 	// GetBase for a non-existent field should return nil, nil.
-	notFound, err := s.overrides.GetBase(ctx, "01NONEXISTENT0000000000000", s.projectID)
+	notFound, err := s.overrides.GetBase(ctx, auth.Draft(), "01NONEXISTENT0000000000000", s.projectID)
 	if err != nil {
 		t.Fatalf("GetBase for non-existent: %v", err)
 	}
