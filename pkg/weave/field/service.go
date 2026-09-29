@@ -424,7 +424,16 @@ func (s *Service) Resolved(ctx context.Context, projectID, id string) (*domain.R
 	if s.overrides == nil {
 		return resolved, nil
 	}
-	base, err := s.overrides.GetBase(ctx, field.ID, projectID)
+	// Stopgap: override.Store's reads now live on a scope-bound Reader
+	// (Store.At), so a read call no longer resolves directly on Store.
+	// Hardcoded to auth.Draft() pending this slice's own scope threading —
+	// this reads draft today and, after this change, still reads draft,
+	// visibly rather than by an interface accident.
+	overrideReader, err := s.overrides.At(auth.Draft())
+	if err != nil {
+		return nil, err
+	}
+	base, err := overrideReader.GetBase(ctx, field.ID, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("load base override: %w", err)
 	}
@@ -712,7 +721,13 @@ func (s *Service) Update(ctx context.Context, projectID, id string, in UpdateInp
 			in.UIName == nil && in.Description == nil {
 			return nil
 		}
-		base, err := s.overrides.GetBase(ctx, field.ID, projectID)
+		// Stopgap: same as Resolved above — Store.At(auth.Draft())
+		// until this slice threads its own scope.
+		overrideReader, err := s.overrides.At(auth.Draft())
+		if err != nil {
+			return err
+		}
+		base, err := overrideReader.GetBase(ctx, field.ID, projectID)
 		if err != nil {
 			return fmt.Errorf("load base override: %w", err)
 		}
