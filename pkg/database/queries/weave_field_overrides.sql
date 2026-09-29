@@ -265,7 +265,7 @@ WHERE project_id = $1 AND entity_type = $2 AND version_number = $3
 ORDER BY entity_id, position;
 
 -- name: WeaveGetOverrideRefsVersion :many
--- Version-aware sibling of WeaveGetOverrideRefs. weave_override_refs_archive
+-- Version-aware sibling of WeaveListOverrideRefs. weave_override_refs_archive
 -- keys on (override_id, ref_type, position, version_number) — it has no id of
 -- its own, because the live table's identity is that composite.
 SELECT * FROM weave_override_refs_archive

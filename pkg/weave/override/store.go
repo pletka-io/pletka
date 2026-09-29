@@ -17,9 +17,42 @@ package override
 import (
 	"context"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/advisorylock"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
+
+// Reader serves reads at one already-bound scope: draft (live rows) or one
+// named release (that release's archive rows). There is one method per read
+// and no way to obtain a Reader without naming a scope via Store.At, so an
+// unscoped read is not merely discouraged — it is unrepresentable.
+type Reader interface {
+	// ListForEntity returns every override row attached to an entity
+	// (model or collection), ordered by position.
+	ListForEntity(ctx context.Context, entityType, entityID string) ([]domain.FieldOverride, error)
+
+	// ListForField returns every override row across all entity types
+	// that references fieldID. Used by the field-usage modal.
+	ListForField(ctx context.Context, fieldID string) ([]domain.FieldOverride, error)
+
+	// ListByProjectAndType returns every override of the given entity
+	// type within a project, sorted by entity_id then position. Used by
+	// resolver bulk-load paths and override-debug endpoints.
+	ListByProjectAndType(ctx context.Context, projectID, entityType string) ([]domain.FieldOverride, error)
+
+	// GetRefs returns all refs attached to overrideID, ordered by
+	// ref_type then position.
+	GetRefs(ctx context.Context, overrideID int64) ([]domain.OverrideRef, error)
+
+	// GetByID returns the override with the given ID, or (nil, nil) if no
+	// row matches.
+	GetByID(ctx context.Context, id int64) (*domain.FieldOverride, error)
+
+	// GetBase returns the base (EntityType="") override for a (field,
+	// project) pair, or (nil, nil) if none exists. Hot path for the
+	// resolver — the base layer is consulted for every field render.
+	GetBase(ctx context.Context, fieldID, projectID string) (*domain.FieldOverride, error)
+}
 
 // Store is the data-access contract for field overrides. Implementations
 // may be pgx/sqlc-backed (production) or in-memory (tests).
@@ -36,27 +69,18 @@ import (
 //
 // The override resolver (pkg/weave/resolve.go) layers these in priority
 // order (collection > model > base) when materialising a model view.
+//
+// Store owns mutations. Reads live on Reader, reached only through At.
 type Store interface {
+	// At returns the reader for scope, or an error when scope is the
+	// invalid zero value — which means a caller forgot to name one.
+	At(scope auth.ReadScope) (Reader, error)
+
 	// --- CRUD ---
 
 	// Create inserts an override. The DB assigns ID via bigserial; the
 	// generated id and timestamps are written back onto override.
 	Create(ctx context.Context, override *domain.FieldOverride) error
-
-	// GetByID returns the override with the given ID, or (nil, nil) if no
-	// row matches.
-	GetByID(ctx context.Context, id int64) (*domain.FieldOverride, error)
-
-	// GetBase returns the base (EntityType="") override for a (field,
-	// project) pair, or (nil, nil) if none exists. Hot path for the
-	// resolver — the base layer is consulted for every field render.
-	GetBase(ctx context.Context, fieldID, projectID string) (*domain.FieldOverride, error)
-
-	// GetBaseVersion is the version-aware sibling of GetBase: reads the
-	// archived base override for (field, project) at a specific release
-	// version, or (nil, nil) if no base row was archived at that version.
-	// Backs detailview's entity-view when serving a resolved release.
-	GetBaseVersion(ctx context.Context, fieldID, projectID, version string) (*domain.FieldOverride, error)
 
 	// Update writes the full row. Caller must populate every mutable
 	// field. Returns "not found" if the row has been deleted.
@@ -65,21 +89,6 @@ type Store interface {
 	// Delete removes the override. Refs in weave_override_refs are
 	// removed by foreign-key cascade.
 	Delete(ctx context.Context, id int64) error
-
-	// --- Queries ---
-
-	// ListForEntity returns every override row attached to an entity
-	// (model or collection), ordered by position.
-	ListForEntity(ctx context.Context, entityType, entityID string) ([]domain.FieldOverride, error)
-
-	// ListForField returns every override row across all entity types
-	// that references fieldID. Used by the field-usage modal.
-	ListForField(ctx context.Context, fieldID string) ([]domain.FieldOverride, error)
-
-	// ListByProjectAndType returns every override of the given entity
-	// type within a project, sorted by entity_id then position. Used by
-	// resolver bulk-load paths and override-debug endpoints.
-	ListByProjectAndType(ctx context.Context, projectID, entityType string) ([]domain.FieldOverride, error)
 
 	// --- Atomic bulk mutations ---
 
@@ -95,10 +104,6 @@ type Store interface {
 	// value type is "resource" or "collection" and a list of permitted
 	// targets must be persisted.
 	SetRefs(ctx context.Context, overrideID int64, refs []domain.OverrideRef) error
-
-	// GetRefs returns all refs attached to overrideID, ordered by
-	// ref_type then position.
-	GetRefs(ctx context.Context, overrideID int64) ([]domain.OverrideRef, error)
 
 	// --- Collection placements ---
 	// Per-(model, category, collection) constraints for a collection group

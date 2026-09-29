@@ -481,7 +481,7 @@ type WeaveGetOverrideRefsVersionParams struct {
 	VersionNumber string `json:"version_number"`
 }
 
-// Version-aware sibling of WeaveGetOverrideRefs. weave_override_refs_archive
+// Version-aware sibling of WeaveListOverrideRefs. weave_override_refs_archive
 // keys on (override_id, ref_type, position, version_number) — it has no id of
 // its own, because the live table's identity is that composite.
 func (q *Queries) WeaveGetOverrideRefsVersion(ctx context.Context, arg WeaveGetOverrideRefsVersionParams) ([]WeaveOverrideRefsArchive, error) {

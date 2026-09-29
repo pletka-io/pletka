@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/advisorylock"
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
@@ -66,6 +67,22 @@ func NewPostgresStore(pool *pgxpool.Pool) Store {
 	}
 }
 
+// At returns a reader bound to scope. The two implementations below —
+// liveReader and archiveReader — are the only place in the slice that knows
+// live rows and archived rows are different tables; every other caller in
+// this slice goes through the Reader interface and cannot tell which one it
+// is holding, so an archive-vs-live mapping mistake here is the one way a
+// release view could silently diverge from the draft it was resolved from.
+func (s *postgresStore) At(scope auth.ReadScope) (Reader, error) {
+	if !scope.Valid() {
+		return nil, fmt.Errorf("override: read without a scope — the caller must name auth.Draft() or auth.Release(version)")
+	}
+	if scope.IsRelease() {
+		return &archiveReader{queries: s.queries, version: scope.Version()}, nil
+	}
+	return &liveReader{queries: s.queries}, nil
+}
+
 // ---------------------------------------------------------------------------
 // CRUD
 // ---------------------------------------------------------------------------
@@ -80,52 +97,6 @@ func (s *postgresStore) Create(ctx context.Context, o *domain.FieldOverride) err
 	o.CreatedAt = row.CreatedAt
 	o.UpdatedAt = row.UpdatedAt
 	return nil
-}
-
-// GetByID returns the override or (nil, nil) when not found.
-func (s *postgresStore) GetByID(ctx context.Context, id int64) (*domain.FieldOverride, error) {
-	row, err := s.queries.WeaveGetOverrideByID(ctx, id)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get override by id: %w", err)
-	}
-	return rowToOverride(row), nil
-}
-
-// GetBase returns the base override for (fieldID, projectID), or (nil,
-// nil) when no base row exists.
-func (s *postgresStore) GetBase(ctx context.Context, fieldID, projectID string) (*domain.FieldOverride, error) {
-	row, err := s.queries.WeaveGetBaseOverride(ctx, sqlcgen.WeaveGetBaseOverrideParams{
-		FieldID:   fieldID,
-		ProjectID: projectID,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get base override: %w", err)
-	}
-	return rowToOverride(row), nil
-}
-
-// GetBaseVersion returns the archived base override for (fieldID,
-// projectID) at version, or (nil, nil) when no base row was archived at
-// that version.
-func (s *postgresStore) GetBaseVersion(ctx context.Context, fieldID, projectID, version string) (*domain.FieldOverride, error) {
-	row, err := s.queries.WeaveGetBaseOverrideVersion(ctx, sqlcgen.WeaveGetBaseOverrideVersionParams{
-		FieldID:       fieldID,
-		ProjectID:     projectID,
-		VersionNumber: version,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("get archived base override: %w", err)
-	}
-	return rowToArchivedOverride(row), nil
 }
 
 // Update writes the full row. Returns "not found" if the row has been
@@ -148,57 +119,6 @@ func (s *postgresStore) Delete(ctx context.Context, id int64) error {
 		return fmt.Errorf("delete override: %w", err)
 	}
 	return nil
-}
-
-// ---------------------------------------------------------------------------
-// Queries
-// ---------------------------------------------------------------------------
-
-// ListForEntity returns overrides for (entityType, entityID), ordered by position.
-func (s *postgresStore) ListForEntity(ctx context.Context, entityType, entityID string) ([]domain.FieldOverride, error) {
-	rows, err := s.queries.WeaveListOverridesForEntity(ctx, sqlcgen.WeaveListOverridesForEntityParams{
-		EntityType: entityType,
-		EntityID:   entityID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list overrides for entity: %w", err)
-	}
-	out := make([]domain.FieldOverride, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, *rowToOverride(row))
-	}
-	return out, nil
-}
-
-// ListForField returns all override rows across all entity types that
-// reference fieldID, ordered by entity-type priority then position.
-func (s *postgresStore) ListForField(ctx context.Context, fieldID string) ([]domain.FieldOverride, error) {
-	rows, err := s.queries.WeaveListOverridesForField(ctx, fieldID)
-	if err != nil {
-		return nil, fmt.Errorf("list overrides for field: %w", err)
-	}
-	out := make([]domain.FieldOverride, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, *rowToOverride(row))
-	}
-	return out, nil
-}
-
-// ListByProjectAndType returns overrides scoped to (projectID, entityType).
-// Sorted by entity_id then position.
-func (s *postgresStore) ListByProjectAndType(ctx context.Context, projectID, entityType string) ([]domain.FieldOverride, error) {
-	rows, err := s.queries.WeaveListOverridesByProjectAndType(ctx, sqlcgen.WeaveListOverridesByProjectAndTypeParams{
-		ProjectID:  projectID,
-		EntityType: entityType,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list overrides by project and type: %w", err)
-	}
-	out := make([]domain.FieldOverride, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, *rowToOverride(row))
-	}
-	return out, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -294,19 +214,6 @@ func (s *postgresStore) SetRefs(ctx context.Context, overrideID int64, refs []do
 		return fmt.Errorf("commit set refs tx: %w", err)
 	}
 	return nil
-}
-
-// GetRefs returns all refs for overrideID, ordered by ref_type then position.
-func (s *postgresStore) GetRefs(ctx context.Context, overrideID int64) ([]domain.OverrideRef, error) {
-	rows, err := s.queries.WeaveListOverrideRefs(ctx, overrideID)
-	if err != nil {
-		return nil, fmt.Errorf("get override refs: %w", err)
-	}
-	out := make([]domain.OverrideRef, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, rowToRef(row))
-	}
-	return out, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -471,6 +378,228 @@ func (s *postgresStore) WithAdvisoryLock(ctx context.Context, projectID, key str
 }
 
 // ---------------------------------------------------------------------------
+// Scoped readers
+// ---------------------------------------------------------------------------
+
+// liveReader is the Reader bound to auth.Draft(): every method reads
+// weave_field_overrides / weave_override_refs directly, unfiltered by
+// version. These bodies are moved (not retyped) from postgresStore's former
+// read methods, so a live read behaves exactly as it always has.
+type liveReader struct {
+	queries *sqlcgen.Queries
+}
+
+var _ Reader = (*liveReader)(nil)
+
+// ListForEntity returns overrides for (entityType, entityID), ordered by position.
+func (r *liveReader) ListForEntity(ctx context.Context, entityType, entityID string) ([]domain.FieldOverride, error) {
+	rows, err := r.queries.WeaveListOverridesForEntity(ctx, sqlcgen.WeaveListOverridesForEntityParams{
+		EntityType: entityType,
+		EntityID:   entityID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list overrides for entity: %w", err)
+	}
+	out := make([]domain.FieldOverride, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, *rowToOverride(row))
+	}
+	return out, nil
+}
+
+// ListForField returns all override rows across all entity types that
+// reference fieldID, ordered by entity-type priority then position.
+func (r *liveReader) ListForField(ctx context.Context, fieldID string) ([]domain.FieldOverride, error) {
+	rows, err := r.queries.WeaveListOverridesForField(ctx, fieldID)
+	if err != nil {
+		return nil, fmt.Errorf("list overrides for field: %w", err)
+	}
+	out := make([]domain.FieldOverride, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, *rowToOverride(row))
+	}
+	return out, nil
+}
+
+// ListByProjectAndType returns overrides scoped to (projectID, entityType).
+// Sorted by entity_id then position.
+func (r *liveReader) ListByProjectAndType(ctx context.Context, projectID, entityType string) ([]domain.FieldOverride, error) {
+	rows, err := r.queries.WeaveListOverridesByProjectAndType(ctx, sqlcgen.WeaveListOverridesByProjectAndTypeParams{
+		ProjectID:  projectID,
+		EntityType: entityType,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list overrides by project and type: %w", err)
+	}
+	out := make([]domain.FieldOverride, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, *rowToOverride(row))
+	}
+	return out, nil
+}
+
+// GetRefs returns all refs for overrideID, ordered by ref_type then position.
+func (r *liveReader) GetRefs(ctx context.Context, overrideID int64) ([]domain.OverrideRef, error) {
+	rows, err := r.queries.WeaveListOverrideRefs(ctx, overrideID)
+	if err != nil {
+		return nil, fmt.Errorf("get override refs: %w", err)
+	}
+	out := make([]domain.OverrideRef, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, rowToRef(row))
+	}
+	return out, nil
+}
+
+// GetByID returns the override or (nil, nil) when not found.
+func (r *liveReader) GetByID(ctx context.Context, id int64) (*domain.FieldOverride, error) {
+	row, err := r.queries.WeaveGetOverrideByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get override by id: %w", err)
+	}
+	return rowToOverride(row), nil
+}
+
+// GetBase returns the base override for (fieldID, projectID), or (nil,
+// nil) when no base row exists.
+func (r *liveReader) GetBase(ctx context.Context, fieldID, projectID string) (*domain.FieldOverride, error) {
+	row, err := r.queries.WeaveGetBaseOverride(ctx, sqlcgen.WeaveGetBaseOverrideParams{
+		FieldID:   fieldID,
+		ProjectID: projectID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get base override: %w", err)
+	}
+	return rowToOverride(row), nil
+}
+
+// archiveReader is the Reader bound to auth.Release(version): every method
+// reads weave_field_overrides_archive / weave_override_refs_archive at
+// version, via the Task 2 queries. There is no fallback to the live tables
+// anywhere in this type — a version that was never released, or that
+// carried nothing for a given entity/field, reads empty. That is the whole
+// point of the scoped reader: a release view must never silently show draft
+// rows.
+type archiveReader struct {
+	queries *sqlcgen.Queries
+	version string
+}
+
+var _ Reader = (*archiveReader)(nil)
+
+// ListForEntity returns the overrides an entity carried at r.version, from
+// the archive. Ordering matches liveReader.ListForEntity so a caller cannot
+// tell the two apart by row order.
+func (r *archiveReader) ListForEntity(ctx context.Context, entityType, entityID string) ([]domain.FieldOverride, error) {
+	rows, err := r.queries.WeaveListOverridesForEntityVersion(ctx, sqlcgen.WeaveListOverridesForEntityVersionParams{
+		EntityType:    entityType,
+		EntityID:      entityID,
+		VersionNumber: r.version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list archived overrides for entity: %w", err)
+	}
+	out := make([]domain.FieldOverride, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, *rowToArchivedOverride(row))
+	}
+	return out, nil
+}
+
+// ListForField returns the archived override rows across all entity types
+// that reference fieldID at r.version.
+func (r *archiveReader) ListForField(ctx context.Context, fieldID string) ([]domain.FieldOverride, error) {
+	rows, err := r.queries.WeaveListOverridesForFieldVersion(ctx, sqlcgen.WeaveListOverridesForFieldVersionParams{
+		FieldID:       fieldID,
+		VersionNumber: r.version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list archived overrides for field: %w", err)
+	}
+	out := make([]domain.FieldOverride, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, *rowToArchivedOverride(row))
+	}
+	return out, nil
+}
+
+// ListByProjectAndType returns the archived overrides scoped to (projectID,
+// entityType) at r.version.
+func (r *archiveReader) ListByProjectAndType(ctx context.Context, projectID, entityType string) ([]domain.FieldOverride, error) {
+	rows, err := r.queries.WeaveListOverridesByProjectAndTypeVersion(ctx, sqlcgen.WeaveListOverridesByProjectAndTypeVersionParams{
+		ProjectID:     projectID,
+		EntityType:    entityType,
+		VersionNumber: r.version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list archived overrides by project and type: %w", err)
+	}
+	out := make([]domain.FieldOverride, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, *rowToArchivedOverride(row))
+	}
+	return out, nil
+}
+
+// GetRefs returns the refs archived for overrideID at r.version. The two
+// archive tables are filled by separate snapshot statements at release time,
+// so an archived override with no archived refs is expected, not an error —
+// this returns an empty slice, never falls back to the live refs.
+func (r *archiveReader) GetRefs(ctx context.Context, overrideID int64) ([]domain.OverrideRef, error) {
+	rows, err := r.queries.WeaveGetOverrideRefsVersion(ctx, sqlcgen.WeaveGetOverrideRefsVersionParams{
+		OverrideID:    overrideID,
+		VersionNumber: r.version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get archived override refs: %w", err)
+	}
+	out := make([]domain.OverrideRef, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, rowToArchivedRef(row))
+	}
+	return out, nil
+}
+
+// GetByID returns the archived override with the given id at r.version, or
+// (nil, nil) if no row matches.
+func (r *archiveReader) GetByID(ctx context.Context, id int64) (*domain.FieldOverride, error) {
+	row, err := r.queries.WeaveGetOverrideByIDVersion(ctx, sqlcgen.WeaveGetOverrideByIDVersionParams{
+		ID:            id,
+		VersionNumber: r.version,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get archived override by id: %w", err)
+	}
+	return rowToArchivedOverride(row), nil
+}
+
+// GetBase returns the archived base override for (fieldID, projectID) at
+// r.version, or (nil, nil) when no base row was archived at that version.
+func (r *archiveReader) GetBase(ctx context.Context, fieldID, projectID string) (*domain.FieldOverride, error) {
+	row, err := r.queries.WeaveGetBaseOverrideVersion(ctx, sqlcgen.WeaveGetBaseOverrideVersionParams{
+		FieldID:       fieldID,
+		ProjectID:     projectID,
+		VersionNumber: r.version,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get archived base override: %w", err)
+	}
+	return rowToArchivedOverride(row), nil
+}
+
+// ---------------------------------------------------------------------------
 // Row converters + sqlc param builders
 // ---------------------------------------------------------------------------
 
@@ -542,6 +671,19 @@ func rowToArchivedOverride(row sqlcgen.WeaveFieldOverridesArchive) *domain.Field
 
 // rowToRef converts a sqlcgen ref row to a domain.OverrideRef.
 func rowToRef(row sqlcgen.WeaveOverrideRef) domain.OverrideRef {
+	return domain.OverrideRef{
+		OverrideID: row.OverrideID,
+		RefType:    row.RefType,
+		TargetID:   row.TargetID,
+		SemanticID: row.SemanticID,
+		Position:   int(row.Position),
+	}
+}
+
+// rowToArchivedRef converts an archived (weave_override_refs_archive) sqlc
+// row to a domain.OverrideRef. Mirrors rowToRef; the archive table adds
+// project_id and version_number, neither of which domain.OverrideRef carries.
+func rowToArchivedRef(row sqlcgen.WeaveOverrideRefsArchive) domain.OverrideRef {
 	return domain.OverrideRef{
 		OverrideID: row.OverrideID,
 		RefType:    row.RefType,
