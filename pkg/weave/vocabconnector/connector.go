@@ -38,6 +38,23 @@ type Entry struct {
 	// it; the local, csv, sparql and aat connectors leave it nil, and a
 	// picker must not mark their terms as leaves for it.
 	NarrowerTotal *int `json:"narrower_total,omitempty"`
+	// DescendantsTotal is the size of the whole subtree under this term, not
+	// just its direct children (NarrowerTotal). It is the real size of a
+	// controlled list scoped to this term, so a parent-term picker shows it as
+	// "N terms". Only the vocabulary service reports it, and only when asked
+	// (descendants=1, contract v2.13); nil everywhere else. A pointer for the
+	// same nil-vs-zero reason as NarrowerTotal.
+	DescendantsTotal *int `json:"descendants_total,omitempty"`
+	// HasChildren is set on a children listing: whether this child itself has
+	// children (so a tree picker shows an expander). nil when not reported.
+	HasChildren *bool `json:"has_children,omitempty"`
+	// Browse is a curated root's hint — "children" (step one level) or
+	// "descendants" (the node scopes everything below). Empty off the roots
+	// listing.
+	Browse string `json:"browse,omitempty"`
+	// Note is a curated root's optional operator note. Empty off the roots
+	// listing.
+	Note string `json:"note,omitempty"`
 }
 
 type SearchOpts struct {
@@ -49,4 +66,12 @@ type SearchOpts struct {
 type Connector interface {
 	Search(ctx context.Context, query string, opts SearchOpts) ([]Entry, error)
 	Fetch(ctx context.Context, uri string, opts SearchOpts) (*Entry, error)
+	// Roots returns a vocabulary's curated browse roots (contract v2.6), each
+	// with its Browse hint, Note and DescendantsTotal. Empty (not an error)
+	// when the source has none — most mounts, and every non-service connector.
+	Roots(ctx context.Context, lang string) ([]Entry, error)
+	// Children returns the direct children of one concept (depth=1), paginated
+	// by limit/offset, each with HasChildren and DescendantsTotal. Empty when
+	// the source has no hierarchy.
+	Children(ctx context.Context, conceptID, lang string, limit, offset int) ([]Entry, error)
 }

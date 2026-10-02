@@ -119,9 +119,17 @@ type FieldDef struct {
 	Options              []SelectOption     `json:"options,omitempty"`
 	OptionsURL           string             `json:"options_url,omitempty"`
 	SearchURL            string             `json:"search_url,omitempty"`
-	CheckURL             string             `json:"check_url,omitempty"`
-	CreateURL            string             `json:"create_url,omitempty"`
-	CreateLabel          domain.Localizable `json:"create_label,omitempty"`
+	// RootsURL / ChildrenURLTemplate drive the vocabulary-entry picker's
+	// roots-first browse tree (#3625). RootsURL lists a vocabulary's curated
+	// browse roots; ChildrenURLTemplate drills into one node. Both carry the
+	// same client-substituted {vocabulary_id} as SearchURL; ChildrenURLTemplate
+	// also carries {conceptId}, substituted per drilled node. Empty = the
+	// field is a plain search picker.
+	RootsURL            string             `json:"roots_url,omitempty"`
+	ChildrenURLTemplate string             `json:"children_url_template,omitempty"`
+	CheckURL            string             `json:"check_url,omitempty"`
+	CreateURL           string             `json:"create_url,omitempty"`
+	CreateLabel         domain.Localizable `json:"create_label,omitempty"`
 
 	// ItemAddURL and ItemRemoveURLTemplate make a field self-managing: its
 	// controls call these endpoints directly instead of editing a value the

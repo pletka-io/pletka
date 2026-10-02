@@ -287,10 +287,11 @@ func conceptToEntry(resp conceptResponse) vocabconnector.Entry {
 // shared by a suggest hit and a concept fetch.
 func entryFromItem(it item, broader *string, parents []item) vocabconnector.Entry {
 	entry := vocabconnector.Entry{
-		URI:           it.URI,
-		ExternalID:    it.ID,
-		Label:         labelFor(it),
-		NarrowerTotal: it.NarrowerTotal,
+		URI:              it.URI,
+		ExternalID:       it.ID,
+		Label:            labelFor(it),
+		NarrowerTotal:    it.NarrowerTotal,
+		DescendantsTotal: it.DescendantsTotal,
 	}
 	if broader != nil {
 		entry.BroaderURI = *broader

@@ -16,12 +16,16 @@ type item struct {
 	// subtree. Contract v2.4+ sends it on every item; a pointer because zero
 	// is a meaningful answer ("this is a leaf") that omitempty would erase on
 	// the way back out.
-	NarrowerTotal *int              `json:"narrowerTotal,omitempty"`
-	ID            string            `json:"id"`
-	Kind          string            `json:"kind"`
-	Class         string            `json:"class"`
-	PrefLabel     map[string]string `json:"prefLabel"`
-	Lang          *string           `json:"lang"`
+	NarrowerTotal *int `json:"narrowerTotal,omitempty"`
+	// DescendantsTotal is the whole-subtree size, sent only when a request
+	// passes descendants=1 (contract v2.13); nil otherwise. A pointer for the
+	// same nil-vs-zero reason as NarrowerTotal.
+	DescendantsTotal *int              `json:"descendantsTotal,omitempty"`
+	ID               string            `json:"id"`
+	Kind             string            `json:"kind"`
+	Class            string            `json:"class"`
+	PrefLabel        map[string]string `json:"prefLabel"`
+	Lang             *string           `json:"lang"`
 }
 
 // labelFor returns the language it.Lang names, plus "en" when the item has

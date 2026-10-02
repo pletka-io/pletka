@@ -469,6 +469,67 @@ func (h *Handler) SearchVocabularyEntries(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, body)
 }
 
+// VocabularyRoots serves a vocabulary's curated browse roots for the
+// parent-term picker. Project-scoped like SearchVocabularyEntries; empty (not
+// an error) for a source with no curated roots.
+func (h *Handler) VocabularyRoots(w http.ResponseWriter, r *http.Request) {
+	vocabularyID := chi.URLParam(r, "vocabularyID")
+	if !h.vocabularyReadable(w, r, vocabularyID) {
+		return
+	}
+	items, degraded, err := h.svc.VocabularyRoots(r.Context(), vocabularyID, h.requestLang(r))
+	if err != nil {
+		h.logger.Error("vocabulary roots failed", "err", err, "vocabulary_id", vocabularyID)
+		apierror.Write(w, apierror.Internal())
+		return
+	}
+	writeEntriesBody(w, items, degraded)
+}
+
+// VocabularyChildren serves the direct children of one concept (depth=1) for
+// the parent-term picker's tree drill-down. Project-scoped; paginated by
+// limit/offset.
+func (h *Handler) VocabularyChildren(w http.ResponseWriter, r *http.Request) {
+	vocabularyID := chi.URLParam(r, "vocabularyID")
+	if !h.vocabularyReadable(w, r, vocabularyID) {
+		return
+	}
+	offset, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("offset")))
+	items, degraded, err := h.svc.VocabularyChildren(r.Context(), vocabularyID, chi.URLParam(r, "conceptID"), h.requestLang(r), requestLimit(r), offset)
+	if err != nil {
+		h.logger.Error("vocabulary children failed", "err", err, "vocabulary_id", vocabularyID)
+		apierror.Write(w, apierror.Internal())
+		return
+	}
+	writeEntriesBody(w, items, degraded)
+}
+
+// vocabularyReadable resolves a vocabulary to its owning project and confirms
+// the caller can read it, writing a 404 (never leaking existence) and
+// returning false when not. Shared by the roots/children handlers.
+func (h *Handler) vocabularyReadable(w http.ResponseWriter, r *http.Request, vocabularyID string) bool {
+	projID, found, err := h.svc.VocabularyProjectID(r.Context(), vocabularyID)
+	if err != nil {
+		apierror.Write(w, apierror.Internal())
+		return false
+	}
+	if !found || !h.canReadProject(r.Context(), projID) {
+		apierror.Write(w, apierror.NotFound("vocabulary not found"))
+		return false
+	}
+	return true
+}
+
+// writeEntriesBody writes the {items,total,degraded?} envelope the vocabulary
+// search/roots/children endpoints share.
+func writeEntriesBody(w http.ResponseWriter, items []VocabularyEntryView, degraded bool) {
+	body := map[string]any{"items": items, "total": len(items)}
+	if degraded {
+		body["degraded"] = true
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
 func (h *Handler) ResolveEntry(w http.ResponseWriter, r *http.Request) {
 	// ResolveEntry upserts a cached entry and can trigger an outbound connector
 	// fetch, so it must not be driven by anonymous callers (SSRF / cache-write).
