@@ -84,6 +84,12 @@ export interface FieldDef {
   options_url?: string;
   /** Template URL with {field_name} substitutions for typeahead search widgets. */
   search_url?: string;
+  /** Vocabulary-entry picker roots-first browse (#3625): roots_url lists a
+   *  vocabulary's curated browse roots, children_url_template drills into one
+   *  node. Both carry {vocabulary_id} like search_url; children also {conceptId}.
+   *  Present ⇒ the picker shows the mode switch + tree. */
+  roots_url?: string;
+  children_url_template?: string;
   /** Endpoint for inline async checks (e.g. prefix availability). Receives ?prefix=<value>. */
   check_url?: string;
   create_url?: string;
