@@ -388,6 +388,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		IntegrationCipher:   opts.IntegrationCipher,
 		Services: &Services{
 			Weave:             weaveStore,
+			Generators:        generatorService,
 			APIKeys:           apikeyService,
 			Projects:          projectHost.Service,
 			ProjectOntologies: projectOntologyVersionHost.Service,
