@@ -106,10 +106,22 @@ type VocabularyEntryView struct {
 	// a leaf indistinguishable from an unknown. nil means the source does not
 	// count (a stored row, or any connector but the vocabulary service); zero
 	// means counted, and there are none.
-	NarrowerTotal *int      `json:"narrower_total,omitempty"`
-	Hydrated      bool      `json:"hydrated"`
-	CreatedAt     time.Time `json:"created_at,omitempty"`
-	UpdatedAt     time.Time `json:"updated_at,omitempty"`
+	NarrowerTotal *int `json:"narrower_total,omitempty"`
+	// DescendantsTotal is the whole-subtree size — the real size of a list
+	// scoped to this term, which a parent-term picker shows as "N terms".
+	// nil unless the service reported it (descendants=1). Pointer for the same
+	// nil-vs-zero reason as NarrowerTotal.
+	DescendantsTotal *int `json:"descendants_total,omitempty"`
+	// HasChildren marks a node on a children listing that itself has children,
+	// so a tree picker shows an expander. nil off that path.
+	HasChildren *bool `json:"has_children,omitempty"`
+	// Browse / Note come only from a curated root (roots listing): the browse
+	// hint ("children"|"descendants") and an optional operator note.
+	Browse    string    `json:"browse,omitempty"`
+	Note      string    `json:"note,omitempty"`
+	Hydrated  bool      `json:"hydrated"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 }
 
 type ConceptListView struct {
@@ -1153,6 +1165,77 @@ func (s *Service) searchVocabularyEntries(ctx context.Context, vocabularyID, que
 	return limitedEntryViews(merged, limit), false, nil
 }
 
+// VocabularyRoots returns a vocabulary's curated browse roots (contract v2.6),
+// each carrying its Browse hint, Note, NarrowerTotal and DescendantsTotal. The
+// bool is degraded (the service could not answer), mirroring the search path.
+// A removed row, a source with no curated roots, or a non-service connector
+// all return empty with degraded=false — the picker reads that as "no roots,
+// fall back to plain search".
+func (s *Service) VocabularyRoots(ctx context.Context, vocabularyID, lang string) ([]VocabularyEntryView, bool, error) {
+	vocab, err := s.queries.WeaveGetVocabulary(ctx, vocabularyID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("get vocabulary: %w", err)
+	}
+	if vocab.Deprecated {
+		return nil, false, nil
+	}
+	rows, err := s.registry.ForVocabulary(vocabularyFromRow(vocab)).Roots(ctx, lang)
+	degraded, fail := classifyConnectorErr(err)
+	if fail {
+		return nil, false, err
+	}
+	if degraded {
+		if report, count := s.degrade.shouldLog(vocabularyID, time.Now()); report {
+			s.logger.Warn("vocabulary roots degraded",
+				"vocabulary_id", vocabularyID, "failures_since_last_line", count, "err", err)
+		}
+		return nil, true, nil
+	}
+	return connectorEntryViews(vocabularyID, rows), false, nil
+}
+
+// VocabularyChildren returns the direct children (depth=1) of one concept in a
+// vocabulary, paginated by limit/offset, each with HasChildren and
+// DescendantsTotal. Same degraded/empty semantics as VocabularyRoots.
+func (s *Service) VocabularyChildren(ctx context.Context, vocabularyID, conceptID, lang string, limit, offset int) ([]VocabularyEntryView, bool, error) {
+	vocab, err := s.queries.WeaveGetVocabulary(ctx, vocabularyID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("get vocabulary: %w", err)
+	}
+	if vocab.Deprecated {
+		return nil, false, nil
+	}
+	rows, err := s.registry.ForVocabulary(vocabularyFromRow(vocab)).Children(ctx, conceptID, lang, limit, offset)
+	degraded, fail := classifyConnectorErr(err)
+	if fail {
+		return nil, false, err
+	}
+	if degraded {
+		if report, count := s.degrade.shouldLog(vocabularyID, time.Now()); report {
+			s.logger.Warn("vocabulary children degraded",
+				"vocabulary_id", vocabularyID, "failures_since_last_line", count, "err", err)
+		}
+		return nil, true, nil
+	}
+	return connectorEntryViews(vocabularyID, rows), false, nil
+}
+
+// connectorEntryViews maps a slice of connector entries to views, preserving
+// order (unlike the search path, which merges into a URI-keyed map).
+func connectorEntryViews(vocabularyID string, rows []vocabconnector.Entry) []VocabularyEntryView {
+	out := make([]VocabularyEntryView, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, connectorEntryView(vocabularyID, row))
+	}
+	return out
+}
+
 // ConceptListProjectID returns the project a concept list belongs to, or "" if
 // the list does not exist. Used to gate the non-project-scoped search route.
 func (s *Service) ConceptListProjectID(ctx context.Context, listID string) (string, error) {
@@ -1754,6 +1837,10 @@ func connectorEntryView(vocabularyID string, entry vocabconnector.Entry) Vocabul
 		BroaderPathItems: entry.BroaderPathItems,
 		ExternalID:       entry.ExternalID,
 		NarrowerTotal:    entry.NarrowerTotal,
+		DescendantsTotal: entry.DescendantsTotal,
+		HasChildren:      entry.HasChildren,
+		Browse:           entry.Browse,
+		Note:             entry.Note,
 		Hydrated:         true,
 	}
 }
