@@ -453,7 +453,10 @@ func (h *Handler) SearchVocabularyEntries(w http.ResponseWriter, r *http.Request
 		apierror.Write(w, apierror.NotFound("vocabulary not found"))
 		return
 	}
-	items, degraded, err := h.svc.SearchVocabularyEntriesDegradable(r.Context(), vocabularyID, r.URL.Query().Get("q"), h.requestLang(r), requestLimit(r), "")
+	// has_children=1 restricts results to concepts that can be a parent — the
+	// picker's "Parents only" mode (dropped server-side before paging).
+	onlyBranching := isTruthyParam(r.URL.Query().Get("has_children"))
+	items, degraded, err := h.svc.SearchVocabularyEntriesDegradable(r.Context(), vocabularyID, r.URL.Query().Get("q"), h.requestLang(r), requestLimit(r), "", onlyBranching)
 	if err != nil {
 		h.logger.Error("search vocabulary entries failed", "err", err, "vocabulary_id", vocabularyID)
 		apierror.Write(w, apierror.Internal())
@@ -518,6 +521,17 @@ func (h *Handler) vocabularyReadable(w http.ResponseWriter, r *http.Request, voc
 		return false
 	}
 	return true
+}
+
+// isTruthyParam reads a query flag: "1"/"true"/"yes" (case-insensitive) are on,
+// everything else (including empty) is off. Mirrors the service's own grammar.
+func isTruthyParam(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 // writeEntriesBody writes the {items,total,degraded?} envelope the vocabulary

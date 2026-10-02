@@ -176,6 +176,9 @@ func (c *Connector) Search(ctx context.Context, query string, opts vocabconnecto
 	if parent := strings.TrimSpace(opts.ParentURI); parent != "" {
 		params.Set("under", conceptID(parent))
 	}
+	if opts.OnlyBranching {
+		params.Set("hasChildren", "1")
+	}
 
 	var body suggestResponse
 	if err := c.get(ctx, "/vocab/"+url.PathEscape(c.cfg.Vocab)+"/suggest", params, &body); err != nil {

@@ -39,9 +39,24 @@ func BuildConceptListFormSchema(mode string, existing *ConceptListView, vocabula
 		schema.UI.SuccessRedirectURLTemplate = fmt.Sprintf("/projects/%s/concept-lists/{id}", projectID)
 	case formschema.ModeEdit:
 		if existing != nil {
+			listURL := fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s", projectID, existing.ID)
 			schema.Endpoint = &formschema.SchemaEndpoint{
 				Method: "PUT",
-				URL:    fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s", projectID, existing.ID),
+				URL:    listURL,
+			}
+			// Delete lives in the edit-metadata form, the project convention
+			// (see field/model/collection). The endpoint refuses with in_use
+			// (409) when the list is still bound to a field.
+			schema.Delete = &formschema.DeleteAction{
+				URL:                listURL,
+				Label:              i18n.L("concept_list.form.delete_label", "Delete Concept List"),
+				SuccessRedirectURL: fmt.Sprintf("/projects/%s#tab=concept-lists", projectID),
+				SuccessMessage:     i18n.L("concept_list.form.deleted", "Concept list deleted"),
+				Confirm: &formschema.ConfirmConfig{
+					Title:        i18n.L("concept_list.form.delete_confirm_title", "Delete this concept list?"),
+					Message:      i18n.L("concept_list.form.delete_confirm_message", "This removes the controlled list from the project. A field bound to it must be unbound first. This cannot be undone."),
+					ConfirmLabel: i18n.L("forms.confirm_delete", "Delete"),
+				},
 			}
 		}
 		schema.UI.SubmitLabel = i18n.L("forms.save_changes", "Save Changes")
