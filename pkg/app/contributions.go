@@ -20,6 +20,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/category"
 	"github.com/pletka-io/pletka/pkg/weave/collection"
 	"github.com/pletka-io/pletka/pkg/weave/field"
+	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/model"
 	"github.com/pletka-io/pletka/pkg/weave/namespacebinding"
 	weaveontology "github.com/pletka-io/pletka/pkg/weave/ontology"
@@ -63,7 +64,14 @@ type SessionEstablisher interface {
 // bypass full assembly; app.New always populates every field. Additions
 // require a composition-catalog entry (see ADR-0008).
 type Services struct {
-	Weave             domain.WeaveStore
+	Weave domain.WeaveStore
+	// Generators is core's assembled generator service. A host's wiring
+	// layer needs it to build an integrations.ProjectArtifactContext, which
+	// is what produces a project's export pack -- without it a host cannot
+	// construct a registry.ProjectArtifactProvider at all, so any host
+	// surface offering a "push this project" action fails at run time with
+	// no pack builder. Added 2026-10-02 for the Arches fleet admin.
+	Generators        *generators.Service
 	APIKeys           auth.APIKeyVerifier
 	Projects          *project.Service
 	ProjectOntologies *projectontologyversion.Service
