@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/pletka-io/pletka/pkg/weave/vocabconnector"
 )
 
 func TestRoots_decodesCuratedFields(t *testing.T) {
@@ -104,5 +106,21 @@ func TestRoots_degradesOnServiceError(t *testing.T) {
 	_, err := c.Roots(context.Background(), "en")
 	if err == nil {
 		t.Fatal("want error on 500")
+	}
+}
+
+func TestSearch_onlyBranchingSendsHasChildren(t *testing.T) {
+	var gotHasChildren string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHasChildren = r.URL.Query().Get("hasChildren")
+		_, _ = io.WriteString(w, `{"results":[]}`)
+	}))
+	defer srv.Close()
+	c := New(Config{BaseURL: srv.URL, Vocab: "aat"}, srv.Client())
+	if _, err := c.Search(context.Background(), "bronze", vocabconnector.SearchOpts{OnlyBranching: true}); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if gotHasChildren != "1" {
+		t.Fatalf("hasChildren param = %q, want 1", gotHasChildren)
 	}
 }

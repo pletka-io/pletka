@@ -61,6 +61,11 @@ type SearchOpts struct {
 	Lang      string
 	Limit     int
 	ParentURI string
+	// OnlyBranching drops leaf concepts (narrowerTotal == 0) from the results
+	// server-side, before paging — so a parent-term picker's "Parents only"
+	// mode fills its page with real parents. The vocabulary service honors it
+	// via hasChildren=1 (contract v2.14); other connectors ignore it.
+	OnlyBranching bool
 }
 
 type Connector interface {

@@ -65,6 +65,9 @@
   type BrowseMode = 'roots' | 'parents' | 'all';
   const browseEnabled = $derived(Boolean(field.roots_url) && !field.readonly);
   let mode = $state<BrowseMode>('roots');
+  // A parent can never be a leaf, so the roots tree hides leaves by default;
+  // "Show leaves" reveals them for curators who want to see the full level.
+  let showLeaves = $state(false);
   let roots = $state<VocabularyEntry[]>([]);
   let rootsLoaded = $state(false);
   let rootsLoading = $state(false);
@@ -213,8 +216,10 @@
   // client-side (roots and a drilled level are small, already-loaded sets).
   const visibleLevel = $derived.by(() => {
     const term = query.trim().toLowerCase();
-    if (!term) return level;
-    return level.filter((e) => entryLabel(e).toLowerCase().includes(term));
+    return level.filter((e) => {
+      if (!showLeaves && !expandable(e)) return false;
+      return !term || entryLabel(e).toLowerCase().includes(term);
+    });
   });
 
   const dependenciesSatisfied = $derived((field.depends_on ?? []).every((key) => {
@@ -303,6 +308,9 @@
       url.searchParams.set('q', q);
       url.searchParams.set('limit', '20');
       url.searchParams.set('lang', lang);
+      // Parents-only drops leaves server-side (before paging), so the page
+      // fills with real parents instead of being thinned by a client filter.
+      if (mode === 'parents') url.searchParams.set('has_children', '1');
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Search failed (${res.status})`);
       const data = await res.json();
@@ -428,6 +436,12 @@
             >All</button>
           </div>
         {/if}
+        {#if browseEnabled && mode === 'roots'}
+          <label class="flex items-center gap-1.5 text-xs text-gray-600">
+            <input type="checkbox" bind:checked={showLeaves} class="rounded border-gray-300 text-pletka-primary focus:ring-pletka-primary" />
+            Show leaves (terms with nothing below them)
+          </label>
+        {/if}
         <div class="flex items-center gap-2">
           <input
             id={field.name}
@@ -478,8 +492,10 @@
             <div class="px-3 py-2 text-sm text-gray-500">Loading...</div>
           {:else if level.length === 0}
             <div class="px-3 py-2 text-sm text-gray-400">Nothing to browse here.</div>
-          {:else if visibleLevel.length === 0}
+          {:else if visibleLevel.length === 0 && query.trim()}
             <div class="px-3 py-2 text-sm text-gray-400">No terms here match "{query.trim()}".</div>
+          {:else if visibleLevel.length === 0}
+            <div class="px-3 py-2 text-sm text-gray-400">Only leaf terms here — enable "Show leaves" to see them.</div>
           {:else}
             {#each visibleLevel as entry (entry.uri)}
               <div class="flex items-stretch gap-1">

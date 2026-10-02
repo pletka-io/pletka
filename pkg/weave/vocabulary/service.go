@@ -1094,22 +1094,24 @@ WHERE id = $2
 }
 
 func (s *Service) SearchVocabularyEntries(ctx context.Context, vocabularyID, query, lang string, limit int) ([]VocabularyEntryView, error) {
-	views, _, err := s.searchVocabularyEntries(ctx, vocabularyID, query, lang, limit, "")
+	views, _, err := s.searchVocabularyEntries(ctx, vocabularyID, query, lang, limit, "", false)
 	return views, err
 }
 
 func (s *Service) SearchVocabularyEntriesWithParent(ctx context.Context, vocabularyID, query, lang string, limit int, parentURI string) ([]VocabularyEntryView, error) {
-	views, _, err := s.searchVocabularyEntries(ctx, vocabularyID, query, lang, limit, parentURI)
+	views, _, err := s.searchVocabularyEntries(ctx, vocabularyID, query, lang, limit, parentURI, false)
 	return views, err
 }
 
 // SearchVocabularyEntriesDegradable also reports whether the remote lookup
-// degraded, so a handler can say so without failing the request.
-func (s *Service) SearchVocabularyEntriesDegradable(ctx context.Context, vocabularyID, query, lang string, limit int, parentURI string) ([]VocabularyEntryView, bool, error) {
-	return s.searchVocabularyEntries(ctx, vocabularyID, query, lang, limit, parentURI)
+// degraded, so a handler can say so without failing the request. onlyBranching
+// drops leaf concepts server-side — the parent-term picker's "Parents only"
+// mode.
+func (s *Service) SearchVocabularyEntriesDegradable(ctx context.Context, vocabularyID, query, lang string, limit int, parentURI string, onlyBranching bool) ([]VocabularyEntryView, bool, error) {
+	return s.searchVocabularyEntries(ctx, vocabularyID, query, lang, limit, parentURI, onlyBranching)
 }
 
-func (s *Service) searchVocabularyEntries(ctx context.Context, vocabularyID, query, lang string, limit int, parentURI string) ([]VocabularyEntryView, bool, error) {
+func (s *Service) searchVocabularyEntries(ctx context.Context, vocabularyID, query, lang string, limit int, parentURI string, onlyBranching bool) ([]VocabularyEntryView, bool, error) {
 	if limit <= 0 || limit > 100 {
 		limit = defaultSearchLimit
 	}
@@ -1142,9 +1144,10 @@ func (s *Service) searchVocabularyEntries(ctx context.Context, vocabularyID, que
 	}
 	if len(merged) < limit || strings.TrimSpace(parentURI) != "" {
 		connectorRows, err := s.registry.ForVocabulary(vocabularyFromRow(vocab)).Search(ctx, query, vocabconnector.SearchOpts{
-			Lang:      lang,
-			Limit:     limit,
-			ParentURI: parentURI,
+			Lang:          lang,
+			Limit:         limit,
+			ParentURI:     parentURI,
+			OnlyBranching: onlyBranching,
 		})
 		degraded, fail := classifyConnectorErr(err)
 		if fail {
@@ -1322,7 +1325,7 @@ func (s *Service) SearchConceptListSourceEntries(ctx context.Context, projectID,
 	if err != nil {
 		return nil, false, err
 	}
-	vocabHits, degraded, err := s.SearchVocabularyEntriesDegradable(ctx, *list.VocabularyID, query, lang, limit, parentURI)
+	vocabHits, degraded, err := s.SearchVocabularyEntriesDegradable(ctx, *list.VocabularyID, query, lang, limit, parentURI, false)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1344,7 +1347,7 @@ func (s *Service) appendProjectVocabularyHits(ctx context.Context, out []Concept
 		if vocab.Deprecated {
 			continue
 		}
-		vocabHits, vocabDegraded, err := s.SearchVocabularyEntriesDegradable(ctx, vocab.ID, query, lang, limit-len(out), "")
+		vocabHits, vocabDegraded, err := s.SearchVocabularyEntriesDegradable(ctx, vocab.ID, query, lang, limit-len(out), "", false)
 		if err != nil {
 			return nil, false, err
 		}
