@@ -46,6 +46,10 @@
 
   let query = $state('');
   let open = $state(false);
+  // A browse picker (roots_url present) opens its panel once on render so the
+  // curated roots are visible immediately; a plain search picker stays closed
+  // until focused. One-time, so the curator can still close it afterwards.
+  let autoOpened = $state(false);
   let loading = $state(false);
   let pending = $state(false);
   let results = $state<VocabularyEntry[]>([]);
@@ -125,6 +129,7 @@
   function resetLevel() {
     path = [];
     level = roots;
+    query = '';
   }
 
   async function drillInto(node: VocabularyEntry) {
@@ -144,6 +149,7 @@
       }
       path = [...path, node];
       level = next;
+      query = '';
     } catch {
       // A failed drill leaves the current level in place.
     } finally {
@@ -173,6 +179,15 @@
     return entry.descendants_total ?? entry.narrower_total;
   }
 
+  // Open a browse picker's panel once, so its curated roots show on render
+  // without the curator first focusing a search box (which roots mode hides).
+  $effect(() => {
+    if (browseEnabled && !autoOpened) {
+      open = true;
+      autoOpened = true;
+    }
+  });
+
   // Load roots the first time the browse picker is opened with its dependency
   // satisfied; reload when the source vocabulary changes.
   let lastVocabKey = $state('');
@@ -193,6 +208,14 @@
   const visibleResults = $derived(
     mode === 'parents' ? results.filter((e) => (e.narrower_total ?? 0) > 0) : results,
   );
+
+  // Roots mode: the query filters the current browsed level by label,
+  // client-side (roots and a drilled level are small, already-loaded sets).
+  const visibleLevel = $derived.by(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return level;
+    return level.filter((e) => entryLabel(e).toLowerCase().includes(term));
+  });
 
   const dependenciesSatisfied = $derived((field.depends_on ?? []).every((key) => {
     const depValue = formValues[key];
@@ -216,7 +239,9 @@
 
   $effect(() => {
     const q = query.trim();
-    if (!open || q.length < 2 || !field.search_url || !dependenciesSatisfied) {
+    // In roots mode the query filters the browsed level client-side; it must
+    // not fire a remote search.
+    if (!open || q.length < 2 || !field.search_url || !dependenciesSatisfied || (browseEnabled && mode === 'roots')) {
       results = [];
       pending = false;
       completedQuery = '';
@@ -403,29 +428,31 @@
             >All</button>
           </div>
         {/if}
-        {#if !browseEnabled || mode !== 'roots'}
-          <div class="flex items-center gap-2">
-            <input
-              id={field.name}
-              type="text"
-              bind:value={query}
-              oninput={handleQueryInput}
-              onfocus={() => (open = true)}
-              placeholder={dependenciesSatisfied ? 'Search vocabulary terms...' : 'Choose a source vocabulary first'}
-              disabled={!dependenciesSatisfied}
-              class="block w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:border-pletka-primary focus:outline-none focus:ring-pletka-primary disabled:bg-gray-50 disabled:text-gray-400"
-            />
-            <button
-              type="button"
-              class="rounded-md border border-gray-200 px-2.5 py-2 text-sm text-gray-500 hover:bg-gray-50 disabled:opacity-40"
-              disabled={!dependenciesSatisfied}
-              onclick={() => (open = !open)}
-              aria-label={open ? 'Close vocabulary search' : 'Open vocabulary search'}
-            >
-              v
-            </button>
-          </div>
-        {/if}
+        <div class="flex items-center gap-2">
+          <input
+            id={field.name}
+            type="text"
+            bind:value={query}
+            oninput={handleQueryInput}
+            onfocus={() => (open = true)}
+            placeholder={!dependenciesSatisfied
+              ? 'Choose a source vocabulary first'
+              : browseEnabled && mode === 'roots'
+                ? 'Filter this list...'
+                : 'Search vocabulary terms...'}
+            disabled={!dependenciesSatisfied}
+            class="block w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:border-pletka-primary focus:outline-none focus:ring-pletka-primary disabled:bg-gray-50 disabled:text-gray-400"
+          />
+          <button
+            type="button"
+            class="rounded-md border border-gray-200 px-2.5 py-2 text-sm text-gray-500 hover:bg-gray-50 disabled:opacity-40"
+            disabled={!dependenciesSatisfied}
+            onclick={() => (open = !open)}
+            aria-label={open ? 'Close vocabulary search' : 'Open vocabulary search'}
+          >
+            v
+          </button>
+        </div>
       </div>
     {/if}
 
@@ -451,8 +478,10 @@
             <div class="px-3 py-2 text-sm text-gray-500">Loading...</div>
           {:else if level.length === 0}
             <div class="px-3 py-2 text-sm text-gray-400">Nothing to browse here.</div>
+          {:else if visibleLevel.length === 0}
+            <div class="px-3 py-2 text-sm text-gray-400">No terms here match "{query.trim()}".</div>
           {:else}
-            {#each level as entry (entry.uri)}
+            {#each visibleLevel as entry (entry.uri)}
               <div class="flex items-stretch gap-1">
                 {#if expandable(entry) && field.children_url_template}
                   <button
