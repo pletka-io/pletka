@@ -23,8 +23,8 @@ func TestConnectorEntryView_carriesTreeFields(t *testing.T) {
 			Note:             "15 below",
 		},
 		{
-			URI:              "http://x/colours",
-			Label:            domain.Translations{"en": "Colours"},
+			URI:              "http://x/colors",
+			Label:            domain.Translations{"en": "Colors"},
 			DescendantsTotal: &d,
 			HasChildren:      &yes,
 		},
@@ -33,7 +33,7 @@ func TestConnectorEntryView_carriesTreeFields(t *testing.T) {
 	if len(views) != 2 {
 		t.Fatalf("len = %d", len(views))
 	}
-	if views[0].URI != "http://x/gender" || views[1].URI != "http://x/colours" {
+	if views[0].URI != "http://x/gender" || views[1].URI != "http://x/colors" {
 		t.Fatalf("order not preserved: %q, %q", views[0].URI, views[1].URI)
 	}
 	g := views[0]
@@ -45,9 +45,9 @@ func TestConnectorEntryView_carriesTreeFields(t *testing.T) {
 	}
 	c := views[1]
 	if c.HasChildren == nil || !*c.HasChildren {
-		t.Errorf("colours hasChildren = %v", c.HasChildren)
+		t.Errorf("colors hasChildren = %v", c.HasChildren)
 	}
 	if c.DescendantsTotal == nil || *c.DescendantsTotal != 498 {
-		t.Errorf("colours descendantsTotal = %v", c.DescendantsTotal)
+		t.Errorf("colors descendantsTotal = %v", c.DescendantsTotal)
 	}
 }

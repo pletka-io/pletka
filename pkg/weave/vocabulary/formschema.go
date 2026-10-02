@@ -9,6 +9,11 @@ import (
 	"github.com/pletka-io/pletka/pkg/i18n"
 )
 
+// fieldParentTermURI is the form-field name for a concept list's optional
+// parent/source term — also the key the save path reports validation errors
+// under.
+const fieldParentTermURI = "parent_term_uri"
+
 // BuildConceptListFormSchema returns the metadata form for project-scoped
 // controlled lists. Entry curation is handled from the detail view because it
 // needs search-and-add interactions against the configured vocabulary source.
@@ -156,7 +161,7 @@ func conceptListConfigurationFields(mode string, existing *ConceptListView, voca
 			Options:  vocabOptions,
 		},
 		{
-			Name:                "parent_term_uri",
+			Name:                fieldParentTermURI,
 			Widget:              formschema.WidgetVocabularyEntryPicker,
 			Readonly:            mode == formschema.ModeView,
 			Label:               i18n.L("concept_list.form.parent_term", "Parent Term"),

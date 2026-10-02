@@ -81,13 +81,14 @@ func (c *Connector) Fetch(ctx context.Context, uri string, opts vocabconnector.S
 	return &entries[0], nil
 }
 
-// Roots and Children: the Getty SPARQL connector has no curated roots and no
-// children endpoint. Not implemented; the service connector is the one that
-// browses a hierarchy.
+// Roots is not implemented: the Getty SPARQL connector has no curated roots.
+// The vocabulary-service connector is the one that browses a hierarchy.
 func (c *Connector) Roots(context.Context, string) ([]vocabconnector.Entry, error) {
 	return nil, vocabconnector.ErrNotImplemented
 }
 
+// Children is not implemented: the Getty SPARQL connector has no children
+// endpoint.
 func (c *Connector) Children(context.Context, string, string, int, int) ([]vocabconnector.Entry, error) {
 	return nil, vocabconnector.ErrNotImplemented
 }

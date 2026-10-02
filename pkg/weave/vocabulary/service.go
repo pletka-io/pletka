@@ -1435,7 +1435,7 @@ func (s *Service) resolveConceptListTypeID(ctx context.Context, vocabularyID, ra
 		return "", nil
 	}
 	if vocabularyID == "" {
-		return "", &ErrConceptListValidation{Fields: map[string][]string{"parent_term_uri": {"Choose a source vocabulary before setting a parent term."}}}
+		return "", &ErrConceptListValidation{Fields: map[string][]string{fieldParentTermURI: {"Choose a source vocabulary before setting a parent term."}}}
 	}
 	vocab, err := s.queries.WeaveGetVocabulary(ctx, vocabularyID)
 	if err != nil {
@@ -1460,7 +1460,7 @@ func (s *Service) resolveConceptListTypeID(ctx context.Context, vocabularyID, ra
 		return "", err
 	}
 	if fetched == nil {
-		return "", &ErrConceptListValidation{Fields: map[string][]string{"parent_term_uri": {"Parent term was not found in the selected vocabulary."}}}
+		return "", &ErrConceptListValidation{Fields: map[string][]string{fieldParentTermURI: {"Parent term was not found in the selected vocabulary."}}}
 	}
 	stored, err := s.persistConnectorEntry(ctx, vocabularyID, *fetched)
 	if err != nil {
