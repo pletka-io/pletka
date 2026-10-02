@@ -19,3 +19,11 @@ func (c *Connector) Search(context.Context, string, vocabconnector.SearchOpts) (
 func (c *Connector) Fetch(context.Context, string, vocabconnector.SearchOpts) (*vocabconnector.Entry, error) {
 	return nil, vocabconnector.ErrNotImplemented
 }
+
+func (c *Connector) Roots(context.Context, string) ([]vocabconnector.Entry, error) {
+	return nil, vocabconnector.ErrNotImplemented
+}
+
+func (c *Connector) Children(context.Context, string, string, int, int) ([]vocabconnector.Entry, error) {
+	return nil, vocabconnector.ErrNotImplemented
+}
