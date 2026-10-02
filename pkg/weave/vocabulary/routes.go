@@ -41,6 +41,8 @@ func Mount(parent chi.Router, host Host) {
 	h := NewHandler(host.Service, host.Projects, host.Logger, host.Languages, host.LangResolver)
 
 	parent.Get("/api/v2/vocabularies/{vocabularyID}/entries/search", h.SearchVocabularyEntries)
+	parent.Get("/api/v2/vocabularies/{vocabularyID}/roots", h.VocabularyRoots)
+	parent.Get("/api/v2/vocabularies/{vocabularyID}/children/{conceptID}", h.VocabularyChildren)
 	parent.Get("/api/v2/vocabulary-entries/resolve", h.ResolveEntry)
 	parent.With(weaveadmin.RequireSuperAdmin).Get("/admin/vocabularies/entity-list-schema", h.AdminVocabularyEntityListSchema)
 	parent.With(weaveadmin.RequireSuperAdmin).Get("/admin/vocabularies/data", h.AdminVocabularyData)
