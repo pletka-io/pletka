@@ -1357,6 +1357,18 @@ func (h *Handler) buildConceptList(ctx context.Context, projectID, conceptListID
 		}
 	}
 
+	// Delete lives on the detail page's "More actions" kebab, mirroring the
+	// list row action and the other entity detail views. Offered only when the
+	// list is editable and not viewed under a release. A list bound to a field
+	// still shows it, but the DELETE endpoint refuses with in_use (409) as the
+	// server-side backstop — the frontend surfaces that message.
+	// ponytail: not gated on in_use here (no bindings-count reader on the
+	// store); add that gate when a ConceptListStore usage method exists.
+	deleteURL := ""
+	if canEdit && activeVersion == "" {
+		deleteURL = fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s", projectID, list.ID)
+	}
+
 	return &Response{
 		Entity: EntityViewMeta{
 			ID:               list.ID,
@@ -1380,6 +1392,7 @@ func (h *Handler) buildConceptList(ctx context.Context, projectID, conceptListID
 		},
 		Capabilities: ViewCapabilities{
 			Editable:    canEdit,
+			DeleteURL:   deleteURL,
 			MetadataURL: capabilityURL(canEdit, withVersion(fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/form-schema", projectID, list.ID), activeVersion)),
 			ConceptList: &ConceptListCap{
 				SearchEntriesURL:   capabilityURL(canEdit, withVersion(fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/source-entries/search", projectID, list.ID), activeVersion)),
