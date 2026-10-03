@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/pletka-io/pletka/pkg/auth"
 	pkgdomain "github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	weavex3ml "github.com/pletka-io/pletka/pkg/weave/generators/x3ml"
 )
@@ -87,13 +88,13 @@ func (h *Handler) GetModelDiagram(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, opts)
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		writeError(w, "failed to build model snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, generators.FormatMermaid, snap, &buf); err != nil {
 		h.logger.Error("render model mermaid", "id", model.ID, "err", err)
-		writeError(w, "failed to render diagram: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to render diagram: "+err.Error(), err))
 		return
 	}
 	writeJSON(w, DiagramResponse{
@@ -123,13 +124,13 @@ func (h *Handler) GetCollectionDiagram(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.gens.SnapshotForCollection(ctx, coll.ProjectID, coll.ID, opts)
 	if err != nil {
 		h.logger.Error("collection snapshot", "id", coll.ID, "err", err)
-		writeError(w, "failed to build collection snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build collection snapshot: "+err.Error(), err))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, generators.FormatMermaid, snap, &buf); err != nil {
 		h.logger.Error("render collection mermaid", "id", coll.ID, "err", err)
-		writeError(w, "failed to render diagram: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to render diagram: "+err.Error(), err))
 		return
 	}
 	writeJSON(w, DiagramResponse{
@@ -212,13 +213,13 @@ func (h *Handler) GetFieldDiagram(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.gens.SnapshotForField(ctx, field.ProjectID, field.ID, opts)
 	if err != nil {
 		h.logger.Error("field snapshot", "id", field.ID, "err", err)
-		writeError(w, "failed to build field snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build field snapshot: "+err.Error(), err))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, generators.FormatMermaid, snap, &buf); err != nil {
 		h.logger.Error("render field mermaid", "id", field.ID, "err", err)
-		writeError(w, "failed to render diagram: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to render diagram: "+err.Error(), err))
 		return
 	}
 	writeJSON(w, DiagramResponse{
@@ -299,10 +300,10 @@ func (h *Handler) modelSPARQL(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, opts)
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		writeError(w, "failed to build model snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
 		return
 	}
-	h.writeSPARQL(ctx, w, snap)
+	h.writeSPARQL(ctx, w, r, snap)
 }
 
 func (h *Handler) collectionSPARQL(w http.ResponseWriter, r *http.Request) {
@@ -318,10 +319,10 @@ func (h *Handler) collectionSPARQL(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.gens.SnapshotForCollection(ctx, coll.ProjectID, coll.ID, opts)
 	if err != nil {
 		h.logger.Error("collection snapshot", "id", coll.ID, "err", err)
-		writeError(w, "failed to build collection snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build collection snapshot: "+err.Error(), err))
 		return
 	}
-	h.writeSPARQL(ctx, w, snap)
+	h.writeSPARQL(ctx, w, r, snap)
 }
 
 func (h *Handler) fieldSPARQL(w http.ResponseWriter, r *http.Request) {
@@ -337,10 +338,10 @@ func (h *Handler) fieldSPARQL(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.gens.SnapshotForField(ctx, field.ProjectID, field.ID, opts)
 	if err != nil {
 		h.logger.Error("field snapshot", "id", field.ID, "err", err)
-		writeError(w, "failed to build field snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build field snapshot: "+err.Error(), err))
 		return
 	}
-	h.writeSPARQL(ctx, w, snap)
+	h.writeSPARQL(ctx, w, r, snap)
 }
 
 // X3ML form A handlers — single mapping, full path links.
@@ -420,7 +421,7 @@ func (h *Handler) serveX3ML(
 	resolved, err := h.weave.Projects().ResolvedOntologyVersions(ctx, projectID, pkgdomain.ResolvedOntologyVersionOpts{})
 	if err != nil {
 		h.logger.Error("x3ml resolve ontology versions", "project", projectID, "err", err)
-		writeError(w, "failed to resolve project ontologies: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to resolve project ontologies: "+err.Error(), err))
 		return
 	}
 	versionIDs := make([]string, 0, len(resolved))
@@ -430,25 +431,25 @@ func (h *Handler) serveX3ML(
 	bundle, err := h.bundles.BundleForVersions(ctx, versionIDs)
 	if err != nil {
 		h.logger.Error("x3ml ontology bundle", "project", projectID, "err", err)
-		writeError(w, "failed to load project ontologies: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to load project ontologies: "+err.Error(), err))
 		return
 	}
 	snap, err := build(generators.Options{X3MLTargets: x3mlTargets(bundle)})
 	if err != nil {
 		h.logger.Error("x3ml snapshot", "project", projectID, "err", err)
-		writeError(w, "failed to build snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build snapshot: "+err.Error(), err))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, format, snap, &buf); err != nil {
 		h.logger.Error("render x3ml", "format", format, "err", err)
-		writeError(w, "failed to render x3ml: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to render x3ml: "+err.Error(), err))
 		return
 	}
 
 	base := x3mlBaseName(snap) + x3mlExtension(format)
 	if r.URL.Query().Get("bundle") == "zip" {
-		h.writeX3MLZip(w, base, buf.Bytes(), bundle)
+		h.writeX3MLZip(w, r, base, buf.Bytes(), bundle)
 		return
 	}
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
@@ -460,11 +461,11 @@ func (h *Handler) serveX3ML(
 // The zip assembly itself lives in pkg/weave/generators/x3ml so the
 // integrations hub can reuse it as an artifact provider without going
 // through the HTTP handler.
-func (h *Handler) writeX3MLZip(w http.ResponseWriter, x3mlName string, x3ml []byte, bundle []pkgdomain.OntologyBundleEntry) {
+func (h *Handler) writeX3MLZip(w http.ResponseWriter, r *http.Request, x3mlName string, x3ml []byte, bundle []pkgdomain.OntologyBundleEntry) {
 	data, err := weavex3ml.BuildZip(x3mlName, x3ml, bundle)
 	if err != nil {
 		h.logger.Error("x3ml zip", "entry", x3mlName, "err", err)
-		writeError(w, "failed to build zip: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build zip: "+err.Error(), err))
 		return
 	}
 	w.Header().Set("Content-Type", "application/zip")
@@ -538,13 +539,13 @@ func (h *Handler) GetModelArches(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		writeError(w, "failed to build model snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, generators.FormatArches, snap, &buf); err != nil {
 		h.logger.Error("render arches", "id", model.ID, "err", err)
-		writeError(w, "failed to render arches: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to render arches: "+err.Error(), err))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -568,7 +569,7 @@ func (h *Handler) GetModelSnapshot(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		writeError(w, "failed to build model snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -596,7 +597,7 @@ func (h *Handler) GetModelASCIITree(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		writeError(w, "failed to build model snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -620,24 +621,24 @@ func (h *Handler) GetModelResearchSpace(w http.ResponseWriter, r *http.Request) 
 	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		writeError(w, "failed to build model snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, generators.FormatResearchSpace, snap, &buf); err != nil {
 		h.logger.Error("render researchspace", "id", model.ID, "err", err)
-		writeError(w, "failed to render researchspace: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to render researchspace: "+err.Error(), err))
 		return
 	}
 	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
 	fmt.Fprint(w, buf.String())
 }
 
-func (h *Handler) writeSPARQL(ctx context.Context, w http.ResponseWriter, snap *generators.Snapshot) {
+func (h *Handler) writeSPARQL(ctx context.Context, w http.ResponseWriter, r *http.Request, snap *generators.Snapshot) {
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, generators.FormatSPARQL, snap, &buf); err != nil {
 		h.logger.Error("render sparql", "err", err)
-		writeError(w, "failed to render sparql: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to render sparql: "+err.Error(), err))
 		return
 	}
 	w.Header().Set("Content-Type", "application/sparql-query; charset=utf-8")
@@ -665,13 +666,13 @@ func (h *Handler) modelGraph(w http.ResponseWriter, r *http.Request, format gene
 	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, opts)
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		writeError(w, "failed to build model snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, format, snap, &buf); err != nil {
 		h.logger.Error("render model graph", "id", model.ID, "format", format, "err", err)
-		writeError(w, fmt.Sprintf("failed to render %s: %s", format, err), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith(fmt.Sprintf("failed to render %s: %s", format, err), err))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -695,13 +696,13 @@ func (h *Handler) collectionGraph(w http.ResponseWriter, r *http.Request, format
 	snap, err := h.gens.SnapshotForCollection(ctx, coll.ProjectID, coll.ID, opts)
 	if err != nil {
 		h.logger.Error("collection snapshot", "id", coll.ID, "err", err)
-		writeError(w, "failed to build collection snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build collection snapshot: "+err.Error(), err))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, format, snap, &buf); err != nil {
 		h.logger.Error("render collection graph", "id", coll.ID, "format", format, "err", err)
-		writeError(w, fmt.Sprintf("failed to render %s: %s", format, err), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith(fmt.Sprintf("failed to render %s: %s", format, err), err))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -725,13 +726,13 @@ func (h *Handler) fieldGraph(w http.ResponseWriter, r *http.Request, format gene
 	snap, err := h.gens.SnapshotForField(ctx, field.ProjectID, field.ID, opts)
 	if err != nil {
 		h.logger.Error("field snapshot", "id", field.ID, "err", err)
-		writeError(w, "failed to build field snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build field snapshot: "+err.Error(), err))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, format, snap, &buf); err != nil {
 		h.logger.Error("render field graph", "id", field.ID, "format", format, "err", err)
-		writeError(w, fmt.Sprintf("failed to render %s: %s", format, err), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith(fmt.Sprintf("failed to render %s: %s", format, err), err))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -771,13 +772,13 @@ func (h *Handler) fieldRDF(w http.ResponseWriter, r *http.Request, format genera
 	snap, err := h.gens.SnapshotForField(ctx, field.ProjectID, field.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("field snapshot", "id", field.ID, "err", err)
-		writeError(w, "failed to build field snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build field snapshot: "+err.Error(), err))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, format, snap, &buf); err != nil {
 		h.logger.Error("render field rdf", "id", field.ID, "format", format, "err", err)
-		writeError(w, fmt.Sprintf("failed to render %s: %s", format, err), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith(fmt.Sprintf("failed to render %s: %s", format, err), err))
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
@@ -796,13 +797,13 @@ func (h *Handler) modelRDF(w http.ResponseWriter, r *http.Request, format genera
 	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		writeError(w, "failed to build model snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, format, snap, &buf); err != nil {
 		h.logger.Error("render model rdf", "id", model.ID, "format", format, "err", err)
-		writeError(w, fmt.Sprintf("failed to render %s: %s", format, err), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith(fmt.Sprintf("failed to render %s: %s", format, err), err))
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
@@ -821,13 +822,13 @@ func (h *Handler) collectionRDF(w http.ResponseWriter, r *http.Request, format g
 	snap, err := h.gens.SnapshotForCollection(ctx, coll.ProjectID, coll.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("collection snapshot", "id", coll.ID, "err", err)
-		writeError(w, "failed to build collection snapshot: "+err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to build collection snapshot: "+err.Error(), err))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.gens.RenderSnapshot(ctx, format, snap, &buf); err != nil {
 		h.logger.Error("render collection rdf", "id", coll.ID, "format", format, "err", err)
-		writeError(w, fmt.Sprintf("failed to render %s: %s", format, err), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith(fmt.Sprintf("failed to render %s: %s", format, err), err))
 		return
 	}
 	w.Header().Set("Content-Type", contentType)

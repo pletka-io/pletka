@@ -63,13 +63,13 @@ type bindingBody struct {
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id required")
+		writeError(w, r, http.StatusBadRequest, "project_id required")
 		return
 	}
 
 	bindings, err := h.svc.List(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 
@@ -92,7 +92,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListGlobal(w http.ResponseWriter, r *http.Request) {
 	bindings, err := h.svc.ListGlobal(r.Context())
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	items := make([]map[string]any, 0, len(bindings))
@@ -114,7 +114,7 @@ func (h *Handler) ListGlobalData(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("page")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 {
-			writeError(w, http.StatusBadRequest, "page must be a positive integer")
+			writeError(w, r, http.StatusBadRequest, "page must be a positive integer")
 			return
 		}
 		page = parsed
@@ -123,7 +123,7 @@ func (h *Handler) ListGlobalData(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("per_page")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 {
-			writeError(w, http.StatusBadRequest, "per_page must be a positive integer")
+			writeError(w, r, http.StatusBadRequest, "per_page must be a positive integer")
 			return
 		}
 		perPage = parsed
@@ -137,7 +137,7 @@ func (h *Handler) ListGlobalData(w http.ResponseWriter, r *http.Request) {
 		PerPage: perPage,
 	})
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 
@@ -164,13 +164,13 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	id := chi.URLParam(r, "id")
 	if projectID == "" || id == "" {
-		writeError(w, http.StatusBadRequest, "project_id and id required")
+		writeError(w, r, http.StatusBadRequest, "project_id and id required")
 		return
 	}
 
 	b, err := h.svc.Get(r.Context(), projectID, id)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, b)
@@ -179,12 +179,12 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetGlobal(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "id required")
+		writeError(w, r, http.StatusBadRequest, "id required")
 		return
 	}
 	b, err := h.svc.GetGlobal(r.Context(), id)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, b)
@@ -194,17 +194,17 @@ func (h *Handler) GetGlobal(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id required")
+		writeError(w, r, http.StatusBadRequest, "project_id required")
 		return
 	}
 
 	body, err := decodeJSON[bindingBody](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := requireValidOptionalInt64(body.Weight, "weight"); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -216,7 +216,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	b, err := h.svc.Create(r.Context(), projectID, in)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, b)
@@ -225,11 +225,11 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateGlobal(w http.ResponseWriter, r *http.Request) {
 	body, err := decodeJSON[bindingBody](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := requireValidOptionalInt64(body.Weight, "weight"); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	in := CreateInput{
@@ -239,7 +239,7 @@ func (h *Handler) CreateGlobal(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := h.svc.CreateGlobal(r.Context(), in)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, b)
@@ -250,17 +250,17 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	id := chi.URLParam(r, "id")
 	if projectID == "" || id == "" {
-		writeError(w, http.StatusBadRequest, "project_id and id required")
+		writeError(w, r, http.StatusBadRequest, "project_id and id required")
 		return
 	}
 
 	body, err := decodeJSON[bindingBody](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := requireValidOptionalInt64(body.Weight, "weight"); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -272,7 +272,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 
 	b, err := h.svc.Update(r.Context(), projectID, id, in)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, b)
@@ -281,16 +281,16 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateGlobal(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "id required")
+		writeError(w, r, http.StatusBadRequest, "id required")
 		return
 	}
 	body, err := decodeJSON[bindingBody](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := requireValidOptionalInt64(body.Weight, "weight"); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	in := UpdateInput{
@@ -300,7 +300,7 @@ func (h *Handler) UpdateGlobal(w http.ResponseWriter, r *http.Request) {
 	}
 	b, err := h.svc.UpdateGlobal(r.Context(), id, in)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, b)
@@ -311,12 +311,12 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	id := chi.URLParam(r, "id")
 	if projectID == "" || id == "" {
-		writeError(w, http.StatusBadRequest, "project_id and id required")
+		writeError(w, r, http.StatusBadRequest, "project_id and id required")
 		return
 	}
 
 	if err := h.svc.Delete(r.Context(), projectID, id); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -325,11 +325,11 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteGlobal(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "id required")
+		writeError(w, r, http.StatusBadRequest, "id required")
 		return
 	}
 	if err := h.svc.DeleteGlobal(r.Context(), id); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -338,12 +338,12 @@ func (h *Handler) DeleteGlobal(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) StatsGlobal(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "id required")
+		writeError(w, r, http.StatusBadRequest, "id required")
 		return
 	}
 	report, err := h.svc.StatsGlobal(r.Context(), id)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
@@ -357,7 +357,7 @@ func (h *Handler) StatsGlobal(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListSchema(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id required")
+		writeError(w, r, http.StatusBadRequest, "project_id required")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildListSchema(projectID, h.lang(r), h.languages))
@@ -375,7 +375,7 @@ func (h *Handler) EntityListSchemaGlobal(w http.ResponseWriter, r *http.Request)
 func (h *Handler) FormSchemaCreate(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id required")
+		writeError(w, r, http.StatusBadRequest, "project_id required")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildCreateForm(projectID, h.lang(r), h.languages))
@@ -391,13 +391,13 @@ func (h *Handler) FormSchemaEdit(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	id := chi.URLParam(r, "id")
 	if projectID == "" || id == "" {
-		writeError(w, http.StatusBadRequest, "project_id and id required")
+		writeError(w, r, http.StatusBadRequest, "project_id and id required")
 		return
 	}
 
 	b, err := h.svc.Get(r.Context(), projectID, id)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildEditForm(projectID, b, h.lang(r), h.languages))
@@ -406,12 +406,12 @@ func (h *Handler) FormSchemaEdit(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) FormSchemaEditGlobal(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "id required")
+		writeError(w, r, http.StatusBadRequest, "id required")
 		return
 	}
 	b, err := h.svc.GetGlobal(r.Context(), id)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildGlobalEditForm(b, h.lang(r), h.languages))
@@ -421,22 +421,22 @@ func (h *Handler) FormSchemaEditGlobal(w http.ResponseWriter, r *http.Request) {
 // Error mapping
 // ---------------------------------------------------------------------------
 
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, domain.ErrReadOnly) {
-		apierror.Write(w, apierror.Validation(map[string][]string{
+		apierror.Write(w, r, apierror.Validation(map[string][]string{
 			"_": {"this binding is read-only and cannot be modified"},
 		}))
 		return
 	}
 	if IsNotFound(err) {
-		apierror.Write(w, apierror.NotFound(err.Error()))
+		apierror.Write(w, r, apierror.NotFound(err.Error()))
 		return
 	}
 	ae := apierror.FromError(err)
 	if ae.Code == apierror.CodeInternal {
 		h.log.Error("namespace binding handler error", "err", err)
 	}
-	apierror.Write(w, ae)
+	apierror.Write(w, r, ae)
 }
 
 // ---------------------------------------------------------------------------
@@ -450,8 +450,8 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 // writeError forwards to apierror.Write — see pkg/weave/apierror.
-func writeError(w http.ResponseWriter, status int, msg string) {
-	apierror.Write(w, &apierror.Error{Status: status, Message: msg})
+func writeError(w http.ResponseWriter, r *http.Request, status int, msg string) { //nolint:unparam // signature kept parallel to the sibling slices' writeError
+	apierror.Write(w, r, &apierror.Error{Status: status, Message: msg})
 }
 
 func decodeJSON[T any](r *http.Request) (T, error) {

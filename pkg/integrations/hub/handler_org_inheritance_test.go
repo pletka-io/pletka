@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -68,7 +69,7 @@ func TestLoadProjectAndGate_HonorsOrgInheritedRole(t *testing.T) {
 		Roles:   map[string]string{"org:" + ownerID: "owner"},
 	})
 	rec := httptest.NewRecorder()
-	project, ok := h.loadProjectAndGate(orgUser, rec, projectID, weaveauth.ProjectEdit)
+	project, ok := h.loadProjectAndGate(rec, httptest.NewRequest(http.MethodGet, "/", nil).WithContext(orgUser), projectID, weaveauth.ProjectEdit)
 	if !ok {
 		t.Fatalf("org-inherited owner was denied hub access (status %d); loadProjectAndGate must carry OrgID", rec.Code)
 	}
@@ -82,7 +83,7 @@ func TestLoadProjectAndGate_HonorsOrgInheritedRole(t *testing.T) {
 		Roles:   map[string]string{},
 	})
 	rec2 := httptest.NewRecorder()
-	if _, ok := h.loadProjectAndGate(nobody, rec2, projectID, weaveauth.ProjectEdit); ok {
+	if _, ok := h.loadProjectAndGate(rec2, httptest.NewRequest(http.MethodGet, "/", nil).WithContext(nobody), projectID, weaveauth.ProjectEdit); ok {
 		t.Fatal("a non-member must not pass the hub gate")
 	}
 }

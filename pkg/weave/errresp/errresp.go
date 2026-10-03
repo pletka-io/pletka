@@ -41,6 +41,44 @@ func Error(w http.ResponseWriter, r *http.Request, status int, code, message str
 	http.Error(w, message, status) //nolint:forbidigo // fallback when unrouted
 }
 
+type causeKey struct{}
+
+// CauseSlot holds the underlying error behind a request's 5xx so the error
+// tracker, which only sees the generic response body, can record why.
+type CauseSlot struct{ err error }
+
+// Err returns the recorded cause, or nil.
+func (s *CauseSlot) Err() error { return s.err }
+
+// WithCauseSlot returns ctx carrying a fresh slot, and the slot itself for
+// the caller (the error tracker) to read after the handler returns.
+func WithCauseSlot(ctx context.Context) (context.Context, *CauseSlot) {
+	s := &CauseSlot{}
+	return context.WithValue(ctx, causeKey{}, s), s
+}
+
+// RecordCause stores err as the cause of the request's failure. The first
+// recorded cause wins; no-op without a slot on ctx.
+func RecordCause(ctx context.Context, err error) {
+	if s, ok := ctx.Value(causeKey{}).(*CauseSlot); ok && s.err == nil {
+		s.err = err
+	}
+}
+
+// Internal is the one way a handler answers 500: it records err as the
+// request's cause for the error tracker, then writes the negotiated
+// "internal error" response. err is never shown to the client.
+func Internal(w http.ResponseWriter, r *http.Request, err error) {
+	InternalWith(w, r, err, "internal error")
+}
+
+// InternalWith is Internal with a caller-supplied, client-safe message
+// ("failed to load project"). Never pass err.Error() as the message.
+func InternalWith(w http.ResponseWriter, r *http.Request, err error, message string) {
+	RecordCause(r.Context(), err)
+	Error(w, r, http.StatusInternalServerError, "internal", message)
+}
+
 // Holder carries the process-wide error Responder, set once after the
 // error-page host is assembled and read by StashMiddleware on every request.
 // Lets the stash middleware install before any routes (avoiding chi's

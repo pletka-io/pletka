@@ -214,7 +214,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		errresp.Error(w, r, http.StatusForbidden, "forbidden", "forbidden")
 	default:
 		h.log.Error("attribution handler error", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "internal server error")
+		errresp.InternalWith(w, r, err, "internal server error")
 	}
 }
 

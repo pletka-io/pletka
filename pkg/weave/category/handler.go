@@ -105,13 +105,13 @@ type deleteBody struct {
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id required")
+		writeError(w, r, http.StatusBadRequest, "project_id required")
 		return
 	}
 
 	rows, err := h.svc.ListWithCounts(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	if err := h.applyOriginsToCategoryRows(r.Context(), projectID, rows); err != nil {
@@ -126,17 +126,17 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	id := chi.URLParam(r, "id")
 	if projectID == "" || id == "" {
-		writeError(w, http.StatusBadRequest, "project_id and id required")
+		writeError(w, r, http.StatusBadRequest, "project_id and id required")
 		return
 	}
 
 	cat, err := h.svc.Get(r.Context(), projectID, id)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	if cat == nil {
-		writeError(w, http.StatusNotFound, "category not found")
+		writeError(w, r, http.StatusNotFound, "category not found")
 		return
 	}
 	if err := h.applyOriginToCategory(r.Context(), projectID, cat); err != nil {
@@ -151,13 +151,13 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id required")
+		writeError(w, r, http.StatusBadRequest, "project_id required")
 		return
 	}
 
 	body, err := decodeJSON[categoryBody](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -173,7 +173,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	cat, err := h.svc.Create(r.Context(), projectID, in)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 
@@ -186,13 +186,13 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	id := chi.URLParam(r, "id")
 	if projectID == "" || id == "" {
-		writeError(w, http.StatusBadRequest, "project_id and id required")
+		writeError(w, r, http.StatusBadRequest, "project_id and id required")
 		return
 	}
 
 	body, err := decodeJSON[categoryBody](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -206,7 +206,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 
 	cat, err := h.svc.Update(r.Context(), projectID, id, in)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 
@@ -220,7 +220,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	id := chi.URLParam(r, "id")
 	if projectID == "" || id == "" {
-		writeError(w, http.StatusBadRequest, "project_id and id required")
+		writeError(w, r, http.StatusBadRequest, "project_id and id required")
 		return
 	}
 
@@ -230,7 +230,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength > 0 {
 		decoded, err := decodeJSON[deleteBody](r)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
 		body = decoded
@@ -238,7 +238,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	err := h.svc.Delete(r.Context(), projectID, id, DeleteOpts{ReassignTo: body.ReassignTo})
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 
@@ -250,18 +250,18 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Reorder(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id required")
+		writeError(w, r, http.StatusBadRequest, "project_id required")
 		return
 	}
 
 	body, err := decodeJSON[reorderBody](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if err := h.svc.Reorder(r.Context(), projectID, body.CategoryIDs); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 
@@ -277,12 +277,12 @@ func (h *Handler) Deprecate(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	id := chi.URLParam(r, "id")
 	if projectID == "" || id == "" {
-		writeError(w, http.StatusBadRequest, "project_id and id required")
+		writeError(w, r, http.StatusBadRequest, "project_id and id required")
 		return
 	}
 
 	if err := h.svc.Deprecate(r.Context(), projectID, id); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 
@@ -294,12 +294,12 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	id := chi.URLParam(r, "id")
 	if projectID == "" || id == "" {
-		writeError(w, http.StatusBadRequest, "project_id and id required")
+		writeError(w, r, http.StatusBadRequest, "project_id and id required")
 		return
 	}
 
 	if err := h.svc.Activate(r.Context(), projectID, id); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 
@@ -316,13 +316,13 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Options(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id required")
+		writeError(w, r, http.StatusBadRequest, "project_id required")
 		return
 	}
 
 	cats, err := h.svc.List(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 
@@ -359,13 +359,13 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	id := chi.URLParam(r, "id")
 	if projectID == "" || id == "" {
-		writeError(w, http.StatusBadRequest, "project_id and id required")
+		writeError(w, r, http.StatusBadRequest, "project_id and id required")
 		return
 	}
 
 	report, err := h.svc.Stats(r.Context(), projectID, id)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	if report != nil && report.Category != nil {
@@ -385,7 +385,7 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListSchema(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id required")
+		writeError(w, r, http.StatusBadRequest, "project_id required")
 		return
 	}
 	schema := BuildListSchema(projectID, h.lang(r), h.languages)
@@ -397,7 +397,7 @@ func (h *Handler) ListSchema(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) FormSchemaCreate(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "project_id required")
+		writeError(w, r, http.StatusBadRequest, "project_id required")
 		return
 	}
 	schema := BuildCreateForm(projectID, h.lang(r), h.languages)
@@ -410,17 +410,17 @@ func (h *Handler) FormSchemaEdit(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	id := chi.URLParam(r, "id")
 	if projectID == "" || id == "" {
-		writeError(w, http.StatusBadRequest, "project_id and id required")
+		writeError(w, r, http.StatusBadRequest, "project_id and id required")
 		return
 	}
 
 	cat, err := h.svc.Get(r.Context(), projectID, id)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	if cat == nil {
-		writeError(w, http.StatusNotFound, "category not found")
+		writeError(w, r, http.StatusNotFound, "category not found")
 		return
 	}
 	if err := h.applyOriginToCategory(r.Context(), projectID, cat); err != nil {
@@ -440,7 +440,7 @@ func (h *Handler) FormSchemaEdit(w http.ResponseWriter, r *http.Request) {
 // (entity_type, entity_id, semantic_id) the frontend reads to render
 // the "still referenced by …" link, so it stays inline. Everything
 // else routes through apierror.
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	var inUseErr *ErrEntityInUse
 	if errors.As(err, &inUseErr) {
 		writeJSON(w, http.StatusConflict, map[string]any{
@@ -453,14 +453,14 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		return
 	}
 	if IsNotFound(err) {
-		apierror.Write(w, apierror.NotFound(err.Error()))
+		apierror.Write(w, r, apierror.NotFound(err.Error()))
 		return
 	}
 	ae := apierror.FromError(err)
 	if ae.Code == apierror.CodeInternal {
 		h.log.Error("category handler error", "err", err)
 	}
-	apierror.Write(w, ae)
+	apierror.Write(w, r, ae)
 }
 
 // ---------------------------------------------------------------------------
@@ -479,8 +479,8 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 // constructors directly (apierror.NotFound, apierror.BadRequest,
 // etc.) rather than this generic helper — they set the canonical
 // "code" field that the frontend can branch on.
-func writeError(w http.ResponseWriter, status int, msg string) {
-	apierror.Write(w, &apierror.Error{Status: status, Message: msg})
+func writeError(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	apierror.Write(w, r, &apierror.Error{Status: status, Message: msg})
 }
 
 type categoryOriginInfo struct {

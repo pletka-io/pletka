@@ -2,6 +2,7 @@ package exports
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -61,7 +62,8 @@ func (h *Handler) loadAndGate(w http.ResponseWriter, r *http.Request, projectID 
 
 func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	if h.service == nil {
-		errresp.Error(w, r, http.StatusServiceUnavailable, "internal", "exports unavailable")
+		errresp.RecordCause(r.Context(), errors.New("exports service not configured"))
+		errresp.Error(w, r, http.StatusServiceUnavailable, "internal", "exports unavailable") //nolint:forbidigo // 503 is deliberate: the exports feature is not wired in this build, not a request failure
 		return
 	}
 

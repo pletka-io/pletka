@@ -133,11 +133,11 @@ func (h *Handler) EntityListSchema(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.logger.Error("failed to build entity list schema", "project_id", projectID, "entity_type", entityType, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "Failed to build schema")
+		errresp.InternalWith(w, r, err, "Failed to build schema")
 		return
 	}
 	if schema == nil {
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "Failed to build schema")
+		errresp.InternalWith(w, r, fmt.Errorf("entity list schema provider for %q returned nil schema", entityType), "Failed to build schema")
 		return
 	}
 
@@ -341,12 +341,12 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.logger.Error("failed to build form schema", "project_id", projectID, "entity_type", entityType, "mode", mode, "entity_id", entityID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "Failed to build schema")
+		errresp.InternalWith(w, r, err, "Failed to build schema")
 		return
 	}
 
 	if schema == nil {
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "Failed to build schema")
+		errresp.InternalWith(w, r, fmt.Errorf("form schema provider for %q returned nil schema", entityType), "Failed to build schema")
 		return
 	}
 

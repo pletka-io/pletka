@@ -161,7 +161,7 @@ func (h *Handler) Data(w http.ResponseWriter, r *http.Request) {
 	projects, total, err := h.svc.ListVisible(ctx, opts...)
 	if err != nil {
 		h.log.Error("list projects failed", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list projects")
+		errresp.InternalWith(w, r, err, "failed to list projects")
 		return
 	}
 
@@ -272,7 +272,7 @@ func (h *Handler) FilterInstitutions(w http.ResponseWriter, r *http.Request) {
 	actors, err := h.svc.ListVisibleOwnerInstitutions(r.Context())
 	if err != nil {
 		h.log.Error("load institutions failed", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load institutions")
+		errresp.InternalWith(w, r, err, "failed to load institutions")
 		return
 	}
 	options := make([]formschema.FilterOption, 0, len(actors)+1)
@@ -295,7 +295,8 @@ func (h *Handler) CheckIDPrefix(w http.ResponseWriter, r *http.Request) {
 	report, err := h.svc.CheckIDPrefix(r.Context(), prefix)
 	if err != nil {
 		h.log.Error("check id prefix failed", "err", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
+		errresp.RecordCause(r.Context(), err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{ //nolint:forbidigo // availability-check shape the ID-prefix field reads; cause recorded above
 			"available": false,
 			"valid":     true,
 			"message":   "Failed to check availability",
@@ -368,7 +369,7 @@ func (h *Handler) InheritanceTree(w http.ResponseWriter, r *http.Request) {
 	resolved, err := h.svc.ResolvedOntologyVersions(ctx, projectID, domain.ResolvedOntologyVersionOpts{})
 	if err != nil {
 		h.log.Error("resolve ontology versions for inheritance tree", "project_id", projectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to resolve ontology tree")
+		errresp.InternalWith(w, r, err, "failed to resolve ontology tree")
 		return
 	}
 
@@ -436,7 +437,7 @@ func (h *Handler) InheritanceTree(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	principal := authPrincipalFromContext(r)
 	if principal == nil || principal.ActorID == "" {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+		writeError(w, r, http.StatusUnauthorized, "authentication required")
 		return
 	}
 
@@ -448,14 +449,14 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		OwnerID     string              `json:"owner_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		writeError(w, r, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
 
 	ownerID := principal.ActorID
 	if requested := strings.TrimSpace(body.OwnerID); requested != "" && requested != principal.ActorID {
 		if !auth.FromContext(r.Context()).Can(auth.OrgProjectCreate, auth.OrgResourceByID(requested), nil) {
-			writeError(w, http.StatusForbidden, "forbidden: requires org.project_create on org:"+requested)
+			writeError(w, r, http.StatusForbidden, "forbidden: requires org.project_create on org:"+requested)
 			return
 		}
 		ownerID = h.resolveOwnerID(r.Context(), requested)
@@ -470,7 +471,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		CreatedByID: principal.ActorID,
 	})
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
@@ -480,16 +481,16 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 // Error mapping
 // ---------------------------------------------------------------------------
 
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	if IsNotFound(err) {
-		apierror.Write(w, apierror.NotFound(err.Error()))
+		apierror.Write(w, r, apierror.NotFound(err.Error()))
 		return
 	}
 	ae := apierror.FromError(err)
 	if ae.Code == apierror.CodeInternal {
 		h.log.Error("project handler error", "err", err)
 	}
-	apierror.Write(w, ae)
+	apierror.Write(w, r, ae)
 }
 
 // ---------------------------------------------------------------------------
@@ -503,8 +504,8 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 // writeError forwards to apierror.Write — see pkg/weave/apierror.
-func writeError(w http.ResponseWriter, status int, msg string) {
-	apierror.Write(w, &apierror.Error{Status: status, Message: msg})
+func writeError(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	apierror.Write(w, r, &apierror.Error{Status: status, Message: msg})
 }
 
 // writeEditDenied writes the correct failure for a blocked edit. An anonymous
@@ -515,14 +516,14 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 // here genuinely lacks ProjectEdit, so keep the 403.
 func writeEditDenied(w http.ResponseWriter, r *http.Request) {
 	if snap := auth.FromContext(r.Context()); snap == nil || snap.IsAnonymous {
-		apierror.Write(w, &apierror.Error{
+		apierror.Write(w, r, &apierror.Error{
 			Status:  http.StatusUnauthorized,
 			Code:    apierror.CodeUnauthorized,
 			Message: "session expired: sign in again to save your changes",
 		})
 		return
 	}
-	apierror.Write(w, &apierror.Error{
+	apierror.Write(w, r, &apierror.Error{
 		Status:  http.StatusForbidden,
 		Code:    apierror.CodeForbidden,
 		Message: "forbidden: requires ProjectEdit on project",

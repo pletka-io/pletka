@@ -10,13 +10,14 @@ import (
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
 
 func (h *Handler) Adoptions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	if strings.TrimSpace(projectID) == "" {
-		writeError(w, http.StatusBadRequest, "projectID is required")
+		writeError(w, r, http.StatusBadRequest, "projectID is required")
 		return
 	}
 
@@ -33,7 +34,7 @@ func (h *Handler) Adoptions(w http.ResponseWriter, r *http.Request) {
 	adoptions, err := h.weave.Adoptions().List(ctx, opts...)
 	if err != nil {
 		h.log.Error("list adoptions failed", "project_id", projectID, "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to list adoptions")
+		apierror.Write(w, r, apierror.InternalWith("failed to list adoptions", err))
 		return
 	}
 
@@ -134,13 +135,13 @@ func (h *Handler) AdoptableEntities(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	entityType := chi.URLParam(r, "entityType")
 	if projectID == "" || entityType == "" {
-		writeError(w, http.StatusBadRequest, "projectID and entityType are required")
+		writeError(w, r, http.StatusBadRequest, "projectID and entityType are required")
 		return
 	}
 	switch entityType {
 	case "model", "collection":
 	default:
-		writeError(w, http.StatusBadRequest, "entityType must be model or collection")
+		writeError(w, r, http.StatusBadRequest, "entityType must be model or collection")
 		return
 	}
 
@@ -157,7 +158,7 @@ func (h *Handler) AdoptableEntities(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		h.log.Error("list adoptions for adoptable options", "project_id", projectID, "entity_type", entityType, "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to load existing adoptions")
+		apierror.Write(w, r, apierror.InternalWith("failed to load existing adoptions", err))
 		return
 	}
 	adoptedKey := func(sourceProjectID, sourceEntityID string) string {
@@ -241,13 +242,13 @@ func (h *Handler) CreateProjectAdoption(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "projectID is required")
+		writeError(w, r, http.StatusBadRequest, "projectID is required")
 		return
 	}
 
 	project, err := h.svc.Get(ctx, projectID)
 	if err != nil || project == nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeError(w, r, http.StatusNotFound, "project not found")
 		return
 	}
 	if !h.svc.CanEdit(ctx, project) {
@@ -261,24 +262,24 @@ func (h *Handler) CreateProjectAdoption(w http.ResponseWriter, r *http.Request) 
 		SourceEntityID  string `json:"source_entity_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	body.EntityType = strings.TrimSpace(body.EntityType)
 	body.SourceProjectID = strings.TrimSpace(body.SourceProjectID)
 	body.SourceEntityID = strings.TrimSpace(body.SourceEntityID)
 	if body.EntityType == "" || body.SourceProjectID == "" || body.SourceEntityID == "" {
-		writeError(w, http.StatusBadRequest, "entity_type, source_project_id, and source_entity_id are required")
+		writeError(w, r, http.StatusBadRequest, "entity_type, source_project_id, and source_entity_id are required")
 		return
 	}
 	switch body.EntityType {
 	case "model", "collection":
 	default:
-		writeError(w, http.StatusBadRequest, "entity_type must be model or collection")
+		writeError(w, r, http.StatusBadRequest, "entity_type must be model or collection")
 		return
 	}
 	if body.SourceProjectID == projectID {
-		writeError(w, http.StatusBadRequest, "cannot adopt own entity")
+		writeError(w, r, http.StatusBadRequest, "cannot adopt own entity")
 		return
 	}
 
@@ -295,7 +296,7 @@ func (h *Handler) CreateProjectAdoption(w http.ResponseWriter, r *http.Request) 
 	)
 	if err != nil {
 		h.log.Error("list existing adoptions", "project_id", projectID, "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to load existing adoptions")
+		apierror.Write(w, r, apierror.InternalWith("failed to load existing adoptions", err))
 		return
 	}
 	newRow := domain.Adoption{
@@ -310,7 +311,7 @@ func (h *Handler) CreateProjectAdoption(w http.ResponseWriter, r *http.Request) 
 	key := adoptionReceiptKey(newRow)
 	for _, a := range existing {
 		if adoptionReceiptKey(a) == key {
-			writeError(w, http.StatusConflict, "already adopted")
+			writeError(w, r, http.StatusConflict, "already adopted")
 			return
 		}
 	}
@@ -318,7 +319,7 @@ func (h *Handler) CreateProjectAdoption(w http.ResponseWriter, r *http.Request) 
 	merged = append(merged, newRow)
 	if err := h.weave.Adoptions().ReplaceForContext(ctx, projectID, "project", projectID, merged); err != nil {
 		h.log.Error("replace adoptions", "project_id", projectID, "err", err)
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to record adoption: %v", err))
+		apierror.Write(w, r, apierror.InternalWith(fmt.Sprintf("failed to record adoption: %v", err), err))
 		return
 	}
 

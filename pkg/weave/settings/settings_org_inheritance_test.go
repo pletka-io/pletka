@@ -34,7 +34,7 @@ func TestLoadProjectAndGate_HonorsOrgInheritedRole(t *testing.T) {
 		Roles:   map[string]string{"org:" + ownerID: "owner"},
 	})
 	rec := httptest.NewRecorder()
-	project, res, ok := h.loadProjectAndGate(orgUser, rec, projectID, weaveauth.ProjectEdit)
+	project, res, ok := h.loadProjectAndGate(rec, httptest.NewRequest(http.MethodGet, "/", nil).WithContext(orgUser), projectID, weaveauth.ProjectEdit)
 	if !ok {
 		t.Fatalf("org-inherited owner was denied settings access (status %d); the settings resource must carry OrgID", rec.Code)
 	}
@@ -51,7 +51,7 @@ func TestLoadProjectAndGate_HonorsOrgInheritedRole(t *testing.T) {
 		Roles:   map[string]string{},
 	})
 	rec2 := httptest.NewRecorder()
-	if _, _, ok := h.loadProjectAndGate(nobody, rec2, projectID, weaveauth.ProjectEdit); ok {
+	if _, _, ok := h.loadProjectAndGate(rec2, httptest.NewRequest(http.MethodGet, "/", nil).WithContext(nobody), projectID, weaveauth.ProjectEdit); ok {
 		t.Fatal("a non-member must not pass the settings gate")
 	}
 	if rec2.Code != http.StatusForbidden {

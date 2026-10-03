@@ -92,18 +92,18 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	collections, _, err := h.svc.List(r.Context(), projectID, opts...)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	forkedOrigins, err := h.svc.ForkOriginsForProject(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	// Receipt-adopted collections — UNION with local rows. Task 3a.
 	adoptedCollections, adoptedOrigins, err := h.svc.ListAdoptedExplicit(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	// Reference-adopted collections — task 3b. Collections referenced
@@ -111,7 +111,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	// in another project.
 	referenceAdoptedCollections, err := h.svc.ListAdoptedByReference(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	referencedIDs := make(map[string]bool, len(referenceAdoptedCollections))
@@ -340,7 +340,7 @@ func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 	collectionID := chi.URLParam(r, "collectionID")
 	c, err := h.svc.Get(r.Context(), projectID, collectionID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	if c == nil {
@@ -355,7 +355,7 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 	collectionID := chi.URLParam(r, "collectionID")
 	report, err := h.svc.Stats(r.Context(), projectID, collectionID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
@@ -371,7 +371,7 @@ func (h *Handler) Fork(w http.ResponseWriter, r *http.Request) {
 
 	collection, err := h.svc.ForkFromSource(r.Context(), projectID, collectionID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -387,7 +387,7 @@ func (h *Handler) ScopeClassesOptions(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	classes, err := h.svc.ScopeClasses(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	options := make([]map[string]any, 0, len(classes))
@@ -406,7 +406,7 @@ func (h *Handler) CategoriesOptions(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	cats, err := h.svc.CategoriesUsed(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	options := make([]map[string]any, 0, len(cats))
@@ -429,7 +429,7 @@ func (h *Handler) ListOverrides(w http.ResponseWriter, r *http.Request) {
 	scope := auth.ReadScopeFromContext(r.Context())
 	rows, err := h.svc.ListOverrides(r.Context(), scope, projectID, collectionID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -449,12 +449,12 @@ func (h *Handler) SaveOverrides(w http.ResponseWriter, r *http.Request) {
 		Overrides     []domain.FieldOverride `json:"overrides"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	saved, diff, err := h.svc.SaveOverrides(r.Context(), projectID, collectionID, body.Overrides, body.CommitMessage)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -489,7 +489,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	var body collectionWriteBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	scope, scopeErr := parseOntologyScopeInput(body.OntologyScope)
@@ -512,7 +512,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := h.svc.Create(r.Context(), projectID, in)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, c)
@@ -523,7 +523,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	collectionID := chi.URLParam(r, "collectionID")
 	var body collectionWriteBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	in := UpdateInput{}
@@ -566,7 +566,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	c, err := h.svc.Update(r.Context(), projectID, collectionID, in)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, c)
@@ -576,7 +576,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	collectionID := chi.URLParam(r, "collectionID")
 	if err := h.svc.Delete(r.Context(), projectID, collectionID); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -586,7 +586,7 @@ func (h *Handler) Deprecate(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	collectionID := chi.URLParam(r, "collectionID")
 	if err := h.svc.Deprecate(r.Context(), projectID, collectionID); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -596,7 +596,7 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	collectionID := chi.URLParam(r, "collectionID")
 	if err := h.svc.Activate(r.Context(), projectID, collectionID); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -606,7 +606,7 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 // Error mapping
 // ---------------------------------------------------------------------------
 
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	var inUseErr *ErrEntityInUse
 	if errors.As(err, &inUseErr) {
 		writeJSON(w, http.StatusConflict, map[string]any{
@@ -630,14 +630,14 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		return
 	}
 	if IsNotFound(err) {
-		apierror.Write(w, apierror.NotFound(err.Error()))
+		apierror.Write(w, r, apierror.NotFound(err.Error()))
 		return
 	}
 	ae := apierror.FromError(err)
 	if ae.Code == apierror.CodeInternal {
 		h.log.Error("collection handler error", "err", err)
 	}
-	apierror.Write(w, ae)
+	apierror.Write(w, r, ae)
 }
 
 // ---------------------------------------------------------------------------
@@ -651,8 +651,8 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 // writeError forwards to apierror.Write — see pkg/weave/apierror.
-func writeError(w http.ResponseWriter, status int, msg string) {
-	apierror.Write(w, &apierror.Error{Status: status, Message: msg})
+func writeError(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	apierror.Write(w, r, &apierror.Error{Status: status, Message: msg})
 }
 
 func parsePrefixedClass(s string) (domain.PathElement, error) {

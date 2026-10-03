@@ -127,6 +127,9 @@ func setupGlobalMiddleware(r *chi.Mux, d rootDependencies) {
 	}
 	r.Use(devModeMiddleware(d.DevMode))
 	r.Use(loggerMiddleware(d.Logger, d.DevMode, d.LogStaticFiles))
+	// Compress sits outside the error tracker so the tracker captures the
+	// plain response body, not gzip bytes.
+	r.Use(chimiddleware.Compress(5))
 	r.Use(errortracking.Middleware(errortracking.NewStore(d.Pool), d.Logger))
 	r.Use(recoverMiddleware(d.Error500, d.Logger))
 	r.Use(securityHeaders)
@@ -135,6 +138,7 @@ func setupGlobalMiddleware(r *chi.Mux, d rootDependencies) {
 	if d.Session != nil {
 		r.Use(d.Session.LoadAndSave)
 		r.Use(weaveauth.NewMiddleware(d.Session, d.Weave))
+		r.Use(errortracking.CaptureActor)
 		r.Use(errresp.StashMiddleware(d.ErrResponder))
 		r.Use(d.Session.LanguageFromCookie)
 		r.Use(d.Session.ParamSync("theme", "page_size", "sort_by", "sort_order"))
@@ -145,7 +149,6 @@ func setupGlobalMiddleware(r *chi.Mux, d rootDependencies) {
 	// wired in app.go), not here — the rest of the app has no login/register
 	// surface that needs per-IP throttling.
 	r.Use(chimiddleware.Timeout(60 * time.Second))
-	r.Use(chimiddleware.Compress(5))
 }
 
 func loggerMiddleware(logger *slog.Logger, devMode bool, logStaticFiles bool) func(http.Handler) http.Handler {

@@ -92,7 +92,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	items, total, err := h.svc.List(r.Context(), projectID, opts...)
 	if err != nil {
 		h.log.Error("example list failed", "project_id", projectID, "err", err)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	type item struct {
@@ -155,12 +155,12 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	var in CreateInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid json"))
+		apierror.Write(w, r, apierror.BadRequest("invalid json"))
 		return
 	}
 	record, err := h.svc.Create(r.Context(), projectID, in)
 	if err != nil {
-		apierror.Write(w, apierror.BadRequest(err.Error()))
+		apierror.Write(w, r, apierror.BadRequest(err.Error()))
 		return
 	}
 	writeJSON(w, http.StatusCreated, record)
@@ -171,7 +171,7 @@ func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 	exampleID := chi.URLParam(r, "exampleID")
 	record, err := h.svc.Get(r.Context(), projectID, exampleID)
 	if err != nil {
-		apierror.Write(w, apierror.NotFound(err.Error()))
+		apierror.Write(w, r, apierror.NotFound(err.Error()))
 		return
 	}
 	if wantsHTML(r) {
@@ -186,12 +186,12 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	exampleID := chi.URLParam(r, "exampleID")
 	var in UpdateInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid json"))
+		apierror.Write(w, r, apierror.BadRequest("invalid json"))
 		return
 	}
 	record, err := h.svc.Update(r.Context(), projectID, exampleID, in)
 	if err != nil {
-		apierror.Write(w, apierror.BadRequest(err.Error()))
+		apierror.Write(w, r, apierror.BadRequest(err.Error()))
 		return
 	}
 	writeJSON(w, http.StatusOK, record)
@@ -201,7 +201,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	exampleID := chi.URLParam(r, "exampleID")
 	if err := h.svc.Delete(r.Context(), projectID, exampleID); err != nil {
-		apierror.Write(w, apierror.NotFound(err.Error()))
+		apierror.Write(w, r, apierror.NotFound(err.Error()))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -215,7 +215,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 	exampleID := r.URL.Query().Get("example_id")
 	schema, err := h.svc.BuildFormSchema(r.Context(), projectID, mode, targetType, targetID, exampleID, h.lang(r), h.languages)
 	if err != nil {
-		apierror.Write(w, apierror.BadRequest(err.Error()))
+		apierror.Write(w, r, apierror.BadRequest(err.Error()))
 		return
 	}
 	writeJSON(w, http.StatusOK, schema)

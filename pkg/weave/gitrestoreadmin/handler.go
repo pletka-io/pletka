@@ -50,12 +50,12 @@ func NewHandler(log *slog.Logger, svc *Service) *Handler {
 func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {
 	var req previewRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid JSON body"))
 		return
 	}
 	req.SnapshotPath = strings.TrimSpace(req.SnapshotPath)
 	if req.SnapshotPath == "" {
-		apierror.Write(w, apierror.Validation(map[string][]string{
+		apierror.Write(w, r, apierror.Validation(map[string][]string{
 			"snapshot_path": {"Snapshot path is required."},
 		}))
 		return
@@ -64,7 +64,7 @@ func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {
 	preview, err := h.svc.previewer.Preview(req.SnapshotPath)
 	if err != nil {
 		h.log.Warn("git restore preview failed", "snapshot_path", req.SnapshotPath, "err", err)
-		apierror.Write(w, apierror.BadRequest(err.Error()))
+		apierror.Write(w, r, apierror.BadRequest(err.Error()))
 		return
 	}
 
@@ -74,12 +74,12 @@ func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateJob(w http.ResponseWriter, r *http.Request) {
 	var in CreateJobInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid JSON body"))
 		return
 	}
 	job, err := h.svc.Create(r.Context(), in)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, job)
@@ -90,14 +90,14 @@ func (h *Handler) ListJobs(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n <= 0 {
-			apierror.Write(w, apierror.BadRequest("limit must be a positive integer"))
+			apierror.Write(w, r, apierror.BadRequest("limit must be a positive integer"))
 			return
 		}
 		limit = n
 	}
 	items, err := h.svc.List(r.Context(), limit)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -110,7 +110,7 @@ func (h *Handler) GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, job)
@@ -123,18 +123,18 @@ func (h *Handler) RunJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, job)
 }
 
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	ae := apierror.FromError(err)
 	if ae.Code == apierror.CodeInternal {
 		h.log.Error("git restore admin error", "err", err)
 	}
-	apierror.Write(w, ae)
+	apierror.Write(w, r, ae)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

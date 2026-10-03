@@ -85,7 +85,7 @@ func (h *Handler) AdminVocabularyData(w http.ResponseWriter, r *http.Request) {
 	items, err := h.svc.ListAdminVocabularies(r.Context())
 	if err != nil {
 		h.logger.Error("list admin vocabularies failed", "err", err)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	items = filterAdminVocabularies(
@@ -111,7 +111,7 @@ func (h *Handler) ListProjectVocabularies(w http.ResponseWriter, r *http.Request
 	items, err := h.svc.ListProjectVocabularies(r.Context(), projectID)
 	if err != nil {
 		h.logger.Error("list project vocabularies failed", "err", err, "project_id", projectID)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": len(items)})
@@ -122,7 +122,7 @@ func (h *Handler) ListProjectConceptLists(w http.ResponseWriter, r *http.Request
 	items, err := h.svc.ListProjectConceptLists(r.Context(), projectID)
 	if err != nil {
 		h.logger.Error("list concept lists failed", "err", err, "project_id", projectID)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	items = filterConceptLists(
@@ -149,7 +149,7 @@ func (h *Handler) ConceptListVocabularyFilterOptions(w http.ResponseWriter, r *h
 	items, err := h.svc.ListProjectConceptLists(r.Context(), projectID)
 	if err != nil {
 		h.logger.Error("list concept list vocabulary filters failed", "err", err, "project_id", projectID)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	options := conceptListVocabularyFilterOptions(items)
@@ -160,7 +160,7 @@ func (h *Handler) ConceptListCreateFormSchema(w http.ResponseWriter, r *http.Req
 	projectID := chi.URLParam(r, "projectID")
 	vocabs, err := h.svc.ListProjectVocabularies(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, "list vocabularies for concept list form failed", err)
+		h.writeServiceError(w, r, "list vocabularies for concept list form failed", err)
 		return
 	}
 	schema := BuildConceptListFormSchema(formschema.ModeCreate, nil, vocabs, projectID, h.requestLang(r), h.languages)
@@ -172,16 +172,16 @@ func (h *Handler) ConceptListEditFormSchema(w http.ResponseWriter, r *http.Reque
 	listID := chi.URLParam(r, "listID")
 	item, err := h.svc.GetProjectConceptList(r.Context(), projectID, listID)
 	if err != nil {
-		h.writeServiceError(w, "get concept list for form failed", err)
+		h.writeServiceError(w, r, "get concept list for form failed", err)
 		return
 	}
 	if item == nil {
-		apierror.Write(w, apierror.NotFound("concept list not found"))
+		apierror.Write(w, r, apierror.NotFound("concept list not found"))
 		return
 	}
 	vocabs, err := h.svc.ListProjectVocabularies(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, "list vocabularies for concept list form failed", err)
+		h.writeServiceError(w, r, "list vocabularies for concept list form failed", err)
 		return
 	}
 	schema := BuildConceptListFormSchema(formschema.ModeEdit, item, vocabs, projectID, h.requestLang(r), h.languages)
@@ -194,11 +194,11 @@ func (h *Handler) GetProjectConceptList(w http.ResponseWriter, r *http.Request) 
 	item, err := h.svc.GetProjectConceptList(r.Context(), projectID, listID)
 	if err != nil {
 		h.logger.Error("get concept list failed", "err", err, "project_id", projectID, "list_id", listID)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	if item == nil {
-		apierror.Write(w, apierror.NotFound("concept list not found"))
+		apierror.Write(w, r, apierror.NotFound("concept list not found"))
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -208,12 +208,12 @@ func (h *Handler) CreateProjectConceptList(w http.ResponseWriter, r *http.Reques
 	projectID := chi.URLParam(r, "projectID")
 	var body conceptListBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid JSON body"))
 		return
 	}
 	item, err := h.svc.CreateConceptList(r.Context(), projectID, conceptListInputFromBody(body))
 	if err != nil {
-		h.writeServiceError(w, "create concept list failed", err)
+		h.writeServiceError(w, r, "create concept list failed", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -224,12 +224,12 @@ func (h *Handler) UpdateProjectConceptList(w http.ResponseWriter, r *http.Reques
 	listID := chi.URLParam(r, "listID")
 	var body conceptListBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid JSON body"))
 		return
 	}
 	item, err := h.svc.UpdateConceptList(r.Context(), projectID, listID, conceptListInputFromBody(body))
 	if err != nil {
-		h.writeServiceError(w, "update concept list failed", err)
+		h.writeServiceError(w, r, "update concept list failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -239,7 +239,7 @@ func (h *Handler) DeleteProjectConceptList(w http.ResponseWriter, r *http.Reques
 	projectID := chi.URLParam(r, "projectID")
 	listID := chi.URLParam(r, "listID")
 	if err := h.svc.DeleteConceptList(r.Context(), projectID, listID); err != nil {
-		h.writeServiceError(w, "delete concept list failed", err)
+		h.writeServiceError(w, r, "delete concept list failed", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -250,12 +250,12 @@ func (h *Handler) AddProjectConceptListEntry(w http.ResponseWriter, r *http.Requ
 	listID := chi.URLParam(r, "listID")
 	var body conceptListEntryBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid JSON body"))
 		return
 	}
 	item, err := h.svc.AddConceptListEntry(r.Context(), projectID, listID, body.VocabularyEntryID, body.VocabularyEntryURI)
 	if err != nil {
-		h.writeServiceError(w, "add concept list entry failed", err)
+		h.writeServiceError(w, r, "add concept list entry failed", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -268,12 +268,12 @@ func (h *Handler) CreateProjectConceptListTerm(w http.ResponseWriter, r *http.Re
 	listID := chi.URLParam(r, "listID")
 	var in CreateTermInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid JSON body"))
 		return
 	}
 	item, err := h.svc.CreateLocalTerm(r.Context(), projectID, listID, in)
 	if err != nil {
-		h.writeServiceError(w, "create local term failed", err)
+		h.writeServiceError(w, r, "create local term failed", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -294,11 +294,11 @@ func (h *Handler) SealProjectConceptList(w http.ResponseWriter, r *http.Request)
 	listID := chi.URLParam(r, "listID")
 	var body conceptListSealBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid JSON body"))
 		return
 	}
 	if err := h.svc.SetListClosed(r.Context(), projectID, listID, body.IsClosed); err != nil {
-		h.writeServiceError(w, "seal concept list failed", err)
+		h.writeServiceError(w, r, "seal concept list failed", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -312,13 +312,13 @@ func (h *Handler) AddConceptBroader(w http.ResponseWriter, r *http.Request) {
 	conceptID := chi.URLParam(r, "conceptID")
 	var body conceptBroaderBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid JSON body"))
 		return
 	}
 	edge := domain.ConceptBroaderEdge{ConceptID: conceptID, BroaderID: body.BroaderID, Position: body.Position}
 	out, err := h.svc.AddBroader(r.Context(), projectID, listID, edge)
 	if err != nil {
-		h.writeServiceError(w, "add broader edge failed", err)
+		h.writeServiceError(w, r, "add broader edge failed", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, out)
@@ -331,7 +331,7 @@ func (h *Handler) ListConceptBroader(w http.ResponseWriter, r *http.Request) {
 	conceptID := chi.URLParam(r, "conceptID")
 	edges, err := h.svc.ListBroader(r.Context(), projectID, listID, conceptID)
 	if err != nil {
-		h.writeServiceError(w, "list broader edges failed", err)
+		h.writeServiceError(w, r, "list broader edges failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, edges)
@@ -344,7 +344,7 @@ func (h *Handler) RemoveConceptBroader(w http.ResponseWriter, r *http.Request) {
 	conceptID := chi.URLParam(r, "conceptID")
 	edgeID := chi.URLParam(r, "edgeID")
 	if err := h.svc.RemoveBroader(r.Context(), projectID, listID, conceptID, edgeID); err != nil {
-		h.writeServiceError(w, "remove broader edge failed", err)
+		h.writeServiceError(w, r, "remove broader edge failed", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -356,12 +356,12 @@ func (h *Handler) UpdateProjectConceptListEntry(w http.ResponseWriter, r *http.R
 	entryID := chi.URLParam(r, "entryID")
 	var body conceptListEntryUpdateBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid JSON body"))
 		return
 	}
 	item, err := h.svc.UpdateConceptListEntry(r.Context(), projectID, listID, entryID, body.CustomLabel)
 	if err != nil {
-		h.writeServiceError(w, "update concept list entry failed", err)
+		h.writeServiceError(w, r, "update concept list entry failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -372,12 +372,12 @@ func (h *Handler) ReorderProjectConceptListEntries(w http.ResponseWriter, r *htt
 	listID := chi.URLParam(r, "listID")
 	var body conceptListEntryReorderBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid JSON body"))
 		return
 	}
 	items, err := h.svc.ReorderConceptListEntries(r.Context(), projectID, listID, body.EntryIDs)
 	if err != nil {
-		h.writeServiceError(w, "reorder concept list entries failed", err)
+		h.writeServiceError(w, r, "reorder concept list entries failed", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": len(items)})
@@ -388,7 +388,7 @@ func (h *Handler) RemoveProjectConceptListEntry(w http.ResponseWriter, r *http.R
 	listID := chi.URLParam(r, "listID")
 	entryID := chi.URLParam(r, "entryID")
 	if err := h.svc.RemoveConceptListEntry(r.Context(), projectID, listID, entryID); err != nil {
-		h.writeServiceError(w, "remove concept list entry failed", err)
+		h.writeServiceError(w, r, "remove concept list entry failed", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -400,17 +400,17 @@ func (h *Handler) SearchConceptListEntries(w http.ResponseWriter, r *http.Reques
 	// read the list's project so it is not cross-tenant readable.
 	projID, err := h.svc.ConceptListProjectID(r.Context(), listID)
 	if err != nil {
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	if projID == "" || !h.canReadProject(r.Context(), projID) {
-		apierror.Write(w, apierror.NotFound("concept list not found"))
+		apierror.Write(w, r, apierror.NotFound("concept list not found"))
 		return
 	}
 	items, err := h.svc.SearchConceptListEntries(r.Context(), listID, r.URL.Query().Get("q"), h.requestLang(r), requestLimit(r))
 	if err != nil {
 		h.logger.Error("search concept list entries failed", "err", err, "list_id", listID)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": len(items)})
@@ -421,7 +421,7 @@ func (h *Handler) SearchConceptListSourceEntries(w http.ResponseWriter, r *http.
 	listID := chi.URLParam(r, "listID")
 	items, degraded, err := h.svc.SearchConceptListSourceEntries(r.Context(), projectID, listID, r.URL.Query().Get("q"), h.requestLang(r), requestLimit(r))
 	if err != nil {
-		h.writeServiceError(w, "search concept list source entries failed", err)
+		h.writeServiceError(w, r, "search concept list source entries failed", err)
 		return
 	}
 	body := map[string]any{"items": items, "total": len(items)}
@@ -442,15 +442,15 @@ func (h *Handler) SearchVocabularyEntries(w http.ResponseWriter, r *http.Request
 	// only searchable by readers of its project.
 	projID, found, err := h.svc.VocabularyProjectID(r.Context(), vocabularyID)
 	if err != nil {
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	if !found {
-		apierror.Write(w, apierror.NotFound("vocabulary not found"))
+		apierror.Write(w, r, apierror.NotFound("vocabulary not found"))
 		return
 	}
 	if !h.canReadProject(r.Context(), projID) {
-		apierror.Write(w, apierror.NotFound("vocabulary not found"))
+		apierror.Write(w, r, apierror.NotFound("vocabulary not found"))
 		return
 	}
 	// has_children=1 restricts results to concepts that can be a parent — the
@@ -459,7 +459,7 @@ func (h *Handler) SearchVocabularyEntries(w http.ResponseWriter, r *http.Request
 	items, degraded, err := h.svc.SearchVocabularyEntriesDegradable(r.Context(), vocabularyID, r.URL.Query().Get("q"), h.requestLang(r), requestLimit(r), "", onlyBranching)
 	if err != nil {
 		h.logger.Error("search vocabulary entries failed", "err", err, "vocabulary_id", vocabularyID)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	body := map[string]any{"items": items, "total": len(items)}
@@ -483,7 +483,7 @@ func (h *Handler) VocabularyRoots(w http.ResponseWriter, r *http.Request) {
 	items, degraded, err := h.svc.VocabularyRoots(r.Context(), vocabularyID, h.requestLang(r))
 	if err != nil {
 		h.logger.Error("vocabulary roots failed", "err", err, "vocabulary_id", vocabularyID)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	writeEntriesBody(w, items, degraded)
@@ -501,7 +501,7 @@ func (h *Handler) VocabularyChildren(w http.ResponseWriter, r *http.Request) {
 	items, degraded, err := h.svc.VocabularyChildren(r.Context(), vocabularyID, chi.URLParam(r, "conceptID"), h.requestLang(r), requestLimit(r), offset)
 	if err != nil {
 		h.logger.Error("vocabulary children failed", "err", err, "vocabulary_id", vocabularyID)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	writeEntriesBody(w, items, degraded)
@@ -513,11 +513,11 @@ func (h *Handler) VocabularyChildren(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) vocabularyReadable(w http.ResponseWriter, r *http.Request, vocabularyID string) bool {
 	projID, found, err := h.svc.VocabularyProjectID(r.Context(), vocabularyID)
 	if err != nil {
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return false
 	}
 	if !found || !h.canReadProject(r.Context(), projID) {
-		apierror.Write(w, apierror.NotFound("vocabulary not found"))
+		apierror.Write(w, r, apierror.NotFound("vocabulary not found"))
 		return false
 	}
 	return true
@@ -548,25 +548,25 @@ func (h *Handler) ResolveEntry(w http.ResponseWriter, r *http.Request) {
 	// ResolveEntry upserts a cached entry and can trigger an outbound connector
 	// fetch, so it must not be driven by anonymous callers (SSRF / cache-write).
 	if auth.FromContext(r.Context()).IsAnonymous {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	item, err := h.svc.ResolveEntry(r.Context(), r.URL.Query().Get("uri"), h.requestLang(r))
 	if err != nil {
 		h.logger.Error("resolve vocabulary entry failed", "err", err, "uri", r.URL.Query().Get("uri"))
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	if item == nil {
-		apierror.Write(w, apierror.NotFound("vocabulary entry not found"))
+		apierror.Write(w, r, apierror.NotFound("vocabulary entry not found"))
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
 }
 
-func (h *Handler) writeServiceError(w http.ResponseWriter, message string, err error) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, message string, err error) {
 	h.logger.Error(message, "err", err)
-	apierror.Write(w, apierror.FromError(err))
+	apierror.Write(w, r, apierror.FromError(err))
 }
 
 func conceptListInputFromBody(body conceptListBody) ConceptListInput {
@@ -855,12 +855,12 @@ func (h *Handler) ExportConceptListSKOS(w http.ResponseWriter, r *http.Request) 
 	projectID := chi.URLParam(r, "projectID")
 	listID := chi.URLParam(r, "listID")
 	if !h.canReadProject(r.Context(), projectID) {
-		apierror.Write(w, apierror.NotFound("concept list not found"))
+		apierror.Write(w, r, apierror.NotFound("concept list not found"))
 		return
 	}
 	var buf bytes.Buffer
 	if err := h.svc.RenderConceptListSKOS(r.Context(), projectID, listID, &buf); err != nil {
-		h.writeServiceError(w, "render concept list SKOS failed", err)
+		h.writeServiceError(w, r, "render concept list SKOS failed", err)
 		return
 	}
 	w.Header().Set("Content-Type", "text/turtle; charset=utf-8")

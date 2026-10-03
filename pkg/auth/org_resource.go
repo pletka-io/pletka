@@ -68,7 +68,7 @@ func WithOrgResource(reader organizationBySlugReader) func(http.Handler) http.Ha
 			}
 			org, err := reader.GetBySlug(r.Context(), slug)
 			if err != nil {
-				errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load organization")
+				errresp.InternalWith(w, r, err, "failed to load organization")
 				return
 			}
 			if org == nil {

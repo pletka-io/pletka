@@ -23,6 +23,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/session"
 	weavepkg "github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/actorlabels"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/publication"
@@ -280,7 +281,7 @@ func (h *Handler) Page(entityType string) http.HandlerFunc {
 
 		if err := h.renderer.RenderIslandPage(w, page); err != nil {
 			h.logger.Error("render detailview page", "project_id", projectID, "entity_type", entityType, "entity_id", entityID, "err", err)
-			h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+			h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 		}
 	}
 }
@@ -325,7 +326,7 @@ func (h *Handler) API(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error("build detailview response", "entity_type", entityType, "entity_id", entityID, "err", err)
-		h.writeAPIError(w, "Failed to build detailview response", http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("Failed to build detailview response", err))
 		return
 	}
 
@@ -403,7 +404,7 @@ func (h *Handler) StatsAPI(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		h.logger.Error("build detailview stats", "entity_type", entityType, "entity_id", entityID, "err", err)
-		h.writeAPIError(w, "failed to compute stats", http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to compute stats", err))
 		return
 	}
 
@@ -456,7 +457,7 @@ func (h *Handler) ReuseAPI(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &ue) {
 			h.logger.Error(ue.op, ue.idKey, entityID, "project_id", projectID, "err", ue.err)
 		}
-		h.writeAPIError(w, err.Error(), http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith(err.Error(), err))
 		return
 	}
 

@@ -56,10 +56,11 @@ func NewHandler(weave domain.WeaveStore, store Store, serviceVocabularies Servic
 // the requested capability against it. Returns the loaded project and
 // resource on success. On failure it writes an HTTP error to w and
 // returns (nil, nil, false); callers should return immediately.
-func (h *Handler) loadProjectAndGate(ctx context.Context, w http.ResponseWriter, projectID string, cap auth.Capability) (*domain.Project, *auth.Resource, bool) {
+func (h *Handler) loadProjectAndGate(w http.ResponseWriter, r *http.Request, projectID string, cap auth.Capability) (*domain.Project, *auth.Resource, bool) {
+	ctx := r.Context()
 	project, err := h.weave.Projects().GetByID(ctx, projectID)
 	if err != nil || project == nil {
-		apierror.Write(w, apierror.NotFound("Project not found"))
+		apierror.Write(w, r, apierror.NotFound("Project not found"))
 		return nil, nil, false
 	}
 
@@ -67,9 +68,9 @@ func (h *Handler) loadProjectAndGate(ctx context.Context, w http.ResponseWriter,
 	snap := auth.FromContext(ctx)
 	if !snap.Can(cap, res, nil) {
 		if snap.IsAnonymous {
-			apierror.Write(w, apierror.Unauthorized())
+			apierror.Write(w, r, apierror.Unauthorized())
 		} else {
-			apierror.Write(w, apierror.Forbidden("Access denied"))
+			apierror.Write(w, r, apierror.Forbidden("Access denied"))
 		}
 		return nil, nil, false
 	}
@@ -87,7 +88,7 @@ func (h *Handler) PageSchema(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 
-	project, res, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, res, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
@@ -132,7 +133,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 	// below disables write affordances on the rendered form for
 	// release viewers.
 
-	project, _, ok := h.loadProjectAndGate(ctx, w, projectID, gate)
+	project, _, ok := h.loadProjectAndGate(w, r, projectID, gate)
 	if !ok {
 		return
 	}
@@ -153,7 +154,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 		vocabState, vocabErr := h.store.VocabularySettingsState(ctx, project.ID)
 		if vocabErr != nil {
 			h.log.Error("failed to load vocabulary settings", "project_id", project.ID, "err", vocabErr)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load vocabulary settings")
+			errresp.InternalWith(w, r, vocabErr, "failed to load vocabulary settings")
 			return
 		}
 		var svcErr error
@@ -164,7 +165,8 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 			// an empty list would look like "there are none" when the truth
 			// is "we couldn't ask".
 			h.log.Error("failed to list vocabulary service mounts", "project_id", project.ID, "err", svcErr)
-			errresp.Error(w, r, http.StatusInternalServerError, errCodeVocabularyServiceUnavailable, "failed to load the vocabulary service listing")
+			errresp.RecordCause(r.Context(), svcErr)
+			errresp.Error(w, r, http.StatusInternalServerError, errCodeVocabularyServiceUnavailable, "failed to load the vocabulary service listing") //nolint:forbidigo // deliberate vocabulary_service_unavailable code; cause recorded above
 			return
 		}
 	case "autocomplete":
@@ -218,7 +220,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 		links, listErr := h.weave.ProjectInheritances().List(ctx, project.ID)
 		if listErr != nil {
 			h.log.Error("list inheritances for source form", "project_id", project.ID, "err", listErr)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load parent dependency")
+			errresp.InternalWith(w, r, listErr, "failed to load parent dependency")
 			return
 		}
 		var link *domain.ProjectInheritance
@@ -236,7 +238,7 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 		releaseOptions, relErr := h.releaseOptionsForProject(ctx, parentID)
 		if relErr != nil {
 			h.log.Error("list parent releases for source form", "project_id", project.ID, "parent_id", parentID, "err", relErr)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load parent releases")
+			errresp.InternalWith(w, r, relErr, "failed to load parent releases")
 			return
 		}
 		schema = formschema.BuildProjectInheritanceSourceSchema(project.ID, *link, parent, releaseOptions, lang, h.languages)
@@ -271,7 +273,7 @@ func (h *Handler) ListSchema(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	section := chi.URLParam(r, "section")
 
-	project, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
@@ -303,7 +305,7 @@ func (h *Handler) PaneSchema(w http.ResponseWriter, r *http.Request) {
 	section := chi.URLParam(r, "section")
 
 	gate := auth.ProjectEdit
-	project, _, ok := h.loadProjectAndGate(ctx, w, projectID, gate)
+	project, _, ok := h.loadProjectAndGate(w, r, projectID, gate)
 	if !ok {
 		return
 	}
@@ -326,7 +328,7 @@ func (h *Handler) UpdateGeneral(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 
-	project, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
@@ -338,7 +340,7 @@ func (h *Handler) UpdateGeneral(w http.ResponseWriter, r *http.Request) {
 		IsCoreWeave *bool               `json:"is_core_weave,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+		writeValidationErrors(w, r, map[string][]string{"body": {"invalid JSON body"}}) //nolint:goconst // pre-existing literal; this line changed only to pass r (ADR-0009 migration)
 		return
 	}
 
@@ -355,7 +357,7 @@ func (h *Handler) UpdateGeneral(w http.ResponseWriter, r *http.Request) {
 		errs["visibility"] = []string{"Visibility must be public, internal, or private"}
 	}
 	if len(errs) > 0 {
-		writeValidationErrors(w, errs)
+		writeValidationErrors(w, r, errs)
 		return
 	}
 
@@ -377,7 +379,7 @@ func (h *Handler) UpdateGeneral(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.weave.Projects().Update(ctx, project); err != nil {
 		h.log.Error("failed to update project", "error", err, "project_id", projectID)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to save settings")
+		errresp.InternalWith(w, r, err, "failed to save settings")
 		return
 	}
 
@@ -392,7 +394,7 @@ func (h *Handler) UpdateAbout(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 
-	_, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	_, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
@@ -406,13 +408,13 @@ func (h *Handler) UpdateAbout(w http.ResponseWriter, r *http.Request) {
 		BaseURL string          `json:"base_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+		writeValidationErrors(w, r, map[string][]string{"body": {"invalid JSON body"}})
 		return
 	}
 
 	topics, terr := parseTopics(body.Topics)
 	if terr != nil {
-		writeValidationErrors(w, map[string][]string{"topics": {terr.Error()}})
+		writeValidationErrors(w, r, map[string][]string{"topics": {terr.Error()}})
 		return
 	}
 	if body.README == nil {
@@ -427,7 +429,7 @@ func (h *Handler) UpdateAbout(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.log.Error("failed to update project about", "error", err, "project_id", projectID)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to save settings")
+		errresp.InternalWith(w, r, err, "failed to save settings")
 		return
 	}
 
@@ -444,7 +446,7 @@ func (h *Handler) UpdateVocabularies(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 
-	if _, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit); !ok {
+	if _, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit); !ok {
 		return
 	}
 
@@ -453,13 +455,13 @@ func (h *Handler) UpdateVocabularies(w http.ResponseWriter, r *http.Request) {
 		ConceptNamespace    string `json:"concept_namespace"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+		writeValidationErrors(w, r, map[string][]string{"body": {"invalid JSON body"}})
 		return
 	}
 
 	if err := h.store.UpdateVocabularySettings(ctx, projectID, body.EnforceConceptLists, body.ConceptNamespace); err != nil {
 		h.log.Error("save vocabulary settings", "project_id", projectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to save vocabulary settings")
+		errresp.InternalWith(w, r, err, "failed to save vocabulary settings")
 		return
 	}
 
@@ -540,13 +542,13 @@ func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 
-	if _, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit); !ok {
+	if _, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit); !ok {
 		return
 	}
 
 	mount, lang, fieldErrs := decodeAddVocabularyBody(r)
 	if fieldErrs != nil {
-		writeValidationErrors(w, fieldErrs)
+		writeValidationErrors(w, r, fieldErrs)
 		return
 	}
 	body := struct {
@@ -559,7 +561,7 @@ func (h *Handler) AddVocabulary(w http.ResponseWriter, r *http.Request) {
 		if ae.Code == apierror.CodeInternal {
 			h.log.Error("add service vocabulary", "project_id", projectID, "mount", body.Mount, "err", err)
 		}
-		apierror.Write(w, ae)
+		apierror.Write(w, r, ae)
 		return
 	}
 
@@ -584,7 +586,7 @@ func (h *Handler) DeleteVocabulary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit); !ok {
+	if _, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit); !ok {
 		return
 	}
 
@@ -593,7 +595,7 @@ func (h *Handler) DeleteVocabulary(w http.ResponseWriter, r *http.Request) {
 		if ae.Code == apierror.CodeInternal {
 			h.log.Error("remove vocabulary", "project_id", projectID, "vocabulary_id", vocabularyID, "err", err)
 		}
-		apierror.Write(w, ae)
+		apierror.Write(w, r, ae)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -609,7 +611,7 @@ func (h *Handler) UpdateOntology(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 
-	project, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
@@ -619,7 +621,7 @@ func (h *Handler) UpdateOntology(w http.ResponseWriter, r *http.Request) {
 		AdditionalChildParents []string `json:"additional_child_parents"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+		writeValidationErrors(w, r, map[string][]string{"body": {"invalid JSON body"}})
 		return
 	}
 
@@ -627,17 +629,17 @@ func (h *Handler) UpdateOntology(w http.ResponseWriter, r *http.Request) {
 		project.ParentProjectID = nil
 	} else {
 		if *body.ParentProjectID == projectID {
-			writeValidationErrors(w, map[string][]string{"parent_project_id": {"project cannot be its own parent"}})
+			writeValidationErrors(w, r, map[string][]string{parentProjectIDName: {"project cannot be its own parent"}})
 			return
 		}
 		creates, cerr := createsParentCycle(ctx, h.weave.Projects(), projectID, *body.ParentProjectID)
 		if cerr != nil {
 			h.log.Error("cycle detection failed", "error", cerr, "project_id", projectID)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to validate parent chain")
+			errresp.InternalWith(w, r, cerr, "failed to validate parent chain")
 			return
 		}
 		if creates {
-			writeValidationErrors(w, map[string][]string{"parent_project_id": {"creates cycle"}})
+			writeValidationErrors(w, r, map[string][]string{parentProjectIDName: {"creates cycle"}})
 			return
 		}
 		project.ParentProjectID = body.ParentProjectID
@@ -645,7 +647,7 @@ func (h *Handler) UpdateOntology(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.weave.Projects().Update(ctx, project); err != nil {
 		h.log.Error("failed to update project", "error", err, "project_id", projectID)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to save settings")
+		errresp.InternalWith(w, r, err, "failed to save settings")
 		return
 	}
 
@@ -746,7 +748,7 @@ func (h *Handler) ChildWeaveOptions(w http.ResponseWriter, r *http.Request) {
 	children, err := h.weave.Projects().ListChildren(ctx, parentID)
 	if err != nil {
 		h.log.Error("list children for child-weave options", "project_id", projectID, "parent_id", parentID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list child weaves")
+		errresp.InternalWith(w, r, err, "failed to list child weaves")
 		return
 	}
 	opts := make([]formschema.SelectOption, 0, len(children))
@@ -767,7 +769,7 @@ func (h *Handler) ListInheritance(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 
-	project, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectRead)
+	project, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectRead)
 	if !ok {
 		return
 	}
@@ -783,7 +785,7 @@ func (h *Handler) ListInheritance(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		h.log.Error("list inheritances", "project_id", projectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load inheritances")
+		errresp.InternalWith(w, r, err, "failed to load inheritances")
 		return
 	}
 
@@ -870,7 +872,7 @@ func (h *Handler) CreateInheritance(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 
-	project, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
@@ -882,48 +884,48 @@ func (h *Handler) CreateInheritance(w http.ResponseWriter, r *http.Request) {
 		SourceVersion   string `json:"source_version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+		writeValidationErrors(w, r, map[string][]string{"body": {"invalid JSON body"}})
 		return
 	}
 	body.ParentProjectID = strings.TrimSpace(body.ParentProjectID)
 	if body.ParentProjectID == "" {
-		writeValidationErrors(w, map[string][]string{"parent_project_id": {"Parent project is required"}})
+		writeValidationErrors(w, r, map[string][]string{parentProjectIDName: {"Parent project is required"}})
 		return
 	}
 	if body.ParentProjectID == projectID {
-		writeValidationErrors(w, map[string][]string{"parent_project_id": {"project cannot be its own parent"}})
+		writeValidationErrors(w, r, map[string][]string{parentProjectIDName: {"project cannot be its own parent"}})
 		return
 	}
 	sourceMode := normalizeSourceMode(domain.DependencySourceMode(strings.TrimSpace(body.SourceMode)))
 	sourceVersion := strings.TrimSpace(body.SourceVersion)
-	if _, _, ok := h.loadProjectAndGate(ctx, w, body.ParentProjectID, auth.ProjectRead); !ok {
+	if _, _, ok := h.loadProjectAndGate(w, r, body.ParentProjectID, auth.ProjectRead); !ok {
 		return
 	}
 	if fieldErrs := h.validateInheritanceSource(ctx, body.ParentProjectID, sourceMode, sourceVersion); len(fieldErrs) > 0 {
-		writeValidationErrors(w, fieldErrs)
+		writeValidationErrors(w, r, fieldErrs)
 		return
 	}
 
 	existing, err := h.weave.ProjectInheritances().List(ctx, projectID)
 	if err != nil {
 		h.log.Error("list existing inheritances", "project_id", projectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to validate inheritance graph")
+		errresp.InternalWith(w, r, err, "failed to validate inheritance graph")
 		return
 	}
 	for _, link := range existing {
 		if link.ParentProjectID == body.ParentProjectID {
-			writeValidationErrors(w, map[string][]string{"parent_project_id": {"parent project already linked"}})
+			writeValidationErrors(w, r, map[string][]string{parentProjectIDName: {"parent project already linked"}})
 			return
 		}
 	}
 	creates, cerr := createsInheritanceCycle(ctx, h.weave.ProjectInheritances(), projectID, body.ParentProjectID)
 	if cerr != nil {
 		h.log.Error("inheritance cycle detection failed", "project_id", projectID, "candidate_parent", body.ParentProjectID, "err", cerr)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to validate parent chain")
+		errresp.InternalWith(w, r, cerr, "failed to validate parent chain")
 		return
 	}
 	if creates {
-		writeValidationErrors(w, map[string][]string{"parent_project_id": {"creates cycle"}})
+		writeValidationErrors(w, r, map[string][]string{parentProjectIDName: {"creates cycle"}})
 		return
 	}
 
@@ -938,20 +940,20 @@ func (h *Handler) CreateInheritance(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.weave.ProjectInheritances().Add(ctx, link); err != nil {
 		h.log.Error("add inheritance", "project_id", projectID, "parent_id", body.ParentProjectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to save inheritance")
+		errresp.InternalWith(w, r, err, "failed to save inheritance")
 		return
 	}
 	if primary {
 		if err := h.weave.ProjectInheritances().SetPrimary(ctx, projectID, body.ParentProjectID); err != nil {
 			h.log.Error("set primary inheritance", "project_id", projectID, "parent_id", body.ParentProjectID, "err", err)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to save inheritance")
+			errresp.InternalWith(w, r, err, "failed to save inheritance")
 			return
 		}
 	}
 	if err := h.copyParentCategories(ctx, project, body.ParentProjectID); err != nil {
 		_ = h.weave.ProjectInheritances().Remove(ctx, projectID, body.ParentProjectID)
 		h.log.Error("copy parent categories", "project_id", projectID, "parent_id", body.ParentProjectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to copy parent categories")
+		errresp.InternalWith(w, r, err, "failed to copy parent categories")
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"success": true})
@@ -960,7 +962,7 @@ func (h *Handler) CreateInheritance(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) InheritanceReleaseOptions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
-	if _, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit); !ok {
+	if _, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit); !ok {
 		return
 	}
 	parentID := strings.TrimSpace(r.URL.Query().Get("parent_project_id"))
@@ -968,13 +970,13 @@ func (h *Handler) InheritanceReleaseOptions(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusOK, []formschema.SelectOption{})
 		return
 	}
-	if _, _, ok := h.loadProjectAndGate(ctx, w, parentID, auth.ProjectRead); !ok {
+	if _, _, ok := h.loadProjectAndGate(w, r, parentID, auth.ProjectRead); !ok {
 		return
 	}
 	options, err := h.releaseOptionsForProject(ctx, parentID)
 	if err != nil {
 		h.log.Error("list parent release options", "project_id", projectID, "parent_id", parentID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load parent releases")
+		errresp.InternalWith(w, r, err, "failed to load parent releases")
 		return
 	}
 	writeJSON(w, http.StatusOK, options)
@@ -988,13 +990,13 @@ func (h *Handler) UpdateInheritanceSource(w http.ResponseWriter, r *http.Request
 		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Parent project ID is required")
 		return
 	}
-	if _, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit); !ok {
+	if _, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit); !ok {
 		return
 	}
 	links, err := h.weave.ProjectInheritances().List(ctx, projectID)
 	if err != nil {
 		h.log.Error("list inheritances for source update", "project_id", projectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load parent dependencies")
+		errresp.InternalWith(w, r, err, "failed to load parent dependencies")
 		return
 	}
 	var existing *domain.ProjectInheritance
@@ -1014,13 +1016,13 @@ func (h *Handler) UpdateInheritanceSource(w http.ResponseWriter, r *http.Request
 		SourceVersion string `json:"source_version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+		writeValidationErrors(w, r, map[string][]string{"body": {"invalid JSON body"}})
 		return
 	}
 	sourceMode := normalizeSourceMode(domain.DependencySourceMode(strings.TrimSpace(body.SourceMode)))
 	sourceVersion := strings.TrimSpace(body.SourceVersion)
 	if fieldErrs := h.validateInheritanceSource(ctx, parentID, sourceMode, sourceVersion); len(fieldErrs) > 0 {
-		writeValidationErrors(w, fieldErrs)
+		writeValidationErrors(w, r, fieldErrs)
 		return
 	}
 	updated := *existing
@@ -1028,7 +1030,7 @@ func (h *Handler) UpdateInheritanceSource(w http.ResponseWriter, r *http.Request
 	updated.SourceVersion = sourceVersion
 	if err := h.weave.ProjectInheritances().Add(ctx, updated); err != nil {
 		h.log.Error("update inheritance source", "project_id", projectID, "parent_id", parentID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to update dependency source")
+		errresp.InternalWith(w, r, err, "failed to update dependency source")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -1042,15 +1044,15 @@ func (h *Handler) DeleteInheritance(w http.ResponseWriter, r *http.Request) {
 		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Parent project ID is required")
 		return
 	}
-	if _, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit); !ok {
+	if _, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit); !ok {
 		return
 	}
 	if blockers, err := h.receiptOnlyAdoptionRemovalBlockers(ctx, projectID, parentID); err != nil {
 		h.log.Error("check receipt-only adoptions before parent removal", "project_id", projectID, "parent_id", parentID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to validate parent removal")
+		errresp.InternalWith(w, r, err, "failed to validate parent removal")
 		return
 	} else if len(blockers) > 0 {
-		writeValidationErrors(w, map[string][]string{
+		writeValidationErrors(w, r, map[string][]string{
 			"parent_project_id": {fmt.Sprintf(
 				"cannot remove parent while adopted items from %s are still receipt-only: %s; fork them into local project material first",
 				parentID,
@@ -1061,12 +1063,12 @@ func (h *Handler) DeleteInheritance(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.cleanupRemovedParentCategories(ctx, projectID, parentID); err != nil {
 		h.log.Error("cleanup copied parent categories", "project_id", projectID, "parent_id", parentID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to clean up copied parent categories")
+		errresp.InternalWith(w, r, err, "failed to clean up copied parent categories")
 		return
 	}
 	if err := h.weave.ProjectInheritances().Remove(ctx, projectID, parentID); err != nil {
 		h.log.Error("remove inheritance", "project_id", projectID, "parent_id", parentID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to remove inheritance")
+		errresp.InternalWith(w, r, err, "failed to remove inheritance")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1080,12 +1082,12 @@ func (h *Handler) SetPrimaryInheritance(w http.ResponseWriter, r *http.Request) 
 		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "Parent project ID is required")
 		return
 	}
-	if _, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit); !ok {
+	if _, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit); !ok {
 		return
 	}
 	if err := h.weave.ProjectInheritances().SetPrimary(ctx, projectID, parentID); err != nil {
 		h.log.Error("set primary inheritance", "project_id", projectID, "parent_id", parentID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to update primary inheritance")
+		errresp.InternalWith(w, r, err, "failed to update primary inheritance")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -1094,19 +1096,19 @@ func (h *Handler) SetPrimaryInheritance(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) ReorderInheritance(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
-	if _, _, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit); !ok {
+	if _, _, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit); !ok {
 		return
 	}
 	var body struct {
 		ParentProjectIDs []string `json:"parent_project_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+		writeValidationErrors(w, r, map[string][]string{"body": {"invalid JSON body"}})
 		return
 	}
 	if err := h.weave.ProjectInheritances().Reorder(ctx, projectID, body.ParentProjectIDs); err != nil {
 		h.log.Error("reorder inheritances", "project_id", projectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to reorder inheritances")
+		errresp.InternalWith(w, r, err, "failed to reorder inheritances")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
@@ -1491,8 +1493,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // writeValidationErrors writes a 422 with the standard schema-driven weave
 // validation envelope.
 // writeValidationErrors forwards to apierror.Write — see pkg/weave/apierror.
-func writeValidationErrors(w http.ResponseWriter, fields map[string][]string) {
-	apierror.Write(w, apierror.Validation(fields))
+func writeValidationErrors(w http.ResponseWriter, r *http.Request, fields map[string][]string) {
+	apierror.Write(w, r, apierror.Validation(fields))
 }
 
 // errInvalidJSON is the canonical error for body parse failures. Held as

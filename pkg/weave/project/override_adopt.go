@@ -8,6 +8,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
 
 const overrideEditorUncategorizedID = "__uncategorized__"
@@ -27,13 +28,13 @@ func (h *Handler) AdoptCollectionIntoModel(w http.ResponseWriter, r *http.Reques
 	projectID := chi.URLParam(r, "projectID")
 	modelID := chi.URLParam(r, "modelID")
 	if projectID == "" || modelID == "" {
-		writeError(w, http.StatusBadRequest, "projectID and modelID are required")
+		writeError(w, r, http.StatusBadRequest, "projectID and modelID are required")
 		return
 	}
 
 	project, err := h.svc.Get(ctx, projectID)
 	if err != nil || project == nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeError(w, r, http.StatusNotFound, "project not found")
 		return
 	}
 	if !h.svc.CanEdit(ctx, project) {
@@ -43,23 +44,23 @@ func (h *Handler) AdoptCollectionIntoModel(w http.ResponseWriter, r *http.Reques
 
 	model, err := h.weave.Models().GetByID(ctx, modelID)
 	if err != nil || model == nil {
-		writeError(w, http.StatusNotFound, "model not found")
+		writeError(w, r, http.StatusNotFound, "model not found")
 		return
 	}
 
 	var req adoptCollectionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid adopt collection payload")
+		writeError(w, r, http.StatusBadRequest, "invalid adopt collection payload")
 		return
 	}
 	if req.CollectionID == "" {
-		writeError(w, http.StatusBadRequest, "collection_id is required")
+		writeError(w, r, http.StatusBadRequest, "collection_id is required")
 		return
 	}
 
 	collection, err := h.weave.Collections().GetByID(ctx, req.CollectionID)
 	if err != nil || collection == nil {
-		writeError(w, http.StatusNotFound, "collection not found")
+		writeError(w, r, http.StatusNotFound, "collection not found")
 		return
 	}
 
@@ -78,7 +79,7 @@ func (h *Handler) AdoptCollectionIntoModel(w http.ResponseWriter, r *http.Reques
 			"source_project_id", sourceProjectID,
 			"err", err,
 		)
-		writeError(w, http.StatusInternalServerError, "failed to build adopted collection payload")
+		apierror.Write(w, r, apierror.InternalWith("failed to build adopted collection payload", err))
 		return
 	}
 
@@ -92,7 +93,7 @@ func (h *Handler) AdoptCollectionIntoModel(w http.ResponseWriter, r *http.Reques
 			"source_project_id", sourceProjectID,
 			"err", err,
 		)
-		writeError(w, http.StatusInternalServerError, "failed to build adopted collection payload")
+		apierror.Write(w, r, apierror.InternalWith("failed to build adopted collection payload", err))
 		return
 	}
 

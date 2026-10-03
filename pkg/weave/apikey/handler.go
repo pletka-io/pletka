@@ -69,7 +69,7 @@ func rowFromKey(k *domain.APIKey) keyRow {
 func (h *Handler) actorID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	snap := auth.FromContext(r.Context())
 	if snap == nil || snap.IsAnonymous || snap.ActorID == "" {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return "", false
 	}
 	return snap.ActorID, true
@@ -90,7 +90,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	keys, err := h.svc.List(r.Context(), actorID)
 	if err != nil {
 		h.log.Error("list api keys", "actor_id", actorID, "err", err)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	rows := make([]keyRow, 0, len(keys))
@@ -164,7 +164,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	var in createInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid json body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid json body"))
 		return
 	}
 	fieldErrs := map[string][]string{}
@@ -177,13 +177,13 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		fieldErrs["expires_days"] = append(fieldErrs["expires_days"], "must be a positive number of days")
 	}
 	if len(fieldErrs) > 0 {
-		apierror.Write(w, apierror.Validation(fieldErrs))
+		apierror.Write(w, r, apierror.Validation(fieldErrs))
 		return
 	}
 	secret, key, err := h.svc.Mint(r.Context(), actorID, name, ttlDays)
 	if err != nil {
 		h.log.Error("mint api key", "actor_id", actorID, "err", err)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	row := rowFromKey(key)
@@ -208,11 +208,11 @@ func (h *Handler) Revoke(w http.ResponseWriter, r *http.Request) {
 	n, err := h.svc.RevokeOwned(r.Context(), actorID, id)
 	if err != nil {
 		h.log.Error("revoke api key", "actor_id", actorID, "err", err)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	if n == 0 {
-		apierror.Write(w, apierror.NotFound("api key not found"))
+		apierror.Write(w, r, apierror.NotFound("api key not found"))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

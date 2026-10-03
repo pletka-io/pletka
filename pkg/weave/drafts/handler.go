@@ -81,13 +81,13 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	snap := auth.FromContext(ctx)
 	if snap == nil || snap.IsAnonymous {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 
 	var req draftRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid JSON body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid JSON body"))
 		return
 	}
 
@@ -104,20 +104,20 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		errs["name"] = append(errs["name"], "name (with at least an 'en' value) is required")
 	}
 	if len(errs) > 0 {
-		apierror.Write(w, apierror.Validation(errs))
+		apierror.Write(w, r, apierror.Validation(errs))
 		return
 	}
 
 	// Project must exist; weave_projects.id is the prefix used for IDs.
 	project, err := h.weave.Projects().GetByID(ctx, req.ProjectID)
 	if err != nil || project == nil {
-		apierror.Write(w, apierror.NotFound("project not found"))
+		apierror.Write(w, r, apierror.NotFound("project not found"))
 		return
 	}
 
 	resource := auth.ProjectResource(project)
 	if !snap.Can(capabilityFor(req.Type), resource, nil) {
-		apierror.Write(w, apierror.Forbidden("insufficient permissions"))
+		apierror.Write(w, r, apierror.Forbidden("insufficient permissions"))
 		return
 	}
 
@@ -146,7 +146,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	} else if conflict {
 		ae := apierror.Conflict("duplicate name")
 		ae.Details = fmt.Sprintf("A %s named %q already exists in this project", req.Type, req.Name.Get("en", ""))
-		apierror.Write(w, ae)
+		apierror.Write(w, r, ae)
 		return
 	}
 
@@ -161,7 +161,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	nextN, err := h.weave.AllocateEntityNumber(ctx, project.ID, counterKind)
 	if err != nil {
 		h.log.Error("allocate draft number", "type", req.Type, "project_id", project.ID, "err", err)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 
@@ -180,7 +180,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		h.log.Error("draft create failed", "type", req.Type, "project_id", project.ID, "err", err)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 
