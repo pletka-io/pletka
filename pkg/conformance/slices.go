@@ -12,6 +12,27 @@ type VersionedSlice struct {
 	ArchiveTables []string
 }
 
+// ArchiveTablesWithoutASlice records archive tables that belong to no slice,
+// with the reason. Without this the claim check could only be satisfied by
+// inventing an owner, which would make the registry a fiction again.
+//
+// An entry here is not an exemption from versioning -- the data is still
+// archived and still read somewhere. It says only that the reads do not live
+// behind a slice's *Service, so this package's scanner cannot see them.
+var ArchiveTablesWithoutASlice = map[string]string{
+	"weave_adoptions_archive": "Adoptions are stored at the pkg/weave package level " +
+		"(adoption_store.go), not in a slice, and are read through the WeaveStore aggregate. " +
+		"Note pkg/weave/adoption_origin.go resolves a source entity with no version while " +
+		"reading the adoption row at the reader's version -- a known unscoped read this " +
+		"scanner cannot reach because it is not a *Service method.",
+	"weave_entity_forks_archive": "Forks are stored at the pkg/weave package level " +
+		"(fork_store.go), not in a slice. Same reach limitation as adoptions.",
+	"weave_change_log_archive": "The change log is infrastructure: it records what changed " +
+		"rather than holding project content a reader asks for at a version.",
+	"weave_change_set_archive": "Change sets drive the materializer queue. Same shape as the " +
+		"change log -- infrastructure, not content a release is read for.",
+}
+
 // VersionedSlices is the registry. Adding a slice here opts it into the
 // ratchet; omitting one whose archive table exists fails
 // TestEveryArchiveTableIsClaimedByASlice.
@@ -34,8 +55,25 @@ var VersionedSlices = []VersionedSlice{
 	{Name: "field", Pkg: "pkg/weave/field", ArchiveTables: []string{"weave_fields_archive"}},
 	{Name: "model", Pkg: "pkg/weave/model", ArchiveTables: []string{"weave_models_archive"}},
 	{
-		Name: "override",
-		Pkg:  "pkg/weave/override",
+		Name:          "namespacebinding",
+		Pkg:           "pkg/weave/namespacebinding",
+		ArchiveTables: []string{"weave_namespace_bindings_archive"},
+	},
+	{
+		Name: "project",
+		Pkg:  "pkg/weave/project",
+		ArchiveTables: []string{
+			"weave_projects_archive",
+			"weave_project_inheritance_archive",
+		},
+	},
+	{
+		Name:          "projectontologyversion",
+		Pkg:           "pkg/weave/projectontologyversion",
+		ArchiveTables: []string{"weave_project_ontology_versions_archive"},
+	},
+	{Name: "override",
+		Pkg: "pkg/weave/override",
 		ArchiveTables: []string{
 			"weave_field_overrides_archive",
 			"weave_override_refs_archive",

@@ -67,6 +67,7 @@ A slice owning a table with an `_archive` counterpart is a **versioned slice**. 
 - **A versioned slice is a named shape**: `Store` for writes, plus `At(scope auth.ReadScope) (Reader, error)`. Reads live on the `Reader` and nowhere else.
 - **Services never resolve a scope; they receive one.** `ReadScopeFromContext(ctx)` is called at the request boundary — an HTTP handler or an MCP tool — and nowhere else.
 - **Mutations are hot, structurally.** They sit on `Store`, take no scope, and a clone or remap path passes `auth.Draft()` explicitly so reading the draft is visible in the diff.
+- **The conformance check reads signatures, not bodies.** A read that takes an `auth.ReadScope` and ignores it passes the build and fails in production. Adding the parameter is half the work; the read must go through `store.At(scope)`.
 - **Opting out is per method, with a reason, in the allowlist** (`pkg/conformance/allowlist.go`). A permanent exemption covers the slice, never its callers.
 
 `pkg/conformance` fails the build on an unscoped read in a versioned slice, on an `_archive` table no slice claims, and on `ReadScopeFromContext` outside a request boundary. The allowlist is the phase-out plan: it has permanent members, and the rule is that every entry names why, not that the list reaches zero.

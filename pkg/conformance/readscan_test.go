@@ -21,6 +21,12 @@ func (s *Service) ListThings(ctx context.Context, projectID string) error       
 func (s *Service) CreateThing(ctx context.Context, id string) error                    { return nil }
 func (s *Service) unexportedList(ctx context.Context) error                            { return nil }
 func (s *Service) BatchUsageCounts(ctx context.Context, ids []string) error            { return nil }
+func (s *Service) LookupThing(ctx context.Context, id string) error                    { return nil }
+func (s *Service) Stats(ctx context.Context, projectID string) error                   { return nil }
+func (s *Service) IsInUse(ctx context.Context, id string) error                        { return nil }
+func (s *Service) RenderSKOS(ctx context.Context, id string) error                     { return nil }
+func (s *Service) UpdateThing(ctx context.Context, id string) error                    { return nil }
+func (s *Service) ReorderThings(ctx context.Context, ids []string) error               { return nil }
 func Helper(ctx context.Context) error                                                 { return nil }
 `
 
@@ -67,6 +73,22 @@ func TestScanSliceReadsFindsReadShapedMethods(t *testing.T) {
 	// Unexported methods are not a public surface.
 	if _, ok := byName["unexportedList"]; ok {
 		t.Error("unexportedList is not exported and must not be scanned")
+	}
+	// A read whose name is not in any prefix list must still be found. The
+	// scanner is default-deny: an unrecognized name is a read until a
+	// mutation prefix says otherwise, because the alternative is that a
+	// reasonable name like Lookup, Stats or IsInUse disappears from the
+	// ratchet entirely.
+	for _, name := range []string{"LookupThing", "Stats", "IsInUse", "RenderSKOS"} {
+		if _, ok := byName[name]; !ok {
+			t.Errorf("%s should be found: an unrecognized name is a read, not an exemption", name)
+		}
+	}
+	// Mutations stay out: they run hot by design.
+	for _, name := range []string{"UpdateThing", "ReorderThings"} {
+		if _, ok := byName[name]; ok {
+			t.Errorf("%s is a mutation and must not be scanned as a read", name)
+		}
 	}
 	// Package-level functions are not Service methods.
 	if _, ok := byName["Helper"]; ok {

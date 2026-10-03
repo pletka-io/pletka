@@ -48,6 +48,11 @@ const (
 	convFieldUsage  = "the field usage-counts conversion (spec Part 3, sequencing step 4)"
 	convModel       = "the model slice conversion (spec Part 3, sequencing step 5)"
 	convVocabulary  = "the vocabulary slice conversion (spec Part 3, sequencing step 4)"
+	// Added when the scanner inverted to a mutation denylist and three
+	// more versioned slices were registered.
+	convNamespace   = "the namespacebinding slice conversion"
+	convProject     = "the project slice conversion"
+	convOntologyVer = "the projectontologyversion slice conversion"
 )
 
 // UnscopedReadAllowlist maps "slice.Method" to its exemption.
@@ -56,6 +61,225 @@ const (
 // across 8 versioned slices, of which 6 were already scoped (the override
 // conversion) and 47 are listed here.
 var UnscopedReadAllowlist = map[string]Exemption{
+	// --- surfaced when the scanner inverted to a mutation denylist -----
+	"category.Stats": {
+		Reason:       trulyUnscoped + "Derived counts over live rows, so a pinned view reports today's totals.",
+		ConvertsWith: convCategory,
+	},
+	"category.IsInUse": {
+		Reason:       trulyUnscoped + "Answers whether a category is used, from live placements.",
+		ConvertsWith: convCategory,
+	},
+	"field.Stats": {
+		Reason:       trulyUnscoped + "Derived counts over live rows.",
+		ConvertsWith: convField,
+	},
+	"field.IsInUse": {
+		Reason:       trulyUnscoped + "Answers whether a field is used, from live placements.",
+		ConvertsWith: convField,
+	},
+	"collection.Stats": {
+		Reason:       trulyUnscoped + "Derived counts over live rows.",
+		ConvertsWith: convCollection,
+	},
+	"collection.LookupView": {
+		Reason:       trulyUnscoped + "The same resolved-field surface as collection.View under a different name, so it carries the same release-era-entity-with-draft-fields problem.",
+		ConvertsWith: convCollection,
+	},
+	"collection.LookupByID": {
+		Reason:       trulyUnscoped + "A live lookup by id; a pinned view can resolve a collection created after the release.",
+		ConvertsWith: convCollection,
+	},
+	"collection.AnchorIndex": {
+		Reason:       trulyUnscoped + "Builds the anchor index from live membership.",
+		ConvertsWith: convCollection,
+	},
+	"collection.CategoriesUsed": {
+		Reason:       trulyUnscoped + "Lists the categories a collection uses, from live placements.",
+		ConvertsWith: convCollection,
+	},
+	"collection.ScopeClasses": {
+		Reason:       trulyUnscoped + "Derives scope classes from live field paths.",
+		ConvertsWith: convCollection,
+	},
+	"collection.ForkOriginsForProject": {
+		Reason:       trulyUnscoped + "Fork origins resolve against live source entities.",
+		ConvertsWith: convCollection,
+	},
+	"model.Stats": {
+		Reason:       trulyUnscoped + "Derived counts over live rows.",
+		ConvertsWith: convModel,
+	},
+	"model.ScopeClasses": {
+		Reason:       trulyUnscoped + "Derives scope classes from live field paths.",
+		ConvertsWith: convModel,
+	},
+	"model.ForkOriginsForProject": {
+		Reason:       trulyUnscoped + "Fork origins resolve against live source entities.",
+		ConvertsWith: convModel,
+	},
+	"example.TargetName": {
+		Reason:       trulyUnscoped + "Resolves an example's target entity name live, so a pinned example can show a name changed since.",
+		ConvertsWith: convExample,
+	},
+	"example.BuildFormSchema": {
+		Reason:       trulyUnscoped + "Builds the entry form from live model and field definitions, so a form opened under a release is shaped by today's schema.",
+		ConvertsWith: convExample,
+	},
+	"override.EntityFingerprint": {
+		Reason:       trulyUnscoped + "Fingerprints live placement rows to detect concurrent edits, which is a draft-time question.",
+		ConvertsWith: convCollection,
+	},
+	"vocabulary.VocabularyRoots": {
+		Reason:       trulyUnscoped + "Browses a vocabulary's curated roots from live entries.",
+		ConvertsWith: convVocabulary,
+	},
+	"vocabulary.VocabularyChildren": {
+		Reason:       trulyUnscoped + "Walks a vocabulary's hierarchy from live entries.",
+		ConvertsWith: convVocabulary,
+	},
+	"vocabulary.VocabularyProjectID": {
+		Reason:       trulyUnscoped + "Resolves which project owns a vocabulary, from the live row.",
+		ConvertsWith: convVocabulary,
+	},
+	"vocabulary.ConceptListProjectID": {
+		Reason:       trulyUnscoped + "Resolves which project owns a concept list, from the live row.",
+		ConvertsWith: convVocabulary,
+	},
+	"vocabulary.ConceptListMemberURIs": {
+		Reason:       trulyUnscoped + "Lists a concept list's member URIs live; under a release these should be the archived members.",
+		ConvertsWith: convVocabulary,
+	},
+	"vocabulary.ConceptURIInLists": {
+		Reason:       trulyUnscoped + "Answers which lists contain a URI, over live membership.",
+		ConvertsWith: convVocabulary,
+	},
+	"vocabulary.RenderConceptListSKOS": {
+		Reason:       trulyUnscoped + "An export renderer: it serializes a concept list to SKOS from live rows, so a pinned export does not match the release it claims. The spec's exports section is explicit that an export leaves the system.",
+		ConvertsWith: convVocabulary,
+	},
+	"namespacebinding.Get": {
+		Reason:       trulyUnscoped + "Reads a live binding.",
+		ConvertsWith: convNamespace,
+	},
+	"namespacebinding.List": {
+		Reason:       trulyUnscoped + "Lists live bindings.",
+		ConvertsWith: convNamespace,
+	},
+	"namespacebinding.ListForProject": {
+		Reason:       trulyUnscoped + "Lists a project's live bindings; prefixes are archived, so a pinned view can show one added since.",
+		ConvertsWith: convNamespace,
+	},
+	"namespacebinding.GetGlobal": {
+		Reason:       trulyUnscoped + "Reads a global binding, which is not project content.",
+		ConvertsWith: convNamespace,
+	},
+	"namespacebinding.ListGlobal": {
+		Reason:       trulyUnscoped + "Lists global bindings, which are not project content.",
+		ConvertsWith: convNamespace,
+	},
+	"namespacebinding.ListGlobalBrowse": {
+		Reason:       trulyUnscoped + "The browse form of the global list.",
+		ConvertsWith: convNamespace,
+	},
+	"namespacebinding.StatsGlobal": {
+		Reason:       trulyUnscoped + "Counts over global bindings.",
+		ConvertsWith: convNamespace,
+	},
+	"project.Get": {
+		Reason:       trulyUnscoped + "Reads the live project row; weave_projects is archived.",
+		ConvertsWith: convProject,
+	},
+	"project.GetByID": {
+		Reason:       trulyUnscoped + "Reads the live project row by id.",
+		ConvertsWith: convProject,
+	},
+	"project.List": {
+		Reason:       trulyUnscoped + "Lists live projects.",
+		ConvertsWith: convProject,
+	},
+	"project.ListVisible": {
+		Reason:       trulyUnscoped + "Lists projects visible to the caller, from live rows.",
+		ConvertsWith: convProject,
+	},
+	"project.ListChildren": {
+		Reason:       trulyUnscoped + "Lists children from live inheritance rows; weave_project_inheritance is archived.",
+		ConvertsWith: convProject,
+	},
+	"project.ListOwnerInstitutions": {
+		Reason:       trulyUnscoped + "Lists owning institutions from live rows.",
+		ConvertsWith: convProject,
+	},
+	"project.ListVisibleOwnerInstitutions": {
+		Reason:       trulyUnscoped + "The visibility-filtered form of the same live read.",
+		ConvertsWith: convProject,
+	},
+	"project.OwnersForProjects": {
+		Reason:       trulyUnscoped + "Batch owner lookup over live rows.",
+		ConvertsWith: convProject,
+	},
+	"project.StatsForProjects": {
+		Reason:       trulyUnscoped + "Batch counts over live rows.",
+		ConvertsWith: convProject,
+	},
+	"project.ResolvedOntologyVersions": {
+		Reason:       trulyUnscoped + "Resolves which ontology versions a project uses from live links; those links are archived.",
+		ConvertsWith: convProject,
+	},
+	"projectontologyversion.Get": {
+		Reason:       trulyUnscoped + "Reads a live ontology-version link.",
+		ConvertsWith: convOntologyVer,
+	},
+	"projectontologyversion.ListView": {
+		Reason:       trulyUnscoped + "Lists a project's ontology versions live.",
+		ConvertsWith: convOntologyVer,
+	},
+	"projectontologyversion.PaneView": {
+		Reason:       trulyUnscoped + "Builds the settings pane from live links.",
+		ConvertsWith: convOntologyVer,
+	},
+	"projectontologyversion.Stats": {
+		Reason:       trulyUnscoped + "Counts over live links.",
+		ConvertsWith: convOntologyVer,
+	},
+	"projectontologyversion.ListAvailableVersions": {
+		Reason:       trulyUnscoped + "Lists what a project could pin to: a catalog question, not release content.",
+		ConvertsWith: convOntologyVer,
+	},
+	"projectontologyversion.ListAvailableExtensions": {
+		Reason:       trulyUnscoped + "The same catalog question for extensions.",
+		ConvertsWith: convOntologyVer,
+	},
+	"projectontologyversion.ListBaseOntologies": {
+		Reason:       trulyUnscoped + "The same catalog question for base ontologies.",
+		ConvertsWith: convOntologyVer,
+	},
+	"project.CanEdit": {
+		Reason:           "A permission check, not a content read. The spec's first decision says non-versioned data is a declared boundary: authorization is answered about the person and the project now, at any scope.",
+		Permanent:        true,
+		CallerObligation: "A caller must not infer from an edit permission that it may render draft content under a release.",
+	},
+	"project.CanRead": {
+		Reason:           "A permission check, as with CanEdit: answered about the caller now, not at a version.",
+		Permanent:        true,
+		CallerObligation: "Read permission says who may see the project, never which version they get; the caller still names the scope.",
+	},
+	"project.CheckIDPrefix": {
+		Reason:           "Validates that an id prefix is free before a project is created, against the live namespace where the new project will live.",
+		Permanent:        true,
+		CallerObligation: "A creation-time check; nothing rendering a release should call it.",
+	},
+	"collection.ForkFromSource": {
+		Reason:           "A mutation: it creates a forked collection. Mutations run hot by design and take no scope, which is structural in the Store/Reader split rather than a rule to remember.",
+		Permanent:        true,
+		CallerObligation: "A write path reads the draft deliberately; a caller under a release must not invoke it to materialize release content.",
+	},
+	"model.ForkFromSource": {
+		Reason:           "A mutation: it creates a forked model. Mutations run hot by design and take no scope, which is structural in the Store/Reader split rather than a rule to remember.",
+		Permanent:        true,
+		CallerObligation: "A write path reads the draft deliberately; a caller under a release must not invoke it to materialize release content.",
+	},
+
 	// --- attribution -------------------------------------------------
 	// Migration 020: "Credit is part of what a release cites." Both of
 	// these read the live credit tables, so a pinned view shows today's

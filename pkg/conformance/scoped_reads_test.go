@@ -39,7 +39,10 @@ func TestVersionedSliceReadsAreScopedOrAllowlisted(t *testing.T) {
 			"nor appear in UnscopedReadAllowlist:\n%s\n\n"+
 			"A read in a versioned slice names the version it reads at. Either give it "+
 			"an auth.ReadScope parameter and route it through the slice's scoped reader, "+
-			"or add it to the allowlist with a reason saying why it is correct unscoped.",
+			"or add it to the allowlist with a reason saying why it is correct unscoped.\n\n"+
+			"Note: this check reads the SIGNATURE. A parameter that is accepted and then "+
+			"ignored passes here and fails in production, so adding the parameter is half "+
+			"the work -- the read must actually go through store.At(scope).",
 			strings.Join(offenders, "\n"))
 	}
 }
