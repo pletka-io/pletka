@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
 
 // EdgeProvenanceVersion is one version that declares the requested edge.
@@ -46,7 +47,7 @@ func (h *Handler) EdgeProvenance(w http.ResponseWriter, r *http.Request) {
 	result, err := h.svc.EdgeProvenance(r.Context(), projectID, source, target, rel)
 	if err != nil {
 		h.log.Error("edge provenance", "err", err, "project_id", projectID, "source", source, "target", target, "rel", rel)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+		apierror.Write(w, r, apierror.InternalWith("internal error", err))
 		return
 	}
 

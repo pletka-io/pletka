@@ -53,19 +53,20 @@ func NewHandler(weave domain.WeaveStore, svc *Service, gens *generators.Service,
 	return &Handler{weave: weave, svc: svc, gens: gens, bundles: bundles, projectArtifacts: projectArtifacts, logger: logger.With("handler", "integrations.hub")}
 }
 
-func (h *Handler) loadProjectAndGate(ctx context.Context, w http.ResponseWriter, projectID string, cap auth.Capability) (*domain.Project, bool) {
+func (h *Handler) loadProjectAndGate(w http.ResponseWriter, r *http.Request, projectID string, cap auth.Capability) (*domain.Project, bool) { //nolint:unparam // cap kept explicit at the gate; this line changed only to pass r (ADR-0009 migration)
+	ctx := r.Context()
 	project, err := h.weave.Projects().GetByID(ctx, projectID)
 	if err != nil || project == nil {
-		apierror.Write(w, apierror.NotFound("Project not found"))
+		apierror.Write(w, r, apierror.NotFound("Project not found"))
 		return nil, false
 	}
 	res := auth.ProjectResource(project)
 	snap := auth.FromContext(ctx)
 	if !snap.Can(cap, res, nil) {
 		if snap.IsAnonymous {
-			apierror.Write(w, apierror.Unauthorized())
+			apierror.Write(w, r, apierror.Unauthorized())
 		} else {
-			apierror.Write(w, apierror.Forbidden("Access denied"))
+			apierror.Write(w, r, apierror.Forbidden("Access denied"))
 		}
 		return nil, false
 	}
@@ -120,9 +121,8 @@ type listSchemaResponse struct {
 //
 // GET /list-schema.
 func (h *Handler) ListSchema(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
-	project, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
@@ -143,14 +143,14 @@ func (h *Handler) ListSchema(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListSchemaData(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
-	project, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
 	entries, err := h.svc.List(ctx, project.ID)
 	if err != nil {
 		h.logger.Error("list integrations", "project", project.ID, "err", err)
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
 	out := listSchemaResponse{Integrations: make([]listSchemaItem, 0, len(entries))}
@@ -239,13 +239,13 @@ func (h *Handler) AddConfig(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	integID := chi.URLParam(r, "integrationID")
-	project, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
 	var body addConfigRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.Validation(map[string][]string{"body": {"invalid JSON body"}}))
+		apierror.Write(w, r, apierror.Validation(map[string][]string{"body": {"invalid JSON body"}})) //nolint:goconst // pre-existing literal; this line changed only to pass r (ADR-0009 migration)
 		return
 	}
 	saved, err := h.svc.AddConfig(ctx, AddConfigInput{
@@ -254,7 +254,7 @@ func (h *Handler) AddConfig(w http.ResponseWriter, r *http.Request) {
 		Label:         body.Label,
 	})
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, listSchemaConfigEntry{
@@ -275,14 +275,14 @@ func (h *Handler) ConfigSchema(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	integID := chi.URLParam(r, "integrationID")
 	configID := chi.URLParam(r, "configID")
-	project, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
 
 	integ, _, cfg, err := h.svc.GetForConfigForm(ctx, project.ID, integID, configID)
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(w, r, err)
 		return
 	}
 	lang := resolveLang(r)
@@ -292,7 +292,7 @@ func (h *Handler) ConfigSchema(w http.ResponseWriter, r *http.Request) {
 		Languages: nil,
 	}, cfg)
 	if schema == nil {
-		apierror.Write(w, apierror.BadRequest("integration has no config schema"))
+		apierror.Write(w, r, apierror.BadRequest("integration has no config schema"))
 		return
 	}
 	// Rewrite the schema's endpoint URL so the FormRenderer PUTs to the
@@ -315,14 +315,14 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	integID := chi.URLParam(r, "integrationID")
 	configID := chi.URLParam(r, "configID")
-	project, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
 
 	var cfg map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		apierror.Write(w, apierror.Validation(map[string][]string{"body": {"invalid JSON body"}}))
+		apierror.Write(w, r, apierror.Validation(map[string][]string{"body": {"invalid JSON body"}}))
 		return
 	}
 	// Pop a label override if present in the body so it doesn't leak
@@ -339,14 +339,14 @@ func (h *Handler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, integrations.ErrCipherUnavailable) {
-			apierror.Write(w, apierror.BadRequest("integrations.secret_key is not configured on this server — cannot store secret fields"))
+			apierror.Write(w, r, apierror.BadRequest("integrations.secret_key is not configured on this server — cannot store secret fields"))
 			return
 		}
-		writeServiceError(w, err)
+		writeServiceError(w, r, err)
 		return
 	}
 	if fieldErrs != nil {
-		apierror.Write(w, apierror.Validation(fieldErrs))
+		apierror.Write(w, r, apierror.Validation(fieldErrs))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -370,18 +370,18 @@ func (h *Handler) SetEnabled(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	integID := chi.URLParam(r, "integrationID")
 	configID := chi.URLParam(r, "configID")
-	project, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
 	var body enableRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.Validation(map[string][]string{"body": {"invalid JSON body"}}))
+		apierror.Write(w, r, apierror.Validation(map[string][]string{"body": {"invalid JSON body"}}))
 		return
 	}
 	saved, err := h.svc.SetEnabled(ctx, project.ID, integID, configID, body.Enabled)
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -398,12 +398,12 @@ func (h *Handler) Remove(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	integID := chi.URLParam(r, "integrationID")
 	configID := chi.URLParam(r, "configID")
-	project, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
 	if err := h.svc.Remove(ctx, project.ID, integID, configID); err != nil {
-		writeServiceError(w, err)
+		writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -421,7 +421,7 @@ func (h *Handler) RunAction(w http.ResponseWriter, r *http.Request) {
 	integID := chi.URLParam(r, "integrationID")
 	configID := chi.URLParam(r, "configID")
 	actionID := chi.URLParam(r, "actionID")
-	project, ok := h.loadProjectAndGate(ctx, w, projectID, auth.ProjectEdit)
+	project, ok := h.loadProjectAndGate(w, r, projectID, auth.ProjectEdit)
 	if !ok {
 		return
 	}
@@ -433,7 +433,7 @@ func (h *Handler) RunAction(w http.ResponseWriter, r *http.Request) {
 
 	integ, _, cfg, err := h.svc.LoadForAction(ctx, project.ID, integID, configID)
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(w, r, err)
 		return
 	}
 
@@ -456,7 +456,7 @@ func (h *Handler) RunAction(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.logger.Error("integration action", "integration", integID, "action", actionID, "err", err)
-		apierror.Write(w, apierror.InternalWith("integration action failed: "+err.Error()))
+		apierror.Write(w, r, apierror.InternalWith("integration action failed: "+err.Error(), err))
 		return
 	}
 	writeJSON(w, http.StatusOK, formschema.ActionResultUI{
@@ -576,14 +576,14 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func writeServiceError(w http.ResponseWriter, err error) {
+func writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, ErrIntegrationNotRegistered):
-		apierror.Write(w, apierror.NotFound("integration not registered"))
+		apierror.Write(w, r, apierror.NotFound("integration not registered"))
 	case errors.Is(err, ErrConfigNotFound):
-		apierror.Write(w, apierror.NotFound("integration config not found"))
+		apierror.Write(w, r, apierror.NotFound("integration config not found"))
 	default:
-		apierror.Write(w, apierror.InternalWith(err.Error()))
+		apierror.Write(w, r, apierror.InternalWith(err.Error(), err))
 	}
 }
 

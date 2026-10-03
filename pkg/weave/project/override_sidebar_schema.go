@@ -17,19 +17,19 @@ func (h *Handler) OverrideFieldSidebarSchema(w http.ResponseWriter, r *http.Requ
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "projectID is required")
+		writeError(w, r, http.StatusBadRequest, "projectID is required")
 		return
 	}
 
 	project, err := h.svc.Get(ctx, projectID)
 	if err != nil || project == nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeError(w, r, http.StatusNotFound, "project not found")
 		return
 	}
 
 	entityType := r.URL.Query().Get("entity_type")
 	if entityType != "model" && entityType != "collection" {
-		writeError(w, http.StatusBadRequest, "entity_type must be model or collection")
+		writeError(w, r, http.StatusBadRequest, "entity_type must be model or collection")
 		return
 	}
 	groupWidget := r.URL.Query().Get("group_widget")
@@ -37,7 +37,7 @@ func (h *Handler) OverrideFieldSidebarSchema(w http.ResponseWriter, r *http.Requ
 		groupWidget = "field-group"
 	}
 	if groupWidget != "field-group" && groupWidget != "collection-group" {
-		writeError(w, http.StatusBadRequest, "group_widget must be field-group or collection-group")
+		writeError(w, r, http.StatusBadRequest, "group_widget must be field-group or collection-group")
 		return
 	}
 
@@ -70,13 +70,13 @@ func (h *Handler) OverrideCollectionGroupSidebarSchema(w http.ResponseWriter, r 
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		writeError(w, http.StatusBadRequest, "projectID is required")
+		writeError(w, r, http.StatusBadRequest, "projectID is required")
 		return
 	}
 
 	project, err := h.svc.Get(ctx, projectID)
 	if err != nil || project == nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeError(w, r, http.StatusNotFound, "project not found")
 		return
 	}
 

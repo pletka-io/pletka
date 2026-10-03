@@ -9,6 +9,7 @@ import (
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
 
 const directFieldsID = "__direct__"
@@ -133,18 +134,18 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	modelID := chi.URLParam(r, "modelID")
 	if projectID == "" || modelID == "" {
-		writeError(w, http.StatusBadRequest, "projectID and modelID are required")
+		writeError(w, r, http.StatusBadRequest, "projectID and modelID are required")
 		return
 	}
 
 	model, err := h.weave.Models().GetByID(ctx, modelID)
 	if err != nil || model == nil {
-		writeError(w, http.StatusNotFound, "model not found")
+		writeError(w, r, http.StatusNotFound, "model not found")
 		return
 	}
 	project, err := h.svc.Get(ctx, projectID)
 	if err != nil || project == nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeError(w, r, http.StatusNotFound, "project not found")
 		return
 	}
 
@@ -162,14 +163,14 @@ func (h *Handler) ModelOverrides(w http.ResponseWriter, r *http.Request) {
 	fingerprint, err := h.overrides.EntityFingerprint(ctx, "model", modelID)
 	if err != nil {
 		h.log.Error("compute model override fingerprint", "project_id", projectID, "model_id", modelID, "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
+		apierror.Write(w, r, apierror.InternalWith("failed to build override editor payload", err))
 		return
 	}
 
 	view, err := h.weave.ModelView(ctx, modelID, projectID)
 	if err != nil {
 		h.log.Error("build model override editor payload", "project_id", projectID, "model_id", modelID, "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
+		apierror.Write(w, r, apierror.InternalWith("failed to build override editor payload", err))
 		return
 	}
 
@@ -239,18 +240,18 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	collectionID := chi.URLParam(r, "collectionID")
 	if projectID == "" || collectionID == "" {
-		writeError(w, http.StatusBadRequest, "projectID and collectionID are required")
+		writeError(w, r, http.StatusBadRequest, "projectID and collectionID are required")
 		return
 	}
 
 	collection, err := h.weave.Collections().GetByID(ctx, collectionID)
 	if err != nil || collection == nil {
-		writeError(w, http.StatusNotFound, "collection not found")
+		writeError(w, r, http.StatusNotFound, "collection not found")
 		return
 	}
 	project, err := h.svc.Get(ctx, projectID)
 	if err != nil || project == nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeError(w, r, http.StatusNotFound, "project not found")
 		return
 	}
 
@@ -266,7 +267,7 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 	fingerprint, err := h.overrides.EntityFingerprint(ctx, "collection", collectionID)
 	if err != nil {
 		h.log.Error("compute collection override fingerprint", "project_id", projectID, "collection_id", collectionID, "err", err)
-		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
+		apierror.Write(w, r, apierror.InternalWith("failed to build override editor payload", err))
 		return
 	}
 
@@ -279,7 +280,7 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 			"collection_id", collectionID,
 			"err", err,
 		)
-		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
+		apierror.Write(w, r, apierror.InternalWith("failed to build override editor payload", err))
 		return
 	}
 
@@ -291,7 +292,7 @@ func (h *Handler) CollectionOverrides(w http.ResponseWriter, r *http.Request) {
 			"source_project_id", sourceProjectID,
 			"err", err,
 		)
-		writeError(w, http.StatusInternalServerError, "failed to build override editor payload")
+		apierror.Write(w, r, apierror.InternalWith("failed to build override editor payload", err))
 		return
 	}
 
@@ -321,7 +322,7 @@ func denyReleaseEditorSurface(w http.ResponseWriter, r *http.Request) bool {
 	if weaveauth.ProjectVersionFromContext(r.Context()) == "" {
 		return false
 	}
-	writeError(w, http.StatusNotFound, "not found")
+	writeError(w, r, http.StatusNotFound, "not found")
 	return true
 }
 

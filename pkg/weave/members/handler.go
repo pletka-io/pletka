@@ -43,7 +43,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	rows, err := h.svc.List(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, rows)
@@ -69,7 +69,7 @@ func (h *Handler) OptionsActors(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	rows, err := h.svc.ListAvailableActors(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	opts := make([]formschema.SelectOption, 0, len(rows))
@@ -109,7 +109,7 @@ func (h *Handler) FormSchemaEdit(w http.ResponseWriter, r *http.Request) {
 	actorID := chi.URLParam(r, "actorID")
 	member, err := h.svc.Get(r.Context(), projectID, actorID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildEditForm(projectID, actorID, member, h.lang(r), h.languages))
@@ -120,12 +120,12 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	var body AddInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		writeError(w, r, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	row, err := h.svc.Add(r.Context(), projectID, body)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, row)
@@ -137,12 +137,12 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	actorID := chi.URLParam(r, "actorID")
 	var body UpdateInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		writeError(w, r, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	row, err := h.svc.UpdateRole(r.Context(), projectID, actorID, body)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, row)
@@ -153,7 +153,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	actorID := chi.URLParam(r, "actorID")
 	if err := h.svc.Remove(r.Context(), projectID, actorID); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -169,25 +169,21 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// writeError + writeValidationErrors forward to apierror.Write so
+// writeError forwards to apierror.Write so
 // the wire shape stays consistent across slices.
-func writeError(w http.ResponseWriter, status int, msg string) {
-	apierror.Write(w, &apierror.Error{Status: status, Message: msg})
-}
-
-func writeValidationErrors(w http.ResponseWriter, fields map[string][]string) {
-	apierror.Write(w, apierror.Validation(fields))
+func writeError(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	apierror.Write(w, r, &apierror.Error{Status: status, Message: msg})
 }
 
 // writeServiceError maps the slice's typed errors to HTTP statuses.
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	if IsNotFound(err) {
-		apierror.Write(w, apierror.NotFound(err.Error()))
+		apierror.Write(w, r, apierror.NotFound(err.Error()))
 		return
 	}
 	ae := apierror.FromError(err)
 	if ae.Code == apierror.CodeInternal {
 		h.log.Error("members service error", "err", err)
 	}
-	apierror.Write(w, ae)
+	apierror.Write(w, r, ae)
 }

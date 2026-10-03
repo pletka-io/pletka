@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
 
 func normalizeScope(s string) string {
@@ -270,7 +272,7 @@ func (h *Handler) PathSuggestionsHandler(w http.ResponseWriter, r *http.Request)
 
 	pool, ok := h.pool()
 	if !ok {
-		writeAPIError(w, "path suggestions not available", http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("path suggestions not available", errors.New("weave store does not expose a connection pool")))
 		return
 	}
 
@@ -291,7 +293,7 @@ func (h *Handler) PathSuggestionsHandler(w http.ResponseWriter, r *http.Request)
 	targets, err := resolveProjectTargets(ctx, pool, projectID, scope, weaveauth.ProjectVersionFromContext(ctx))
 	if err != nil {
 		h.logger.Error("resolve project targets failed", "err", err, "project_id", projectID)
-		writeAPIError(w, "failed to resolve project scope", http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("failed to resolve project scope", err))
 		return
 	}
 
@@ -306,7 +308,7 @@ func (h *Handler) PathSuggestionsHandler(w http.ResponseWriter, r *http.Request)
 		}
 		if err != nil {
 			h.logger.Error("path_next_suggestions failed", "err", err, "project_id", projectID, "target_id", target.ProjectID, "target_version", target.Version, slog.String("path", currentPath))
-			writeAPIError(w, "path suggestions query failed", http.StatusInternalServerError)
+			apierror.Write(w, r, apierror.InternalWith("path suggestions query failed", err))
 			return
 		}
 		for _, suggestion := range targetSuggestions {

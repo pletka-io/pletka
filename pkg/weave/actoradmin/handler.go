@@ -85,7 +85,7 @@ func (h *Handler) ListUsersData(w http.ResponseWriter, r *http.Request) {
 		PerPage: perPage,
 	})
 	if err != nil {
-		apierror.Write(w, apierror.InternalWith("failed to list users"))
+		apierror.Write(w, r, apierror.InternalWith("failed to list users", err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out.Items, "total": out.Total})
@@ -103,7 +103,7 @@ func (h *Handler) ListInstitutionsData(w http.ResponseWriter, r *http.Request) {
 		PerPage: perPage,
 	})
 	if err != nil {
-		apierror.Write(w, apierror.InternalWith("failed to list institutions"))
+		apierror.Write(w, r, apierror.InternalWith("failed to list institutions", err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out.Items, "total": out.Total})
@@ -120,12 +120,12 @@ func (h *Handler) UserFormSchema(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.URL.Query().Get("entity_id")
 	if id == "" {
-		apierror.Write(w, apierror.BadRequest("entity_id required"))
+		apierror.Write(w, r, apierror.BadRequest("entity_id required"))
 		return
 	}
 	user, err := h.svc.GetUser(r.Context(), id)
 	if err != nil {
-		apierror.Write(w, apierror.InternalWith("failed to load user"))
+		apierror.Write(w, r, apierror.InternalWith("failed to load user", err))
 		return
 	}
 	if user == nil {
@@ -146,12 +146,12 @@ func (h *Handler) InstitutionFormSchema(w http.ResponseWriter, r *http.Request) 
 	}
 	id := r.URL.Query().Get("entity_id")
 	if id == "" {
-		apierror.Write(w, apierror.BadRequest("entity_id required"))
+		apierror.Write(w, r, apierror.BadRequest("entity_id required"))
 		return
 	}
 	institution, err := h.svc.GetInstitution(r.Context(), id)
 	if err != nil {
-		apierror.Write(w, apierror.InternalWith("failed to load institution"))
+		apierror.Write(w, r, apierror.InternalWith("failed to load institution", err))
 		return
 	}
 	if institution == nil {
@@ -164,7 +164,7 @@ func (h *Handler) InstitutionFormSchema(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) InstitutionOptions(w http.ResponseWriter, r *http.Request) {
 	opts, err := h.svc.InstitutionOptions(r.Context())
 	if err != nil {
-		apierror.Write(w, apierror.InternalWith("failed to load institution options"))
+		apierror.Write(w, r, apierror.InternalWith("failed to load institution options", err))
 		return
 	}
 	writeJSON(w, http.StatusOK, opts)
@@ -176,12 +176,12 @@ func (h *Handler) InstitutionOptions(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SelfProfileFormSchema(w http.ResponseWriter, r *http.Request) {
 	snap := weaveauth.FromContext(r.Context())
 	if snap == nil || snap.IsAnonymous || snap.ActorID == "" {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	current, err := h.svc.GetUser(r.Context(), snap.ActorID)
 	if err != nil {
-		apierror.Write(w, apierror.InternalWith("failed to load profile"))
+		apierror.Write(w, r, apierror.InternalWith("failed to load profile", err))
 		return
 	}
 	if current == nil {
@@ -196,7 +196,7 @@ func (h *Handler) SelfProfileFormSchema(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) PasswordFormSchema(w http.ResponseWriter, r *http.Request) {
 	snap := weaveauth.FromContext(r.Context())
 	if snap == nil || snap.IsAnonymous || snap.ActorID == "" {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildPasswordFormSchema(h.lang(r), h.languages))
@@ -209,7 +209,7 @@ func (h *Handler) PasswordFormSchema(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	snap := weaveauth.FromContext(r.Context())
 	if snap == nil || snap.IsAnonymous || snap.ActorID == "" {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 
@@ -219,7 +219,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		ConfirmPassword string `json:"confirm_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid request body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid request body"))
 		return
 	}
 
@@ -234,16 +234,16 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		errs["confirm_password"] = append(errs["confirm_password"], "passwords do not match")
 	}
 	if len(errs) > 0 {
-		writeValidationErrors(w, errs)
+		writeValidationErrors(w, r, errs)
 		return
 	}
 
 	if err := h.svc.ChangePassword(r.Context(), snap.ActorID, body.CurrentPassword, body.NewPassword); err != nil {
 		if errors.Is(err, ErrPasswordIncorrect) {
-			writeValidationErrors(w, map[string][]string{"current_password": {"current password is incorrect"}})
+			writeValidationErrors(w, r, map[string][]string{"current_password": {"current password is incorrect"}})
 			return
 		}
-		apierror.Write(w, apierror.InternalWith("failed to change password"))
+		apierror.Write(w, r, apierror.InternalWith("failed to change password", err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -255,7 +255,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateSelf(w http.ResponseWriter, r *http.Request) {
 	snap := weaveauth.FromContext(r.Context())
 	if snap == nil || snap.IsAnonymous || snap.ActorID == "" {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 
@@ -266,12 +266,12 @@ func (h *Handler) UpdateSelf(w http.ResponseWriter, r *http.Request) {
 		Orcid       *string `json:"orcid"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid request body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid request body"))
 		return
 	}
 
 	if strings.TrimSpace(body.DisplayName) == "" {
-		writeValidationErrors(w, map[string][]string{"display_name": {"name is required"}})
+		writeValidationErrors(w, r, map[string][]string{"display_name": {"name is required"}}) //nolint:goconst // pre-existing literal; this line changed only to pass r (ADR-0009 migration)
 		return
 	}
 
@@ -282,7 +282,7 @@ func (h *Handler) UpdateSelf(w http.ResponseWriter, r *http.Request) {
 		Orcid:       body.Orcid,
 	})
 	if err != nil {
-		apierror.Write(w, apierror.InternalWith("failed to update profile"))
+		apierror.Write(w, r, apierror.InternalWith("failed to update profile", err))
 		return
 	}
 	if row == nil {
@@ -307,11 +307,11 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Orcid       *string `json:"orcid"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid request body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid request body"))
 		return
 	}
 	if errs := validateUserInput(body.DisplayName, body.Slug, body.Role); len(errs) > 0 {
-		writeValidationErrors(w, errs)
+		writeValidationErrors(w, r, errs)
 		return
 	}
 	row, err := h.svc.UpdateUser(r.Context(), id, UserEditInput{
@@ -327,7 +327,7 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Orcid:       body.Orcid,
 	})
 	if err != nil {
-		apierror.Write(w, apierror.InternalWith("failed to update user"))
+		apierror.Write(w, r, apierror.InternalWith("failed to update user", err))
 		return
 	}
 	if row == nil {
@@ -352,15 +352,15 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Password    *string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid request body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid request body"))
 		return
 	}
 	if errs := validateUserInput(body.DisplayName, body.Slug, body.Role); len(errs) > 0 {
-		writeValidationErrors(w, errs)
+		writeValidationErrors(w, r, errs)
 		return
 	}
 	if body.Password != nil && strings.TrimSpace(*body.Password) != "" && len(*body.Password) < 12 {
-		writeValidationErrors(w, map[string][]string{"password": {"password must be at least 12 characters"}})
+		writeValidationErrors(w, r, map[string][]string{"password": {"password must be at least 12 characters"}}) //nolint:goconst // pre-existing literal; this line changed only to pass r (ADR-0009 migration)
 		return
 	}
 	row, generatedPassword, err := h.svc.CreateUser(r.Context(), UserCreateInput{
@@ -377,7 +377,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Password:    body.Password,
 	})
 	if err != nil {
-		apierror.Write(w, apierror.InternalWith("failed to create user"))
+		apierror.Write(w, r, apierror.InternalWith("failed to create user", err))
 		return
 	}
 	resp := map[string]any{"id": row.ID}
@@ -393,7 +393,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UserPasswordFormSchema(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if strings.TrimSpace(id) == "" {
-		apierror.Write(w, apierror.BadRequest("user id is required"))
+		apierror.Write(w, r, apierror.BadRequest("user id is required"))
 		return
 	}
 	lang := h.lang(r)
@@ -406,22 +406,22 @@ func (h *Handler) UserPasswordFormSchema(w http.ResponseWriter, r *http.Request)
 func (h *Handler) SetUserPassword(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if strings.TrimSpace(id) == "" {
-		apierror.Write(w, apierror.BadRequest("user id is required"))
+		apierror.Write(w, r, apierror.BadRequest("user id is required"))
 		return
 	}
 	var body struct {
 		NewPassword string `json:"new_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid request body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid request body"))
 		return
 	}
 	if len(body.NewPassword) < 12 {
-		writeValidationErrors(w, map[string][]string{"new_password": {"new password must be at least 12 characters"}})
+		writeValidationErrors(w, r, map[string][]string{"new_password": {"new password must be at least 12 characters"}}) //nolint:goconst // pre-existing literal; this line changed only to pass r (ADR-0009 migration)
 		return
 	}
 	if err := h.svc.SetPassword(r.Context(), id, body.NewPassword); err != nil {
-		apierror.Write(w, apierror.InternalWith("failed to set password"))
+		apierror.Write(w, r, apierror.InternalWith("failed to set password", err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -437,11 +437,11 @@ func (h *Handler) CreateInstitution(w http.ResponseWriter, r *http.Request) {
 		Visibility  string  `json:"visibility"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid request body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid request body"))
 		return
 	}
 	if errs := validateInstitutionInput(body.DisplayName, body.Slug); len(errs) > 0 {
-		writeValidationErrors(w, errs)
+		writeValidationErrors(w, r, errs)
 		return
 	}
 	row, err := h.svc.CreateInstitution(r.Context(), InstitutionCreateInput{
@@ -453,7 +453,7 @@ func (h *Handler) CreateInstitution(w http.ResponseWriter, r *http.Request) {
 		Visibility:  body.Visibility,
 	})
 	if err != nil {
-		apierror.Write(w, apierror.InternalWith("failed to create institution"))
+		apierror.Write(w, r, apierror.InternalWith("failed to create institution", err))
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": row.ID})
@@ -470,11 +470,11 @@ func (h *Handler) UpdateInstitution(w http.ResponseWriter, r *http.Request) {
 		Visibility  string  `json:"visibility"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		apierror.Write(w, apierror.BadRequest("invalid request body"))
+		apierror.Write(w, r, apierror.BadRequest("invalid request body"))
 		return
 	}
 	if errs := validateInstitutionInput(body.DisplayName, body.Slug); len(errs) > 0 {
-		writeValidationErrors(w, errs)
+		writeValidationErrors(w, r, errs)
 		return
 	}
 	row, err := h.svc.UpdateInstitution(r.Context(), id, InstitutionEditInput{
@@ -486,7 +486,7 @@ func (h *Handler) UpdateInstitution(w http.ResponseWriter, r *http.Request) {
 		Visibility:  body.Visibility,
 	})
 	if err != nil {
-		apierror.Write(w, apierror.InternalWith("failed to update institution"))
+		apierror.Write(w, r, apierror.InternalWith("failed to update institution", err))
 		return
 	}
 	if row == nil {
@@ -501,7 +501,7 @@ func parsePaging(w http.ResponseWriter, r *http.Request) (int, int, bool) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("page")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 {
-			apierror.Write(w, apierror.BadRequest("page must be a positive integer"))
+			apierror.Write(w, r, apierror.BadRequest("page must be a positive integer"))
 			return 0, 0, false
 		}
 		page = parsed
@@ -510,7 +510,7 @@ func parsePaging(w http.ResponseWriter, r *http.Request) (int, int, bool) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("per_page")); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 {
-			apierror.Write(w, apierror.BadRequest("per_page must be a positive integer"))
+			apierror.Write(w, r, apierror.BadRequest("per_page must be a positive integer"))
 			return 0, 0, false
 		}
 		perPage = parsed
@@ -550,8 +550,8 @@ func validateInstitutionInput(displayName, slug string) map[string][]string {
 }
 
 // writeValidationErrors forwards to apierror.Write — see pkg/weave/apierror.
-func writeValidationErrors(w http.ResponseWriter, errors map[string][]string) {
-	apierror.Write(w, apierror.Validation(errors))
+func writeValidationErrors(w http.ResponseWriter, r *http.Request, errors map[string][]string) {
+	apierror.Write(w, r, apierror.Validation(errors))
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

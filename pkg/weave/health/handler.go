@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/buildinfo"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // pingTimeout caps how long a pool ping is allowed to block before the
@@ -56,7 +57,8 @@ func (h *Handler) Check(w http.ResponseWriter, r *http.Request) {
 		if err := h.pool.Ping(ctx); err != nil {
 			status["status"] = "unhealthy"
 			status["error"] = err.Error()
-			writeJSON(w, http.StatusServiceUnavailable, status)
+			errresp.RecordCause(r.Context(), err)
+			writeJSON(w, http.StatusServiceUnavailable, status) //nolint:forbidigo // health probe reports 503 by contract when the database is unreachable
 			return
 		}
 	}

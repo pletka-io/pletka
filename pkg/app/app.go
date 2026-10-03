@@ -211,7 +211,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 			templateRenderer.RespondInternalError(w, r, weavetemplates.ErrorPageDeps{
 				Lang:      "en",
 				RequestID: chimiddleware.GetReqID(r.Context()),
-			})
+			}, nil) // recoverMiddleware has already recorded the panic as the cause
 		},
 	})
 

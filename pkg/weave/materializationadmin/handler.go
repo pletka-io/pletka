@@ -37,13 +37,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	summary, err := h.store.Summary(r.Context(), windowHours)
 	if err != nil {
 		h.logger.Error("materializationadmin: summary failed", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "summary failed")
+		errresp.InternalWith(w, r, err, "summary failed")
 		return
 	}
 	runs, err := h.store.Recent(r.Context(), limit)
 	if err != nil {
 		h.logger.Error("materializationadmin: recent failed", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "recent failed")
+		errresp.InternalWith(w, r, err, "recent failed")
 		return
 	}
 

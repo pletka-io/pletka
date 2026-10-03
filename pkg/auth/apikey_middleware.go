@@ -30,12 +30,12 @@ func RequireAPIKey(keys APIKeyVerifier, ws domain.WeaveStore, log *slog.Logger) 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 			if !ok || secret == "" {
-				apierror.Write(w, apierror.Unauthorized())
+				apierror.Write(w, r, apierror.Unauthorized())
 				return
 			}
 			key, err := keys.Verify(r.Context(), secret)
 			if err != nil {
-				apierror.Write(w, apierror.Unauthorized())
+				apierror.Write(w, r, apierror.Unauthorized())
 				return
 			}
 
@@ -43,7 +43,7 @@ func RequireAPIKey(keys APIKeyVerifier, ws domain.WeaveStore, log *slog.Logger) 
 			snap, err := BuildSnapshot(ctx, ws, key.ActorID)
 			if err != nil {
 				log.Error("api key snapshot build failed", "actor_id", key.ActorID, "err", err)
-				apierror.Write(w, apierror.Unauthorized())
+				apierror.Write(w, r, apierror.Unauthorized())
 				return
 			}
 			ctx = WithSnapshot(ctx, snap)

@@ -194,7 +194,7 @@ func (h *Handler) render(w http.ResponseWriter, r *http.Request, in renderInput)
 		if h.logger != nil {
 			h.logger.Error("render auth page", "path", r.URL.Path, "err", err)
 		}
-		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 	}
 }
 

@@ -45,6 +45,10 @@ linters:
           msg: "use errresp.Error (in-slice handlers) or weaverouter.Error (host handlers) / apierror.Write — bare http.Error breaks the branded/JSON contract"
         - pattern: '^http\.NotFound$'
           msg: "use errresp.Error (in-slice handlers) or weaverouter.Error (host handlers) (w, r, 404, \"not_found\", ...) — bare http.NotFound emits raw text"
+        # 5xx through one door (docs-oss/decisions/0009): the door takes the
+        # error, so the cause always reaches the error tracker.
+        - pattern: '^http\.Status(InternalServerError|NotImplemented|BadGateway|ServiceUnavailable|GatewayTimeout)$'
+          msg: "answer 5xx via errresp.Internal(w, r, err) or apierror.Write(w, r, apierror.Internal(err)) — the cause must reach the error tracker"
       analyze-types: true
     revive:
       severity: warning
@@ -98,6 +102,17 @@ linters:
         linters:
           - gocritic
         text: "^ruleguard: construct auth resources via auth\\.ProjectResource"
+      # Tests assert on 5xx status codes; the one-door rule targets
+      # production code that writes them.
+      - path: _test\.go
+        linters:
+          - forbidigo
+        text: "answer 5xx via errresp.Internal"
+      # The doors themselves.
+      - path: pkg/weave/(apierror|errresp)/
+        linters:
+          - forbidigo
+        text: "answer 5xx via errresp.Internal"
 
 issues:
   max-issues-per-linter: 0

@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	weavepkg "github.com/pletka-io/pletka/pkg/weave"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
 
 type queriesProvider interface {
@@ -102,7 +104,7 @@ func (h *Handler) EntitySearch(w http.ResponseWriter, r *http.Request) {
 
 	q, ok := h.queries()
 	if !ok {
-		writeAPIError(w, "search not available", http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("search not available", errors.New("weave store does not expose sql queries")))
 		return
 	}
 
@@ -139,14 +141,14 @@ func (h *Handler) searchFields(w http.ResponseWriter, r *http.Request, q *sqlcge
 
 	pool, ok := h.pool()
 	if !ok {
-		writeAPIError(w, "search not available", http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("search not available", errors.New("weave store does not expose a connection pool")))
 		return
 	}
 
 	targets, err := resolveProjectTargets(ctx, pool, params.ProjectID, params.Scope, weaveauth.ProjectVersionFromContext(ctx))
 	if err != nil {
 		h.logger.Error("resolve project targets failed", "err", err, "project_id", params.ProjectID)
-		writeAPIError(w, "search query failed", http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("search query failed", err))
 		return
 	}
 
@@ -168,7 +170,7 @@ func (h *Handler) searchFields(w http.ResponseWriter, r *http.Request, q *sqlcge
 		targetFieldIDs, err := resolveTargetPathFieldIDs(ctx, pool, target, targetParams)
 		if err != nil {
 			h.logger.Error("resolve target path field ids failed", "err", err, "project_id", params.ProjectID, "target_id", target.ProjectID, "target_version", target.Version)
-			writeAPIError(w, "search query failed", http.StatusInternalServerError)
+			apierror.Write(w, r, apierror.InternalWith("search query failed", err))
 			return
 		}
 		if targetFieldIDs != nil && len(targetFieldIDs) == 0 {
@@ -199,7 +201,7 @@ func (h *Handler) searchFields(w http.ResponseWriter, r *http.Request, q *sqlcge
 			})
 			if err != nil {
 				h.logger.Error("search live fields query failed", "err", err, "project_id", target.ProjectID)
-				writeAPIError(w, "search query failed", http.StatusInternalServerError)
+				apierror.Write(w, r, apierror.InternalWith("search query failed", err))
 				return
 			}
 			targetRows = make([]fieldSearchCandidate, 0, len(rows))
@@ -210,7 +212,7 @@ func (h *Handler) searchFields(w http.ResponseWriter, r *http.Request, q *sqlcge
 			targetRows, err = h.searchArchivedFields(ctx, pool, target, targetParams, params.ProjectID)
 			if err != nil {
 				h.logger.Error("search archived fields query failed", "err", err, "project_id", target.ProjectID, "version", target.Version)
-				writeAPIError(w, "search query failed", http.StatusInternalServerError)
+				apierror.Write(w, r, apierror.InternalWith("search query failed", err))
 				return
 			}
 		}
@@ -370,14 +372,14 @@ func (h *Handler) searchCollections(w http.ResponseWriter, r *http.Request, q *s
 
 	pool, ok := h.pool()
 	if !ok {
-		writeAPIError(w, "search not available", http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("search not available", errors.New("weave store does not expose a connection pool")))
 		return
 	}
 
 	targets, err := resolveProjectTargets(ctx, pool, params.ProjectID, params.Scope, weaveauth.ProjectVersionFromContext(ctx))
 	if err != nil {
 		h.logger.Error("resolve project targets failed", "err", err, "project_id", params.ProjectID)
-		writeAPIError(w, "search query failed", http.StatusInternalServerError)
+		apierror.Write(w, r, apierror.InternalWith("search query failed", err))
 		return
 	}
 
@@ -399,7 +401,7 @@ func (h *Handler) searchCollections(w http.ResponseWriter, r *http.Request, q *s
 		targetFieldIDs, err := resolveTargetPathFieldIDs(ctx, pool, target, targetParams)
 		if err != nil {
 			h.logger.Error("resolve target path field ids failed", "err", err, "project_id", params.ProjectID, "target_id", target.ProjectID, "target_version", target.Version)
-			writeAPIError(w, "search query failed", http.StatusInternalServerError)
+			apierror.Write(w, r, apierror.InternalWith("search query failed", err))
 			return
 		}
 		if targetFieldIDs != nil && len(targetFieldIDs) == 0 {
@@ -428,7 +430,7 @@ func (h *Handler) searchCollections(w http.ResponseWriter, r *http.Request, q *s
 			})
 			if err != nil {
 				h.logger.Error("search live collections query failed", "err", err, "project_id", target.ProjectID)
-				writeAPIError(w, "search query failed", http.StatusInternalServerError)
+				apierror.Write(w, r, apierror.InternalWith("search query failed", err))
 				return
 			}
 			targetRows = make([]collectionSearchCandidate, 0, len(rows))
@@ -439,7 +441,7 @@ func (h *Handler) searchCollections(w http.ResponseWriter, r *http.Request, q *s
 			targetRows, err = h.searchArchivedCollections(ctx, pool, target, targetParams, params.ProjectID)
 			if err != nil {
 				h.logger.Error("search archived collections query failed", "err", err, "project_id", target.ProjectID, "version", target.Version)
-				writeAPIError(w, "search query failed", http.StatusInternalServerError)
+				apierror.Write(w, r, apierror.InternalWith("search query failed", err))
 				return
 			}
 		}

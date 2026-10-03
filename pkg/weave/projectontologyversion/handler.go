@@ -50,7 +50,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	view, err := h.svc.ListView(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 
@@ -77,7 +77,7 @@ func (h *Handler) Pane(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	view, err := h.svc.PaneView(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
@@ -89,7 +89,7 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 	versionID := chi.URLParam(r, "versionID")
 	report, err := h.svc.Stats(r.Context(), projectID, versionID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
@@ -114,28 +114,28 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 	case formschema.ModeCreate:
 		bases, err := h.svc.ListBaseOntologies(r.Context())
 		if err != nil {
-			h.writeServiceError(w, err)
+			h.writeServiceError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, BuildCreateForm(projectID, bases, h.lang(r), h.languages))
 	case formschema.ModeEdit:
 		entityID := r.URL.Query().Get("entity_id")
 		if entityID == "" {
-			writeError(w, http.StatusBadRequest, "entity_id is required in edit mode")
+			writeError(w, r, http.StatusBadRequest, "entity_id is required in edit mode")
 			return
 		}
 		link, err := h.svc.Get(r.Context(), projectID, entityID)
 		if err != nil {
-			h.writeServiceError(w, err)
+			h.writeServiceError(w, r, err)
 			return
 		}
 		if link == nil {
-			writeError(w, http.StatusNotFound, "ontology link not found")
+			writeError(w, r, http.StatusNotFound, "ontology link not found")
 			return
 		}
 		writeJSON(w, http.StatusOK, BuildEditForm(projectID, link, h.lang(r), h.languages))
 	default:
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("unsupported mode: %s", mode))
+		writeError(w, r, http.StatusBadRequest, fmt.Sprintf("unsupported mode: %s", mode))
 	}
 }
 
@@ -145,7 +145,7 @@ func (h *Handler) OptionsVersions(w http.ResponseWriter, r *http.Request) {
 	base := r.URL.Query().Get("base")
 	opts, err := h.svc.ListAvailableVersions(r.Context(), projectID, base)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, opts)
@@ -159,7 +159,7 @@ func (h *Handler) OptionsExtensions(w http.ResponseWriter, r *http.Request) {
 	baseVersion := r.URL.Query().Get("base_version")
 	opts, err := h.svc.ListAvailableExtensions(r.Context(), projectID, baseVersion)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, opts)
@@ -189,7 +189,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	body, err := decodeJSON[createBody](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -201,7 +201,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		UsageNotes: body.UsageNotes,
 	})
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, link)
@@ -213,7 +213,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	versionID := chi.URLParam(r, "versionID")
 	body, err := decodeJSON[patchBody](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	link, err := h.svc.Update(r.Context(), projectID, versionID, UpdateInput{
@@ -221,7 +221,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		UsageNotes: body.UsageNotes,
 	})
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, link)
@@ -232,7 +232,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	versionID := chi.URLParam(r, "versionID")
 	if err := h.svc.Delete(r.Context(), projectID, versionID); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -309,7 +309,7 @@ func renderInheritedGroup(g InheritedGroup) formschema.Group {
 // response. Common shapes go through apierror; the in-use + duplicate
 // envelopes carry slice-specific payload (field_count, field_samples)
 // the frontend relies on, so they stay inline.
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	var inUseErr *ErrInUse
 	if errors.As(err, &inUseErr) {
 		writeJSON(w, http.StatusConflict, map[string]any{
@@ -322,18 +322,18 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		return
 	}
 	if IsDuplicate(err) {
-		apierror.Write(w, apierror.Conflict("version already linked"))
+		apierror.Write(w, r, apierror.Conflict("version already linked"))
 		return
 	}
 	if IsNotFound(err) {
-		apierror.Write(w, apierror.NotFound(err.Error()))
+		apierror.Write(w, r, apierror.NotFound(err.Error()))
 		return
 	}
 	ae := apierror.FromError(err)
 	if ae.Code == apierror.CodeInternal {
 		h.log.Error("project ontology version handler error", "err", err)
 	}
-	apierror.Write(w, ae)
+	apierror.Write(w, r, ae)
 }
 
 // ---------------------------------------------------------------------------
@@ -347,8 +347,8 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 // writeError forwards to apierror.Write — see pkg/weave/apierror.
-func writeError(w http.ResponseWriter, status int, msg string) {
-	apierror.Write(w, &apierror.Error{Status: status, Message: msg})
+func writeError(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	apierror.Write(w, r, &apierror.Error{Status: status, Message: msg})
 }
 
 func decodeJSON[T any](r *http.Request) (T, error) {

@@ -54,13 +54,13 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" || entityID == "" {
-		writeError(w, http.StatusBadRequest, "projectID and entityID are required")
+		writeError(w, r, http.StatusBadRequest, "projectID and entityID are required")
 		return
 	}
 
 	project, err := h.svc.Get(ctx, projectID)
 	if err != nil || project == nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeError(w, r, http.StatusNotFound, "project not found")
 		return
 	}
 	if !h.svc.CanEdit(ctx, project) {
@@ -74,20 +74,20 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 		// A project may only save the patterns it owns; another project's
 		// model is "not found" here, as in model.Service.requireOwn.
 		if err != nil || model == nil || model.ProjectID != projectID {
-			writeError(w, http.StatusNotFound, "model not found")
+			writeError(w, r, http.StatusNotFound, "model not found")
 			return
 		}
 	case "collection":
 		collection, err := h.weave.Collections().GetByID(ctx, entityID)
 		if err != nil || collection == nil || collection.ProjectID != projectID {
-			writeError(w, http.StatusNotFound, "collection not found")
+			writeError(w, r, http.StatusNotFound, "collection not found")
 			return
 		}
 	}
 
 	var req overrideSaveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid override payload")
+		writeError(w, r, http.StatusBadRequest, "invalid override payload")
 		return
 	}
 
@@ -96,7 +96,7 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 	// values (#3599). Reject before any write.
 	if h.conceptCheck != nil {
 		if fieldErrs := h.validateSetValueAgainstLists(ctx, req.Categories); len(fieldErrs) > 0 {
-			apierror.Write(w, &apierror.Error{
+			apierror.Write(w, r, &apierror.Error{
 				Status:  http.StatusUnprocessableEntity,
 				Code:    apierror.CodeValidation,
 				Message: "set value must be a term from the field's control list",
@@ -238,7 +238,7 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 		// reported as a failed save, never as success.
 		if errors.Is(lockErr, overridepkg.ErrLockBusy) {
 			h.log.Warn("override save: lock busy", "entity_type", entityType, "entity_id", entityID, "err", lockErr)
-			apierror.Write(w, &apierror.Error{
+			apierror.Write(w, r, &apierror.Error{
 				Status:  http.StatusConflict,
 				Code:    apierror.CodeConflict,
 				Message: "Someone else is saving this pattern right now. Try again in a moment.",
@@ -246,7 +246,7 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 			})
 			return
 		}
-		h.writeOverrideError(w, entityType, entityID, lockErr)
+		h.writeOverrideError(w, r, entityType, entityID, lockErr)
 		return
 	}
 	if callbackErr != nil {
@@ -254,7 +254,7 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 		// before. lockErr still carries callbackErr (possibly joined with
 		// a teardown failure on top) — writeOverrideError logs that extra
 		// half instead of silently dropping it.
-		h.writeOverrideError(w, entityType, entityID, lockErr)
+		h.writeOverrideError(w, r, entityType, entityID, lockErr)
 		return
 	}
 	if lockErr != nil {
@@ -375,7 +375,7 @@ func buildOverrideRefs(field overrideEditorField) []domain.OverrideRef {
 	return refs
 }
 
-func (h *Handler) writeOverrideError(w http.ResponseWriter, entityType, entityID string, err error) {
+func (h *Handler) writeOverrideError(w http.ResponseWriter, r *http.Request, entityType, entityID string, err error) {
 	var apiErr *apierror.Error
 	if errors.As(err, &apiErr) {
 		// err is more than just apiErr when something else (a lock
@@ -387,12 +387,12 @@ func (h *Handler) writeOverrideError(w http.ResponseWriter, entityType, entityID
 			h.log.Warn("override save: additional error joined onto the typed API response",
 				"entity_type", entityType, "entity_id", entityID, "err", err)
 		}
-		apierror.Write(w, apiErr)
+		apierror.Write(w, r, apiErr)
 		return
 	}
 	var forbiddenErr *overridepkg.ErrForbidden
 	if errors.As(err, &forbiddenErr) {
-		writeError(w, http.StatusForbidden, forbiddenErr.Error())
+		writeError(w, r, http.StatusForbidden, forbiddenErr.Error())
 		return
 	}
 	var validationErr *overridepkg.ErrValidation
@@ -404,9 +404,9 @@ func (h *Handler) writeOverrideError(w http.ResponseWriter, entityType, entityID
 		return
 	}
 	if overridepkg.IsNotFound(err) {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, r, http.StatusNotFound, err.Error())
 		return
 	}
 	h.log.Error("override save failed", "err", err)
-	writeError(w, http.StatusInternalServerError, fmt.Sprintf("internal error: %v", err))
+	apierror.Write(w, r, apierror.InternalWith(fmt.Sprintf("internal error: %v", err), err))
 }

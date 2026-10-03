@@ -237,7 +237,7 @@ func (p *Pages) familiesPageSchema(w http.ResponseWriter, r *http.Request) {
 	lang := p.currentLang(r)
 	model, err := p.svc.FamilyLandingPageModel(r.Context(), lang)
 	if err != nil {
-		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, lang))
+		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, lang), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildFamilyLandingPageSchema(model, lang, p.schemaLanguages()))
@@ -247,7 +247,7 @@ func (p *Pages) allOntologiesPageSchema(w http.ResponseWriter, r *http.Request) 
 	lang := p.currentLang(r)
 	model, err := p.svc.AllOntologiesPageModel(r.Context(), lang)
 	if err != nil {
-		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, lang))
+		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, lang), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildAllOntologiesPageSchema(model, lang, p.schemaLanguages()))
@@ -350,7 +350,7 @@ func (p *Pages) renderList(w http.ResponseWriter, r *http.Request, page weavetem
 	page.Labels = p.renderer.ShellLabels(page.Lang)
 	if err := p.renderer.RenderIslandPage(w, page); err != nil {
 		p.logger.Error("render ontology page", "path", r.URL.Path, "err", err)
-		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, page.Lang))
+		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, page.Lang), err)
 	}
 }
 
@@ -412,7 +412,7 @@ func (p *Pages) publicClassesData(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := p.svc.ListClasses(r.Context(), v.ID)
 	if err != nil {
-		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, p.currentLang(r)))
+		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, p.currentLang(r)), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -427,7 +427,7 @@ func (p *Pages) publicPropertiesData(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := p.svc.ListProperties(r.Context(), v.ID)
 	if err != nil {
-		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, p.currentLang(r)))
+		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, p.currentLang(r)), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)

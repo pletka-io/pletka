@@ -91,13 +91,13 @@ func (h *Handler) overridesPresence(w http.ResponseWriter, r *http.Request, enti
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" || entityID == "" {
-		writeError(w, http.StatusBadRequest, "projectID and entityID are required")
+		writeError(w, r, http.StatusBadRequest, "projectID and entityID are required")
 		return
 	}
 
 	project, err := h.svc.Get(ctx, projectID)
 	if err != nil || project == nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeError(w, r, http.StatusNotFound, "project not found")
 		return
 	}
 
@@ -118,20 +118,20 @@ func (h *Handler) overridesPresence(w http.ResponseWriter, r *http.Request, enti
 		// Same ownership rule as saveOverrides: another project's model
 		// or collection is "not found" here, never a different error.
 		if err != nil || model == nil || model.ProjectID != projectID {
-			writeError(w, http.StatusNotFound, "model not found")
+			writeError(w, r, http.StatusNotFound, "model not found")
 			return
 		}
 	case entityTypeCollection:
 		collection, err := h.weave.Collections().GetByID(ctx, entityID)
 		if err != nil || collection == nil || collection.ProjectID != projectID {
-			writeError(w, http.StatusNotFound, "collection not found")
+			writeError(w, r, http.StatusNotFound, "collection not found")
 			return
 		}
 	}
 
 	req, err := decodePresenceRequest(r.Body)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid presence payload")
+		writeError(w, r, http.StatusBadRequest, "invalid presence payload")
 		return
 	}
 

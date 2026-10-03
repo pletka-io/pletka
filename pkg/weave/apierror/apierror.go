@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // Code is the machine-readable error kind. The frontend can branch on
@@ -32,6 +34,10 @@ type Error struct {
 	Message string              `json:"error"`
 	Details string              `json:"message,omitempty"`
 	Fields  map[string][]string `json:"errors,omitempty"`
+
+	// cause is the underlying error behind a 5xx. Never serialized; Write
+	// hands it to the error tracker via errresp.RecordCause.
+	cause error
 }
 
 // Error satisfies the error interface so apierror.Error values can
@@ -101,11 +107,11 @@ func Validation(fields map[string][]string) *Error {
 	}
 }
 
-// Internal builds a generic 500. Caller must already have logged the
-// underlying err — this constructor does NOT preserve it (response
-// body must not leak internal detail).
-func Internal() *Error {
-	return &Error{Status: http.StatusInternalServerError, Code: CodeInternal, Message: "internal server error"}
+// Internal builds a generic 500 carrying err as its cause. The cause is
+// never sent to the client; Write records it for the error tracker.
+// Callers still log err themselves where they want it in the server log.
+func Internal(err error) *Error {
+	return &Error{Status: http.StatusInternalServerError, Code: CodeInternal, Message: "internal server error", cause: err}
 }
 
 // InternalWith is Internal() with a caller-supplied human message.
@@ -113,11 +119,11 @@ func Internal() *Error {
 // safe to expose ("failed to list users", "failed to update profile",
 // etc.) — never pass an underlying err.Error() through here, since
 // that can leak query plans, file paths, or stack traces.
-func InternalWith(msg string) *Error {
+func InternalWith(msg string, err error) *Error {
 	if msg == "" {
-		return Internal()
+		return Internal(err)
 	}
-	return &Error{Status: http.StatusInternalServerError, Code: CodeInternal, Message: msg}
+	return &Error{Status: http.StatusInternalServerError, Code: CodeInternal, Message: msg, cause: err}
 }
 
 // MethodNotAllowed builds a 405. The chi global handler also emits
@@ -181,7 +187,7 @@ type InUser interface {
 
 // FromError maps a service-layer error to the canonical Error.
 // Recognises any error that satisfies one of the adapter interfaces;
-// falls through to Internal() for unknown types. Caller is still
+// falls through to Internal(err) for unknown types. Caller is still
 // expected to log the original err separately — FromError never
 // preserves the underlying Go error in the response body.
 //
@@ -216,17 +222,21 @@ func FromError(err error) *Error {
 	if errors.As(err, &ae) {
 		return ae
 	}
-	return Internal()
+	return Internal(err)
 }
 
 // ----- Writing ------------------------------------------------------------
 
-// Write emits the canonical envelope at e.Status. nil writes a 500
-// (defensive — shouldn't happen, but a nil deref here would mask the
-// real bug).
-func Write(w http.ResponseWriter, e *Error) {
+// Write emits the canonical envelope at e.Status. For a 5xx it records
+// e's cause on the request (errresp.RecordCause) so the error tracker
+// stores why. nil writes a 500 (defensive — shouldn't happen, but a nil
+// deref here would mask the real bug).
+func Write(w http.ResponseWriter, r *http.Request, e *Error) {
 	if e == nil {
-		e = Internal()
+		e = Internal(errors.New("apierror.Write called with nil error"))
+	}
+	if e.Status >= http.StatusInternalServerError {
+		errresp.RecordCause(r.Context(), e.cause)
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(e.Status)

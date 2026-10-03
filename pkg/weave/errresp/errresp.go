@@ -65,6 +65,20 @@ func RecordCause(ctx context.Context, err error) {
 	}
 }
 
+// Internal is the one way a handler answers 500: it records err as the
+// request's cause for the error tracker, then writes the negotiated
+// "internal error" response. err is never shown to the client.
+func Internal(w http.ResponseWriter, r *http.Request, err error) {
+	InternalWith(w, r, err, "internal error")
+}
+
+// InternalWith is Internal with a caller-supplied, client-safe message
+// ("failed to load project"). Never pass err.Error() as the message.
+func InternalWith(w http.ResponseWriter, r *http.Request, err error, message string) {
+	RecordCause(r.Context(), err)
+	Error(w, r, http.StatusInternalServerError, "internal", message)
+}
+
 // Holder carries the process-wide error Responder, set once after the
 // error-page host is assembled and read by StashMiddleware on every request.
 // Lets the stash middleware install before any routes (avoiding chi's

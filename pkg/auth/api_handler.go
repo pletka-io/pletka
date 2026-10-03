@@ -9,10 +9,12 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
 	"github.com/pletka-io/pletka/pkg/session"
-	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
 
 // AuthHandler handles authentication-related HTTP requests.
@@ -112,7 +114,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	rec, err := h.weave.Auth().GetByEmailOrSlug(ctx, req.Login)
 	if err != nil {
 		slog.Error("lookup for login", "err", err)
-		writeError(w, http.StatusInternalServerError, "login failed")
+		apierror.Write(w, r, apierror.InternalWith("login failed", err))
 		return
 	}
 	if rec == nil {
@@ -189,7 +191,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		slog.Error("bcrypt", "err", err)
-		writeError(w, http.StatusInternalServerError, "could not hash password")
+		apierror.Write(w, r, apierror.InternalWith("could not hash password", err))
 		return
 	}
 
@@ -209,7 +211,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Error("register", "err", err)
-		writeError(w, http.StatusInternalServerError, "could not register user")
+		apierror.Write(w, r, apierror.InternalWith("could not register user", err))
 		return
 	}
 
@@ -243,7 +245,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	profile, err := h.weave.Auth().GetProfileByActorID(ctx, snap.ActorID)
 	if err != nil {
 		slog.Error("me lookup", "err", err, "actor_id", snap.ActorID)
-		writeError(w, http.StatusInternalServerError, "could not load profile")
+		apierror.Write(w, r, apierror.InternalWith("could not load profile", err))
 		return
 	}
 	if profile == nil {
