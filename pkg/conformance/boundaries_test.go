@@ -43,25 +43,11 @@ func TestReadScopeFromContextOnlyAtRequestBoundaries(t *testing.T) {
 // the count may only fall.
 func TestProjectVersionFromContextOnlyShrinks(t *testing.T) {
 	// Measured 2026-10-03 over non-test files under pkg/, excluding pkg/auth
-	// which defines the accessor. Lower this when a conversion removes call
+	// which defines the accessor and pkg/conformance which only writes about it. Lower this when a conversion removes call
 	// sites. Never raise it.
-	const baseline = 71
+	const baseline = 69
 
-	root := repoRoot(t)
-	var found []string
-	for _, f := range goFilesUnder(t, filepath.Join(root, "pkg")) {
-		rel := mustRel(t, root, f)
-		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/auth/") {
-			continue
-		}
-		body, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("read %s: %v", rel, err)
-		}
-		for i := 0; i < strings.Count(string(body), "ProjectVersionFromContext"); i++ {
-			found = append(found, rel)
-		}
-	}
+	found := accessorCallSites(t, repoRoot(t))
 	if len(found) > baseline {
 		sort.Strings(found)
 		t.Fatalf("ProjectVersionFromContext call sites rose to %d (baseline %d):\n  %s\n\n"+
@@ -72,6 +58,43 @@ func TestProjectVersionFromContextOnlyShrinks(t *testing.T) {
 		t.Logf("ProjectVersionFromContext is down to %d from a baseline of %d -- "+
 			"lower the baseline in this test to lock the progress in.", len(found), baseline)
 	}
+}
+
+// The checker must not count its own prose. pkg/conformance names the
+// accessor in comments explaining why it is being retired; counting those
+// means editing this package's documentation moves the baseline, and worse,
+// a developer who adds a comment mentioning it earns a free call site.
+func TestAccessorCountExcludesTheCheckerItself(t *testing.T) {
+	root := repoRoot(t)
+	for _, f := range accessorCallSites(t, root) {
+		if strings.HasPrefix(f, "pkg/conformance/") {
+			t.Errorf("%s is counted toward the accessor baseline; the checker must not count itself", f)
+		}
+	}
+}
+
+// accessorCallSites lists one entry per occurrence of the retiring accessor,
+// skipping tests, the package that defines it, and this package, which only
+// writes about it.
+func accessorCallSites(t *testing.T, root string) []string {
+	t.Helper()
+	var found []string
+	for _, f := range goFilesUnder(t, filepath.Join(root, "pkg")) {
+		rel := mustRel(t, root, f)
+		if strings.HasSuffix(rel, "_test.go") ||
+			strings.HasPrefix(rel, "pkg/auth/") ||
+			strings.HasPrefix(rel, "pkg/conformance/") {
+			continue
+		}
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		for i := 0; i < strings.Count(string(body), "ProjectVersionFromContext"); i++ {
+			found = append(found, rel)
+		}
+	}
+	return found
 }
 
 // isRequestBoundary reports whether a file is a place the spec permits the
