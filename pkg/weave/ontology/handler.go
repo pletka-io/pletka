@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -761,7 +762,7 @@ func (h *Handler) CreateOntology(w http.ResponseWriter, r *http.Request) {
 		CreatedByID:       createdBy,
 	})
 	if err != nil {
-		h.writeServiceError(w, r, err, "ontology")
+		h.writeOntologyWriteError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, o)
@@ -796,7 +797,7 @@ func (h *Handler) UpdateOntology(w http.ResponseWriter, r *http.Request) {
 		SourceURL:         p.SourceURL,
 	})
 	if err != nil {
-		h.writeServiceError(w, r, err, "ontology")
+		h.writeOntologyWriteError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, o)
@@ -1031,6 +1032,19 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 	}
 	h.log.Error(label+" error", "err", err)
 	errresp.Error(w, r, http.StatusInternalServerError, "internal", "internal error")
+}
+
+// writeOntologyWriteError maps a unique violation on an ontology create or
+// update to a prefix field error. The ontology id is derived from the prefix
+// (GenerateOntologyID), so a taken prefix collides on the primary key as well
+// as on the prefix key; either way the prefix is what the curator must change.
+func (h *Handler) writeOntologyWriteError(w http.ResponseWriter, r *http.Request, err error) {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		writeValidationError(w, fieldError("prefix", "prefix is already used by another ontology"))
+		return
+	}
+	h.writeServiceError(w, r, err, "ontology")
 }
 
 // requireSuperAdmin gates write endpoints on auth.AuthSnapshot.IsSuperAdmin.
