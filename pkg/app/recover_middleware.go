@@ -1,9 +1,12 @@
 package app
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // recoverMiddleware recovers panics, logs the stack, and renders the branded
@@ -18,6 +21,7 @@ func recoverMiddleware(render func(http.ResponseWriter, *http.Request), log *slo
 			defer func() {
 				if rec := recover(); rec != nil {
 					log.Error("panic recovered", "err", rec, "path", r.URL.Path, "stack", string(debug.Stack()))
+					errresp.RecordCause(r.Context(), fmt.Errorf("panic: %v", rec))
 					if render != nil {
 						render(w, r)
 						return

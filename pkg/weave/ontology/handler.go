@@ -1031,6 +1031,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		return
 	}
 	h.log.Error(label+" error", "err", err)
+	errresp.RecordCause(r.Context(), err)
 	errresp.Error(w, r, http.StatusInternalServerError, "internal", "internal error")
 }
 

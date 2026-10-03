@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // uniqueViolationStore fails every ontology write with a Postgres unique
@@ -59,5 +61,29 @@ func TestOntologyWriteWithTakenPrefixReturnsPrefixFieldError(t *testing.T) {
 				t.Fatalf("want a prefix field error, got %v", got.Errors)
 			}
 		})
+	}
+}
+
+type failingDeleteStore struct{ *routeTestStore }
+
+func (failingDeleteStore) DeleteOntology(context.Context, string) error {
+	return errors.New("delete ontology: connection reset")
+}
+
+func TestOntologyServiceErrorRecordsCause(t *testing.T) {
+	router := chi.NewRouter()
+	handler := NewHandler(NewService(failingDeleteStore{newRouteTestStore()}, nil, nil), nil, nil, nil)
+	router.Route("/admin/ontologies", handler.Mount)
+
+	ctx, cause := errresp.WithCauseSlot(auth.WithSnapshot(context.Background(), &auth.AuthSnapshot{IsSuperAdmin: true}))
+	req := httptest.NewRequestWithContext(ctx, http.MethodDelete, "/admin/ontologies/ont-crm", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d want 500, body=%s", rec.Code, rec.Body.String())
+	}
+	if cause.Err() == nil || cause.Err().Error() != "delete ontology: connection reset" {
+		t.Fatalf("cause=%v, want the store error", cause.Err())
 	}
 }

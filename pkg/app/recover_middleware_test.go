@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 func TestRecoverMiddleware_BrandedHTML(t *testing.T) {
@@ -31,5 +33,15 @@ func TestRecoverMiddleware_NilRendererFallsBackToPlain500(t *testing.T) {
 	h.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), "GET", "/x", nil))
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("nil renderer should still 500, got %d", w.Code)
+	}
+}
+
+func TestRecoverMiddleware_RecordsPanicAsCause(t *testing.T) {
+	mw := recoverMiddleware(nil, slog.New(slog.DiscardHandler))
+	h := mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") }))
+	ctx, cause := errresp.WithCauseSlot(context.Background())
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, "GET", "/x", nil))
+	if cause.Err() == nil || cause.Err().Error() != "panic: boom" {
+		t.Fatalf("cause=%v, want panic: boom", cause.Err())
 	}
 }

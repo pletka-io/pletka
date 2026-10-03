@@ -15,6 +15,7 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // maxResponseExcerptBytes caps how much response body we retain for
@@ -26,10 +27,20 @@ const maxResponseExcerptBytes = 4 * 1024
 // Kept tight so a slow DB doesn't pile up goroutines.
 const asyncWriteTimeout = 5 * time.Second
 
+// EventWriter persists one captured event. *Store is the production
+// implementation; tests substitute their own.
+type EventWriter interface {
+	Insert(ctx context.Context, e Event) error
+}
+
 // Middleware returns a chi middleware that records server-side
 // failures (status >= 400) into the given store. 2xx and 3xx
 // responses are skipped entirely.
-func Middleware(store *Store, logger *slog.Logger) func(http.Handler) http.Handler {
+//
+// It must sit inside response compression (so it sees the plain body) and
+// outside auth. Because auth runs inside it, the actor comes from the slot
+// CaptureActor fills, and the 5xx cause from errresp.RecordCause.
+func Middleware(store EventWriter, logger *slog.Logger) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -50,6 +61,11 @@ func Middleware(store *Store, logger *slog.Logger) func(http.Handler) http.Handl
 				body:           &bytes.Buffer{},
 			}
 
+			ctx, cause := errresp.WithCauseSlot(r.Context())
+			actor := &actorSlot{}
+			ctx = context.WithValue(ctx, actorKey{}, actor)
+			r = r.WithContext(ctx)
+
 			next.ServeHTTP(rec, r)
 
 			if rec.status < 400 {
@@ -64,7 +80,7 @@ func Middleware(store *Store, logger *slog.Logger) func(http.Handler) http.Handl
 			method := r.Method
 			status := rec.status
 			duration := int(time.Since(started).Milliseconds())
-			actorID := actorIDFromContext(r.Context())
+			actorID := actor.id
 
 			// Category at capture time. Empty chi pattern + 4xx means no
 			// route matched — that's the canary's "true legacy gap"
@@ -91,7 +107,7 @@ func Middleware(store *Store, logger *slog.Logger) func(http.Handler) http.Handl
 				UserAgent:  stripNUL(r.UserAgent()),
 				Request:    sanitiseRawMessage(buildRequestPayload(r, reqBody)),
 				Response:   sanitiseRawMessage(buildResponsePayload(rec)),
-				Error:      sanitiseRawMessage(buildErrorPayload(rec)),
+				Error:      sanitiseRawMessage(buildErrorPayload(rec, cause.Err())),
 			}
 
 			go func(e Event) {
@@ -138,6 +154,22 @@ func readAndReplaceBody(r *http.Request) []byte {
 	return buf
 }
 
+type actorKey struct{}
+
+type actorSlot struct{ id *string }
+
+// CaptureActor copies the authenticated actor into the slot Middleware put
+// on the context. Mount it after the auth middleware; without it events
+// carry no actor_id.
+func CaptureActor(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if slot, ok := r.Context().Value(actorKey{}).(*actorSlot); ok {
+			slot.id = actorIDFromContext(r.Context())
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func actorIDFromContext(ctx context.Context) *string {
 	snap := weaveauth.FromContext(ctx)
 	if snap == nil || snap.IsAnonymous || snap.ActorID == "" {
@@ -179,7 +211,7 @@ func buildResponsePayload(rec *captureWriter) json.RawMessage {
 	return out
 }
 
-func buildErrorPayload(rec *captureWriter) json.RawMessage {
+func buildErrorPayload(rec *captureWriter, cause error) json.RawMessage {
 	if rec.status < 500 {
 		return json.RawMessage("{}")
 	}
@@ -187,10 +219,18 @@ func buildErrorPayload(rec *captureWriter) json.RawMessage {
 	if len(msg) > 1024 {
 		msg = msg[:1024]
 	}
-	out, err := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"class":   fmt.Sprintf("HTTP%d", rec.status),
 		"message": msg,
-	})
+	}
+	if cause != nil {
+		c := cause.Error()
+		if len(c) > 1024 {
+			c = c[:1024]
+		}
+		payload["cause"] = c
+	}
+	out, err := json.Marshal(payload)
 	if err != nil {
 		return json.RawMessage("{}")
 	}
