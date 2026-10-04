@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/ids"
@@ -246,8 +247,17 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 	return &ExampleRecord{Example: ex, Values: values, Validation: report}, nil
 }
 
+// draftReader is the reader a write path uses. A mutation always reads the
+// draft -- you edit what is live, never an archived release -- so naming it
+// once here keeps every write site honest without repeating the argument.
+func (s *Service) draftReader() (Reader, error) { return s.store.At(auth.Draft()) }
+
 func (s *Service) Update(ctx context.Context, projectID, exampleID string, in UpdateInput) (*ExampleRecord, error) {
-	ex, err := s.store.GetByID(ctx, exampleID)
+	dr, err := s.draftReader()
+	if err != nil {
+		return nil, err
+	}
+	ex, err := dr.GetByID(ctx, exampleID)
 	if err != nil {
 		return nil, err
 	}
@@ -417,22 +427,29 @@ func resolveStubTarget(field domain.ResolvedField, p *domain.ExampleValuePayload
 	return target, nil
 }
 
-func (s *Service) Get(ctx context.Context, projectID, exampleID string) (*ExampleRecord, error) {
-	record, _, err := s.get(ctx, projectID, exampleID)
+// Get returns one example with its values, read at scope. A release scope
+// reads the archived example; a draft scope reads the live one. The caller
+// names the scope -- the service never resolves one.
+func (s *Service) Get(ctx context.Context, scope auth.ReadScope, projectID, exampleID string) (*ExampleRecord, error) {
+	record, _, err := s.get(ctx, scope, projectID, exampleID)
 	return record, err
 }
 
 // get is Get, also returning the slot resolver it validated with so the
 // edit form reuses its cached views.
-func (s *Service) get(ctx context.Context, projectID, exampleID string) (*ExampleRecord, *slotResolver, error) {
-	ex, err := s.store.GetByID(ctx, exampleID)
+func (s *Service) get(ctx context.Context, scope auth.ReadScope, projectID, exampleID string) (*ExampleRecord, *slotResolver, error) {
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	ex, err := r.GetByID(ctx, exampleID)
 	if err != nil {
 		return nil, nil, err
 	}
 	if ex == nil || ex.ProjectID != projectID {
 		return nil, nil, fmt.Errorf("example not found")
 	}
-	values, err := s.store.ListValues(ctx, exampleID)
+	values, err := r.ListValues(ctx, exampleID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -449,7 +466,11 @@ func (s *Service) get(ctx context.Context, projectID, exampleID string) (*Exampl
 }
 
 func (s *Service) Delete(ctx context.Context, projectID, exampleID string) error {
-	ex, err := s.store.GetByID(ctx, exampleID)
+	dr, err := s.draftReader()
+	if err != nil {
+		return err
+	}
+	ex, err := dr.GetByID(ctx, exampleID)
 	if err != nil {
 		return err
 	}
@@ -459,12 +480,21 @@ func (s *Service) Delete(ctx context.Context, projectID, exampleID string) error
 	return s.store.Delete(ctx, exampleID)
 }
 
-func (s *Service) List(ctx context.Context, projectID string, opts ...domain.QueryOption) ([]*domain.Example, int64, error) {
+// List returns a project's examples at scope, plus the total matching the
+// filters. A release that archived no examples returns an empty slice,
+// never a fallback to the draft.
+func (s *Service) List(ctx context.Context, scope auth.ReadScope, projectID string, opts ...domain.QueryOption) ([]*domain.Example, int64, error) {
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, 0, err
+	}
 	opts = append([]domain.QueryOption{domain.WithProjectID(projectID)}, opts...)
-	return s.store.List(ctx, opts...)
+	return r.List(ctx, opts...)
 }
 
-func (s *Service) BuildFormSchema(ctx context.Context, projectID, mode, targetType, targetID, exampleID, lang string, languages []formschema.LanguageInfo) (*ExampleFormSchema, error) {
+// BuildFormSchema returns the create or edit form for an example, read at
+// scope because an edit form prefills from the example it is editing.
+func (s *Service) BuildFormSchema(ctx context.Context, scope auth.ReadScope, projectID, mode, targetType, targetID, exampleID, lang string, languages []formschema.LanguageInfo) (*ExampleFormSchema, error) {
 	if mode == "" {
 		mode = formschema.ModeCreate
 	}
@@ -479,7 +509,7 @@ func (s *Service) BuildFormSchema(ctx context.Context, projectID, mode, targetTy
 		}
 		return s.buildModelFormSchema(ctx, resolver, "", targetID, nil, lang, languages)
 	case formschema.ModeEdit:
-		record, resolver, err := s.get(ctx, projectID, exampleID)
+		record, resolver, err := s.get(ctx, scope, projectID, exampleID)
 		if err != nil {
 			return nil, err
 		}
@@ -908,7 +938,11 @@ func (s *Service) valueIssues(ctx context.Context, value domain.ExampleValue, fi
 		}
 	}
 	if value.ValuePayload.Kind == domain.ExampleValueKindExampleRef && value.ValuePayload.ExampleID != nil {
-		linked, err := s.store.GetByID(ctx, *value.ValuePayload.ExampleID)
+		dr, err := s.draftReader()
+		if err != nil {
+			return nil, err
+		}
+		linked, err := dr.GetByID(ctx, *value.ValuePayload.ExampleID)
 		if err != nil {
 			return nil, err
 		}

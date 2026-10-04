@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -20,7 +21,8 @@ func TestHandlerDeleteNotFoundReturnsAPIErrorEnvelope(t *testing.T) {
 	svc := NewService(newFakeStore(), nil)
 	h := NewHandler(svc, nil, nil, nil)
 
-	req := httptest.NewRequest(http.MethodDelete, "/PROJECT1/examples/missing-id", nil)
+	req := httptest.NewRequestWithContext(auth.WithReadScope(context.Background(), auth.Draft()),
+		http.MethodDelete, "/PROJECT1/examples/missing-id", nil)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("projectID", "PROJECT1")
 	rctx.URLParams.Add("exampleID", "missing-id")
@@ -61,7 +63,7 @@ func seedExample(t *testing.T, store *fakeStore, projectID, id string) {
 }
 
 func detailRequest(projectID, exampleID, accept string) *http.Request {
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/"+projectID+"/examples/"+exampleID, nil)
+	req := httptest.NewRequestWithContext(auth.WithReadScope(context.Background(), auth.Draft()), http.MethodGet, "/"+projectID+"/examples/"+exampleID, nil)
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}
@@ -130,7 +132,7 @@ func TestHandlerListCarriesModelName(t *testing.T) {
 		names:     map[string]domain.Translations{"M1": {"en": "Physical Thing"}},
 	}
 	h := NewHandler(NewService(store, views), nil, nil, nil)
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/LA/examples", nil)
+	req := httptest.NewRequestWithContext(auth.WithReadScope(context.Background(), auth.Draft()), http.MethodGet, "/LA/examples", nil)
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("projectID", "LA")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))

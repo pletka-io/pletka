@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 )
@@ -152,7 +153,7 @@ func TestServiceNestedDepthTwoAndCap(t *testing.T) {
 	if err := store.CreateWithValues(context.Background(), ex, []domain.ExampleValue{stringValue(path, "F701", "x")}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := capped.Get(context.Background(), "P1", "EX1")
+	got, err := capped.Get(context.Background(), auth.Draft(), "P1", "EX1")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -177,7 +178,7 @@ func TestServiceNestedUnknownInnerOverride(t *testing.T) {
 	if err := store.CreateWithValues(context.Background(), ex, []domain.ExampleValue{stringValue(path, "F999", "x")}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := svc.Get(context.Background(), "P1", "EX1")
+	got, err := svc.Get(context.Background(), auth.Draft(), "P1", "EX1")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -269,7 +270,7 @@ func getStored(t *testing.T, svc *Service, store *fakeStore, values ...domain.Ex
 	if err := store.CreateWithValues(context.Background(), ex, values); err != nil {
 		t.Fatal(err)
 	}
-	rec, err := svc.Get(context.Background(), "P1", "EX1")
+	rec, err := svc.Get(context.Background(), auth.Draft(), "P1", "EX1")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
@@ -434,7 +435,7 @@ func TestServiceRequiredContainerPastCapNotMissing(t *testing.T) {
 
 func nestedFormSchema(t *testing.T, svc *Service, mode, exampleID string) *ExampleFormSchema {
 	t.Helper()
-	schema, err := svc.BuildFormSchema(context.Background(), "P1", mode, string(domain.ExampleEntityTypeModel), "M1", exampleID, "en", nil)
+	schema, err := svc.BuildFormSchema(context.Background(), auth.Draft(), "P1", mode, string(domain.ExampleEntityTypeModel), "M1", exampleID, "en", nil)
 	if err != nil {
 		t.Fatalf("BuildFormSchema() error = %v", err)
 	}

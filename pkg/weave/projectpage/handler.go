@@ -39,7 +39,7 @@ type ReleaseReader interface {
 }
 
 type ExampleReader interface {
-	List(ctx context.Context, projectID string, opts ...pkgdomain.QueryOption) ([]*pkgdomain.Example, int64, error)
+	List(ctx context.Context, scope auth.ReadScope, projectID string, opts ...pkgdomain.QueryOption) ([]*pkgdomain.Example, int64, error)
 }
 
 // AttributionReader is the narrow read surface projectpage uses to
@@ -212,8 +212,12 @@ func (h *Handler) ProjectPageSchema(w http.ResponseWriter, r *http.Request) {
 		h.logger.Debug("failed to load releases for page-schema", "project", projectID, "err", err)
 	}
 	exampleCount := 0
-	if h.examples != nil && auth.ProjectVersionFromContext(ctx) == "" {
-		if _, total, err := h.examples.List(ctx, projectID, pkgdomain.WithLimit(1)); err != nil {
+	// Previously this counted examples only on the draft, because the example
+	// slice had no version awareness and a release would have shown live
+	// counts. It is scope-bound now, so a release reports the examples that
+	// release carries -- which is the whole point of archiving them.
+	if h.examples != nil {
+		if _, total, err := h.examples.List(ctx, auth.ReadScopeFromContext(ctx), projectID, pkgdomain.WithLimit(1)); err != nil {
 			h.logger.Debug("failed to load examples for page-schema", "project", projectID, "err", err)
 		} else {
 			exampleCount = int(total)

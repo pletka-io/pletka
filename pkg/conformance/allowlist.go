@@ -119,12 +119,11 @@ var UnscopedReadAllowlist = map[string]Exemption{
 		ConvertsWith: convModel,
 	},
 	"example.TargetName": {
-		Reason:       trulyUnscoped + "Resolves an example's target entity name live, so a pinned example can show a name changed since.",
-		ConvertsWith: convExample,
-	},
-	"example.BuildFormSchema": {
-		Reason:       trulyUnscoped + "Builds the entry form from live model and field definitions, so a form opened under a release is shaped by today's schema.",
-		ConvertsWith: convExample,
+		Reason: trulyUnscoped + "Resolves an example's TARGET entity name -- a model or collection -- " +
+			"so a pinned example can show a name changed since the release. It reads no example rows, " +
+			"which is why the example slice's own conversion left it behind: it converts when the slices " +
+			"that own those names do.",
+		ConvertsWith: convModel + " and " + convCollection,
 	},
 	"override.EntityFingerprint": {
 		Reason:       trulyUnscoped + "Fingerprints live placement rows to detect concurrent edits, which is a draft-time question.",
@@ -338,14 +337,6 @@ var UnscopedReadAllowlist = map[string]Exemption{
 	// The example slice has no version awareness at all. Its archives
 	// exist (migration 017) and the release write path fills them; nothing
 	// reads them back.
-	"example.List": {
-		Reason:       trulyUnscoped + "weave_examples_archive exists as of migration 017 and nothing outside the release slice reads it.",
-		ConvertsWith: convExample,
-	},
-	"example.Get": {
-		Reason:       trulyUnscoped + "Same gap as example.List: the archive is written and never read back.",
-		ConvertsWith: convExample,
-	},
 
 	// --- field -------------------------------------------------------
 	"field.List": {

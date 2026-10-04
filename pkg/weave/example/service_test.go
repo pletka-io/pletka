@@ -2,10 +2,12 @@ package example
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"strings"
 	"testing"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 )
@@ -14,6 +16,21 @@ type fakeStore struct {
 	examples map[string]*domain.Example
 	values   map[string][]domain.ExampleValue
 	concepts map[string]bool
+	// gotScopes records every scope the service asked for, in order, so a
+	// test can assert that a read carried the caller's scope and that a
+	// write path named the draft rather than inheriting one.
+	gotScopes []auth.ReadScope
+}
+
+// At satisfies the Store/Reader split. The fake is its own Reader: it holds
+// one set of rows, so there is nothing to vary by scope -- what is worth
+// asserting is which scope arrived, which gotScopes records.
+func (f *fakeStore) At(scope auth.ReadScope) (Reader, error) {
+	if !scope.Valid() {
+		return nil, fmt.Errorf("example fake: read without a scope")
+	}
+	f.gotScopes = append(f.gotScopes, scope)
+	return f, nil
 }
 
 func newFakeStore() *fakeStore {
@@ -182,6 +199,7 @@ func TestServiceBuildFormSchemaGroupsFieldsAndValues(t *testing.T) {
 
 	schema, err := svc.BuildFormSchema(
 		context.Background(),
+		auth.Draft(),
 		"P1",
 		formschema.ModeEdit,
 		"",
@@ -254,6 +272,7 @@ func TestServiceBuildFormSchemaExposesConceptSources(t *testing.T) {
 
 	schema, err := svc.BuildFormSchema(
 		context.Background(),
+		auth.Draft(),
 		"P1",
 		formschema.ModeCreate,
 		string(domain.ExampleEntityTypeModel),
@@ -706,7 +725,7 @@ func TestBuildFormSchemaNamesTargetModel(t *testing.T) {
 		names:     map[string]domain.Translations{"M1": {"en": "Physical Thing", "nl": "Fysiek object"}},
 	}
 	svc := NewService(newFakeStore(), views)
-	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
+	schema, err := svc.BuildFormSchema(context.Background(), auth.Draft(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
 	if err != nil {
 		t.Fatalf("BuildFormSchema() error = %v", err)
 	}
@@ -718,7 +737,7 @@ func TestBuildFormSchemaNamesTargetModel(t *testing.T) {
 	}
 	// Without a namer the id stays the fallback.
 	plain := NewService(newFakeStore(), views.fakeViews)
-	schema, err = plain.BuildFormSchema(context.Background(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
+	schema, err = plain.BuildFormSchema(context.Background(), auth.Draft(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
 	if err != nil {
 		t.Fatalf("BuildFormSchema() error = %v", err)
 	}
@@ -740,7 +759,7 @@ func TestBuildFormSchemaKeepsCollectionOrderIncludingDirectFields(t *testing.T) 
 		},
 	}}}
 	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": view}})
-	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
+	schema, err := svc.BuildFormSchema(context.Background(), auth.Draft(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
 	if err != nil {
 		t.Fatalf("BuildFormSchema() error = %v", err)
 	}
@@ -1063,7 +1082,7 @@ func TestServiceBuildFormSchemaGroupInstancesInIndexOrder(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeEdit, "", "", rec.Example.ID, "en", nil)
+	schema, err := svc.BuildFormSchema(context.Background(), auth.Draft(), "P1", formschema.ModeEdit, "", "", rec.Example.ID, "en", nil)
 	if err != nil {
 		t.Fatalf("BuildFormSchema() error = %v", err)
 	}
@@ -1108,7 +1127,7 @@ func TestServiceBuildFormSchemaPadsInstancesToPlacementMinOccurs(t *testing.T) {
 	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{
 		"M1": groupedModelView(&domain.CollectionPlacement{MinOccurs: 2}, resolvedField(21, "F2", "Name", "String", false, 0, nil)),
 	}})
-	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeCreate, string(domain.ExampleEntityTypeModel), "M1", "", "en", nil)
+	schema, err := svc.BuildFormSchema(context.Background(), auth.Draft(), "P1", formschema.ModeCreate, string(domain.ExampleEntityTypeModel), "M1", "", "en", nil)
 	if err != nil {
 		t.Fatalf("BuildFormSchema() error = %v", err)
 	}
@@ -1144,7 +1163,7 @@ func TestServiceBuildFormSchemaGroupMaxOccursIssueOnFirstInstance(t *testing.T) 
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	schema, err := svc.BuildFormSchema(context.Background(), "P1", formschema.ModeEdit, "", "", rec.Example.ID, "en", nil)
+	schema, err := svc.BuildFormSchema(context.Background(), auth.Draft(), "P1", formschema.ModeEdit, "", "", rec.Example.ID, "en", nil)
 	if err != nil {
 		t.Fatalf("BuildFormSchema() error = %v", err)
 	}
@@ -1214,7 +1233,7 @@ func TestServiceGetToleratesFieldMovedOutOfGroup(t *testing.T) {
 	}
 	svc2 := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": movedView}})
 
-	got, err := svc2.Get(context.Background(), "P1", rec.Example.ID)
+	got, err := svc2.Get(context.Background(), auth.Draft(), "P1", rec.Example.ID)
 	if err != nil {
 		t.Fatalf("Get() error = %v, want no error (moved values must not make the example unreadable)", err)
 	}
@@ -1228,7 +1247,7 @@ func TestServiceGetToleratesFieldMovedOutOfGroup(t *testing.T) {
 		t.Fatalf("moved_group_value warnings = %d, want 2: %+v", moved, got.Validation.Issues)
 	}
 
-	schema, err := svc2.BuildFormSchema(context.Background(), "P1", formschema.ModeEdit, "", "", rec.Example.ID, "en", nil)
+	schema, err := svc2.BuildFormSchema(context.Background(), auth.Draft(), "P1", formschema.ModeEdit, "", "", rec.Example.ID, "en", nil)
 	if err != nil {
 		t.Fatalf("BuildFormSchema() error = %v", err)
 	}
