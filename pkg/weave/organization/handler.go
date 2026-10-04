@@ -45,18 +45,18 @@ func (h *Handler) CreateSelf(w http.ResponseWriter, r *http.Request) {
 	}
 	var in CreateInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+		writeValidationErrors(w, r, map[string][]string{"body": {"invalid JSON body"}})
 		return
 	}
 	org, err := h.svc.CreateSelfOrganization(r.Context(), principal.ActorID, in)
 	if err != nil {
 		var validation *ErrValidation
 		if errors.As(err, &validation) {
-			writeValidationErrors(w, validation.Fields)
+			writeValidationErrors(w, r, validation.Fields)
 			return
 		}
 		h.log.Error("create organization failed", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to create organization")
+		errresp.InternalWith(w, r, err, "failed to create organization")
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -93,7 +93,7 @@ func (h *Handler) Data(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.log.Error("browse organizations failed", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load organizations")
+		errresp.InternalWith(w, r, err, "failed to load organizations")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -130,18 +130,18 @@ func (h *Handler) UpdateGeneral(w http.ResponseWriter, r *http.Request) {
 	}
 	var in UpdateGeneralInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeValidationErrors(w, map[string][]string{"body": {"invalid JSON body"}})
+		writeValidationErrors(w, r, map[string][]string{"body": {"invalid JSON body"}})
 		return
 	}
 	updated, err := h.svc.UpdateGeneral(r.Context(), org, in)
 	if err != nil {
 		var validation *ErrValidation
 		if errors.As(err, &validation) {
-			writeValidationErrors(w, validation.Fields)
+			writeValidationErrors(w, r, validation.Fields)
 			return
 		}
 		h.log.Error("update organization failed", "slug", org.Slug, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to update organization")
+		errresp.InternalWith(w, r, err, "failed to update organization")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -168,7 +168,7 @@ func (h *Handler) CountriesFilter(w http.ResponseWriter, r *http.Request) {
 	codes, err := h.svc.ListVisibleCountries(r.Context(), includePrivate, readable)
 	if err != nil {
 		h.log.Error("list org countries failed", "err", err)
-		apierror.Write(w, apierror.InternalWith("failed to load countries"))
+		apierror.Write(w, r, apierror.InternalWith("failed to load countries", err))
 		return
 	}
 	lang := h.lang(r)
@@ -207,8 +207,8 @@ func parseCountryCodes(raw string) []string {
 }
 
 // writeValidationErrors forwards to apierror.Write — see pkg/weave/apierror.
-func writeValidationErrors(w http.ResponseWriter, fields map[string][]string) {
-	apierror.Write(w, apierror.Validation(fields))
+func writeValidationErrors(w http.ResponseWriter, r *http.Request, fields map[string][]string) {
+	apierror.Write(w, r, apierror.Validation(fields))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

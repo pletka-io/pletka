@@ -139,7 +139,7 @@ func (h *ProjectPages) ProjectsListPage(w http.ResponseWriter, r *http.Request) 
 
 	if err := h.renderer.RenderIslandPage(w, page); err != nil {
 		h.logger.Error("render weave projects list page", "err", err)
-		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 	}
 }
 
@@ -183,7 +183,7 @@ func (h *ProjectPages) ProjectDetailPage(w http.ResponseWriter, r *http.Request)
 
 	if err := h.renderer.RenderIslandPage(w, page); err != nil {
 		h.logger.Error("render weave project detail page", "project_id", project.ID, "err", err)
-		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 	}
 }
 
@@ -253,7 +253,7 @@ func (h *ProjectPages) ProjectSettingsPage(w http.ResponseWriter, r *http.Reques
 
 	if err := h.renderer.RenderIslandPage(w, page); err != nil {
 		h.logger.Error("render weave project settings page", "project_id", project.ID, "err", err)
-		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 	}
 }
 

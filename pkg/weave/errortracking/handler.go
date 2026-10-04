@@ -118,7 +118,7 @@ func (h *Handler) PostClient(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.Insert(r.Context(), ev); err != nil {
 		h.logger.Warn("errortracking: client insert failed", "err", err, "route", route)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "store insert failed")
+		errresp.InternalWith(w, r, err, "store insert failed")
 		return
 	}
 
@@ -141,7 +141,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.logger.Error("errortracking: list failed", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "list failed")
+		errresp.InternalWith(w, r, err, "list failed")
 		return
 	}
 

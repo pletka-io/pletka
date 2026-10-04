@@ -165,7 +165,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 
 	fields, total, err := h.svc.List(r.Context(), projectID, opts...)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 
@@ -214,14 +214,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	// the items slice below and total adjusted.
 	adoptedFields, adoptedOrigins, aErr := h.svc.ListAdoptedExplicit(r.Context(), projectID)
 	if aErr != nil {
-		h.writeServiceError(w, aErr)
+		h.writeServiceError(w, r, aErr)
 		return
 	}
 	// Reference-adopted fields — task 3b. Fields living in another
 	// project that this project's overrides reference via field_id.
 	referenceAdoptedFields, refErr := h.svc.ListAdoptedByReference(r.Context(), projectID)
 	if refErr != nil {
-		h.writeServiceError(w, refErr)
+		h.writeServiceError(w, r, refErr)
 		return
 	}
 	referencedIDs := make(map[string]bool, len(referenceAdoptedFields))
@@ -419,12 +419,12 @@ func parseScopeFilter(raw string) map[string]bool {
 func (h *Handler) OntologyScopesFilter(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		apierror.Write(w, apierror.BadRequest("project ID is required"))
+		apierror.Write(w, r, apierror.BadRequest("project ID is required"))
 		return
 	}
 	fields, _, err := h.svc.List(r.Context(), projectID, domain.WithLimit(10000))
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	seen := map[string]struct{}{}
@@ -456,12 +456,12 @@ func (h *Handler) OntologyScopesFilter(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CategoriesFilter(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	if projectID == "" {
-		apierror.Write(w, apierror.BadRequest("project ID is required"))
+		apierror.Write(w, r, apierror.BadRequest("project ID is required"))
 		return
 	}
 	cats, err := h.svc.ListBaseFieldCategories(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	options := make([]map[string]any, 0, len(cats))
@@ -489,7 +489,7 @@ func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 			errresp.Error(w, r, http.StatusNotFound, "not_found", "Field not found")
 			return
 		}
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	if field == nil {
@@ -544,7 +544,7 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 	fieldID := chi.URLParam(r, "fieldID")
 	report, err := h.svc.Stats(r.Context(), projectID, fieldID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
@@ -580,7 +580,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	var body fieldWriteBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -601,7 +601,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 	field, err := h.svc.Create(r.Context(), projectID, in)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, field)
@@ -614,7 +614,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 
 	var body fieldWriteBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, r, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -665,7 +665,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 
 	field, err := h.svc.Update(r.Context(), projectID, fieldID, in)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, field)
@@ -676,7 +676,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	fieldID := chi.URLParam(r, "fieldID")
 	if err := h.svc.Delete(r.Context(), projectID, fieldID); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -687,7 +687,7 @@ func (h *Handler) Deprecate(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	fieldID := chi.URLParam(r, "fieldID")
 	if err := h.svc.Deprecate(r.Context(), projectID, fieldID); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -698,7 +698,7 @@ func (h *Handler) Activate(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	fieldID := chi.URLParam(r, "fieldID")
 	if err := h.svc.Activate(r.Context(), projectID, fieldID); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -722,9 +722,9 @@ func derefStringSlice(v *[]string) []string {
 // Error mapping
 // ---------------------------------------------------------------------------
 
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	if IsNotFound(err) {
-		apierror.Write(w, apierror.NotFound(err.Error()))
+		apierror.Write(w, r, apierror.NotFound(err.Error()))
 		return
 	}
 	// In-use conflict carries slice-specific counts the frontend reads to steer
@@ -746,7 +746,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 	if ae.Code == apierror.CodeInternal {
 		h.log.Error("field handler error", "err", err)
 	}
-	apierror.Write(w, ae)
+	apierror.Write(w, r, ae)
 }
 
 // ---------------------------------------------------------------------------
@@ -760,6 +760,6 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 // writeError forwards to apierror.Write — see pkg/weave/apierror.
-func writeError(w http.ResponseWriter, status int, msg string) {
-	apierror.Write(w, &apierror.Error{Status: status, Message: msg})
+func writeError(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	apierror.Write(w, r, &apierror.Error{Status: status, Message: msg})
 }

@@ -8,10 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/session"
 	"github.com/pletka-io/pletka/pkg/weave"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ensureSessionsTable creates the sessions table if it does not already exist.

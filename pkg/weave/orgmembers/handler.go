@@ -45,7 +45,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.svc.List(r.Context(), org.ID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, rows)
@@ -69,7 +69,7 @@ func (h *Handler) OptionsActors(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := h.svc.ListAvailableActors(r.Context(), org.ID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	opts := make([]formschema.SelectOption, 0, len(rows))
@@ -109,7 +109,7 @@ func (h *Handler) FormSchemaEdit(w http.ResponseWriter, r *http.Request) {
 	actorID := chi.URLParam(r, "actorID")
 	member, err := h.svc.Get(r.Context(), org.ID, actorID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	if member == nil {
@@ -127,12 +127,12 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	var body AddInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		writeError(w, r, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	row, err := h.svc.Add(r.Context(), org.ID, body)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, row)
@@ -147,12 +147,12 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	actorID := chi.URLParam(r, "actorID")
 	var body UpdateInput
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		writeError(w, r, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	row, err := h.svc.UpdateRole(r.Context(), org.ID, actorID, body)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, row)
@@ -166,7 +166,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	actorID := chi.URLParam(r, "actorID")
 	if err := h.svc.Remove(r.Context(), org.ID, actorID); err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -178,17 +178,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// writeError + writeValidationErrors forward to apierror so the wire
+// writeError forwards to apierror so the wire
 // shape stays consistent with every other slice. New code should use
 // apierror constructors directly (apierror.NotFound, apierror.Validation,
 // etc.) — they set the canonical "code" discriminator the frontend
 // can branch on.
-func writeError(w http.ResponseWriter, status int, msg string) {
-	apierror.Write(w, &apierror.Error{Status: status, Message: msg})
-}
-
-func writeValidationErrors(w http.ResponseWriter, fields map[string][]string) {
-	apierror.Write(w, apierror.Validation(fields))
+func writeError(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	apierror.Write(w, r, &apierror.Error{Status: status, Message: msg})
 }
 
 // writeServiceError maps a service-layer error to its apierror.Error
@@ -196,9 +192,9 @@ func writeValidationErrors(w http.ResponseWriter, fields map[string][]string) {
 // sentinel errNotFound stays explicit because it's a free var (not a
 // typed error), so it can't satisfy the NotFounder interface
 // directly.
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	if IsNotFound(err) {
-		apierror.Write(w, apierror.NotFound(err.Error()))
+		apierror.Write(w, r, apierror.NotFound(err.Error()))
 		return
 	}
 	ae := apierror.FromError(err)
@@ -208,5 +204,5 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
 		// response and don't need the noise.
 		h.log.Error("orgmembers service error", "err", err)
 	}
-	apierror.Write(w, ae)
+	apierror.Write(w, r, ae)
 }

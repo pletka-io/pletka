@@ -9,6 +9,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // ErrorPageDeps carries the per-request shell context needed to render
@@ -160,7 +161,7 @@ func (r *Renderer) RenderForbidden(w http.ResponseWriter, req *http.Request, dep
 // instead of "Internal Server Error" plain text.
 func (r *Renderer) RenderInternalError(w http.ResponseWriter, req *http.Request, deps ErrorPageDeps) {
 	r.RenderErrorPage(w, req, deps, ErrorPageContent{
-		StatusCode: http.StatusInternalServerError,
+		StatusCode: http.StatusInternalServerError, //nolint:forbidigo // reached only via RespondInternalError, which records the cause
 		Code:       "500",
 		Heading:    r.t(deps.Lang, "errors.internal.heading", "Something went wrong"),
 		Body: r.t(deps.Lang, "errors.internal.body",
@@ -277,7 +278,7 @@ func (r *Renderer) ShellLabels(lang string) ShellLabels {
 //
 //	if err := load(...); err != nil {
 //	    h.logger.Error("load X", "err", err)
-//	    h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+//	    h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 //	    return
 //	}
 func (r *Renderer) ErrorContext(req *http.Request, lang string) ErrorPageDeps {
@@ -298,7 +299,7 @@ func (r *Renderer) ErrorContext(req *http.Request, lang string) ErrorPageDeps {
 // consistent error UX across the app.
 func (r *Renderer) RespondNotFound(w http.ResponseWriter, req *http.Request, deps ErrorPageDeps) {
 	if WantsJSON(req) {
-		apierror.Write(w, apierror.NotFound(""))
+		apierror.Write(w, req, apierror.NotFound(""))
 		return
 	}
 	r.RenderNotFound(w, req, deps)
@@ -307,18 +308,20 @@ func (r *Renderer) RespondNotFound(w http.ResponseWriter, req *http.Request, dep
 // RespondForbidden — same triage for 403.
 func (r *Renderer) RespondForbidden(w http.ResponseWriter, req *http.Request, deps ErrorPageDeps) {
 	if WantsJSON(req) {
-		apierror.Write(w, apierror.Forbidden(""))
+		apierror.Write(w, req, apierror.Forbidden(""))
 		return
 	}
 	r.RenderForbidden(w, req, deps)
 }
 
-// RespondInternalError — same triage for 500.
-func (r *Renderer) RespondInternalError(w http.ResponseWriter, req *http.Request, deps ErrorPageDeps) {
+// RespondInternalError — same triage for 500. err is the cause, recorded
+// for the error tracker and never shown to the client.
+func (r *Renderer) RespondInternalError(w http.ResponseWriter, req *http.Request, deps ErrorPageDeps, err error) {
 	if WantsJSON(req) {
-		apierror.Write(w, apierror.Internal())
+		apierror.Write(w, req, apierror.Internal(err))
 		return
 	}
+	errresp.RecordCause(req.Context(), err)
 	r.RenderInternalError(w, req, deps)
 }
 

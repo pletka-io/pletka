@@ -200,7 +200,7 @@ func (h *Handler) ProjectPageSchema(w http.ResponseWriter, r *http.Request) {
 	statsMap, err := h.weave.Projects().StatsForProjects(ctx, []string{projectID})
 	if err != nil {
 		h.logger.Error("failed to compute project stats", "id", projectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load project stats")
+		errresp.InternalWith(w, r, err, "failed to load project stats")
 		return
 	}
 	stats := statsMap[projectID]
@@ -375,7 +375,7 @@ func (h *Handler) ProjectAdoptionsTabSchema(w http.ResponseWriter, r *http.Reque
 	allAdoptions, err := h.weave.Adoptions().List(ctx, opts...)
 	if err != nil {
 		h.logger.Error("failed to load project adoptions", "project", projectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load adoptions")
+		errresp.InternalWith(w, r, err, "failed to load adoptions")
 		return
 	}
 	adoptions := allAdoptions[:0]
@@ -540,7 +540,7 @@ func (h *Handler) ProjectReleaseTabSchema(w http.ResponseWriter, r *http.Request
 	items, err := h.releases.ListByProject(ctx, projectID)
 	if err != nil {
 		h.logger.Error("failed to load project releases", "project", projectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load releases")
+		errresp.InternalWith(w, r, err, "failed to load releases")
 		return
 	}
 
@@ -561,7 +561,7 @@ func (h *Handler) ProjectReleaseTabSchema(w http.ResponseWriter, r *http.Request
 		links, ierr := h.weave.ProjectInheritances().List(ctx, projectID)
 		if ierr != nil {
 			h.logger.Error("failed to load parent dependencies for release tab", "project", projectID, "err", ierr)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load releases")
+			errresp.InternalWith(w, r, ierr, "failed to load releases")
 			return
 		}
 		for _, link := range links {
@@ -699,7 +699,7 @@ func (h *Handler) ProjectAdoptionClosure(w http.ResponseWriter, r *http.Request)
 	)
 	if err != nil {
 		h.logger.Error("load receipt for closure", "project", projectID, "source", sourceEntityID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load receipt")
+		errresp.InternalWith(w, r, err, "failed to load receipt")
 		return
 	}
 	if len(receipts) == 0 {
@@ -715,7 +715,7 @@ func (h *Handler) ProjectAdoptionClosure(w http.ResponseWriter, r *http.Request)
 		ids, err := h.weave.Models().ListReceiptModelClosure(ctx, sourceEntityID, seedKind)
 		if err != nil {
 			h.logger.Error("receipt model closure", "err", err)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to compute closure")
+			errresp.InternalWith(w, r, err, "failed to compute closure")
 			return
 		}
 		resp.Items = make([]ProjectAdoptionClosureItem, 0, len(ids))
@@ -735,7 +735,7 @@ func (h *Handler) ProjectAdoptionClosure(w http.ResponseWriter, r *http.Request)
 		ids, err := h.weave.Collections().ListReceiptCollectionClosure(ctx, sourceEntityID, seedKind)
 		if err != nil {
 			h.logger.Error("receipt collection closure", "err", err)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to compute closure")
+			errresp.InternalWith(w, r, err, "failed to compute closure")
 			return
 		}
 		resp.Items = make([]ProjectAdoptionClosureItem, 0, len(ids))
@@ -755,7 +755,7 @@ func (h *Handler) ProjectAdoptionClosure(w http.ResponseWriter, r *http.Request)
 		ids, err := h.weave.WeaveFields().ListReceiptFieldClosure(ctx, sourceEntityID, seedKind)
 		if err != nil {
 			h.logger.Error("receipt field closure", "err", err)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to compute closure")
+			errresp.InternalWith(w, r, err, "failed to compute closure")
 			return
 		}
 		resp.Items = make([]ProjectAdoptionClosureItem, 0, len(ids))
@@ -910,7 +910,7 @@ func (h *Handler) ProjectOverviewSchema(w http.ResponseWriter, r *http.Request) 
 	statsMap, err := h.weave.Projects().StatsForProjects(ctx, []string{projectID})
 	if err != nil {
 		h.logger.Error("failed to compute project stats", "id", projectID, "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load project stats")
+		errresp.InternalWith(w, r, err, "failed to load project stats")
 		return
 	}
 	stats := statsMap[projectID]

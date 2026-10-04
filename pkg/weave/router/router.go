@@ -310,14 +310,14 @@ func errorDispatch(h ErrorPageHost, kind errorKind) http.HandlerFunc {
 			// chi-dispatched. Emit the canonical apierror envelope on
 			// JSON paths; render the in-shell page for HTML.
 			if weavetemplates.WantsJSON(r) {
-				apierror.Write(w, apierror.MethodNotAllowed())
+				apierror.Write(w, r, apierror.MethodNotAllowed())
 				return
 			}
 			h.Templates.RenderMethodNotAllowed(w, r, errDeps)
 		case errorKindForbidden:
 			h.Templates.RespondForbidden(w, r, errDeps)
 		case errorKindInternalError:
-			h.Templates.RespondInternalError(w, r, errDeps)
+			h.Templates.RespondInternalError(w, r, errDeps, nil) // cause recorded by RespondInternalError
 		default:
 			h.Templates.RespondNotFound(w, r, errDeps)
 		}
@@ -367,9 +367,10 @@ func RespondForbidden(h ErrorPageHost, w http.ResponseWriter, r *http.Request) {
 }
 
 // RespondInternalError is the in-shell counterpart to http.Error(...,
-// 500). Caller logs the actual error first; this function only
-// renders the styled response. Same JSON-vs-HTML triage.
-func RespondInternalError(h ErrorPageHost, w http.ResponseWriter, r *http.Request) {
+// 500). err is recorded as the request's cause for the error tracker;
+// the caller still logs it if wanted. Same JSON-vs-HTML triage.
+func RespondInternalError(h ErrorPageHost, w http.ResponseWriter, r *http.Request, err error) {
+	errresp.RecordCause(r.Context(), err)
 	errorDispatch(h, errorKindInternalError)(w, r)
 }
 
@@ -403,7 +404,7 @@ func Error(w http.ResponseWriter, r *http.Request, status int, code, message str
 func BuildResponder(h ErrorPageHost) errresp.Responder {
 	return func(w http.ResponseWriter, r *http.Request, status int, code, message string) {
 		if weavetemplates.WantsJSON(r) {
-			apierror.Write(w, &apierror.Error{Status: status, Code: apierror.Code(code), Message: message})
+			apierror.Write(w, r, &apierror.Error{Status: status, Code: apierror.Code(code), Message: message})
 			return
 		}
 		if h.Templates == nil {

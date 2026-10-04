@@ -1,12 +1,15 @@
 package apierror
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
 // fakeValidation simulates a slice ErrValidation type opting in to
@@ -68,7 +71,7 @@ func TestWrite_Shape(t *testing.T) {
 		},
 		{
 			name:   "internal hides cause",
-			e:      Internal(),
+			e:      Internal(errors.New("pq: connection refused")),
 			status: 500,
 			body:   map[string]any{"code": "internal", "error": "internal server error"},
 		},
@@ -76,7 +79,10 @@ func TestWrite_Shape(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			Write(rec, tc.e)
+			Write(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil), tc.e)
+			if strings.Contains(rec.Body.String(), "connection refused") {
+				t.Errorf("cause leaked into body: %s", rec.Body.String())
+			}
 			if rec.Code != tc.status {
 				t.Errorf("status = %d; want %d", rec.Code, tc.status)
 			}
@@ -161,8 +167,24 @@ func TestFromError_NilSafe(t *testing.T) {
 
 func TestWrite_NilDefaultsToInternal(t *testing.T) {
 	rec := httptest.NewRecorder()
-	Write(rec, nil)
+	Write(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil), nil)
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("nil Error: status = %d; want 500", rec.Code)
+	}
+}
+
+func TestWrite_RecordsCauseOn5xxOnly(t *testing.T) {
+	cause := errors.New("pq: connection refused")
+
+	ctx, slot := errresp.WithCauseSlot(context.Background())
+	Write(httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil), Internal(cause))
+	if !errors.Is(slot.Err(), cause) {
+		t.Errorf("5xx cause = %v; want %v", slot.Err(), cause)
+	}
+
+	ctx, slot = errresp.WithCauseSlot(context.Background())
+	Write(httptest.NewRecorder(), httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil), Conflict("taken"))
+	if slot.Err() != nil {
+		t.Errorf("4xx recorded cause %v; want none", slot.Err())
 	}
 }

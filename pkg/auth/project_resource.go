@@ -103,7 +103,7 @@ func WithProjectResource(weave domain.WeaveStore) func(http.Handler) http.Handle
 				}
 			}
 			if err != nil {
-				errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to load project")
+				errresp.InternalWith(w, r, err, "failed to load project")
 				return
 			}
 			if project == nil {

@@ -124,7 +124,7 @@ func (h *Handler) Serve(slug string) http.HandlerFunc {
 		schemaJSON, err := json.Marshal(schema)
 		if err != nil {
 			h.logger.Error("content: marshal schema", "err", err, "slug", slug)
-			h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+			h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 			return
 		}
 

@@ -141,7 +141,7 @@ func (p *AdminPages) renderOntologySchemaShell(w http.ResponseWriter, r *http.Re
 	page.Labels = p.renderer.ShellLabels(lang)
 	if err := p.renderer.RenderIslandPage(w, page); err != nil {
 		p.logger.Error("render admin ontology page", "path", r.URL.Path, "err", err)
-		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, lang))
+		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, lang), err)
 	}
 }
 

@@ -25,6 +25,8 @@ Client-side substitution of `{id}`-style placeholders into a schema-provided `ur
 - `field_count` on a delete conflict is slice-specific (`collection`, `model`, and `projectontologyversion` handlers add it) — don't assume every `in_use` 409 has one.
 - Error responses in weave handlers use `weaverouter.Error(w, r, status, code, message)` (negotiates branded HTML vs JSON envelope) or `apierror.Write`; **bare `http.Error`/`http.NotFound` are forbidden and lint-enforced (`forbidigo`)** — the sanctioned exceptions carry `//nolint:forbidigo` with a reason. Slices that cannot import `pkg/weave/router` (the ones it mounts) call `errresp.Error` instead; host handlers call `weaverouter.Error` — both negotiate identically.
 
+**5xx go through one door that takes the cause** ([ADR-0009](../../docs-oss/decisions/0009-server-errors-through-one-door.md)): `errresp.Internal(w, r, err)` / `InternalWith`, `apierror.Write(w, r, apierror.Internal(err))`, or `RespondInternalError(..., err)`. forbidigo bans the 5xx status constants elsewhere; a deliberate non-failure 5xx needs `//nolint:forbidigo` with a reason.
+
 ## Status Codes
 
 | Operation | Method | Success | Conflict | Validation |

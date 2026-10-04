@@ -118,7 +118,7 @@ func (h *Handler) ProfilePage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.renderer.RenderIslandPage(w, page); err != nil {
 		h.log.Error("render profile page", "err", err)
-		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 	}
 }
 
@@ -153,7 +153,7 @@ func (h *Handler) ProfileSettingsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.renderer.RenderIslandPage(w, page); err != nil {
 		h.log.Error("render profile settings page", "err", err)
-		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 	}
 }
 
@@ -163,7 +163,7 @@ func (h *Handler) ProfileSettingsPage(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ProfileSettingsSchema(w http.ResponseWriter, r *http.Request) {
 	principal := weaveauth.PrincipalFromContext(r.Context())
 	if principal == nil {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	writeJSON(w, http.StatusOK, buildProfileSettingsSchema(principal, h.lang(r), h.languages))
@@ -197,14 +197,14 @@ func (h *Handler) OrgNewPage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.renderer.RenderIslandPage(w, page); err != nil {
 		h.log.Error("render org new page", "err", err)
-		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 	}
 }
 
 func (h *Handler) ProfilePageSchema(w http.ResponseWriter, r *http.Request) {
 	principal := weaveauth.PrincipalFromContext(r.Context())
 	if principal == nil {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	orgIDs := h.profileOrganizationIDs(r.Context())
@@ -215,7 +215,7 @@ func (h *Handler) ProfilePageSchema(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ProfileOverviewSchema(w http.ResponseWriter, r *http.Request) {
 	principal := weaveauth.PrincipalFromContext(r.Context())
 	if principal == nil {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	orgIDs := h.profileOrganizationIDs(r.Context())
@@ -237,7 +237,7 @@ func (h *Handler) ProfileOverviewSchema(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) ProfileOrganizationsEntityListSchema(w http.ResponseWriter, r *http.Request) {
 	principal := weaveauth.PrincipalFromContext(r.Context())
 	if principal == nil {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	writeJSON(w, http.StatusOK, buildProfileOrganizationListSchema(true, h.lang(r), h.languages))
@@ -246,7 +246,7 @@ func (h *Handler) ProfileOrganizationsEntityListSchema(w http.ResponseWriter, r 
 func (h *Handler) ProfileOwnedProjectsEntityListSchema(w http.ResponseWriter, r *http.Request) {
 	principal := weaveauth.PrincipalFromContext(r.Context())
 	if principal == nil {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	writeJSON(w, http.StatusOK, buildProfileOwnedProjectListSchema(true, h.lang(r), h.languages))
@@ -255,7 +255,7 @@ func (h *Handler) ProfileOwnedProjectsEntityListSchema(w http.ResponseWriter, r 
 func (h *Handler) ProfileCreatedProjectsEntityListSchema(w http.ResponseWriter, r *http.Request) {
 	principal := weaveauth.PrincipalFromContext(r.Context())
 	if principal == nil {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	writeJSON(w, http.StatusOK, buildProfileCreatedProjectListSchema(true, h.lang(r), h.languages))
@@ -264,7 +264,7 @@ func (h *Handler) ProfileCreatedProjectsEntityListSchema(w http.ResponseWriter, 
 func (h *Handler) ProfileCollaboratingProjectsEntityListSchema(w http.ResponseWriter, r *http.Request) {
 	principal := weaveauth.PrincipalFromContext(r.Context())
 	if principal == nil {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	writeJSON(w, http.StatusOK, buildProfileCollaboratingProjectListSchema(true, h.lang(r), h.languages))
@@ -273,14 +273,14 @@ func (h *Handler) ProfileCollaboratingProjectsEntityListSchema(w http.ResponseWr
 func (h *Handler) ProfileOrganizationsData(w http.ResponseWriter, r *http.Request) {
 	principal := weaveauth.PrincipalFromContext(r.Context())
 	if principal == nil {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	page, perPage := parsePageParams(r)
 	items, err := h.orgs.ListByIDs(r.Context(), h.profileOrganizationIDs(r.Context()))
 	if err != nil {
 		h.log.Error("profile organizations failed", "err", err)
-		apierror.Write(w, apierror.InternalWith("failed to load organizations"))
+		apierror.Write(w, r, apierror.InternalWith("failed to load organizations", err))
 		return
 	}
 	search := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("search")))
@@ -316,7 +316,7 @@ func (h *Handler) ProfileOrganizationsData(w http.ResponseWriter, r *http.Reques
 func (h *Handler) ProfileOwnedProjectsData(w http.ResponseWriter, r *http.Request) {
 	principal := weaveauth.PrincipalFromContext(r.Context())
 	if principal == nil {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	page, perPage := parsePageParams(r)
@@ -334,7 +334,7 @@ func (h *Handler) ProfileOwnedProjectsData(w http.ResponseWriter, r *http.Reques
 func (h *Handler) ProfileCollaboratingProjectsData(w http.ResponseWriter, r *http.Request) {
 	principal := weaveauth.PrincipalFromContext(r.Context())
 	if principal == nil {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	page, perPage := parsePageParams(r)
@@ -352,7 +352,7 @@ func (h *Handler) ProfileCollaboratingProjectsData(w http.ResponseWriter, r *htt
 func (h *Handler) ProfileCreatedProjectsData(w http.ResponseWriter, r *http.Request) {
 	principal := weaveauth.PrincipalFromContext(r.Context())
 	if principal == nil {
-		apierror.Write(w, apierror.Unauthorized())
+		apierror.Write(w, r, apierror.Unauthorized())
 		return
 	}
 	page, perPage := parsePageParams(r)
@@ -365,7 +365,7 @@ func (h *Handler) ProfileCreatedProjectsData(w http.ResponseWriter, r *http.Requ
 	)
 	if err != nil {
 		h.log.Error("profile created projects failed", "actor_id", principal.ActorID, "err", err)
-		apierror.Write(w, apierror.InternalWith("failed to load created projects"))
+		apierror.Write(w, r, apierror.InternalWith("failed to load created projects", err))
 		return
 	}
 	items := h.projectRows(r.Context(), projects)
@@ -393,14 +393,14 @@ func (h *Handler) OrgListPage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.renderer.RenderIslandPage(w, page); err != nil {
 		h.log.Error("render org list page", "err", err)
-		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 	}
 }
 
 func (h *Handler) OrgDetailPage(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		apierror.Write(w, apierror.NotFound(""))
+		apierror.Write(w, r, apierror.NotFound(""))
 		return
 	}
 	lang := h.currentLang(r)
@@ -422,14 +422,14 @@ func (h *Handler) OrgDetailPage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.renderer.RenderIslandPage(w, page); err != nil {
 		h.log.Error("render org detail page", "slug", org.Slug, "err", err)
-		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 	}
 }
 
 func (h *Handler) OrgSettingsPage(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		apierror.Write(w, apierror.NotFound(""))
+		apierror.Write(w, r, apierror.NotFound(""))
 		return
 	}
 	lang := h.currentLang(r)
@@ -451,14 +451,14 @@ func (h *Handler) OrgSettingsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.renderer.RenderIslandPage(w, page); err != nil {
 		h.log.Error("render org settings page", "slug", org.Slug, "err", err)
-		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang))
+		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 	}
 }
 
 func (h *Handler) OrgPageSchema(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		apierror.Write(w, apierror.NotFound(""))
+		apierror.Write(w, r, apierror.NotFound(""))
 		return
 	}
 	projects, projectTotal, err := h.projects.ListVisible(r.Context(),
@@ -468,7 +468,7 @@ func (h *Handler) OrgPageSchema(w http.ResponseWriter, r *http.Request) {
 	_ = projects
 	if err != nil {
 		h.log.Error("org page schema project count failed", "slug", org.Slug, "err", err)
-		apierror.Write(w, apierror.InternalWith("failed to load organization"))
+		apierror.Write(w, r, apierror.InternalWith("failed to load organization", err))
 		return
 	}
 	memberCount := h.orgMemberCount(r.Context(), org)
@@ -479,7 +479,7 @@ func (h *Handler) OrgPageSchema(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) OrgOverviewSchema(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		apierror.Write(w, apierror.NotFound(""))
+		apierror.Write(w, r, apierror.NotFound(""))
 		return
 	}
 	_, projectTotal, err := h.projects.ListVisible(r.Context(),
@@ -488,7 +488,7 @@ func (h *Handler) OrgOverviewSchema(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		h.log.Error("org overview project count failed", "slug", org.Slug, "err", err)
-		apierror.Write(w, apierror.InternalWith("failed to load organization overview"))
+		apierror.Write(w, r, apierror.InternalWith("failed to load organization overview", err))
 		return
 	}
 	memberCount := h.orgMemberCount(r.Context(), org)
@@ -516,7 +516,7 @@ func (h *Handler) orgMemberCount(ctx context.Context, org *domain.Organization) 
 func (h *Handler) OrgMembersEntityListSchema(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		apierror.Write(w, apierror.NotFound(""))
+		apierror.Write(w, r, apierror.NotFound(""))
 		return
 	}
 	canEdit := weaveauth.FromContext(r.Context()).Can(weaveauth.OrgEdit, weaveauth.OrgResourceFromContext(r.Context()), nil)
@@ -529,7 +529,7 @@ func (h *Handler) OrgMembersEntityListSchema(w http.ResponseWriter, r *http.Requ
 func (h *Handler) OrgMembersData(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		apierror.Write(w, apierror.NotFound(""))
+		apierror.Write(w, r, apierror.NotFound(""))
 		return
 	}
 	if h.members == nil {
@@ -539,7 +539,7 @@ func (h *Handler) OrgMembersData(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.members.List(r.Context(), org.ID)
 	if err != nil {
 		h.log.Error("list org members failed", "slug", org.Slug, "err", err)
-		apierror.Write(w, apierror.InternalWith("failed to list members"))
+		apierror.Write(w, r, apierror.InternalWith("failed to list members", err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"members": rows, "total": len(rows)})
@@ -548,7 +548,7 @@ func (h *Handler) OrgMembersData(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) OrgProjectsEntityListSchema(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		apierror.Write(w, apierror.NotFound(""))
+		apierror.Write(w, r, apierror.NotFound(""))
 		return
 	}
 	canCreate := weaveauth.FromContext(r.Context()).Can(weaveauth.OrgProjectCreate, weaveauth.OrgResourceFromContext(r.Context()), nil)
@@ -558,11 +558,11 @@ func (h *Handler) OrgProjectsEntityListSchema(w http.ResponseWriter, r *http.Req
 func (h *Handler) OrgProjectCreateFormSchema(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		apierror.Write(w, apierror.NotFound(""))
+		apierror.Write(w, r, apierror.NotFound(""))
 		return
 	}
 	if !weaveauth.FromContext(r.Context()).Can(weaveauth.OrgProjectCreate, weaveauth.OrgResourceFromContext(r.Context()), nil) {
-		apierror.Write(w, apierror.NotFound(""))
+		apierror.Write(w, r, apierror.NotFound(""))
 		return
 	}
 
@@ -590,7 +590,7 @@ func (h *Handler) OrgProjectCreateFormSchema(w http.ResponseWriter, r *http.Requ
 func (h *Handler) OrgProjectsData(w http.ResponseWriter, r *http.Request) {
 	org := weaveauth.OrgFromContext(r.Context())
 	if org == nil {
-		apierror.Write(w, apierror.NotFound(""))
+		apierror.Write(w, r, apierror.NotFound(""))
 		return
 	}
 	page := 1
@@ -616,7 +616,7 @@ func (h *Handler) OrgProjectsData(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		h.log.Error("org projects data failed", "slug", org.Slug, "err", err)
-		apierror.Write(w, apierror.InternalWith("failed to list organization projects"))
+		apierror.Write(w, r, apierror.InternalWith("failed to list organization projects", err))
 		return
 	}
 	ids := make([]string, 0, len(projects))

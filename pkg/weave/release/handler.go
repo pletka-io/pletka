@@ -93,7 +93,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	items, err := h.svc.ListByProject(r.Context(), projectID)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -110,7 +110,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -125,7 +125,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	item, err := h.svc.Create(r.Context(), projectID, in)
 	if err != nil {
-		h.writeServiceError(w, err)
+		h.writeServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, item)
@@ -136,17 +136,17 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 // surfaces shouldn't leak the existence of a project the caller
 // can't see. ValidationFielder + Conflicter adapters in
 // apierror_adapters.go cover the typed cases.
-func (h *Handler) writeServiceError(w http.ResponseWriter, err error) {
+func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	var denied *permissionDenied
 	if errors.As(err, &denied) {
-		apierror.Write(w, apierror.NotFound(""))
+		apierror.Write(w, r, apierror.NotFound(""))
 		return
 	}
 	ae := apierror.FromError(err)
 	if ae.Code == apierror.CodeInternal {
 		h.log.Error("release handler error", "err", err)
 	}
-	apierror.Write(w, ae)
+	apierror.Write(w, r, ae)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

@@ -46,7 +46,7 @@ func (h *Handler) ListFamilies(w http.ResponseWriter, r *http.Request) {
 	families, err := h.svc.ListFamilies(r.Context())
 	if err != nil {
 		h.log.Error("list families", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list families")
+		errresp.InternalWith(w, r, err, "failed to list families")
 		return
 	}
 	writeJSON(w, http.StatusOK, families)
@@ -56,7 +56,7 @@ func (h *Handler) OptionsFamilies(w http.ResponseWriter, r *http.Request) {
 	families, err := h.svc.ListFamilies(r.Context())
 	if err != nil {
 		h.log.Error("list family options", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list families")
+		errresp.InternalWith(w, r, err, "failed to list families")
 		return
 	}
 	opts := make([]formschema.SelectOption, 0, len(families))
@@ -82,7 +82,7 @@ func (h *Handler) ListFamiliesData(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.log.Error("browse families", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to browse families")
+		errresp.InternalWith(w, r, err, "failed to browse families")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -116,7 +116,7 @@ func (h *Handler) ListOntologies(w http.ResponseWriter, r *http.Request) {
 		out, err := h.svc.SearchOntologies(ctx, q, limit)
 		if err != nil {
 			h.log.Error("search ontologies", "err", err)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to search ontologies")
+			errresp.InternalWith(w, r, err, "failed to search ontologies")
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -126,7 +126,7 @@ func (h *Handler) ListOntologies(w http.ResponseWriter, r *http.Request) {
 		out, err := h.svc.ListOntologiesByFamily(ctx, familyID)
 		if err != nil {
 			h.log.Error("list ontologies by family", "err", err)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list ontologies")
+			errresp.InternalWith(w, r, err, "failed to list ontologies")
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -135,7 +135,7 @@ func (h *Handler) ListOntologies(w http.ResponseWriter, r *http.Request) {
 	out, err := h.svc.ListOntologies(ctx)
 	if err != nil {
 		h.log.Error("list ontologies", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list ontologies")
+		errresp.InternalWith(w, r, err, "failed to list ontologies")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -145,7 +145,7 @@ func (h *Handler) OptionsOntologies(w http.ResponseWriter, r *http.Request) {
 	ontologies, err := h.svc.ListOntologies(r.Context())
 	if err != nil {
 		h.log.Error("list ontology options", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list ontologies")
+		errresp.InternalWith(w, r, err, "failed to list ontologies")
 		return
 	}
 	filterType := strings.TrimSpace(r.URL.Query().Get("ontology_type"))
@@ -182,7 +182,7 @@ func (h *Handler) ListOntologiesData(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.log.Error("browse ontologies", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to browse ontologies")
+		errresp.InternalWith(w, r, err, "failed to browse ontologies")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -214,7 +214,7 @@ func (h *Handler) ListExtensions(w http.ResponseWriter, r *http.Request) {
 	out, err := h.svc.ListOntologyExtensions(r.Context(), id)
 	if err != nil {
 		h.log.Error("list extensions", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list extensions")
+		errresp.InternalWith(w, r, err, "failed to list extensions")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -233,7 +233,7 @@ func (h *Handler) ListVersions(w http.ResponseWriter, r *http.Request) {
 	out, err := h.svc.VersionListWithUsage(r.Context(), id)
 	if err != nil {
 		h.log.Error("list versions", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list versions")
+		errresp.InternalWith(w, r, err, "failed to list versions")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -268,7 +268,7 @@ func (h *Handler) ListClasses(w http.ResponseWriter, r *http.Request) {
 		out, err := h.svc.SearchClasses(r.Context(), versionID, q, limit)
 		if err != nil {
 			h.log.Error("search classes", "err", err)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to search classes")
+			errresp.InternalWith(w, r, err, "failed to search classes")
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -277,7 +277,7 @@ func (h *Handler) ListClasses(w http.ResponseWriter, r *http.Request) {
 	out, err := h.svc.ListClasses(r.Context(), versionID)
 	if err != nil {
 		h.log.Error("list classes", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list classes")
+		errresp.InternalWith(w, r, err, "failed to list classes")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -294,7 +294,7 @@ func (h *Handler) ListProperties(w http.ResponseWriter, r *http.Request) {
 		out, err := h.svc.SearchProperties(r.Context(), versionID, q, limit)
 		if err != nil {
 			h.log.Error("search properties", "err", err)
-			errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to search properties")
+			errresp.InternalWith(w, r, err, "failed to search properties")
 			return
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -303,7 +303,7 @@ func (h *Handler) ListProperties(w http.ResponseWriter, r *http.Request) {
 	out, err := h.svc.ListProperties(r.Context(), versionID)
 	if err != nil {
 		h.log.Error("list properties", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to list properties")
+		errresp.InternalWith(w, r, err, "failed to list properties")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -333,7 +333,7 @@ func (h *Handler) Autocomplete(w http.ResponseWriter, r *http.Request) {
 	suggestions, err := h.svc.GetSuggestions(r.Context(), req)
 	if err != nil {
 		h.log.Error("autocomplete", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "autocomplete failed")
+		errresp.InternalWith(w, r, err, "autocomplete failed")
 		return
 	}
 	if suggestions == nil {
@@ -352,7 +352,7 @@ func (h *Handler) OntologyLabels(w http.ResponseWriter, r *http.Request) {
 	out, err := h.svc.OntologyLabels(r.Context(), projectID, lang)
 	if err != nil {
 		h.log.Error("ontology labels", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "labels lookup failed")
+		errresp.InternalWith(w, r, err, "labels lookup failed")
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -443,7 +443,7 @@ func (h *Handler) AdminLandingPageSchema(w http.ResponseWriter, r *http.Request)
 	model, err := h.svc.FamilyLandingPageModel(r.Context(), lang)
 	if err != nil {
 		h.log.Error("admin ontology landing page schema", "err", err)
-		errresp.Error(w, r, http.StatusInternalServerError, "internal", "failed to build ontology page schema")
+		errresp.InternalWith(w, r, err, "failed to build ontology page schema")
 		return
 	}
 	writeJSON(w, http.StatusOK, BuildAdminFamilyLandingPageSchema(model, lang, h.languages))
@@ -1031,7 +1031,7 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		return
 	}
 	h.log.Error(label+" error", "err", err)
-	errresp.Error(w, r, http.StatusInternalServerError, "internal", "internal error")
+	errresp.Internal(w, r, err)
 }
 
 // writeOntologyWriteError maps a unique violation on an ontology create or

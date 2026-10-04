@@ -2,8 +2,10 @@ package errresp_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
@@ -79,5 +81,34 @@ func TestHolder_StashMiddlewareInjectsWhenSet(t *testing.T) {
 	got(httptest.NewRecorder(), httptest.NewRequestWithContext(context.Background(), "GET", "/", nil), 404, "not_found", "x")
 	if !called {
 		t.Fatal("stashed responder not the one Set")
+	}
+}
+
+func TestInternal_RecordsCauseAndWrites500(t *testing.T) {
+	cause := errors.New("db down")
+	ctx, slot := errresp.WithCauseSlot(context.Background())
+	rec := httptest.NewRecorder()
+	errresp.Internal(rec, httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil), cause)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d; want 500", rec.Code)
+	}
+	if !errors.Is(slot.Err(), cause) {
+		t.Errorf("cause = %v; want %v", slot.Err(), cause)
+	}
+	if strings.Contains(rec.Body.String(), "db down") {
+		t.Errorf("cause leaked into body: %s", rec.Body.String())
+	}
+}
+
+func TestRecordCause_FirstWinsAndNoSlotIsNoop(t *testing.T) {
+	errresp.RecordCause(context.Background(), errors.New("ignored")) // must not panic
+
+	ctx, slot := errresp.WithCauseSlot(context.Background())
+	first := errors.New("first")
+	errresp.RecordCause(ctx, first)
+	errresp.RecordCause(ctx, errors.New("second"))
+	if !errors.Is(slot.Err(), first) {
+		t.Errorf("cause = %v; want first", slot.Err())
 	}
 }

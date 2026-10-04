@@ -69,7 +69,7 @@ func (p *Pages) AdminPage(w http.ResponseWriter, r *http.Request) {
 
 	if err := p.renderer.RenderIslandPage(w, page); err != nil {
 		p.logger.Error("render admin page", "err", err)
-		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, lang))
+		p.renderer.RespondInternalError(w, r, p.renderer.ErrorContext(r, lang), err)
 	}
 }
 
