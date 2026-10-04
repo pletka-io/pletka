@@ -149,6 +149,31 @@ depends on five narrow readers — `ProjectReader`, `ModelReader`,
 (`generators/service.go:68-75`). It never depends on the `domain.WeaveStore`
 aggregate.
 
+## Versioned slices
+
+A slice owning a table with an `_archive` counterpart is a *versioned slice*:
+a release can be asked for its rows, so its reads must name the version they
+read at.
+
+Such a slice splits in two. `Store` carries the mutations. Reads live on a
+`Reader` obtained with `At(scope)`, where the scope is either the draft or a
+named release, and whose zero value is invalid — so forgetting a scope fails
+at the first call rather than quietly serving draft data later.
+
+```go
+type Store interface {            // writes only
+    Create(...) ; Update(...) ; Delete(...)
+    At(scope auth.ReadScope) (Reader, error)
+}
+```
+
+The scope is resolved once, at the request boundary, and passed down as an
+argument. A service never reaches into the context for it: that is the
+ambient pattern the split exists to remove.
+
+Mutations always run hot. They take no scope, and a path that deliberately
+reads the draft says so by passing `auth.Draft()`.
+
 ## EventBus is active
 
 The `EventBus` is wired in `pkg/app` (`pkg/app/weave_slice_hosts.go:427,457`)

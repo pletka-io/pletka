@@ -60,6 +60,18 @@ Generators follow the reader pattern at scale: five narrow readers (`ProjectRead
 
 A handler-only module that needs a list- or form-schema calls `<slice>.BuildXSchema(...)` — it never reimplements the schema. The slice is the single source of truth (two modules once drifted by doing this in parallel).
 
+## Versioned Slices
+
+A slice owning a table with an `_archive` counterpart is a **versioned slice**. Its reads name the version they read at.
+
+- **A versioned slice is a named shape**: `Store` for writes, plus `At(scope auth.ReadScope) (Reader, error)`. Reads live on the `Reader` and nowhere else.
+- **Services never resolve a scope; they receive one.** `ReadScopeFromContext(ctx)` is called at the request boundary — an HTTP handler or an MCP tool — and nowhere else.
+- **Mutations are hot, structurally.** They sit on `Store`, take no scope, and a clone or remap path passes `auth.Draft()` explicitly so reading the draft is visible in the diff.
+- **The conformance check reads signatures, not bodies.** A read that takes an `auth.ReadScope` and ignores it passes the build and fails in production. Adding the parameter is half the work; the read must go through `store.At(scope)`.
+- **Opting out is per method, with a reason, in the allowlist** (`pkg/conformance/allowlist.go`). A permanent exemption covers the slice, never its callers.
+
+`pkg/conformance` fails the build on an unscoped read in a versioned slice, on an `_archive` table no slice claims, and on `ReadScopeFromContext` outside a request boundary. The allowlist is the phase-out plan: it has permanent members, and the rule is that every entry names why, not that the list reaches zero.
+
 ## Red Flags
 
 - A full slice importing another full slice directly, other than the `override` exception
@@ -69,3 +81,7 @@ A handler-only module that needs a list- or form-schema calls `<slice>.BuildXSch
 - Business logic inside a store method (stores query, services decide)
 - Generators depending on the `domain.WeaveStore` aggregate instead of narrow readers
 - A handler emitting `http.Error`/`http.NotFound` instead of `weaverouter.Error`/`apierror.Write`
+- A read method outside a `Reader` in a versioned slice
+- `ReadScopeFromContext` called anywhere but a handler or an MCP tool
+- A paired `X` and `XVersion` on a public surface — a caller that can choose is a caller that can choose wrong
+- A new `_archive` table whose slice is not registered in `pkg/conformance/slices.go`
