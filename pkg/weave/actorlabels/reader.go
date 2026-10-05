@@ -3,8 +3,9 @@ package actorlabels
 import (
 	"context"
 
-	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
 type Reader interface {

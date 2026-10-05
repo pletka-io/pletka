@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 type projectInheritanceStore struct {

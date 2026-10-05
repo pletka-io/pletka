@@ -2,9 +2,10 @@ package category
 
 import (
 	"context"
+	"testing"
+
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
-	"testing"
 )
 
 func TestUpdate_DetachesProjectCategoryAdoptionOnStructuralEdit(t *testing.T) {

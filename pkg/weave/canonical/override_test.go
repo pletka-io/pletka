@@ -4,8 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/google/go-cmp/cmp"
+
+	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 func TestOverride_FullyPopulated(t *testing.T) {

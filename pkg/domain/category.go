@@ -6,5 +6,5 @@ package domain
 type Category struct {
 	Entity
 	Origin         Origin `json:"origin,omitempty"`
-	CanonicalOrder int `json:"canonical_order"`
+	CanonicalOrder int    `json:"canonical_order"`
 }

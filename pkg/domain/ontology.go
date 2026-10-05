@@ -169,12 +169,12 @@ type OntologyRelationWithSource struct {
 // link time so callers can render "added by X" without a separate
 // actor lookup.
 type ProjectOntologyVersion struct {
-	ProjectID         string     `json:"project_id"`
-	OntologyVersionID string     `json:"ontology_version_id"`
-	AddedAt           time.Time  `json:"added_at"`
-	AddedByID         *string    `json:"added_by_id,omitempty"`
-	IsPrimary         bool       `json:"is_primary"`
-	UsageNotes        string     `json:"usage_notes,omitempty"`
+	ProjectID         string    `json:"project_id"`
+	OntologyVersionID string    `json:"ontology_version_id"`
+	AddedAt           time.Time `json:"added_at"`
+	AddedByID         *string   `json:"added_by_id,omitempty"`
+	IsPrimary         bool      `json:"is_primary"`
+	UsageNotes        string    `json:"usage_notes,omitempty"`
 
 	// OntologyVersion is the joined version row when the caller asked
 	// for it. nil when the link is fetched without the join.
@@ -200,11 +200,11 @@ type OntologyBundleEntry struct {
 // save; consumed by unlink-preflight + reverse "fields using qname"
 // lookup.
 type FieldOntologyRef struct {
-	FieldID    string `json:"field_id"`
-	ProjectID  string `json:"project_id"`
-	Prefix     string `json:"prefix"`
-	LocalName  string `json:"local_name"`
-	Qname      string `json:"qname"`
-	Position   int    `json:"position"`
-	RefKind    string `json:"ref_kind"` // "class" | "property" | "literal"
+	FieldID   string `json:"field_id"`
+	ProjectID string `json:"project_id"`
+	Prefix    string `json:"prefix"`
+	LocalName string `json:"local_name"`
+	Qname     string `json:"qname"`
+	Position  int    `json:"position"`
+	RefKind   string `json:"ref_kind"` // "class" | "property" | "literal"
 }

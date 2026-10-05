@@ -16,11 +16,11 @@ type Cache interface {
 
 // CacheStats provides cache statistics
 type CacheStats struct {
-	Hits       int64
-	Misses     int64
-	Sets       int64
-	Deletes    int64
-	Size       int64
-	MaxSize    int64
-	HitRate    float64
+	Hits    int64
+	Misses  int64
+	Sets    int64
+	Deletes int64
+	Size    int64
+	MaxSize int64
+	HitRate float64
 }

@@ -6,8 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pletka-io/pletka/pkg/integrations"
 	"github.com/google/go-cmp/cmp"
+
+	"github.com/pletka-io/pletka/pkg/integrations"
 )
 
 const testKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"

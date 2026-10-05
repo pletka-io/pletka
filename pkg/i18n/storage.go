@@ -9,16 +9,16 @@ type Storage interface {
 	GetAll(lang string) (map[string]*Translation, error)
 	Set(key, lang string, trans *Translation) error
 	Delete(key, lang string) error
-	
+
 	// Bulk operations
 	BulkGet(keys []string, lang string) (map[string]*Translation, error)
 	BulkSet(translations map[string]*Translation) error
-	
+
 	// Query operations
 	Query(filters QueryFilters) ([]*TranslationSet, error)
 	ListLanguages() ([]string, error)
 	ListKeys() ([]string, error)
-	
+
 	// Statistics
 	Stats() (*StorageStats, error)
 }

@@ -4,10 +4,11 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/pletka-io/pletka/pkg/app/cliruntime"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/genwiring"
-	"github.com/spf13/cobra"
 )
 
 var logger *slog.Logger

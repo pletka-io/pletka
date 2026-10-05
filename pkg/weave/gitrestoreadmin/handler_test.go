@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/service/gitmaterializer"
-	"github.com/go-chi/chi/v5"
 )
 
 func TestHandlerPreview(t *testing.T) {

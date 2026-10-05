@@ -250,14 +250,14 @@ type ontologyVendorManifest struct {
 }
 
 type ontologyVendorManifestRoot struct {
-	Module     string   `json:"module"`
-	OntologyID string   `json:"ontology_id"`
-	VersionID  string   `json:"version_id"`
-	Version    string   `json:"version"`
-	Slug       string   `json:"slug"`
-	Title      string   `json:"title,omitempty"`
-	Kind       string   `json:"kind,omitempty"`
-	Namespace  string   `json:"namespace,omitempty"`
+	Module     string `json:"module"`
+	OntologyID string `json:"ontology_id"`
+	VersionID  string `json:"version_id"`
+	Version    string `json:"version"`
+	Slug       string `json:"slug"`
+	Title      string `json:"title,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	Namespace  string `json:"namespace,omitempty"`
 	// NamespaceAliases lists every additional namespace URI the prefix is
 	// globally bound to — the URI variants this ontology's serializations
 	// answer to beyond the canonical Namespace (e.g. crmgeo's

@@ -39,5 +39,9 @@ type NoOpEventBus struct{}
 // Compile-time check that NoOpEventBus implements EventBus.
 var _ EventBus = NoOpEventBus{}
 
-func (NoOpEventBus) Publish(_ context.Context, _ Event)   {}
-func (NoOpEventBus) Subscribe(_ string, _ EventHandler)    {}
+// Publish discards the event.
+func (NoOpEventBus) Publish(_ context.Context, _ Event) {}
+
+// Subscribe registers nothing; a NoOpEventBus never delivers an event, so
+// the handler is never called.
+func (NoOpEventBus) Subscribe(_ string, _ EventHandler) {}

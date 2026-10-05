@@ -2,14 +2,16 @@ package router
 
 import (
 	"context"
-	weaveauth "github.com/pletka-io/pletka/pkg/auth"
-	"github.com/pletka-io/pletka/internal/testdb"
-	"github.com/pletka-io/pletka/pkg/session"
-	"github.com/pletka-io/pletka/pkg/weave"
-	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"net/http"
 	"testing"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/internal/testdb"
+	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/session"
+	"github.com/pletka-io/pletka/pkg/weave"
 )
 
 // TestPool returns a Postgres pool for router DB tests. It delegates to

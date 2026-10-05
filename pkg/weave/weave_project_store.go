@@ -7,12 +7,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // weaveProjectStore implements domain.WeaveProjectStore backed by
@@ -57,7 +58,7 @@ func weaveRowToProject(row sqlcgen.WeaveProject) *domain.Project {
 		README:          unmarshalDomainTranslations(row.Readme),
 		Topics:          row.Topics,
 		BaseURL:         row.BaseUrl,
-		IsCoreWeave:   row.IsCoreWeave,
+		IsCoreWeave:     row.IsCoreWeave,
 	}
 }
 
@@ -158,7 +159,7 @@ func (s *weaveProjectStore) Create(ctx context.Context, project *domain.Project)
 		StagingID:       project.StagingID,
 		OwnerID:         project.OwnerID,
 		Visibility:      project.Visibility,
-		IsCoreWeave:   project.IsCoreWeave,
+		IsCoreWeave:     project.IsCoreWeave,
 	})
 	if err != nil {
 		return fmt.Errorf("create weave project: %w", err)
@@ -229,7 +230,7 @@ func (s *weaveProjectStore) Update(ctx context.Context, project *domain.Project)
 		Namespace:       dbutil.EmptyToNil(project.Namespace),
 		ParentProjectID: project.ParentProjectID,
 		Visibility:      project.Visibility,
-		IsCoreWeave:   project.IsCoreWeave,
+		IsCoreWeave:     project.IsCoreWeave,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

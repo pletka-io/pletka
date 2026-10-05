@@ -7,8 +7,9 @@ import (
 	"os"
 	"sort"
 
-	"github.com/pletka-io/pletka/pkg/domain"
 	"gopkg.in/yaml.v3"
+
+	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 //go:embed classifications/default.yaml

@@ -6,9 +6,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/ids"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // testPool returns a pgxpool connected to TEST_DATABASE_URL (default: pletka_weave

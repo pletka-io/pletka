@@ -6,10 +6,11 @@ import (
 	"io"
 	"testing"
 
-	"github.com/pletka-io/pletka/pkg/domain"
-	"github.com/pletka-io/pletka/pkg/weave/generators/x3ml"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+
+	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/generators/x3ml"
 )
 
 func TestBuildZip_MappingOnly(t *testing.T) {

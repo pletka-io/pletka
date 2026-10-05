@@ -8,10 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	weaveauth "github.com/pletka-io/pletka/pkg/auth"
-	"github.com/pletka-io/pletka/internal/testdb"
-	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/internal/testdb"
+	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
 func releaseTestPool(t *testing.T) *pgxpool.Pool {

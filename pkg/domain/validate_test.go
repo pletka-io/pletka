@@ -3,8 +3,9 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/google/go-cmp/cmp"
+
+	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 func TestFieldValid(t *testing.T) {

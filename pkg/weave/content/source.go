@@ -11,7 +11,7 @@ import (
 //
 //   - EmbedSource:   //go:embed content/pages/*.md (the OSS bundle)
 //   - OverlaySource: os.DirFS(path) for a runtime-supplied directory
-//                    (the platform binary appends one)
+//     (the platform binary appends one)
 //   - DBSource:      future weave_pages table backend
 //
 // Sources are scanned at boot; later sources shadow earlier ones for

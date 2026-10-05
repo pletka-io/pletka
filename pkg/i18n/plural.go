@@ -14,17 +14,17 @@ func (m *manager) TN(key string, count int, lang string, args ...any) string {
 		}
 		return key
 	}
-	
+
 	// Get the appropriate plural form
 	form := getPluralForm(lang, count)
-	
+
 	// Check if we have plural forms
 	if trans.PluralForms != nil && len(trans.PluralForms) > 0 {
 		if pluralValue, ok := trans.PluralForms[form]; ok {
 			// Replace {count} or {0} with the actual count
 			result := strings.ReplaceAll(pluralValue, "{count}", fmt.Sprintf("%d", count))
 			result = strings.ReplaceAll(result, "{0}", fmt.Sprintf("%d", count))
-			
+
 			// Apply any additional arguments
 			if len(args) > 0 {
 				return fmt.Sprintf(result, args...)
@@ -32,13 +32,13 @@ func (m *manager) TN(key string, count int, lang string, args ...any) string {
 			return result
 		}
 	}
-	
+
 	// Fallback to simple singular/plural from pipe-separated format
 	// e.g., "1 item|{0} items"
 	if strings.Contains(trans.Value, "|") {
 		parts := strings.Split(trans.Value, "|")
 		var result string
-		
+
 		if count == 1 && len(parts) > 0 {
 			result = parts[0]
 		} else if len(parts) > 1 {
@@ -46,17 +46,17 @@ func (m *manager) TN(key string, count int, lang string, args ...any) string {
 		} else {
 			result = trans.Value
 		}
-		
+
 		// Replace placeholders
 		result = strings.ReplaceAll(result, "{count}", fmt.Sprintf("%d", count))
 		result = strings.ReplaceAll(result, "{0}", fmt.Sprintf("%d", count))
-		
+
 		if len(args) > 0 {
 			return fmt.Sprintf(result, args...)
 		}
 		return result
 	}
-	
+
 	// No plural form found, use singular with count
 	return fmt.Sprintf("%d %s", count, trans.Value)
 }
@@ -72,10 +72,10 @@ func getPluralForm(lang string, count int) PluralForm {
 			return PluralZero
 		}
 	}
-	
+
 	// Get language family (handle variants like en-US)
 	baseLang := strings.Split(lang, "-")[0]
-	
+
 	switch baseLang {
 	// Languages with only singular/plural (Germanic, Romance, etc.)
 	case "en", "de", "nl", "sv", "da", "no", "nb", "nn", // Germanic
@@ -86,14 +86,14 @@ func getPluralForm(lang string, count int) PluralForm {
 			return PluralOne
 		}
 		return PluralOther
-		
+
 	// French and Brazilian Portuguese (0,1 = one; else other)
 	case "fr", "pt-BR":
 		if count == 0 || count == 1 {
 			return PluralOne
 		}
 		return PluralOther
-		
+
 	// Slavic languages with complex rules
 	case "pl": // Polish
 		if count == 1 {
@@ -103,7 +103,7 @@ func getPluralForm(lang string, count int) PluralForm {
 			return PluralFew
 		}
 		return PluralMany
-		
+
 	case "cs", "sk": // Czech, Slovak
 		if count == 1 {
 			return PluralOne
@@ -112,7 +112,7 @@ func getPluralForm(lang string, count int) PluralForm {
 			return PluralFew
 		}
 		return PluralOther
-		
+
 	case "ru", "uk", "be": // Russian, Ukrainian, Belarusian
 		if count%10 == 1 && count%100 != 11 {
 			return PluralOne
@@ -121,7 +121,7 @@ func getPluralForm(lang string, count int) PluralForm {
 			return PluralFew
 		}
 		return PluralMany
-		
+
 	// Celtic languages
 	case "ga": // Irish
 		if count == 1 {
@@ -137,7 +137,7 @@ func getPluralForm(lang string, count int) PluralForm {
 			return PluralMany
 		}
 		return PluralOther
-		
+
 	// Arabic
 	case "ar":
 		if count == 0 {
@@ -156,11 +156,11 @@ func getPluralForm(lang string, count int) PluralForm {
 			return PluralMany
 		}
 		return PluralOther
-		
+
 	// Japanese, Chinese, Korean, Thai, Vietnamese (no plurals)
 	case "ja", "zh", "ko", "th", "vi", "id", "ms":
 		return PluralOther
-		
+
 	// Default: simple singular/plural
 	default:
 		if count == 1 {
@@ -201,11 +201,11 @@ func GetPluralRules() map[string]PluralRule {
 		"ar": {
 			Language: "ar",
 			Rules: map[PluralForm]func(n int) bool{
-				PluralZero: func(n int) bool { return n == 0 },
-				PluralOne:  func(n int) bool { return n == 1 },
-				PluralTwo:  func(n int) bool { return n == 2 },
-				PluralFew:  func(n int) bool { return n%100 >= 3 && n%100 <= 10 },
-				PluralMany: func(n int) bool { return n%100 >= 11 && n%100 <= 99 },
+				PluralZero:  func(n int) bool { return n == 0 },
+				PluralOne:   func(n int) bool { return n == 1 },
+				PluralTwo:   func(n int) bool { return n == 2 },
+				PluralFew:   func(n int) bool { return n%100 >= 3 && n%100 <= 10 },
+				PluralMany:  func(n int) bool { return n%100 >= 11 && n%100 <= 99 },
 				PluralOther: func(n int) bool { return true },
 			},
 		},

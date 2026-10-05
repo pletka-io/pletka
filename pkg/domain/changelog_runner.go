@@ -30,13 +30,14 @@ type ChangeLogRunner interface {
 //
 // TODO(changelog): replace with the postgres-backed runner. The
 // production impl should:
-//   1. Open a pgx tx from the supplied pool / weave store.
-//   2. Build a tx-bound ChangeLogRecorder that buffers entries.
-//   3. Pass a context carrying the tx (so Store.* methods join it
-//      instead of opening their own) into fn.
-//   4. On fn success, flush buffered entries via WeaveCreateChangeLogEntry,
-//      close the change set, commit. On error, rollback (which discards
-//      the buffered entries naturally).
+//  1. Open a pgx tx from the supplied pool / weave store.
+//  2. Build a tx-bound ChangeLogRecorder that buffers entries.
+//  3. Pass a context carrying the tx (so Store.* methods join it
+//     instead of opening their own) into fn.
+//  4. On fn success, flush buffered entries via WeaveCreateChangeLogEntry,
+//     close the change set, commit. On error, rollback (which discards
+//     the buffered entries naturally).
+//
 // Existing pkg/weave.PostgresStore.WithChangeLog already does most of
 // this — wire it up as a Runner adapter and inject from cmd/serve.go.
 func NoopChangeLogRunner() ChangeLogRunner {

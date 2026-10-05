@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
 type canonicalOverrideDoc struct {

@@ -7,11 +7,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+	"gopkg.in/yaml.v3"
+
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
-	"github.com/jackc/pgx/v5"
-	"gopkg.in/yaml.v3"
 )
 
 type canonicalCategoryDoc struct {

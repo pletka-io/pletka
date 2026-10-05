@@ -3,15 +3,16 @@ package organization
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
-	"log/slog"
-	"net/http"
-	"strconv"
-	"strings"
 )
 
 type LangResolver func(*http.Request) string

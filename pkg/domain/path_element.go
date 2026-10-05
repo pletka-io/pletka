@@ -30,10 +30,10 @@ type PathElement struct {
 
 // TypeRef identifies an ontology class used as an additional type on a path element.
 type TypeRef struct {
-	URI       string `json:"uri"`                     // Full prefixed URI (e.g., "crmdig:D1_Digital_Object")
-	Prefix    string `json:"prefix"`                  // Namespace prefix (e.g., "crmdig")
-	LocalName string `json:"local_name"`              // Local name (e.g., "D1_Digital_Object")
-	ClassCode string `json:"class_code,omitempty"`    // Short class code (e.g., "D1")
+	URI       string `json:"uri"`                  // Full prefixed URI (e.g., "crmdig:D1_Digital_Object")
+	Prefix    string `json:"prefix"`               // Namespace prefix (e.g., "crmdig")
+	LocalName string `json:"local_name"`           // Local name (e.g., "D1_Digital_Object")
+	ClassCode string `json:"class_code,omitempty"` // Short class code (e.g., "D1")
 }
 
 // PrefixedName returns the namespaced form: "crm:E21_Person".

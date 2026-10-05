@@ -3,10 +3,11 @@ package formschema
 import (
 	"sort"
 
-	"github.com/pletka-io/pletka/pkg/domain"
-	"github.com/pletka-io/pletka/pkg/i18n"
 	"golang.org/x/text/language"
 	"golang.org/x/text/language/display"
+
+	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/i18n"
 )
 
 // countryCodes is the ISO 3166-1 alpha-2 list surfaced as the country

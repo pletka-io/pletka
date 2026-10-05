@@ -33,11 +33,11 @@ type Config struct {
 	CookieHTTPOnly bool
 	CookieSameSite http.SameSite
 	CookiePersist  bool
-	
+
 	// Default values
 	DefaultLanguage string
 	DefaultPageSize int
-	
+
 	// Feature flags
 	EnableCSRF bool
 	DebugMode  bool
@@ -64,7 +64,7 @@ func DefaultConfig() Config {
 // New creates a new session manager with the given configuration
 func New(cfg Config) *Manager {
 	sm := scs.New()
-	
+
 	// Configure session
 	sm.Lifetime = cfg.Lifetime
 	sm.IdleTimeout = cfg.IdleTimeout
@@ -78,15 +78,15 @@ func New(cfg Config) *Manager {
 
 	return &Manager{
 		SessionManager: sm,
-		config:        cfg,
-		logger:        slog.Default(), // Use default logger
+		config:         cfg,
+		logger:         slog.Default(), // Use default logger
 	}
 }
 
 // NewWithLogger creates a new session manager with the given configuration and logger
 func NewWithLogger(cfg Config, logger *slog.Logger) *Manager {
 	sm := scs.New()
-	
+
 	// Configure session
 	sm.Lifetime = cfg.Lifetime
 	sm.IdleTimeout = cfg.IdleTimeout
@@ -100,8 +100,8 @@ func NewWithLogger(cfg Config, logger *slog.Logger) *Manager {
 
 	return &Manager{
 		SessionManager: sm,
-		config:        cfg,
-		logger:        logger,
+		config:         cfg,
+		logger:         logger,
 	}
 }
 
@@ -112,7 +112,7 @@ func NewManager(logger interface{}) *Manager {
 	// In development mode, don't require secure cookies
 	cfg.CookieSecure = false
 	cfg.DebugMode = true // Enable debug mode for development
-	
+
 	// Try to use the provided logger if it's *slog.Logger
 	if slogger, ok := logger.(*slog.Logger); ok {
 		return NewWithLogger(cfg, slogger)
@@ -122,20 +122,20 @@ func NewManager(logger interface{}) *Manager {
 
 // Common session keys
 const (
-	KeyLanguage      = "language"
-	KeyPageSize      = "page_size" 
-	KeySortBy        = "sort_by"
-	KeySortOrder     = "sort_order"
-	KeyFlash         = "flash"
-	KeyFlashError    = "flash_error"
-	KeyFlashWarning  = "flash_warning"
-	KeyFlashInfo     = "flash_info"
-	KeyUserID        = "user_id"
-	KeyUserEmail     = "user_email"
+	KeyLanguage        = "language"
+	KeyPageSize        = "page_size"
+	KeySortBy          = "sort_by"
+	KeySortOrder       = "sort_order"
+	KeyFlash           = "flash"
+	KeyFlashError      = "flash_error"
+	KeyFlashWarning    = "flash_warning"
+	KeyFlashInfo       = "flash_info"
+	KeyUserID          = "user_id"
+	KeyUserEmail       = "user_email"
 	KeyIsAuthenticated = "is_authenticated"
-	KeyCSRFToken     = "csrf_token"
-	KeyReturnTo      = "return_to"
-	KeyTheme         = "theme"
+	KeyCSRFToken       = "csrf_token"
+	KeyReturnTo        = "return_to"
+	KeyTheme           = "theme"
 )
 
 // GetString retrieves a string value from session
@@ -174,7 +174,6 @@ func (m *Manager) GetBoolDefault(ctx context.Context, key string, defaultVal boo
 	}
 	return m.SessionManager.GetBool(ctx, key)
 }
-
 
 func (m *Manager) FlashError(ctx context.Context, message string) {
 	m.SessionManager.Put(ctx, KeyFlashError, message)

@@ -30,11 +30,11 @@ var (
 // Info is the snapshot returned by Get(). Pure data, no methods —
 // callers JSON-encode it directly.
 type Info struct {
-	Version   string `json:"version"`
-	Commit    string `json:"commit"`
-	Branch    string `json:"branch,omitempty"`
-	Dirty     bool   `json:"dirty"`
-	BuiltAt   string `json:"built_at"`
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+	Branch  string `json:"branch,omitempty"`
+	Dirty   bool   `json:"dirty"`
+	BuiltAt string `json:"built_at"`
 }
 
 // Get returns a snapshot of the current build identity. Cheap; safe

@@ -23,15 +23,15 @@ type Tree struct {
 // TreeNode is renderer-neutral but presentation-shaped: it preserves grouping,
 // order, labels, slugs, and ontology context without owning entity data.
 type TreeNode struct {
-	Kind       NodeKind             `json:"kind"`
-	ID         string               `json:"id,omitempty"`
-	SemanticID string               `json:"semantic_id,omitempty"`
-	SystemName string               `json:"system_name,omitempty"`
-	Label      domain.Translations  `json:"label,omitempty"`
-	Order      int                  `json:"order,omitempty"`
-	Slug       string               `json:"slug,omitempty"`
-	Path       string               `json:"path,omitempty"`
-	Scope      *domain.PathElement  `json:"scope,omitempty"`
+	Kind       NodeKind            `json:"kind"`
+	ID         string              `json:"id,omitempty"`
+	SemanticID string              `json:"semantic_id,omitempty"`
+	SystemName string              `json:"system_name,omitempty"`
+	Label      domain.Translations `json:"label,omitempty"`
+	Order      int                 `json:"order,omitempty"`
+	Slug       string              `json:"slug,omitempty"`
+	Path       string              `json:"path,omitempty"`
+	Scope      *domain.PathElement `json:"scope,omitempty"`
 	// Anchor is the collection's anchor class — the class its fields
 	// converge on (the last element of PathPrefix), as opposed to Scope,
 	// the collection's declared, deliberately generic scope. Set on

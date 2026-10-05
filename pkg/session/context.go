@@ -14,51 +14,51 @@ import (
 // BaseContext provides common request context that can be embedded in template data structs
 type BaseContext struct {
 	// Request information
-	Request         *http.Request `json:"-"`
-	RequestID       string        `json:"request_id"`
-	Method          string        `json:"method"`
-	Path            string        `json:"path"`
-	Host            string        `json:"host"`
-	Scheme          string        `json:"scheme"`
-	
+	Request   *http.Request `json:"-"`
+	RequestID string        `json:"request_id"`
+	Method    string        `json:"method"`
+	Path      string        `json:"path"`
+	Host      string        `json:"host"`
+	Scheme    string        `json:"scheme"`
+
 	// Session information
-	SessionID       string        `json:"session_id"`
-	Language        string        `json:"language"`
-	Languages       []i18n.Language `json:"languages"`
-	Theme           string        `json:"theme"`
-	
+	SessionID string          `json:"session_id"`
+	Language  string          `json:"language"`
+	Languages []i18n.Language `json:"languages"`
+	Theme     string          `json:"theme"`
+
 	// User information
-	IsAuthenticated bool          `json:"is_authenticated"`
-	UserID          string        `json:"user_id,omitempty"`
-	UserEmail       string        `json:"user_email,omitempty"`
-	
+	IsAuthenticated bool   `json:"is_authenticated"`
+	UserID          string `json:"user_id,omitempty"`
+	UserEmail       string `json:"user_email,omitempty"`
+
 	// CSRF protection
-	CSRFToken       string        `json:"csrf_token,omitempty"`
-	
+	CSRFToken string `json:"csrf_token,omitempty"`
+
 	// Flash messages
-	Flash           string        `json:"flash,omitempty"`
-	FlashError      string        `json:"flash_error,omitempty"`
-	FlashWarning    string        `json:"flash_warning,omitempty"`
-	FlashInfo       string        `json:"flash_info,omitempty"`
-	
+	Flash        string `json:"flash,omitempty"`
+	FlashError   string `json:"flash_error,omitempty"`
+	FlashWarning string `json:"flash_warning,omitempty"`
+	FlashInfo    string `json:"flash_info,omitempty"`
+
 	// Preferences
-	PageSize        int           `json:"page_size"`
-	SortBy          string        `json:"sort_by,omitempty"`
-	SortOrder       string        `json:"sort_order,omitempty"`
-	
+	PageSize  int    `json:"page_size"`
+	SortBy    string `json:"sort_by,omitempty"`
+	SortOrder string `json:"sort_order,omitempty"`
+
 	// Debug/Development
-	DevMode         bool          `json:"dev_mode"`
-	RenderTime      time.Duration `json:"render_time,omitempty"`
-	
+	DevMode    bool          `json:"dev_mode"`
+	RenderTime time.Duration `json:"render_time,omitempty"`
+
 	// Private fields for internal use
-	sessionManager  *Manager      `json:"-"`
-	startTime       time.Time     `json:"-"`
+	sessionManager *Manager  `json:"-"`
+	startTime      time.Time `json:"-"`
 }
 
 // NewBaseContext creates a new base context from the request
 func NewBaseContext(r *http.Request, sm *Manager, availableLanguages []i18n.Language) *BaseContext {
 	ctx := r.Context()
-	
+
 	// Determine scheme
 	scheme := "http"
 	if r.TLS != nil {
@@ -68,10 +68,10 @@ func NewBaseContext(r *http.Request, sm *Manager, availableLanguages []i18n.Lang
 	if r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
-	
+
 	// Get flash messages
 	flash, flashError, flashWarning, flashInfo := sm.PopFlash(ctx)
-	
+
 	// Get language and log it for debugging
 	lang := sm.Language(ctx)
 	if sm.logger != nil && sm.config.DebugMode {
@@ -80,7 +80,7 @@ func NewBaseContext(r *http.Request, sm *Manager, availableLanguages []i18n.Lang
 			"path", r.URL.Path,
 		)
 	}
-	
+
 	isAuth := sm.IsAuthenticated(ctx)
 	userID := sm.UserID(ctx)
 
@@ -119,7 +119,7 @@ func NewBaseContext(r *http.Request, sm *Manager, availableLanguages []i18n.Lang
 		sessionManager:  sm,
 		startTime:       time.Now(),
 	}
-	
+
 	return bc
 }
 
@@ -182,7 +182,7 @@ func (bc *BaseContext) ThemeChangeURL(theme string) string {
 func (bc *BaseContext) SortURL(field string) string {
 	u, _ := url.Parse(bc.Request.URL.String())
 	q := u.Query()
-	
+
 	// Toggle sort order if clicking same field
 	if bc.SortBy == field {
 		if bc.SortOrder == "asc" {
@@ -193,7 +193,7 @@ func (bc *BaseContext) SortURL(field string) string {
 	} else {
 		q.Set("sort_order", "asc")
 	}
-	
+
 	q.Set("sort_by", field)
 	u.RawQuery = q.Encode()
 	return u.String()

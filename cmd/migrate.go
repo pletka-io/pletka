@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pletka-io/pletka/pkg/database"
 	"github.com/spf13/cobra"
+
+	"github.com/pletka-io/pletka/pkg/database"
 )
 
 func newMigrateCommand() *cobra.Command {

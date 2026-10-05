@@ -9,12 +9,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pletka-io/pletka/pkg/database/dbutil"
-	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
-	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
+
+	"github.com/pletka-io/pletka/pkg/database/dbutil"
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 // postgresStore is the pgx + sqlc implementation of Store, backed by the
@@ -731,7 +732,6 @@ func scanArchivedCategoryWithCounts(scanner interface{ Scan(...any) error }) (Wi
 // ---------------------------------------------------------------------------
 // Local helpers (private to this slice)
 // ---------------------------------------------------------------------------
-
 
 // derefStr returns *p, or "" if p is nil.
 func derefStr(p *string) string {
