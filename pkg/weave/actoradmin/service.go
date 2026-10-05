@@ -9,13 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/ids"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // ErrPasswordIncorrect is returned by ChangePassword when the supplied
@@ -116,7 +117,7 @@ type UserCreateInput struct {
 	Orcid       *string
 	// Password is the admin-set initial password. When nil/empty the
 	// service generates one and returns it from CreateUser.
-	Password    *string
+	Password *string
 }
 
 type InstitutionEditInput struct {
@@ -623,7 +624,6 @@ func deref(v *string) string {
 	return *v
 }
 
-
 func optionLabel(opt formschema.SelectOption) string {
 	// Label is typed `any` to hold either a raw domain.Translations or
 	// an i18n.LocalizedText. Both expose an embedded Translations map
@@ -646,4 +646,3 @@ func optionLabel(opt formschema.SelectOption) string {
 	}
 	return ""
 }
-

@@ -13,8 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pletka-io/pletka/pkg/frontendmanifest"
 	"gopkg.in/yaml.v3"
+
+	"github.com/pletka-io/pletka/pkg/frontendmanifest"
 )
 
 func TestCoreFrontendManifestMatchesSourceInventory(t *testing.T) {

@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
-	"github.com/jackc/pgx/v5"
 )
 
 func (m *Materializer) loadArchivedCategories(ctx context.Context, projectID, version string) ([]*domain.Category, error) {

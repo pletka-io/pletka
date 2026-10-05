@@ -3,8 +3,9 @@ package cmd
 import (
 	"database/sql"
 
-	"github.com/pletka-io/pletka/pkg/app/cliruntime"
 	"github.com/spf13/cobra"
+
+	"github.com/pletka-io/pletka/pkg/app/cliruntime"
 )
 
 func newDBCommand() *cobra.Command {

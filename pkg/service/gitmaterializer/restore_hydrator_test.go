@@ -11,12 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
-	"github.com/pletka-io/pletka/pkg/domain"
-	"github.com/pletka-io/pletka/pkg/weave/canonical"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/canonical"
 )
 
 // fixtureAdoptionSourceProject is the id of testdb.FixtureParent ("LA", Living

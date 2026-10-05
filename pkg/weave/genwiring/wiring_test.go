@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 )
 

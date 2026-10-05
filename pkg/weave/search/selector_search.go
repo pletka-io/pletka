@@ -6,9 +6,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func resolveTargetPathFieldIDs(ctx context.Context, pool *pgxpool.Pool, target selectorTarget, params domain.SearchParams) ([]string, error) {

@@ -16,44 +16,44 @@ func (m *Manager) TemplateFuncs() map[string]any {
 		"sessionGet": func(r *http.Request, key string) any {
 			return m.Get(r.Context(), key)
 		},
-		
+
 		"sessionString": func(r *http.Request, key, fallback string) string {
 			return m.GetStringWithDefault(r.Context(), key, fallback)
 		},
-		
+
 		"sessionInt": func(r *http.Request, key string, fallback int) int {
 			return m.GetIntWithDefault(r.Context(), key, fallback)
 		},
-		
+
 		"sessionBool": func(r *http.Request, key string) bool {
 			return m.GetBool(r.Context(), key)
 		},
-		
+
 		// Common session values
 		"sessionLang": func(r *http.Request) string {
 			return m.Language(r.Context())
 		},
-		
+
 		"sessionTheme": func(r *http.Request) string {
 			return m.Theme(r.Context())
 		},
-		
+
 		"sessionPageSize": func(r *http.Request) int {
 			return m.PageSize(r.Context())
 		},
-		
+
 		"sessionUserID": func(r *http.Request) string {
 			return m.UserID(r.Context())
 		},
-		
+
 		"sessionUserEmail": func(r *http.Request) string {
 			return m.UserEmail(r.Context())
 		},
-		
+
 		"sessionIsAuth": func(r *http.Request) bool {
 			return m.IsAuthenticated(r.Context())
 		},
-		
+
 		"sessionCSRF": func(r *http.Request) string {
 			return m.CSRFToken(r.Context())
 		},
@@ -62,12 +62,12 @@ func (m *Manager) TemplateFuncs() map[string]any {
 		"csrfToken": func(r *http.Request) string {
 			return nosurf.Token(r)
 		},
-		
+
 		// Check if session key exists
 		"sessionExists": func(r *http.Request, key string) bool {
 			return m.Exists(r.Context(), key)
 		},
-		
+
 		// Get all session keys (useful for debugging)
 		"sessionKeys": func(r *http.Request) []string {
 			return m.Keys(r.Context())
@@ -86,67 +86,67 @@ func ContextTemplateFuncs() map[string]any {
 			}
 			return bc.sessionManager.Get(bc.Context(), key)
 		},
-		
+
 		"ctxSessionString": func(bc *BaseContext, key, fallback string) string {
 			if bc.sessionManager == nil {
 				return fallback
 			}
 			return bc.sessionManager.GetStringWithDefault(bc.Context(), key, fallback)
 		},
-		
+
 		"ctxSessionInt": func(bc *BaseContext, key string, fallback int) int {
 			if bc.sessionManager == nil {
 				return fallback
 			}
 			return bc.sessionManager.GetIntWithDefault(bc.Context(), key, fallback)
 		},
-		
+
 		"ctxSessionBool": func(bc *BaseContext, key string) bool {
 			if bc.sessionManager == nil {
 				return false
 			}
 			return bc.sessionManager.GetBool(bc.Context(), key)
 		},
-		
+
 		// URL builders from BaseContext
 		"ctxLangURL": func(bc *BaseContext, lang string) string {
 			return bc.LangChangeURL(lang)
 		},
-		
+
 		"ctxThemeURL": func(bc *BaseContext, theme string) string {
 			return bc.ThemeChangeURL(theme)
 		},
-		
+
 		"ctxSortURL": func(bc *BaseContext, field string) string {
 			return bc.SortURL(field)
 		},
-		
+
 		"ctxPageURL": func(bc *BaseContext, page int) string {
 			return bc.PageURL(page)
 		},
-		
+
 		"ctxPageSizeURL": func(bc *BaseContext, size int) string {
 			return bc.PageSizeURL(size)
 		},
-		
+
 		// Path helpers
 		"ctxIsPath": func(bc *BaseContext, path string) bool {
 			return bc.IsCurrentPath(path)
 		},
-		
+
 		"ctxIsPathPrefix": func(bc *BaseContext, prefix string) bool {
 			return bc.IsCurrentPathPrefix(prefix)
 		},
-		
+
 		// Query helpers
 		"ctxQueryParam": func(bc *BaseContext, key, value string) string {
 			return bc.UpdateQueryParam(key, value)
 		},
-		
+
 		"ctxRemoveParam": func(bc *BaseContext, key string) string {
 			return bc.RemoveQueryParam(key)
 		},
-		
+
 		"ctxAddParam": func(bc *BaseContext, key, value string) string {
 			return bc.AddQueryParam(key, value)
 		},
@@ -183,7 +183,7 @@ Getting arbitrary session values:
 Language switcher example:
 <select onchange="location.href=this.value">
     {{ range .Languages }}
-        <option value="{{ ctxLangURL $.BaseContext .Code }}" 
+        <option value="{{ ctxLangURL $.BaseContext .Code }}"
                 {{ if eq .Code $.Language }}selected{{ end }}>
             {{ .Name }}
         </option>

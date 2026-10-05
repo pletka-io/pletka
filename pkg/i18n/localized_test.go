@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
 	"github.com/pletka-io/pletka/pkg/domain"
 
 	"github.com/pletka-io/pletka/pkg/i18n"

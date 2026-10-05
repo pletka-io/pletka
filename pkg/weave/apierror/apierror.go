@@ -13,17 +13,19 @@ import (
 // here as new error kinds emerge — the constant list IS the contract.
 type Code string
 
+// The error kinds the API returns. Code's own doc comment above says why
+// this list is the contract: the frontend branches on these strings.
 const (
-	CodeBadRequest        Code = "bad_request"
-	CodeUnauthorized      Code = "unauthorized"
-	CodeForbidden         Code = "forbidden"
-	CodeNotFound          Code = "not_found"
-	CodeConflict          Code = "conflict"
-	CodeValidation        Code = "validation"
-	CodeInUse             Code = "in_use"
-	CodeInternal          Code = "internal"
-	CodeMethodNotAllowed  Code = "method_not_allowed"
-	CodeUnprocessable     Code = "unprocessable"
+	CodeBadRequest       Code = "bad_request"
+	CodeUnauthorized     Code = "unauthorized"
+	CodeForbidden        Code = "forbidden"
+	CodeNotFound         Code = "not_found"
+	CodeConflict         Code = "conflict"
+	CodeValidation       Code = "validation"
+	CodeInUse            Code = "in_use"
+	CodeInternal         Code = "internal"
+	CodeMethodNotAllowed Code = "method_not_allowed"
+	CodeUnprocessable    Code = "unprocessable"
 )
 
 // Error is the canonical wire shape for every JSON error response.

@@ -16,7 +16,8 @@ import (
 // the family-editor "can't restore order" bug: the form SelectWidget's
 // make-root / unassign option submits "" for a nullable FK, which JSON-decodes
 // into a *string pointing at "". The store must normalise that to SQL NULL, not
-// write '' and trip the foreign-key constraint (which surfaced as a bare 500).
+// write an empty string and trip the foreign-key constraint (which
+// surfaced as a bare 500).
 func TestStore_EmptyNullableFKPointerNormalisesToNull(t *testing.T) {
 	ctx := context.Background()
 	store := weaveontology.NewPostgresStore(testPool(t))

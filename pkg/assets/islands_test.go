@@ -9,6 +9,7 @@ import (
 	"testing/fstest"
 
 	"github.com/google/go-cmp/cmp"
+
 	"github.com/pletka-io/pletka/pkg/frontendmanifest"
 )
 

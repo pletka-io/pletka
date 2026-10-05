@@ -159,7 +159,7 @@ func TestEngine_PropertiesForScope_CrossVersionMultiRowLineage_Smoke(t *testing.
 	// crmgeo properties that are only reachable via the SP1 branch of
 	// crm:E4_Period's lineage (crmgeo version row, not CRM version row).
 	wantQnames := map[string]bool{
-		"crmgeo:Q1i_is_occupied_by":      false,
+		"crmgeo:Q1i_is_occupied_by":         false,
 		"crmgeo:Q3_has_temporal_projection": false,
 	}
 	for _, s := range suggestions {

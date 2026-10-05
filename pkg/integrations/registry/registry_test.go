@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/pletka-io/pletka/pkg/formschema"
-	"github.com/pletka-io/pletka/pkg/integrations/registry"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+
+	"github.com/pletka-io/pletka/pkg/formschema"
+	"github.com/pletka-io/pletka/pkg/integrations/registry"
 )
 
 type fakeIntegration struct {

@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // --- fakes ---
@@ -80,12 +81,12 @@ func (f *fakeAuth) UpdatePassword(_ context.Context, actorID, hash string) error
 	f.hashes[actorID] = hash
 	return nil
 }
-func (f *fakeAuth) MarkLogin(context.Context, string) error                      { return nil }
+func (f *fakeAuth) MarkLogin(context.Context, string) error                        { return nil }
 func (f *fakeAuth) SetResetToken(context.Context, string, string, time.Time) error { return nil }
 func (f *fakeAuth) GetByResetToken(context.Context, string) (*domain.AuthRecord, error) {
 	return nil, nil
 }
-func (f *fakeAuth) ClearResetToken(context.Context, string) error   { return nil }
+func (f *fakeAuth) ClearResetToken(context.Context, string) error  { return nil }
 func (f *fakeAuth) BumpPermsVersion(context.Context, string) error { return nil }
 func (f *fakeAuth) Delete(context.Context, string) error           { return nil }
 

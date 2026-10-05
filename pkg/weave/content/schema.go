@@ -53,9 +53,9 @@ type ContentEntry struct {
 // `map[string]any` entries because each block type has its own
 // payload — the loader normalises into Block records.
 type frontmatter struct {
-	Slug     string                   `yaml:"slug"`
-	Template string                   `yaml:"template"`
-	Nav      NavMeta                  `yaml:"nav"`
-	SEO      SEOMeta                  `yaml:"seo"`
-	Blocks   []map[string]any         `yaml:"blocks"`
+	Slug     string           `yaml:"slug"`
+	Template string           `yaml:"template"`
+	Nav      NavMeta          `yaml:"nav"`
+	SEO      SEOMeta          `yaml:"seo"`
+	Blocks   []map[string]any `yaml:"blocks"`
 }

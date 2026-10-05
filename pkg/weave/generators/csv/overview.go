@@ -146,4 +146,3 @@ func WriteFieldOverview(w io.Writer, fields []*domain.Field) error {
 	cw.Flush()
 	return cw.Error()
 }
-

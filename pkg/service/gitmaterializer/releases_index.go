@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pletka-io/pletka/pkg/weave/canonical"
 	"gopkg.in/yaml.v3"
+
+	"github.com/pletka-io/pletka/pkg/weave/canonical"
 )
 
 // releasesIndexPath is the well-known repo-relative path for the releases

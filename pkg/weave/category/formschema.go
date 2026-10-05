@@ -306,7 +306,6 @@ func buildIdentityFields(mode string, existing *domain.Category) []formschema.Fi
 	return []formschema.FieldDef{uiName, desc, systemName}
 }
 
-
 func categoryOriginSummary(origin domain.Origin) string {
 	if origin.Kind != domain.OriginAdopted {
 		return ""

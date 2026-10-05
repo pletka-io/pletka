@@ -64,7 +64,7 @@ func TestRestoreVendoredOntologyExternalNamespace(t *testing.T) {
 		ownerID      = "EXTNS_RESTORE_OWNER"
 		projectID    = "EXTNS_RESTORE_PROJECT"
 		ontologySlug = "pletka-extns-restore"
-		namespace = "https://example.org/extns-restore/"
+		namespace    = "https://example.org/extns-restore/"
 		// A fully synthetic external namespace + prefix, deliberately NOT one the
 		// test fixtures already bind (e.g. crm), so this test is independent of
 		// the fixture template's namespace bindings and exercises only the

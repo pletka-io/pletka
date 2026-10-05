@@ -180,17 +180,17 @@ func buildOrganizationHosts(
 ) (organization.Host, orgmembers.Host) {
 	orgSvc := organization.NewService(organization.NewPostgresStore(pool), pool, logger)
 	return organization.Host{
-			Service:      orgSvc,
-			Logger:       logger,
-			Languages:    languages,
-			LangResolver: langResolver,
-		}, orgmembers.Host{
-			Service:      orgmembers.NewService(orgmembers.NewPostgresStore(pool), logger),
-			OrgReader:    orgSvc,
-			Logger:       logger,
-			Languages:    languages,
-			LangResolver: orgmembers.LangResolver(langResolver),
-		}
+		Service:      orgSvc,
+		Logger:       logger,
+		Languages:    languages,
+		LangResolver: langResolver,
+	}, orgmembers.Host{
+		Service:      orgmembers.NewService(orgmembers.NewPostgresStore(pool), logger),
+		OrgReader:    orgSvc,
+		Logger:       logger,
+		Languages:    languages,
+		LangResolver: orgmembers.LangResolver(langResolver),
+	}
 }
 
 func buildProjectHost(
@@ -495,26 +495,26 @@ func buildOntologyHosts(
 	}
 	svc.WireEventBus(eventBus)
 	return svc, weaveontology.AdminHost{
-			Service:      svc,
-			Logger:       logger,
-			Templates:    templates,
-			I18n:         i18nManager,
-			Session:      sessionManager,
-			Languages:    languages,
-			LangResolver: langResolver,
-		}, weaveontology.APIHost{
-			Service:      svc,
-			Logger:       logger,
-			Languages:    languages,
-			LangResolver: langResolver,
-			Projects:     weave.Projects(),
-		}, weaveontology.PagesHost{
-			Service:   svc,
-			Logger:    logger,
-			Templates: templates,
-			I18n:      i18nManager,
-			Session:   sessionManager,
-		}
+		Service:      svc,
+		Logger:       logger,
+		Templates:    templates,
+		I18n:         i18nManager,
+		Session:      sessionManager,
+		Languages:    languages,
+		LangResolver: langResolver,
+	}, weaveontology.APIHost{
+		Service:      svc,
+		Logger:       logger,
+		Languages:    languages,
+		LangResolver: langResolver,
+		Projects:     weave.Projects(),
+	}, weaveontology.PagesHost{
+		Service:   svc,
+		Logger:    logger,
+		Templates: templates,
+		I18n:      i18nManager,
+		Session:   sessionManager,
+	}
 }
 
 func buildDraftsHost(weave domain.WeaveStore, logger *slog.Logger) drafts.Host {
@@ -645,30 +645,30 @@ func buildCoreEntityHosts(
 
 	pub := publication.NewReader(deps.Pool)
 	return field.Host{
-			Service:      fieldSvc,
-			Projects:     projects,
-			Logger:       deps.Logger,
-			Languages:    deps.Languages,
-			LangResolver: field.LangResolver(langResolver),
-			I18n:         deps.I18n,
-			Publication:  pub,
-		}, model.Host{
-			Service:      modelSvc,
-			Projects:     projects,
-			Logger:       deps.Logger,
-			Languages:    deps.Languages,
-			LangResolver: model.LangResolver(langResolver),
-			I18n:         deps.I18n,
-			Publication:  pub,
-		}, collection.Host{
-			Service:      collectionSvc,
-			Projects:     projects,
-			Logger:       deps.Logger,
-			Languages:    deps.Languages,
-			LangResolver: collection.LangResolver(langResolver),
-			I18n:         deps.I18n,
-			Publication:  pub,
-		}, overrideSvc
+		Service:      fieldSvc,
+		Projects:     projects,
+		Logger:       deps.Logger,
+		Languages:    deps.Languages,
+		LangResolver: field.LangResolver(langResolver),
+		I18n:         deps.I18n,
+		Publication:  pub,
+	}, model.Host{
+		Service:      modelSvc,
+		Projects:     projects,
+		Logger:       deps.Logger,
+		Languages:    deps.Languages,
+		LangResolver: model.LangResolver(langResolver),
+		I18n:         deps.I18n,
+		Publication:  pub,
+	}, collection.Host{
+		Service:      collectionSvc,
+		Projects:     projects,
+		Logger:       deps.Logger,
+		Languages:    deps.Languages,
+		LangResolver: collection.LangResolver(langResolver),
+		I18n:         deps.I18n,
+		Publication:  pub,
+	}, overrideSvc
 }
 
 func buildExportHosts(
@@ -710,12 +710,12 @@ func buildExportHosts(
 	)
 
 	return weavecsvexport.Host{
-			Service: csvSvc,
-		}, weaveexports.Host{
-			Service:  exportSvc,
-			Projects: weave.Projects(),
-			Logger:   logger,
-		}
+		Service: csvSvc,
+	}, weaveexports.Host{
+		Service:  exportSvc,
+		Projects: weave.Projects(),
+		Logger:   logger,
+	}
 }
 
 func buildGeneratorService(

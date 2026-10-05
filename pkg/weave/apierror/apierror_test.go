@@ -16,7 +16,7 @@ import (
 // the ValidationFielder interface.
 type fakeValidation struct{ Fields map[string][]string }
 
-func (e *fakeValidation) Error() string                          { return "validation" }
+func (e *fakeValidation) Error() string                         { return "validation" }
 func (e *fakeValidation) ValidationFields() map[string][]string { return e.Fields }
 
 type fakeConflict struct{ Msg string }

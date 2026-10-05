@@ -18,13 +18,13 @@ var sensitiveHeaders = map[string]struct{}{
 // sensitiveBodyFields are JSON keys whose values are masked (case-
 // insensitive, at any nesting depth).
 var sensitiveBodyFields = map[string]struct{}{
-	"password":     {},
-	"passwd":       {},
-	"secret":       {},
-	"token":        {},
-	"api_key":      {},
-	"apikey":       {},
-	"access_token": {},
+	"password":      {},
+	"passwd":        {},
+	"secret":        {},
+	"token":         {},
+	"api_key":       {},
+	"apikey":        {},
+	"access_token":  {},
 	"refresh_token": {},
 }
 

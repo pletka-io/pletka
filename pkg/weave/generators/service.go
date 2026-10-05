@@ -180,9 +180,9 @@ func (s *Service) SnapshotForModel(ctx context.Context, projectID, modelID strin
 		View:          *view,
 		Collections:   collections,
 		ExtraAnchored: extraAnchored,
-		Namespaces:  namespaces,
-		Ontologies:  ontologies,
-		Options:     opts,
+		Namespaces:    namespaces,
+		Ontologies:    ontologies,
+		Options:       opts,
 	})), nil
 }
 

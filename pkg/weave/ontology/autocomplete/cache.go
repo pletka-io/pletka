@@ -7,8 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pletka-io/pletka/pkg/domain"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 const (

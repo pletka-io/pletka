@@ -110,9 +110,9 @@ type Store interface {
 // button without a per-row follow-up call.
 type WithCounts struct {
 	domain.Category
-	FieldCount           int64 `json:"field_count"`
-	ModelFieldCount      int64 `json:"model_field_count"`
-	CollectionFieldCount int64 `json:"collection_field_count"`
-	InUse                bool  `json:"in_use"`
+	FieldCount           int64  `json:"field_count"`
+	ModelFieldCount      int64  `json:"model_field_count"`
+	CollectionFieldCount int64  `json:"collection_field_count"`
+	InUse                bool   `json:"in_use"`
 	OriginLabel          string `json:"origin_label,omitempty"`
 }

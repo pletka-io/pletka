@@ -176,7 +176,6 @@ func (s *Store) List(ctx context.Context, f ListFilter) ([]ListResult, error) {
 	return out, rows.Err()
 }
 
-
 func jsonOrEmpty(b json.RawMessage) json.RawMessage {
 	if len(b) == 0 {
 		return json.RawMessage("{}")

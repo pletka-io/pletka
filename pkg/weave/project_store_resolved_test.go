@@ -6,10 +6,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // seedProject inserts a minimal weave_projects row for testing. ownerID must
