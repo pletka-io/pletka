@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/google/go-cmp/cmp"
+	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 func strPtr(s string) *string { return &s }

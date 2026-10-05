@@ -14,6 +14,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/genwiring"
 	"github.com/pletka-io/pletka/pkg/weave/model"
+	"github.com/pletka-io/pletka/pkg/weave/release"
 	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
 
@@ -53,6 +54,13 @@ func NewGeneratorRuntime(opts Options) (*GeneratorRuntime, error) {
 		ChangeLog: changeLog,
 		Languages: languages,
 	}, langResolver)
+
+	// The adoption picker needs these to read an ancestor at its own
+	// release. Same instances, never duplicates (ADR-0008); they are built
+	// after buildProjectHost, so they are assigned here.
+	projectHost.Models = modelHost.Service
+	projectHost.Collections = collectionHost.Service
+	projectHost.Releases = release.NewService(release.NewPostgresStore(opts.Pool), opts.Pool, opts.Logger)
 
 	renderers := opts.GeneratorRenderers
 	if len(renderers) == 0 {

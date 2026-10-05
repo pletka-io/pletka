@@ -53,7 +53,7 @@ func (s *postgresStore) Create(ctx context.Context, p *domain.Project) error {
 		OwnerID:         p.OwnerID,
 		Visibility:      p.Visibility,
 		CreatedByID:     p.CreatedByID,
-		IsCoreWeave:   p.IsCoreWeave,
+		IsCoreWeave:     p.IsCoreWeave,
 	})
 	if err != nil {
 		return fmt.Errorf("create weave project: %w", err)
@@ -106,7 +106,7 @@ func (s *postgresStore) Update(ctx context.Context, p *domain.Project) error {
 		Namespace:       dbutil.EmptyToNil(p.Namespace),
 		ParentProjectID: p.ParentProjectID,
 		Visibility:      p.Visibility,
-		IsCoreWeave:   p.IsCoreWeave,
+		IsCoreWeave:     p.IsCoreWeave,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -376,7 +376,7 @@ func rowToProject(row sqlcgen.WeaveProject) *domain.Project {
 		README:          unmarshalTranslations(row.Readme),
 		Topics:          row.Topics,
 		BaseURL:         row.BaseUrl,
-		IsCoreWeave:   row.IsCoreWeave,
+		IsCoreWeave:     row.IsCoreWeave,
 	}
 }
 

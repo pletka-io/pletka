@@ -376,6 +376,14 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		Visualization:          visualizationHost,
 		Workspace:              workspaceHost,
 	})
+
+	// The adoption picker reads an ancestor project at that ancestor's own
+	// release, so it needs the model, collection and release services --
+	// the same instances, never duplicates (ADR-0008). They are built after
+	// buildProjectHost, so they are assigned here rather than passed in.
+	projectHost.Models = modelHost.Service
+	projectHost.Collections = collectionHost.Service
+	projectHost.Releases = releaseHost.Service
 	errResponderHolder.Set(weaverouter.BuildResponder(errPageHost))
 	mountIntegrationsHub(handler, weaveStore, logger, opts, generatorService)
 	mountRouteContributions(handler, opts.Contributions.Routes, Host{
