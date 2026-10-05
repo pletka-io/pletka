@@ -41,8 +41,15 @@ type Handler struct {
 	overrides *overridepkg.Service
 	weave     domain.WeaveStore
 	log       *slog.Logger
-	languages []formschema.LanguageInfo
-	lang      LangResolver
+	// The adoption picker reads ANOTHER project at that project's own
+	// release, so it needs scope-taking readers and the release list.
+	// Required, not optional: a nil reader would silently return to
+	// offering draft entities, which is the defect these remove.
+	models      ModelVersionLister
+	collections CollectionVersionLister
+	releases    ReleaseLister
+	languages   []formschema.LanguageInfo
+	lang        LangResolver
 	// presence is the in-memory "who else is editing this pattern"
 	// registry backing the overrides presence endpoint. One process per
 	// instance, so it lives on the Handler rather than being threaded
@@ -101,7 +108,7 @@ func (h *Handler) resolveOwnerID(ctx context.Context, requested string) string {
 }
 
 // NewHandler constructs a Handler. nil log → slog.Default; nil lang → "en".
-func NewHandler(svc *Service, overrides *overridepkg.Service, weave domain.WeaveStore, log *slog.Logger, languages []formschema.LanguageInfo, lang LangResolver) *Handler {
+func NewHandler(svc *Service, overrides *overridepkg.Service, weave domain.WeaveStore, log *slog.Logger, languages []formschema.LanguageInfo, lang LangResolver, models ModelVersionLister, collections CollectionVersionLister, releases ReleaseLister) *Handler {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -117,6 +124,10 @@ func NewHandler(svc *Service, overrides *overridepkg.Service, weave domain.Weave
 		lang:      lang,
 		presence:  overridepkg.NewPresence(presenceTTL),
 		clock:     time.Now,
+
+		models:      models,
+		collections: collections,
+		releases:    releases,
 	}
 }
 

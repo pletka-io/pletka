@@ -81,13 +81,13 @@ type overrideEditorCategory struct {
 }
 
 type overrideEditorItem struct {
-	Widget           string                `json:"widget"`
-	ID               string                `json:"id"`
-	SemanticID       string                `json:"semantic_id,omitempty"`
-	Name             domain.Translations   `json:"name,omitempty"`
-	Position         int                   `json:"position"`
-	FieldCount       int                   `json:"field_count"`
-	SharedPathPrefix []domain.PathElement  `json:"shared_path_prefix,omitempty"`
+	Widget           string               `json:"widget"`
+	ID               string               `json:"id"`
+	SemanticID       string               `json:"semantic_id,omitempty"`
+	Name             domain.Translations  `json:"name,omitempty"`
+	Position         int                  `json:"position"`
+	FieldCount       int                  `json:"field_count"`
+	SharedPathPrefix []domain.PathElement `json:"shared_path_prefix,omitempty"`
 	// Placement: collection-group constraints; nil =
 	// defaults (optional, 0..unbounded, visible). Model editor only.
 	Placement *domain.CollectionPlacement `json:"placement,omitempty"`

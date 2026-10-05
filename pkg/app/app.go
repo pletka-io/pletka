@@ -303,6 +303,16 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		Languages: languages,
 		I18n:      i18nManager,
 	}, langResolver)
+
+	// The adoption picker reads another project's models and collections at
+	// one of THAT project's releases, so the project slice needs those
+	// readers. Assigned here, before projectHost is copied into the export,
+	// generator and router hosts below -- projectHost is a value, so an
+	// assignment after those copies would leave every mounted handler with
+	// nil readers and the picker back to listing drafts.
+	projectHost.Models = modelHost.Service
+	projectHost.Collections = collectionHost.Service
+	projectHost.Releases = releaseHost.Service
 	projectCSVExportHost, exportsHost := buildExportHosts(
 		weaveStore,
 		logger,
@@ -376,6 +386,11 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		Visualization:          visualizationHost,
 		Workspace:              workspaceHost,
 	})
+
+	// The adoption picker reads an ancestor project at that ancestor's own
+	// release, so it needs the model, collection and release services --
+	// the same instances, never duplicates (ADR-0008). They are built after
+	// buildProjectHost, so they are assigned here rather than passed in.
 	errResponderHolder.Set(weaverouter.BuildResponder(errPageHost))
 	mountIntegrationsHub(handler, weaveStore, logger, opts, generatorService)
 	mountRouteContributions(handler, opts.Contributions.Routes, Host{

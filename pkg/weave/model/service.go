@@ -200,6 +200,35 @@ type StatsReport struct {
 // Reads
 // ---------------------------------------------------------------------------
 
+// ListAt lists a project's models at an explicitly named scope, rather
+// than at whatever version the request happens to carry.
+//
+// List answers "what does this project look like to the current reader".
+// ListAt answers "what did THIS project look like at THIS version", which is
+// a different question and the one a caller reading ANOTHER project needs --
+// the adoption picker lists an ancestor's entities at the ancestor's own
+// release, not at the adopting project's.
+//
+// The signature is the scoped-reader shape the read model is converging on,
+// so callers written against it survive this slice's conversion unchanged.
+func (s *Service) ListAt(ctx context.Context, scope auth.ReadScope, projectID string, opts ...domain.QueryOption) ([]*domain.Model, int64, error) {
+	if !scope.Valid() {
+		return nil, 0, fmt.Errorf("model: ListAt without a scope — the caller must name auth.Draft() or auth.Release(version)")
+	}
+	if err := s.requireProjectRead(ctx, projectID); err != nil {
+		return nil, 0, err
+	}
+	if scope.IsRelease() {
+		vr, ok := s.store.(versionedModelReader)
+		if !ok {
+			return nil, 0, fmt.Errorf("model: store cannot read a release")
+		}
+		return vr.ListVersion(ctx, projectID, scope.Version(), opts...)
+	}
+	opts = append([]domain.QueryOption{domain.WithProjectID(projectID)}, opts...)
+	return s.store.List(ctx, opts...)
+}
+
 func (s *Service) List(ctx context.Context, projectID string, opts ...domain.QueryOption) ([]*domain.Model, int64, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, 0, err

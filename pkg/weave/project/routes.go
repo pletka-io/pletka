@@ -26,10 +26,26 @@ type Host struct {
 	// OrgResolver resolves a project owner sent as an org slug to the org's
 	// actor id on create. Optional — nil leaves the value as sent.
 	OrgResolver OrgResolver
+	// Models, Collections and Releases back the adoption picker, which
+	// reads an ancestor at the ancestor's own release. Required: without
+	// them the picker would fall back to listing live entities, which is
+	// how projects came to adopt content that was never published.
+	Models      ModelVersionLister
+	Collections CollectionVersionLister
+	Releases    ReleaseLister
 }
 
 func (h Host) Validate() error {
 	var missing []string
+	if h.Models == nil {
+		missing = append(missing, "Models")
+	}
+	if h.Collections == nil {
+		missing = append(missing, "Collections")
+	}
+	if h.Releases == nil {
+		missing = append(missing, "Releases")
+	}
 	if h.Service == nil {
 		missing = append(missing, "Service")
 	}
@@ -52,7 +68,7 @@ func Mount(parent chi.Router, host Host) {
 	if err := host.Validate(); err != nil {
 		panic(err)
 	}
-	h := NewHandler(host.Service, host.Overrides, host.Weave, host.Logger, host.Languages, host.LangResolver)
+	h := NewHandler(host.Service, host.Overrides, host.Weave, host.Logger, host.Languages, host.LangResolver, host.Models, host.Collections, host.Releases)
 	h.SetConceptListValueChecker(host.ConceptValueChecker)
 	h.SetOrgResolver(host.OrgResolver)
 

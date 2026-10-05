@@ -129,9 +129,12 @@ func newFullSaveConflictRouter(pool *pgxpool.Pool) http.Handler {
 	// .../models. The assertion below is that chi resolves the deeper,
 	// more specific mount over the shallower one.
 	project.Mount(router, project.Host{
-		Service:   projectSvc,
-		Overrides: overrideSvc,
-		Weave:     weaveStore,
+		Service:     projectSvc,
+		Overrides:   overrideSvc,
+		Weave:       weaveStore,
+		Models:      modelSvc,
+		Collections: collectionSvc,
+		Releases:    releaseReaderForTest(pool),
 	})
 
 	return router

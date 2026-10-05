@@ -37,6 +37,27 @@ export interface AdoptableOption {
   source_project_id: string;
   source_project_name?: string;
   ontology_scope?: string;
+  /**
+   * The source release this candidate was read from. Echoed back on
+   * adopt so the receipt records the release actually adopted, rather
+   * than leaving it to be inferred later.
+   */
+  source_version: string;
+}
+
+/**
+ * One ancestor a curator can adopt from, with the releases available to
+ * choose between. `unreleased` says the ancestor has published nothing,
+ * so it offers no candidates — shown as a reason rather than an empty
+ * group, because "no candidates" does not tell a curator that the fix is
+ * for the source project to publish.
+ */
+export interface AdoptableSource {
+  project_id: string;
+  project_name?: string;
+  versions: string[];
+  selected_version?: string;
+  unreleased?: boolean;
 }
 
 export interface RowAction {

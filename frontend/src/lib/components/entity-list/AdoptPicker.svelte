@@ -10,7 +10,7 @@
    * z-50, scrollable middle, sticky footer with primary Adopt button.
   */
   import { tr } from '$lib/types/form-schema';
-  import type { AdoptableOption, EntityListCapabilities } from '$lib/types/entity-list-schema';
+  import type { AdoptableOption, AdoptableSource, EntityListCapabilities } from '$lib/types/entity-list-schema';
   import { controlID } from './control-id';
 
   let {
@@ -37,6 +37,7 @@
   let saving = $state(false);
   let errorMessage = $state('');
   let options = $state<AdoptableOption[]>([]);
+  let sources = $state<AdoptableSource[]>([]);
   let selectedID = $state('');
   let query = $state('');
   let sourceFilter = $state('');
@@ -44,20 +45,33 @@
   const searchID = $derived(controlID(controlPrefix, 'search'));
   const sourceFilterID = $derived(controlID(controlPrefix, 'source-project'));
   const targetName = $derived(controlID(controlPrefix, 'target'));
+  const versionID = $derived(controlID(controlPrefix, 'source-version'));
 
   // Fetch options on mount.
   $effect(() => {
     void load();
   });
 
-  async function load() {
+  /*
+   * Loads candidates. Each ancestor is read at one of ITS OWN live
+   * releases — never at the draft, and never at the adopting project's
+   * version. Passing a project and version pins that one ancestor to a
+   * release the curator chose; everything else stays on its newest.
+   */
+  async function load(pinProject = '', pinVersion = '') {
     loading = true;
     errorMessage = '';
     try {
-      const res = await fetch(cap.options_url);
+      const url = new URL(cap.options_url, window.location.origin);
+      if (pinProject && pinVersion) {
+        url.searchParams.set('source_project_id', pinProject);
+        url.searchParams.set('source_version', pinVersion);
+      }
+      const res = await fetch(url.toString());
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { options?: AdoptableOption[] };
+      const data = (await res.json()) as { options?: AdoptableOption[]; sources?: AdoptableSource[] };
       options = data.options ?? [];
+      sources = data.sources ?? [];
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : String(err);
     } finally {
@@ -65,15 +79,26 @@
     }
   }
 
-  const sourceProjects = $derived.by(() => {
-    const seen = new Map<string, string>();
-    for (const o of options) {
-      if (!seen.has(o.source_project_id)) {
-        seen.set(o.source_project_id, o.source_project_name ?? o.source_project_id);
-      }
-    }
-    return Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
-  });
+  /*
+   * Driven by `sources`, not by the options, so an ancestor that has
+   * published nothing still appears — with a reason. Deriving it from
+   * the options would hide exactly the case a curator needs told.
+   */
+  const sourceProjects = $derived(
+    sources.map((s) => ({
+      id: s.project_id,
+      name: s.project_name ?? s.project_id,
+      unreleased: s.unreleased === true,
+    })),
+  );
+
+  const activeSource = $derived(sources.find((s) => s.project_id === sourceFilter));
+
+  async function pickVersion(version: string) {
+    if (!sourceFilter || !version) return;
+    selectedID = '';
+    await load(sourceFilter, version);
+  }
 
   const filtered = $derived.by(() => {
     const q = query.trim().toLowerCase();
@@ -104,6 +129,9 @@
           entity_type: entityType,
           source_project_id: target.source_project_id,
           source_entity_id: target.value,
+          // The release this candidate was listed at. The server refuses
+          // an adopt without it: an adoption records what it depends on.
+          source_version: target.source_version,
         }),
       });
       if (!res.ok) {
@@ -158,9 +186,48 @@
       >
         <option value="">All source projects</option>
         {#each sourceProjects as sp (sp.id)}
-          <option value={sp.id}>{sp.name}</option>
+          <option value={sp.id}>{sp.name}{sp.unreleased ? ' — nothing published' : ''}</option>
         {/each}
       </select>
+
+      {#if activeSource && !activeSource.unreleased && activeSource.versions.length > 0}
+        <!--
+          Which release to adopt from. The newest is the default, not the only
+          option: a curator may deliberately depend on an older, stable release
+          rather than whatever was published last.
+        -->
+        <label class="block text-xs font-medium text-gray-600 mt-3" for={versionID}>
+          Adopt from release
+        </label>
+        <select
+          id={versionID}
+          name={versionID}
+          aria-label="Release of {activeSource.project_name ?? activeSource.project_id} to adopt from"
+          value={activeSource.selected_version ?? activeSource.versions[0]}
+          onchange={(e) => pickVersion((e.currentTarget as HTMLSelectElement).value)}
+          class="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-pletka-primary focus:outline-none focus:ring-pletka-primary"
+        >
+          {#each activeSource.versions as v, i (v)}
+            <option value={v}>{v}{i === 0 ? ' (latest)' : ''}</option>
+          {/each}
+        </select>
+        <p class="text-xs text-gray-500 mt-1">
+          The adoption records this release, so the project keeps following
+          {activeSource.selected_version ?? activeSource.versions[0]} until you re-adopt.
+        </p>
+      {/if}
+
+      {#if activeSource?.unreleased}
+        <!--
+          Said, rather than shown as an empty list: "no candidates" does not
+          tell the curator that the fix is for the source project to publish.
+        -->
+        <p class="mt-3 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+          {activeSource.project_name ?? activeSource.project_id} has not published a release yet,
+          so there is nothing to adopt from it. An adoption always points at a release, never at a
+          draft — once they publish one it will appear here.
+        </p>
+      {/if}
     {/if}
   </div>
 
@@ -199,7 +266,7 @@
                       · <span class="font-mono">{opt.ontology_scope}</span>
                     {/if}
                   </div>
-                  <div class="text-xs text-amber-700 mt-0.5">from {opt.source_project_name ?? opt.source_project_id}</div>
+                  <div class="text-xs text-amber-700 mt-0.5">from {opt.source_project_name ?? opt.source_project_id} · {opt.source_version}</div>
                 </div>
               </div>
             </label>
