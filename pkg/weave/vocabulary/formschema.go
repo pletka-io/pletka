@@ -160,11 +160,6 @@ func conceptListConfigurationFields(mode string, existing *ConceptListView, voca
 		listTypeURI = existing.ListTypeURI
 	}
 
-	status := "draft"
-	if isEdit && existing != nil && existing.Status != "" {
-		status = existing.Status
-	}
-
 	return []formschema.FieldDef{
 		{
 			Name:     "vocabulary_id",
@@ -188,19 +183,10 @@ func conceptListConfigurationFields(mode string, existing *ConceptListView, voca
 			DependsOn:           []string{"vocabulary_id"},
 			HiddenUntilFilled:   []string{"vocabulary_id"},
 		},
-		{
-			Name:     "status",
-			Widget:   formschema.WidgetSelect,
-			Required: true,
-			Readonly: mode == formschema.ModeView,
-			Label:    i18n.L("common.status", "Status"),
-			Value:    status,
-			Options: []formschema.SelectOption{
-				{Value: "draft", Label: i18n.L("status.draft", "Draft")},
-				{Value: "published", Label: i18n.L("status.published", "Published")},
-				{Value: "deprecated", Label: i18n.L("status.deprecated", "Deprecated")},
-			},
-		},
+		// No status field: a concept list's draft/published/deprecated status
+		// is not a user-set control (patterns don't expose one either). It
+		// defaults to draft server-side and gates nothing today; the project
+		// release lifecycle is the single source of versioning.
 	}
 }
 

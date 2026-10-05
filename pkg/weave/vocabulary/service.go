@@ -1536,9 +1536,8 @@ func validateConceptListInput(input ConceptListInput) error {
 	if !translationsHaveValue(input.UIName) {
 		fields["ui_name"] = []string{"Name is required."}
 	}
-	if input.Status == "" {
-		fields["status"] = []string{"Status is required."}
-	}
+	// Status is not user-set — normalizeConceptListInput defaults it to draft,
+	// so it is never empty here and needs no "required" check.
 	if len(fields) > 0 {
 		return &ErrConceptListValidation{Fields: fields}
 	}
