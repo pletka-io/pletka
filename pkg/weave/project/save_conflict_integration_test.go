@@ -122,11 +122,16 @@ func newSaveConflictRouterWithPools(pool, overridePool *pgxpool.Pool) http.Handl
 	projectStore := project.NewPostgresStore(pool)
 	projectSvc := project.NewService(projectStore, nil, nil, nil, nil)
 
+	modelSvc, collectionSvc, releaseSvc := adoptionReadersForTest(pool)
+
 	router := chi.NewRouter()
 	project.Mount(router, project.Host{
-		Service:   projectSvc,
-		Overrides: overrideSvc,
-		Weave:     weaveStore,
+		Service:     projectSvc,
+		Overrides:   overrideSvc,
+		Weave:       weaveStore,
+		Models:      modelSvc,
+		Collections: collectionSvc,
+		Releases:    releaseSvc,
 	})
 	return router
 }
