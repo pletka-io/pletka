@@ -43,7 +43,6 @@ const (
 	convAttribution = "the attribution slice conversion"
 	convCategory    = "the category slice conversion (spec Part 3, sequencing step 4)"
 	convCollection  = "the collection slice conversion (spec Part 3, sequencing step 5)"
-	convExample     = "the example slice conversion (release-completeness read side)"
 	convField       = "the field slice conversion (spec Part 3, sequencing step 4)"
 	convFieldUsage  = "the field usage-counts conversion (spec Part 3, sequencing step 4)"
 	convModel       = "the model slice conversion (spec Part 3, sequencing step 5)"
