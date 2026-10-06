@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
@@ -89,7 +90,10 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	if status := r.URL.Query().Get("status"); status != "" {
 		opts = append(opts, domain.WithFilter("status", status))
 	}
-	items, total, err := h.svc.List(r.Context(), projectID, opts...)
+	// The request boundary is where a scope is resolved; the service receives
+	// it and never reaches into the context for one.
+	scope := auth.ReadScopeFromContext(r.Context())
+	items, total, err := h.svc.List(r.Context(), scope, projectID, opts...)
 	if err != nil {
 		h.log.Error("example list failed", "project_id", projectID, "err", err)
 		apierror.Write(w, r, apierror.Internal(err))
@@ -169,7 +173,8 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	exampleID := chi.URLParam(r, "exampleID")
-	record, err := h.svc.Get(r.Context(), projectID, exampleID)
+	scope := auth.ReadScopeFromContext(r.Context())
+	record, err := h.svc.Get(r.Context(), scope, projectID, exampleID)
 	if err != nil {
 		apierror.Write(w, r, apierror.NotFound(err.Error()))
 		return
@@ -213,7 +218,8 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 	targetType := r.URL.Query().Get("target_type")
 	targetID := r.URL.Query().Get("target_id")
 	exampleID := r.URL.Query().Get("example_id")
-	schema, err := h.svc.BuildFormSchema(r.Context(), projectID, mode, targetType, targetID, exampleID, h.lang(r), h.languages)
+	scope := auth.ReadScopeFromContext(r.Context())
+	schema, err := h.svc.BuildFormSchema(r.Context(), scope, projectID, mode, targetType, targetID, exampleID, h.lang(r), h.languages)
 	if err != nil {
 		apierror.Write(w, r, apierror.BadRequest(err.Error()))
 		return

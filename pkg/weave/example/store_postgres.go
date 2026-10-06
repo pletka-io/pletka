@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -40,15 +41,6 @@ func (s *postgresStore) CreateWithValues(ctx context.Context, ex *domain.Example
 		return err
 	}
 	return nil
-}
-
-func (s *postgresStore) GetByID(ctx context.Context, id string) (*domain.Example, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT id, project_id, entity_type, entity_id, title, description, status, version_number, created_at, updated_at
-		FROM weave_examples
-		WHERE id = $1
-	`, id)
-	return scanExample(row)
 }
 
 func (s *postgresStore) UpdateWithValues(ctx context.Context, ex *domain.Example, values []domain.ExampleValue) error {
@@ -82,10 +74,68 @@ func (s *postgresStore) Delete(ctx context.Context, id string) error {
 	return err
 }
 
-func (s *postgresStore) List(ctx context.Context, opts ...domain.QueryOption) ([]*domain.Example, int64, error) {
+// ---------------------------------------------------------------------------
+// Reads
+// ---------------------------------------------------------------------------
+
+// At returns a reader bound to scope. The two configurations differ only in
+// which pair of tables they read and whether a version predicate is applied,
+// so they share one implementation rather than duplicating the List builder.
+func (s *postgresStore) At(scope auth.ReadScope) (Reader, error) {
+	if !scope.Valid() {
+		return nil, fmt.Errorf("example: read without a scope — the caller must name auth.Draft() or auth.Release(version)")
+	}
+	if scope.IsRelease() {
+		return &reader{
+			pool:      s.pool,
+			examples:  "weave_examples_archive",
+			values:    "weave_example_values_archive",
+			version:   scope.Version(),
+			isArchive: true,
+		}, nil
+	}
+	return &reader{
+		pool:     s.pool,
+		examples: "weave_examples",
+		values:   "weave_example_values",
+	}, nil
+}
+
+// reader reads examples at one scope. isArchive is carried separately from a
+// non-empty version because it is the thing every query branches on, and a
+// release version could in principle be empty only by a bug — which At
+// already refuses.
+type reader struct {
+	pool      *pgxpool.Pool
+	examples  string
+	values    string
+	version   string
+	isArchive bool
+}
+
+func (r *reader) GetByID(ctx context.Context, id string) (*domain.Example, error) {
+	sql := `
+		SELECT id, project_id, entity_type, entity_id, title, description, status, version_number, created_at, updated_at
+		FROM ` + r.examples + `
+		WHERE id = $1`
+	args := []any{id}
+	if r.isArchive {
+		sql += ` AND version_number = $2`
+		args = append(args, r.version)
+	}
+	return scanExample(r.pool.QueryRow(ctx, sql, args...))
+}
+
+func (r *reader) List(ctx context.Context, opts ...domain.QueryOption) ([]*domain.Example, int64, error) {
 	cfg := domain.ApplyOptions(opts)
 	args := []any{}
 	where := []string{"1=1"}
+	// The version predicate comes first so an archive read can never widen
+	// to another release's rows, whatever the filters do.
+	if r.isArchive {
+		args = append(args, r.version)
+		where = append(where, fmt.Sprintf("version_number = $%d", len(args)))
+	}
 	if cfg.ProjectID != "" {
 		args = append(args, cfg.ProjectID)
 		where = append(where, fmt.Sprintf("project_id = $%d", len(args)))
@@ -106,9 +156,9 @@ func (s *postgresStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 		args = append(args, "%"+cfg.Search+"%")
 		where = append(where, fmt.Sprintf("(coalesce(title::text,'') ILIKE $%d OR coalesce(description::text,'') ILIKE $%d)", len(args), len(args)))
 	}
-	countSQL := "SELECT count(*) FROM weave_examples WHERE " + strings.Join(where, " AND ")
+	countSQL := "SELECT count(*) FROM " + r.examples + " WHERE " + strings.Join(where, " AND ")
 	var total int64
-	if err := s.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	orderBy := "updated_at DESC"
@@ -121,11 +171,11 @@ func (s *postgresStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 	args = append(args, cfg.Limit, cfg.Offset)
 	sql := `
 		SELECT id, project_id, entity_type, entity_id, title, description, status, version_number, created_at, updated_at
-		FROM weave_examples
+		FROM ` + r.examples + `
 		WHERE ` + strings.Join(where, " AND ") + `
 		ORDER BY ` + orderBy + `
 		LIMIT $` + fmt.Sprint(len(args)-1) + ` OFFSET $` + fmt.Sprint(len(args))
-	rows, err := s.pool.Query(ctx, sql, args...)
+	rows, err := r.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -141,15 +191,21 @@ func (s *postgresStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 	return out, total, rows.Err()
 }
 
-func (s *postgresStore) ListValues(ctx context.Context, exampleID string) ([]domain.ExampleValue, error) {
-	rows, err := s.pool.Query(ctx, `
+func (r *reader) ListValues(ctx context.Context, exampleID string) ([]domain.ExampleValue, error) {
+	sql := `
 		SELECT id, example_id, override_id, field_id, coalesce(part_of_collection_id, ''), occurrence_index, slot_path,
 		       value_kind, value_payload, text_value, number_value, date_value, uri_value,
 		       concept_uri, linked_example_id, created_at, updated_at
-		FROM weave_example_values
-		WHERE example_id = $1
-		ORDER BY override_id ASC, occurrence_index ASC, slot_path ASC
-	`, exampleID)
+		FROM ` + r.values + `
+		WHERE example_id = $1`
+	args := []any{exampleID}
+	if r.isArchive {
+		sql += ` AND version_number = $2`
+		args = append(args, r.version)
+	}
+	sql += `
+		ORDER BY override_id ASC, occurrence_index ASC, slot_path ASC`
+	rows, err := r.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
