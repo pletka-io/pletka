@@ -41,7 +41,6 @@ const (
 // plan is readable as a list of pieces of work rather than a repeated string.
 const (
 	convAttribution = "the attribution slice conversion"
-	convCategory    = "the category slice conversion (spec Part 3, sequencing step 4)"
 	convCollection  = "the collection slice conversion (spec Part 3, sequencing step 5)"
 	convField       = "the field slice conversion (spec Part 3, sequencing step 4)"
 	convFieldUsage  = "the field usage-counts conversion (spec Part 3, sequencing step 4)"
@@ -61,14 +60,6 @@ const (
 // conversion) and 47 are listed here.
 var UnscopedReadAllowlist = map[string]Exemption{
 	// --- surfaced when the scanner inverted to a mutation denylist -----
-	"category.Stats": {
-		Reason:       trulyUnscoped + "Derived counts over live rows, so a pinned view reports today's totals.",
-		ConvertsWith: convCategory,
-	},
-	"category.IsInUse": {
-		Reason:       trulyUnscoped + "Answers whether a category is used, from live placements.",
-		ConvertsWith: convCategory,
-	},
 	"field.Stats": {
 		Reason:       trulyUnscoped + "Derived counts over live rows.",
 		ConvertsWith: convField,
@@ -292,18 +283,6 @@ var UnscopedReadAllowlist = map[string]Exemption{
 	},
 
 	// --- category ----------------------------------------------------
-	"category.List": {
-		Reason:       trulyUnscoped + "A pinned view lists categories renamed or added after the release.",
-		ConvertsWith: convCategory,
-	},
-	"category.Get": {
-		Reason:       ambientVersioned + "Reads the archived category when a version is pinned.",
-		ConvertsWith: convCategory,
-	},
-	"category.ListWithCounts": {
-		Reason:       ambientVersioned + "The counts beside each category come from the same branch.",
-		ConvertsWith: convCategory,
-	},
 
 	// --- collection --------------------------------------------------
 	"collection.List": {

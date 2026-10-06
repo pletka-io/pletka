@@ -3,6 +3,7 @@ package category
 import (
 	"context"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -14,6 +15,12 @@ import (
 // primary-key lookups (GetByID), passing projectID lets the implementation
 // enforce row-level access without a second query.
 type Store interface {
+	// At returns the reader bound to scope, or an error when scope is the
+	// invalid zero value. Reads live on the Reader, not here: a mutation
+	// always runs against the live tables, so keeping writes on Store and
+	// reads behind a scope makes "hot" structural rather than conventional.
+	At(scope auth.ReadScope) (Reader, error)
+
 	// --- CRUD ---
 
 	// Create inserts a new category. The caller is responsible for setting
