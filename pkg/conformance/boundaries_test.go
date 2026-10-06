@@ -1,6 +1,9 @@
 package conformance
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -21,11 +24,7 @@ func TestReadScopeFromContextOnlyAtRequestBoundaries(t *testing.T) {
 		if isRequestBoundary(rel) || strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/auth/") {
 			continue
 		}
-		body, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("read %s: %v", rel, err)
-		}
-		if strings.Contains(string(body), "ReadScopeFromContext") {
+		if referencesIdent(t, f, "ReadScopeFromContext") {
 			offenders = append(offenders, rel)
 		}
 	}
@@ -137,4 +136,34 @@ func mustRel(t *testing.T, base, path string) string {
 		t.Fatalf("rel %s: %v", path, err)
 	}
 	return filepath.ToSlash(rel)
+}
+
+// referencesIdent reports whether the file CALLS or otherwise references the
+// named identifier, by walking the AST rather than searching the text.
+//
+// A substring scan over the source also matched the name inside a comment, so
+// a service that merely documented where the scope comes from was reported as
+// an offender. That is not a hypothetical: the category slice's conversion
+// tripped it with a comment saying handlers resolve the scope at the
+// boundary. Matching identifiers is strictly more precise -- every real use
+// is still caught, prose no longer is.
+func referencesIdent(t *testing.T, path, name string) bool {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	found := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		if id, ok := n.(*ast.Ident); ok && id.Name == name {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
@@ -109,7 +110,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.svc.ListWithCounts(r.Context(), projectID)
+	rows, err := h.svc.ListWithCounts(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -130,7 +131,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cat, err := h.svc.Get(r.Context(), projectID, id)
+	cat, err := h.svc.Get(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, id)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -320,7 +321,7 @@ func (h *Handler) Options(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cats, err := h.svc.List(r.Context(), projectID)
+	cats, err := h.svc.List(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -363,7 +364,7 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	report, err := h.svc.Stats(r.Context(), projectID, id)
+	report, err := h.svc.Stats(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, id)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -414,7 +415,7 @@ func (h *Handler) FormSchemaEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cat, err := h.svc.Get(r.Context(), projectID, id)
+	cat, err := h.svc.Get(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, id)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return

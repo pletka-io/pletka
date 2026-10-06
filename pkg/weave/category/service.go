@@ -33,13 +33,6 @@ type EntityNumberer interface {
 	AllocateEntityNumber(ctx context.Context, projectID, kind string) (int64, error)
 }
 
-type versionedCategoryReader interface {
-	GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Category, error)
-	ListWithCountsVersion(ctx context.Context, projectID, version string) ([]WithCounts, error)
-	ModelFieldOverridesVersion(ctx context.Context, projectID, categoryID, version string) ([]domain.OverrideEntry, error)
-	CollectionFieldOverridesVersion(ctx context.Context, projectID, semanticID, version string) ([]domain.OverrideEntry, error)
-}
-
 type Service struct {
 	store     Store
 	adoptions domain.AdoptionStore
@@ -141,47 +134,65 @@ func (e *ErrValidation) Error() string {
 // Reads
 // ---------------------------------------------------------------------------
 
-// List returns categories within a project. Caller must have read access.
-func (s *Service) List(ctx context.Context, projectID string, opts ...domain.QueryOption) ([]*domain.Category, error) {
+// Every read takes the scope it must answer from. The service does not
+// consult the request for a version: a reader that resolved its own scope
+// could not be asked for a different one, which is exactly what the adoption
+// picker needs when it reads another project at that project's release.
+// Handlers obtain the scope once, at the boundary, with
+// auth.ReadScopeFromContext.
+
+// List returns the categories the scope carries. Caller must have read access.
+func (s *Service) List(ctx context.Context, scope auth.ReadScope, projectID string, opts ...domain.QueryOption) ([]*domain.Category, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	return s.store.List(ctx, projectID, opts...)
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
+	return r.List(ctx, projectID, opts...)
 }
 
-// Get returns a single category, or (nil, nil) when not found.
-func (s *Service) Get(ctx context.Context, projectID, id string) (*domain.Category, error) {
+// Get returns a single category, or (nil, nil) when the scope does not carry
+// it. Under a release that never archived the category this is "not here",
+// not a fallback to the draft row.
+func (s *Service) Get(ctx context.Context, scope auth.ReadScope, projectID, id string) (*domain.Category, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	if version := auth.ProjectVersionFromContext(ctx); version != "" {
-		if vr, ok := s.store.(versionedCategoryReader); ok {
-			return vr.GetByIDVersion(ctx, projectID, id, version)
-		}
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
 	}
-	return s.store.GetByID(ctx, projectID, id)
+	return r.GetByID(ctx, projectID, id)
 }
 
 // ListWithCounts returns each category with its usage counts and a derived
-// in_use boolean. Used by list views that gate the delete button.
-func (s *Service) ListWithCounts(ctx context.Context, projectID string) ([]WithCounts, error) {
+// in_use boolean. Used by list views that gate the delete button. Counts come
+// from the same scope as the categories: live counts beside an archived
+// category would describe something the reader is not looking at, and that is
+// how a pinned view ends up offering to delete a category the release uses.
+func (s *Service) ListWithCounts(ctx context.Context, scope auth.ReadScope, projectID string) ([]WithCounts, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	if version := auth.ProjectVersionFromContext(ctx); version != "" {
-		if vr, ok := s.store.(versionedCategoryReader); ok {
-			return vr.ListWithCountsVersion(ctx, projectID, version)
-		}
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
 	}
-	return s.store.ListWithCounts(ctx, projectID)
+	return r.ListWithCounts(ctx, projectID)
 }
 
 // IsInUse exposes the boolean directly for UI hot-path queries.
-func (s *Service) IsInUse(ctx context.Context, projectID, id, semanticID string) (bool, error) {
+func (s *Service) IsInUse(ctx context.Context, scope auth.ReadScope, projectID, id, semanticID string) (bool, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return false, err
 	}
-	return s.store.IsInUse(ctx, projectID, id, semanticID)
+	r, err := s.store.At(scope)
+	if err != nil {
+		return false, err
+	}
+	return r.IsInUse(ctx, projectID, id, semanticID)
 }
 
 // StatsReport summarises a category's usage. Returned by Stats() and
@@ -194,54 +205,37 @@ type StatsReport struct {
 	TotalUsage               int                    `json:"total_usage"`
 }
 
-// Stats returns the category alongside its model + collection field
-// override usage. Used by the stats modal in the categories list.
-func (s *Service) Stats(ctx context.Context, projectID, id string) (*StatsReport, error) {
+// Stats returns the category alongside its model + collection field override
+// usage, all three from one scope.
+//
+// The previous shape read the category at the pinned version only if the
+// store happened to implement an optional interface, and otherwise fell
+// through to the live row with no error -- so a release view silently
+// reported today's usage. One Reader removes the branch and the fallback with
+// it.
+func (s *Service) Stats(ctx context.Context, scope auth.ReadScope, projectID, id string) (*StatsReport, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
 
-	var (
-		cat            *domain.Category
-		err            error
-		modelOverrides []domain.OverrideEntry
-		collOverrides  []domain.OverrideEntry
-	)
-	if version := auth.ProjectVersionFromContext(ctx); version != "" {
-		if vr, ok := s.store.(versionedCategoryReader); ok {
-			cat, err = vr.GetByIDVersion(ctx, projectID, id, version)
-			if err != nil {
-				return nil, err
-			}
-			if cat == nil {
-				return nil, errNotFound
-			}
-			modelOverrides, err = vr.ModelFieldOverridesVersion(ctx, projectID, id, version)
-			if err != nil {
-				return nil, err
-			}
-			collOverrides, err = vr.CollectionFieldOverridesVersion(ctx, projectID, cat.SemanticID, version)
-			if err != nil {
-				return nil, err
-			}
-		}
+	cat, err := r.GetByID(ctx, projectID, id)
+	if err != nil {
+		return nil, err
 	}
 	if cat == nil {
-		cat, err = s.store.GetByID(ctx, projectID, id)
-		if err != nil {
-			return nil, err
-		}
-		if cat == nil {
-			return nil, errNotFound
-		}
-		modelOverrides, err = s.store.ModelFieldOverrides(ctx, projectID, id)
-		if err != nil {
-			return nil, err
-		}
-		collOverrides, err = s.store.CollectionFieldOverrides(ctx, projectID, cat.SemanticID)
-		if err != nil {
-			return nil, err
-		}
+		return nil, errNotFound
+	}
+	modelOverrides, err := r.ModelFieldOverrides(ctx, projectID, id)
+	if err != nil {
+		return nil, err
+	}
+	collOverrides, err := r.CollectionFieldOverrides(ctx, projectID, cat.SemanticID)
+	if err != nil {
+		return nil, err
 	}
 
 	return &StatsReport{

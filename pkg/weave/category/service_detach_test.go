@@ -2,6 +2,7 @@ package category
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
@@ -80,6 +81,57 @@ type detachTestStore struct {
 }
 
 func (s *detachTestStore) Create(context.Context, *domain.Category) error { return nil }
+
+// At satisfies Store. This stub serves one scope -- the draft -- because the
+// detach test is about an update path, not about which version is read; a
+// release scope here would be a silent lie, so it is refused outright.
+func (s *detachTestStore) At(scope weaveauth.ReadScope) (Reader, error) {
+	if !scope.Valid() {
+		return nil, errors.New("detachTestStore: scope required")
+	}
+	if scope.IsRelease() {
+		return nil, errors.New("detachTestStore: this stub has no archive; the detach test reads the draft")
+	}
+	return detachTestReader{s: s}, nil
+}
+
+// detachTestReader exposes only what the stub can honestly answer. Anything
+// the detach test does not exercise returns an error rather than a zero
+// value, so a future test that starts depending on it fails loudly instead of
+// reading an empty result as fact.
+type detachTestReader struct{ s *detachTestStore }
+
+func (r detachTestReader) GetByID(ctx context.Context, projectID, id string) (*domain.Category, error) {
+	return r.s.GetByID(ctx, projectID, id)
+}
+
+func (r detachTestReader) GetByIdentifier(ctx context.Context, projectID, identifier string) (*domain.Category, error) {
+	return r.s.GetByIdentifier(ctx, projectID, identifier)
+}
+
+func (r detachTestReader) List(context.Context, string, ...domain.QueryOption) ([]*domain.Category, error) {
+	return nil, errors.New("detachTestReader: List not stubbed")
+}
+
+func (r detachTestReader) Count(context.Context, string, ...domain.QueryOption) (int64, error) {
+	return 0, errors.New("detachTestReader: Count not stubbed")
+}
+
+func (r detachTestReader) ListWithCounts(context.Context, string) ([]WithCounts, error) {
+	return nil, errors.New("detachTestReader: ListWithCounts not stubbed")
+}
+
+func (r detachTestReader) ModelFieldOverrides(context.Context, string, string) ([]domain.OverrideEntry, error) {
+	return nil, errors.New("detachTestReader: ModelFieldOverrides not stubbed")
+}
+
+func (r detachTestReader) CollectionFieldOverrides(context.Context, string, string) ([]domain.OverrideEntry, error) {
+	return nil, errors.New("detachTestReader: CollectionFieldOverrides not stubbed")
+}
+
+func (r detachTestReader) IsInUse(context.Context, string, string, string) (bool, error) {
+	return false, errors.New("detachTestReader: IsInUse not stubbed")
+}
 
 func (s *detachTestStore) GetByID(_ context.Context, projectID, id string) (*domain.Category, error) {
 	row := s.byID[id]
