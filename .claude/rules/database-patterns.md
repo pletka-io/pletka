@@ -28,6 +28,23 @@ code.
 
 ## Query Rules (sqlc)
 
+- **No inline SQL. Not mixed with named queries, not "just this one".** Every
+  statement lives in `pkg/database/queries/*.sql` and is reached through the
+  generated method. `pkg/conformance` fails the build on a SQL string literal
+  in any non-generated, non-test Go file, with a per-file ceiling in
+  `inline_sql_allowlist.go` that may only go down.
+
+  The reason is checkability, not taste: sqlc validates a query against the
+  migrations, so a dropped column fails generation. The same query as a Go
+  string is checked by nothing until it runs. And it cannot be found — asked
+  where a column is read, a reader greps the queries directory and silently
+  misses every string literal. Mixing both forms makes that directory look
+  complete when it is not, which is worse than either form alone.
+
+  Permanent exemptions exist and are narrow: a session-level advisory lock
+  (`SELECT pg_advisory_lock($1)`) has no result set to map and nothing to
+  validate against the schema.
+
 - Hand-written SQL lives in `pkg/database/queries/*.sql` (one file per area).
 - **Always run `go tool sqlc generate`** — never a global `sqlc` binary (the
   version is pinned in `go.mod`; a different one emits incompatible types).

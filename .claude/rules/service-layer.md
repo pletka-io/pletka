@@ -82,6 +82,7 @@ A slice owning a table with an `_archive` counterpart is a **versioned slice**. 
 - Generators depending on the `domain.WeaveStore` aggregate instead of narrow readers
 - A handler emitting `http.Error`/`http.NotFound` instead of `weaverouter.Error`/`apierror.Write`
 - A read method outside a `Reader` in a versioned slice
+- A SQL string literal anywhere but `pkg/database/queries/*.sql` — see `database-patterns.md`
 - `ReadScopeFromContext` called anywhere but a handler or an MCP tool
 - A paired `X` and `XVersion` on a public surface — a caller that can choose is a caller that can choose wrong
 - A new `_archive` table whose slice is not registered in `pkg/conformance/slices.go`
