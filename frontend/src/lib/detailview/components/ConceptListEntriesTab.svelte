@@ -607,12 +607,18 @@
       </div>
     {/if}
 
-    {#if !isClosed && !hasRemoteSource && createTermURL}
+    {#if !isClosed && createTermURL}
       <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
         <label class="block text-sm font-medium text-gray-700" for="concept-list-new-term">
-          Add a term
+          Add a term directly
         </label>
-        <p class="mt-0.5 text-xs text-gray-500">This list has no external source vocabulary — terms are created directly in this project.</p>
+        <p class="mt-0.5 text-xs text-gray-500">
+          {#if hasRemoteSource}
+            Not in {sourceName || 'the source vocabulary'}? Add the term directly to this project instead.
+          {:else}
+            This list has no external source vocabulary — terms are created directly in this project.
+          {/if}
+        </p>
         <div class="mt-2 flex items-center gap-2">
           <input
             id="concept-list-new-term"
