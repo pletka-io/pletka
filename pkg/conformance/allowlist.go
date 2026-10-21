@@ -270,7 +270,7 @@ var UnscopedReadAllowlist = map[string]Exemption{
 			"which another project's collection could be resolved. Binding the foreign row to " +
 			"the asking project's version instead returns nothing, which drops the whole " +
 			"reference-adopted slice out of a release view with no signal; stale but present " +
-			"and labelled beats silently absent. Removing it needs a source version recorded on " +
+			"and labeled beats silently absent. Removing it needs a source version recorded on " +
 			"the reference itself -- a write-path and schema change, not a read conversion.",
 		ConvertsWith: convReferenceSourceVersion,
 	},
@@ -359,6 +359,22 @@ var UnscopedReadAllowlist = map[string]Exemption{
 	// (TestListUsage_VersionAware), outside the service-read conversion, and belongs
 	// to the spec's Part 3 sweep. The accessor baseline fell because of the service
 	// conversion, not because the slice reached zero.
+	//
+	// Nor is the slice structurally closed. collection.Store still DECLARES its
+	// unscoped reads beside their Reader twins -- GetByID, GetByIdentifier, List,
+	// ListOptions, ScopeClasses, CategoriesUsed, ListUsage, IsInUse, Usage,
+	// BatchCompositionCounts, ListReferenceAdopted and AnchorIndex -- and they are
+	// not private: each Reader method's draft branch delegates to one, and the
+	// legacy facade in pkg/weave/store.go forwards six of them through
+	// collectionStoreAdapter unchanged (GetByID, GetByIdentifier, List, ListOptions,
+	// ListUsage, ListReferenceAdopted), which is how detailview still reaches them.
+	// So a caller that wants an unscoped collection read can still have one without
+	// touching this allowlist. That matches the category precedent, and is
+	// INCONSISTENT with the override conversion in this same branch, whose
+	// overrideStoreAdapter routes every legacy read through At(Draft()) so the draft
+	// choice is visible at the facade. Two shapes now exist for the same problem;
+	// whoever converts the next slice should pick one deliberately rather than
+	// copying whichever file they opened first.
 
 	// --- example -----------------------------------------------------
 	// The example slice has no version awareness at all. Its archives

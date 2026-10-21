@@ -40,8 +40,8 @@ type WeaveCategoriesUsedAtVersionRow struct {
 	CanonicalOrder int32  `json:"canonical_order"`
 }
 
-// Answers "every category the release carried", NOT "the categories the
-// release's placements cited" — a reader of the plan will expect the latter.
+// Answers "every category the release carried", not "the categories the
+// release's placements cited" -- a reader of the plan will expect the latter.
 // All categories the release recorded for this project. Mirrors
 // WeaveListCollectionCategoriesForProject against the archive, deliberately
 // NOT a placements join: that join is the bug the live query's comment
@@ -840,7 +840,7 @@ type WeaveListReferenceAdoptedCollectionsAtVersionParams struct {
 // source version anywhere, so there is nothing else to resolve it at. Binding
 // c.version_number to the adopting project's release instead returns nothing,
 // which drops the reference-adopted slice out of the release view with no
-// signal. Stale but present and labelled beats silently absent. This is the
+// signal. Stale but present and labeled beats silently absent. This is the
 // same commented cross-project fallback the detail view already makes for a
 // single-collection header.
 func (q *Queries) WeaveListReferenceAdoptedCollectionsAtVersion(ctx context.Context, arg WeaveListReferenceAdoptedCollectionsAtVersionParams) ([]WeaveCollection, error) {

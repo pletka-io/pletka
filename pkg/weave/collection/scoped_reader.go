@@ -30,8 +30,10 @@ type Reader interface {
 	// Usage reports field usage as this scope recorded it.
 	Usage(ctx context.Context, projectID, collectionID string) (UsageReport, error)
 
-	// ScopeClasses derives the ontology scope classes from this scope's
-	// field paths.
+	// ScopeClasses returns the distinct prefix:local_name classes recorded
+	// in ontology_scope on this scope's collection rows. It does not walk
+	// field paths — that wrong premise produced a query against a column
+	// the archive does not have.
 	ScopeClasses(ctx context.Context, projectID string) ([]string, error)
 
 	// CategoriesUsed lists every category this scope recorded for the

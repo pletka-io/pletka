@@ -295,7 +295,7 @@ func (s *postgresStore) listVersion(ctx context.Context, projectID, version stri
 	}
 	// The same three filters List applies, with the same semantics: an empty
 	// string means "no filter", scope_class and category_id accept a
-	// comma-separated set. A filter honoured on the draft and dropped here
+	// comma-separated set. A filter honored on the draft and dropped here
 	// makes one query answer differently depending on whether a version was
 	// named, which is what the Reader contract forbids.
 	scopeClass, _ := cfg.Filters["scope_class"].(string)
