@@ -37,16 +37,23 @@ func TestScopeClassesAtVersionReadsTheArchive(t *testing.T) {
 	}
 }
 
-// TestCategoriesUsedAtVersionKeepsSinceDeletedCategories pins Review Focus 4:
-// a release may cite a category that no longer exists. The row must survive
-// with an empty label rather than vanish.
-func TestCategoriesUsedAtVersionKeepsSinceDeletedCategories(t *testing.T) {
+// TestCategoriesUsedAtVersionReturnsEveryProjectCategory pins the semantics of
+// the live query this mirrors: ALL of the project's categories at the version,
+// not only the ones some placement referenced. The live query's own comment
+// records why — a placements join returned 0 rows on projects whose collections
+// were not yet tagged with default_category_id, and the filter dropdown looked
+// broken. A release view must not bring that back behind a version.
+func TestCategoriesUsedAtVersionReturnsEveryProjectCategory(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 	q := sqlcgen.New(pool)
 
-	// A placement at 1.0.0 citing a category with no archive row at all.
-	seedArchivedPlacement(t, pool, "proj-1", "model-1", "cat-gone", "coll-1", "1.0.0")
+	// Two categories at 1.0.0. Only one is referenced by a placement; both must
+	// come back. A third belongs to another version and must not.
+	seedArchivedCategory(t, pool, "proj-1", "cat-placed", "1.0.0", 1)
+	seedArchivedCategory(t, pool, "proj-1", "cat-unplaced", "1.0.0", 2)
+	seedArchivedCategory(t, pool, "proj-1", "cat-other-version", "2.0.0", 3)
+	seedArchivedPlacement(t, pool, "proj-1", "model-1", "cat-placed", "coll-1", "1.0.0")
 
 	got, err := q.WeaveCategoriesUsedAtVersion(ctx, sqlcgen.WeaveCategoriesUsedAtVersionParams{
 		ProjectID:     "proj-1",
@@ -55,8 +62,27 @@ func TestCategoriesUsedAtVersionKeepsSinceDeletedCategories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WeaveCategoriesUsedAtVersion: %v", err)
 	}
-	if len(got) != 1 || got[0].CategoryID != "cat-gone" {
-		t.Fatalf("got %v, want the since-deleted category retained", got)
+	ids := make([]string, 0, len(got))
+	for _, r := range got {
+		ids = append(ids, r.ID)
+	}
+	want := []string{"cat-placed", "cat-unplaced"}
+	if len(ids) != len(want) {
+		t.Fatalf("got %v, want %v — the unplaced category must survive", ids, want)
+	}
+	for i := range want {
+		if ids[i] != want[i] {
+			t.Fatalf("got %v, want %v in canonical_order", ids, want)
+		}
+	}
+}
+
+func seedArchivedCategory(t *testing.T, pool *pgxpool.Pool, projectID, categoryID, version string, order int) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO weave_categories_archive (id, project_id, canonical_order, version_number)
+		 VALUES ($1, $2, $3, $4)`, categoryID, projectID, order, version); err != nil {
+		t.Fatalf("seed archived category: %v", err)
 	}
 }
 

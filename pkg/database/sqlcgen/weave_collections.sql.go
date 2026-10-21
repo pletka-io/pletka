@@ -22,18 +22,11 @@ func (q *Queries) WeaveActivateCollection(ctx context.Context, id string) error 
 }
 
 const weaveCategoriesUsedAtVersion = `-- name: WeaveCategoriesUsedAtVersion :many
-SELECT p.category_id,
-       COALESCE(c.ui_name, '{}'::jsonb) AS ui_name,
-       COALESCE(c.canonical_order, 0)::int AS canonical_order
-FROM weave_collection_placements_archive p
-LEFT JOIN weave_categories_archive c
-       ON c.id = p.category_id
-      AND c.version_number = p.version_number
-WHERE p.project_id = $1::text
-  AND p.version_number = $2::text
-  AND p.category_id <> ''
-GROUP BY p.category_id, c.ui_name, c.canonical_order
-ORDER BY canonical_order, p.category_id
+SELECT id, ui_name, canonical_order
+FROM weave_categories_archive
+WHERE project_id = $1::text
+  AND version_number = $2::text
+ORDER BY canonical_order ASC, id ASC
 `
 
 type WeaveCategoriesUsedAtVersionParams struct {
@@ -42,14 +35,17 @@ type WeaveCategoriesUsedAtVersionParams struct {
 }
 
 type WeaveCategoriesUsedAtVersionRow struct {
-	CategoryID     string `json:"category_id"`
+	ID             string `json:"id"`
 	UiName         []byte `json:"ui_name"`
 	CanonicalOrder int32  `json:"canonical_order"`
 }
 
-// Categories the release's placements referenced. A LEFT JOIN on the category
-// archive on purpose: a release may cite a category deleted since, and dropping
-// the row would understate what the release contains.
+// All categories the release recorded for this project. Mirrors
+// WeaveListCollectionCategoriesForProject against the archive, deliberately
+// NOT a placements join: that join is the bug the live query's comment
+// records, where a project whose collections were not yet tagged with
+// default_category_id got an empty filter dropdown. A release view must not
+// reintroduce it behind a version.
 func (q *Queries) WeaveCategoriesUsedAtVersion(ctx context.Context, arg WeaveCategoriesUsedAtVersionParams) ([]WeaveCategoriesUsedAtVersionRow, error) {
 	rows, err := q.db.Query(ctx, weaveCategoriesUsedAtVersion, arg.ProjectID, arg.VersionNumber)
 	if err != nil {
@@ -59,7 +55,7 @@ func (q *Queries) WeaveCategoriesUsedAtVersion(ctx context.Context, arg WeaveCat
 	items := []WeaveCategoriesUsedAtVersionRow{}
 	for rows.Next() {
 		var i WeaveCategoriesUsedAtVersionRow
-		if err := rows.Scan(&i.CategoryID, &i.UiName, &i.CanonicalOrder); err != nil {
+		if err := rows.Scan(&i.ID, &i.UiName, &i.CanonicalOrder); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

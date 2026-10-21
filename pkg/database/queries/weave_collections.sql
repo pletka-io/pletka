@@ -241,21 +241,17 @@ WHERE c.project_id = @project_id::text
 ORDER BY scope_class ASC;
 
 -- name: WeaveCategoriesUsedAtVersion :many
--- Categories the release's placements referenced. A LEFT JOIN on the category
--- archive on purpose: a release may cite a category deleted since, and dropping
--- the row would understate what the release contains.
-SELECT p.category_id,
-       COALESCE(c.ui_name, '{}'::jsonb) AS ui_name,
-       COALESCE(c.canonical_order, 0)::int AS canonical_order
-FROM weave_collection_placements_archive p
-LEFT JOIN weave_categories_archive c
-       ON c.id = p.category_id
-      AND c.version_number = p.version_number
-WHERE p.project_id = @project_id::text
-  AND p.version_number = @version_number::text
-  AND p.category_id <> ''
-GROUP BY p.category_id, c.ui_name, c.canonical_order
-ORDER BY canonical_order, p.category_id;
+-- All categories the release recorded for this project. Mirrors
+-- WeaveListCollectionCategoriesForProject against the archive, deliberately
+-- NOT a placements join: that join is the bug the live query's comment
+-- records, where a project whose collections were not yet tagged with
+-- default_category_id got an empty filter dropdown. A release view must not
+-- reintroduce it behind a version.
+SELECT id, ui_name, canonical_order
+FROM weave_categories_archive
+WHERE project_id = @project_id::text
+  AND version_number = @version_number::text
+ORDER BY canonical_order ASC, id ASC;
 
 -- name: WeaveCompositionCountsAtVersion :many
 -- Field counts per collection as the release recorded them. entity_id
