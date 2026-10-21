@@ -282,11 +282,17 @@ var UnscopedReadAllowlist = map[string]Exemption{
 
 	// --- collection --------------------------------------------------
 	//
-	// The collection slice's reads are converted: List, Get, Stats, ScopeClasses,
-	// CategoriesUsed, BatchCompositionCounts, LookupByID and ForkOriginsForProject
-	// are served by collection.Reader, and ListAdoptedExplicit, ListAdoptedByReference
-	// and ForkOriginsForProject take a scope on the service, which holds the adoption
-	// and fork stores. What remains here is deliberate. Three decisions are recorded,
+	// The collection slice's reads are converted, in two shapes. Served by
+	// collection.Reader, which has eight methods: Get, List, Usage, ScopeClasses,
+	// CategoriesUsed, CompositionCounts, ListAdoptedByReference and Lookup -- these
+	// read the collection tables, so the reader picks live or archive. Taking a scope
+	// on the SERVICE instead: ListAdoptedExplicit and ForkOriginsForProject, because
+	// neither reads a collection table. Explicit adoptions come from the adoption
+	// store and fork origins from the fork store, both of which already answer at a
+	// version (fork_store.go branches on cfg.Version and selects the fork archive
+	// itself), and the service is what holds those dependencies. Putting them on the
+	// Reader would mean handing the collection store two foreign stores to proxy.
+	// What remains here is deliberate. Three decisions are recorded,
 	// because the reasoning is the part nobody can reconstruct later:
 	//
 	//  1. AnchorIndex is permanent: it spans every project, so no release scope can
