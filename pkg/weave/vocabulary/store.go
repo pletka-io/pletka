@@ -65,8 +65,8 @@ type Reader interface {
 	// list. The bool reports a degraded vocabulary service.
 	SearchConceptListSourceEntries(ctx context.Context, projectID, conceptListID, query, lang string, limit int) ([]ConceptListEntryView, bool, error)
 
-	// RenderConceptListSKOS serialises a list to SKOS. An export leaves the
-	// system, so it must serialise the scope it claims to be exporting.
+	// RenderConceptListSKOS serializes a list to SKOS. An export leaves the
+	// system, so it must serialize the scope it claims to be exporting.
 	RenderConceptListSKOS(ctx context.Context, projectID, listID string, w io.Writer) error
 }
 
