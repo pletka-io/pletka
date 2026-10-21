@@ -20,7 +20,7 @@ jobs:
       - run: npm run build
         working-directory: frontend
       - uses: actions/setup-go@v7
-        with: { go-version: '1.27.2' }
+        with: { go-version: '1.27.3' }
       - run: go build ./...
       # Generated-code gate — sqlc's own drift check, via `go tool` so the
       # version pinned in go.mod is used. Exits non-zero when
@@ -71,7 +71,7 @@ jobs:
       - run: npm run build
         working-directory: frontend
       - uses: actions/setup-go@v7
-        with: { go-version: '1.27.2' }
+        with: { go-version: '1.27.3' }
       # REQUIRE_DB turns internal/testdb's skip into a failure. Without it this
       # lane reports "ok" having run nothing whenever the fixtures submodule is
       # missing or Docker is unavailable — a green tick on no evidence, which is
