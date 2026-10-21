@@ -197,6 +197,9 @@ func (s *Service) SnapshotForCollection(ctx context.Context, projectID, collecti
 	if err != nil {
 		return nil, fmt.Errorf("load project %s: %w", projectID, err)
 	}
+	if project == nil {
+		return nil, fmt.Errorf("load project %s: not found", projectID)
+	}
 	collection, err := s.collections.Get(ctx, auth.Draft(), projectID, collectionID) // generators has no scope of its own yet: exports are draft-only
 	if err != nil {
 		return nil, fmt.Errorf("load collection %s: %w", collectionID, err)

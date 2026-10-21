@@ -173,9 +173,14 @@ func TestServiceGenerateFieldCSV(t *testing.T) {
 type stubProjectReader struct {
 	project    domain.Project
 	ontologies []domain.ResolvedOntologyVersion
+	missing    bool
 }
 
 func (f *stubProjectReader) GetByID(ctx context.Context, id string) (*domain.Project, error) {
+	if f.missing {
+		// The real store answers (nil, nil) for an id it does not hold.
+		return nil, ctx.Err()
+	}
 	return &f.project, ctx.Err()
 }
 
@@ -321,5 +326,31 @@ func TestServiceSnapshotForCollectionMissingCollection(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "ghost") {
 		t.Fatalf("error %q should name the collection id", err)
+	}
+}
+
+// TestServiceSnapshotForCollectionMissingProject covers the same hole one line
+// up from the collection guard: project.GetByID also answers (nil, nil) for an
+// id it does not hold, and the snapshot dereferences the project too.
+func TestServiceSnapshotForCollectionMissingProject(t *testing.T) {
+	registry, err := generators.NewRegistry(weavecsv.NewRenderer())
+	if err != nil {
+		t.Fatalf("NewRegistry() error: %v", err)
+	}
+	svc := generators.NewService(
+		&stubProjectReader{missing: true},
+		&stubModelReader{},
+		&stubCollectionReader{},
+		nil,
+		&stubNamespaceReader{},
+		registry,
+	)
+
+	snap, err := svc.SnapshotForCollection(context.Background(), "ghost-project", "coll-1", generators.Options{})
+	if err == nil {
+		t.Fatalf("SnapshotForCollection() = %v, want error for a project that does not exist", snap)
+	}
+	if !strings.Contains(err.Error(), "ghost-project") {
+		t.Fatalf("error %q does not name the missing project", err)
 	}
 }
