@@ -19,6 +19,14 @@ import (
 type postgresStore struct {
 	queries *sqlcgen.Queries
 	pool    *pgxpool.Pool
+
+	// adoptions and forks back Reader.ListAdoptedExplicit and the draft
+	// branch of Reader.ForkOrigins, which are not collection queries. They
+	// are nil until Task 3 wires them in; a nil adoptions store yields an
+	// empty adoption list and a nil forks store makes the draft ForkOrigins
+	// return an error.
+	adoptions domain.AdoptionStore
+	forks     domain.ForkStore
 }
 
 // entityTypeCollection is the weave_field_overrides.entity_type value for
@@ -116,7 +124,7 @@ func (s *postgresStore) ListReceiptCollectionClosure(ctx context.Context, seedID
 	return ids, nil
 }
 
-func (s *postgresStore) GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error) {
+func (s *postgresStore) getByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT
 			id, created_at, updated_at, system_name, ui_name, description,
@@ -283,7 +291,7 @@ func (s *postgresStore) ScopeClasses(ctx context.Context, projectID string) ([]s
 	return out, nil
 }
 
-func (s *postgresStore) ListVersion(ctx context.Context, projectID, version string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error) {
+func (s *postgresStore) listVersion(ctx context.Context, projectID, version string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error) {
 	cfg := domain.ApplyOptions(opts)
 	limit := int32(cfg.Limit)
 	if limit <= 0 {
@@ -408,7 +416,7 @@ func (s *postgresStore) Usage(ctx context.Context, projectID, collectionID strin
 	return report, nil
 }
 
-func (s *postgresStore) UsageVersion(ctx context.Context, projectID, collectionID, version string) (UsageReport, error) {
+func (s *postgresStore) usageVersion(ctx context.Context, projectID, collectionID, version string) (UsageReport, error) {
 	var count int64
 	if err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(DISTINCT o.field_id) AS field_count
@@ -884,4 +892,151 @@ func longestCommonClassPrefixTail(chains [][]string) string {
 		return ""
 	}
 	return chains[0][prefixLen-1]
+}
+
+// --- archive reads behind Reader's release branch ---
+
+func archiveRowToCollection(row sqlcgen.WeaveCollectionsArchive) *domain.Collection {
+	c := &domain.Collection{
+		Entity: domain.Entity{
+			ID:            row.ID,
+			CreatedAt:     row.CreatedAt,
+			UpdatedAt:     row.UpdatedAt,
+			SemanticID:    row.ID,
+			SystemName:    derefStr(row.SystemName),
+			UIName:        unmarshalTranslations(row.UiName),
+			Description:   unmarshalTranslations(row.Description),
+			Status:        domain.Status(row.Status),
+			VersionNumber: row.VersionNumber,
+			ProjectID:     row.ProjectID,
+			Deprecated:    row.Deprecated,
+		},
+		CollectionNumber:         derefInt32(row.CollectionNumber),
+		CanonicalCollectionOrder: derefInt32(row.CanonicalCollectionOrder),
+		DefaultCategoryID:        row.DefaultCategoryID,
+		StagingID:                row.StagingID,
+	}
+	if len(row.OntologyScope) > 0 {
+		_ = json.Unmarshal(row.OntologyScope, &c.OntologyScope)
+	}
+	return c
+}
+
+func (s *postgresStore) scopeClassesVersion(ctx context.Context, projectID, version string) ([]string, error) {
+	rows, err := s.queries.WeaveScopeClassesAtVersion(ctx, sqlcgen.WeaveScopeClassesAtVersionParams{
+		ProjectID:     projectID,
+		VersionNumber: version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("archived collection scope classes: %w", err)
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if r != "" {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (s *postgresStore) categoriesUsedVersion(ctx context.Context, projectID, version string) ([]CollectionCategoryOption, error) {
+	rows, err := s.queries.WeaveCategoriesUsedAtVersion(ctx, sqlcgen.WeaveCategoriesUsedAtVersionParams{
+		ProjectID:     projectID,
+		VersionNumber: version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("archived collection categories: %w", err)
+	}
+	out := make([]CollectionCategoryOption, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, CollectionCategoryOption{
+			ID:             r.ID,
+			UIName:         unmarshalTranslations(r.UiName),
+			CanonicalOrder: int(r.CanonicalOrder),
+		})
+	}
+	return out, nil
+}
+
+func (s *postgresStore) compositionCountsVersion(ctx context.Context, collectionIDs []string, version string) (map[string]domain.CompositionCounts, error) {
+	out := make(map[string]domain.CompositionCounts, len(collectionIDs))
+	if len(collectionIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.queries.WeaveCompositionCountsAtVersion(ctx, sqlcgen.WeaveCompositionCountsAtVersionParams{
+		VersionNumber: version,
+		CollectionIds: collectionIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("archived collection composition counts: %w", err)
+	}
+	for _, r := range rows {
+		out[r.EntityID] = domain.CompositionCounts{FieldCount: int(r.FieldCount)}
+	}
+	return out, nil
+}
+
+func (s *postgresStore) forkOriginsVersion(ctx context.Context, projectID, version string) (map[string]domain.Origin, error) {
+	rows, err := s.queries.WeaveForkOriginsAtVersion(ctx, sqlcgen.WeaveForkOriginsAtVersionParams{
+		ProjectID:     projectID,
+		VersionNumber: version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("archived collection fork origins: %w", err)
+	}
+	out := make(map[string]domain.Origin, len(rows))
+	for _, r := range rows {
+		out[r.ForkEntityID] = domain.Origin{
+			Kind:            domain.OriginForked,
+			SourceProjectID: r.SourceProjectID,
+			SourceEntityID:  r.SourceEntityID,
+		}
+	}
+	return out, nil
+}
+
+func (s *postgresStore) listAdoptedByReferenceVersion(ctx context.Context, projectID, version string) ([]*domain.Collection, error) {
+	rows, err := s.queries.WeaveListReferenceAdoptedCollectionsAtVersion(ctx, sqlcgen.WeaveListReferenceAdoptedCollectionsAtVersionParams{
+		ProjectID:     projectID,
+		VersionNumber: version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("archived reference-adopted collections: %w", err)
+	}
+	out := make([]*domain.Collection, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, archiveRowToCollection(r))
+	}
+	return out, nil
+}
+
+// lookupVersion resolves a collection by global id inside a release, with no
+// project gate. Returns (nil, nil) when the release did not archive it.
+func (s *postgresStore) lookupVersion(ctx context.Context, id, version string) (*domain.Collection, error) {
+	row, err := s.queries.WeaveGetCollectionByIDAtVersion(ctx, sqlcgen.WeaveGetCollectionByIDAtVersionParams{
+		ID:            id,
+		VersionNumber: version,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lookup archived collection: %w", err)
+	}
+	return archiveRowToCollection(row), nil
+}
+
+// Transitional: service.go still type-asserts versionedCollectionReader on
+// these exported names. Without them its release branches would fail at
+// runtime. Task 3 moves the service onto At and deletes these.
+func (s *postgresStore) GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error) {
+	return s.getByIDVersion(ctx, projectID, id, version)
+}
+
+func (s *postgresStore) ListVersion(ctx context.Context, projectID, version string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error) {
+	return s.listVersion(ctx, projectID, version, opts...)
+}
+
+func (s *postgresStore) UsageVersion(ctx context.Context, projectID, collectionID, version string) (UsageReport, error) {
+	return s.usageVersion(ctx, projectID, collectionID, version)
 }
