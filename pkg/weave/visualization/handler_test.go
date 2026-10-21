@@ -268,7 +268,7 @@ type testCollectionReader struct {
 	fields     []domain.ResolvedField
 }
 
-func (r *testCollectionReader) Get(ctx context.Context, projectID, id string) (*domain.Collection, error) {
+func (r *testCollectionReader) Get(ctx context.Context, _ auth.ReadScope, projectID, id string) (*domain.Collection, error) {
 	if r.collection.ID != id {
 		return nil, nil
 	}

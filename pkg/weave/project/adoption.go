@@ -147,7 +147,7 @@ type ModelVersionLister interface {
 
 // CollectionVersionLister lists an ancestor's collections at a named scope.
 type CollectionVersionLister interface {
-	ListAt(ctx context.Context, scope weaveauth.ReadScope, projectID string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error)
+	List(ctx context.Context, scope weaveauth.ReadScope, projectID string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error)
 }
 
 // ReleaseLister lists a project's releases, newest first. The picker
@@ -315,7 +315,7 @@ func (h *Handler) AdoptableEntities(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		case "collection":
-			collections, _, cerr := h.collections.ListAt(ctx, scope, pid)
+			collections, _, cerr := h.collections.List(ctx, scope, pid)
 			if cerr != nil {
 				h.log.Warn("list collections for adoptable options", "project_id", projectID, "ancestor", pid, "version", version, "err", cerr)
 				continue

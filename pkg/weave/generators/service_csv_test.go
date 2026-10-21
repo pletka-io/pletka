@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	weavecsv "github.com/pletka-io/pletka/pkg/weave/generators/csv"
@@ -185,9 +186,13 @@ func (f *stubProjectReader) ResolvedOntologyVersions(ctx context.Context, projec
 type stubCollectionReader struct {
 	collection       domain.Collection
 	collectionFields []domain.ResolvedField
+	missing          bool // Get answers (nil, nil), as the real reader does for an unknown collection
 }
 
-func (f *stubCollectionReader) Get(ctx context.Context, projectID, id string) (*domain.Collection, error) {
+func (f *stubCollectionReader) Get(ctx context.Context, _ auth.ReadScope, projectID, id string) (*domain.Collection, error) {
+	if f.missing {
+		return nil, ctx.Err()
+	}
 	return &f.collection, ctx.Err()
 }
 
@@ -294,4 +299,27 @@ func columnIndex(column string) int {
 		}
 	}
 	panic("unknown column: " + column)
+}
+
+func TestServiceSnapshotForCollectionMissingCollection(t *testing.T) {
+	registry, err := generators.NewRegistry(weavecsv.NewRenderer())
+	if err != nil {
+		t.Fatalf("NewRegistry() error: %v", err)
+	}
+	svc := generators.NewService(
+		&stubProjectReader{project: domain.Project{Entity: domain.Entity{ID: "LA"}}},
+		&stubModelReader{},
+		&stubCollectionReader{missing: true},
+		nil,
+		&stubNamespaceReader{},
+		registry,
+	)
+
+	snap, err := svc.SnapshotForCollection(context.Background(), "LA", "ghost", generators.Options{})
+	if err == nil {
+		t.Fatalf("SnapshotForCollection() = %v, want error for a collection that does not exist", snap)
+	}
+	if !strings.Contains(err.Error(), "ghost") {
+		t.Fatalf("error %q should name the collection id", err)
+	}
 }
