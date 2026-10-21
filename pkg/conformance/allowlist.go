@@ -68,34 +68,6 @@ var UnscopedReadAllowlist = map[string]Exemption{
 		Reason:       trulyUnscoped + "Answers whether a field is used, from live placements.",
 		ConvertsWith: convField,
 	},
-	"collection.Stats": {
-		Reason:       trulyUnscoped + "Derived counts over live rows.",
-		ConvertsWith: convCollection,
-	},
-	"collection.LookupView": {
-		Reason:       trulyUnscoped + "The same resolved-field surface as collection.View under a different name, so it carries the same release-era-entity-with-draft-fields problem.",
-		ConvertsWith: convCollection,
-	},
-	"collection.LookupByID": {
-		Reason:       trulyUnscoped + "A live lookup by id; a pinned view can resolve a collection created after the release.",
-		ConvertsWith: convCollection,
-	},
-	"collection.AnchorIndex": {
-		Reason:       trulyUnscoped + "Builds the anchor index from live membership.",
-		ConvertsWith: convCollection,
-	},
-	"collection.CategoriesUsed": {
-		Reason:       trulyUnscoped + "Lists the categories a collection uses, from live placements.",
-		ConvertsWith: convCollection,
-	},
-	"collection.ScopeClasses": {
-		Reason:       trulyUnscoped + "Derives scope classes from live field paths.",
-		ConvertsWith: convCollection,
-	},
-	"collection.ForkOriginsForProject": {
-		Reason:       trulyUnscoped + "Fork origins resolve against live source entities.",
-		ConvertsWith: convCollection,
-	},
 	"model.Stats": {
 		Reason:       trulyUnscoped + "Derived counts over live rows.",
 		ConvertsWith: convModel,
@@ -113,11 +85,7 @@ var UnscopedReadAllowlist = map[string]Exemption{
 			"so a pinned example can show a name changed since the release. It reads no example rows, " +
 			"which is why the example slice's own conversion left it behind: it converts when the slices " +
 			"that own those names do.",
-		ConvertsWith: convModel + " and " + convCollection,
-	},
-	"override.EntityFingerprint": {
-		Reason:       trulyUnscoped + "Fingerprints live placement rows to detect concurrent edits, which is a draft-time question.",
-		ConvertsWith: convCollection,
+		ConvertsWith: convModel,
 	},
 	"vocabulary.VocabularyRoots": {
 		Reason:       trulyUnscoped + "Browses a vocabulary's curated roots from live entries.",
@@ -258,6 +226,34 @@ var UnscopedReadAllowlist = map[string]Exemption{
 		Permanent:        true,
 		CallerObligation: "A creation-time check; nothing rendering a release should call it.",
 	},
+	"collection.AnchorIndex": {
+		Reason: "Indexes anchor classes across EVERY project, with no project parameter and " +
+			"therefore nothing a per-project release scope could bind to. Two projects pinned to " +
+			"different releases have no common version at which this index could be taken, so the " +
+			"question 'this index at version V' has no answer rather than an expensive one.",
+		Permanent: true,
+		CallerObligation: "A caller rendering a release must not use this index to resolve what that " +
+			"release contains; it reports today's cross-project membership. Snapshot composition that " +
+			"needs release content must read each project through its own scoped reader. Nothing can " +
+			"violate this today -- generators.Options carries no version field, so a render cannot be " +
+			"pinned at all -- but pinned exports cannot ship until the composition path takes a scope, " +
+			"and that is the moment this obligation starts to bind.",
+	},
+	"collection.View": {
+		Reason: trulyUnscoped + "Returns resolved fields, which are field and override content rather " +
+			"than collection content. Scoping the collection while its fields still read live would " +
+			"produce a release-era entity carrying draft fields -- internally contradictory rather " +
+			"than merely stale, which is the export defect the spec names. The collection conversion " +
+			"deliberately left this behind: it converts when the slices that own the fields do. " +
+			"See the decision recorded above this entry.",
+		ConvertsWith: convField,
+	},
+	"collection.LookupView": {
+		Reason: trulyUnscoped + "The same resolved-field surface as collection.View, without the project " +
+			"gate, so it carries the same release-era-entity-with-draft-fields problem and is left " +
+			"behind for the same reason: it converts when the field slice does.",
+		ConvertsWith: convField,
+	},
 	"collection.ForkFromSource": {
 		Reason:           "A mutation: it creates a forked collection. Mutations run hot by design and take no scope, which is structural in the Store/Reader split rather than a rule to remember.",
 		Permanent:        true,
@@ -285,31 +281,47 @@ var UnscopedReadAllowlist = map[string]Exemption{
 	// --- category ----------------------------------------------------
 
 	// --- collection --------------------------------------------------
-	"collection.List": {
-		Reason:       ambientVersioned,
-		ConvertsWith: convCollection,
-	},
-	"collection.Get": {
-		Reason:       ambientVersioned,
-		ConvertsWith: convCollection,
-	},
-	"collection.ListAdoptedExplicit": {
-		Reason:       ambientVersioned + "Adopted collections resolve at the reader's version.",
-		ConvertsWith: convCollection,
-	},
-	"collection.ListAdoptedByReference": {
-		Reason:       trulyUnscoped + "Its sibling ListAdoptedExplicit branches on the version and this one does not, so the two disagree under a release.",
-		ConvertsWith: convCollection,
-	},
-	"collection.BatchCompositionCounts": {
-		Reason:       trulyUnscoped + "Composition counts are computed from live membership, so a pinned collection reports how many fields it holds today.",
-		ConvertsWith: convCollection,
-	},
-	"collection.View": {
-		Reason: trulyUnscoped + "View is the surface the generators consume, so a pinned SHACL or Turtle export " +
-			"carries a release-era entity with draft fields -- internally contradictory rather than merely stale. The spec's exports section calls this out.",
-		ConvertsWith: "the collection slice conversion, which the spec sequences before exports",
-	},
+	//
+	// The collection slice's reads are converted: List, Get, Stats, ScopeClasses,
+	// CategoriesUsed, BatchCompositionCounts, LookupByID and ForkOriginsForProject
+	// are served by collection.Reader, and ListAdoptedExplicit, ListAdoptedByReference
+	// and ForkOriginsForProject take a scope on the service, which holds the adoption
+	// and fork stores. What remains here is deliberate. Three decisions are recorded,
+	// because the reasoning is the part nobody can reconstruct later:
+	//
+	//  1. AnchorIndex is permanent: it spans every project, so no release scope can
+	//     bind to it (entry below).
+	//  2. override.EntityFingerprint is permanent: a draft-time concurrency primitive
+	//     (entry in the override section).
+	//  3. View and LookupView are left behind, temporary, and convert with the field
+	//     slice -- scoping the collection while its fields read live would build a
+	//     release-era entity carrying draft fields.
+	//
+	// Decision 3 carries a hazard that is the most important finding of this
+	// conversion, and it applies to every slice still waiting:
+	//
+	// A signature change behind an OPTIONAL TYPE ASSERTION degrades silently. When
+	// the collection reads took a scope, generators.CollectionLookupByID needed the
+	// new scoped signature, and the compiler never flagged it. generators reaches
+	// LookupByID through an optional assertion (`s.collections.(CollectionLookupByID)`),
+	// so a stale signature would not have broken the build: the assertion would
+	// simply have failed, and the code would have fallen back to Get. No build
+	// error, no failing test, a different code path that reads the wrong thing. The
+	// only thing that removes the hazard is the conversion that removes the bypass --
+	// review will not catch it. Every remaining slice has the same shape: model
+	// (service.go:222,237,350,377), field (261,365,393,511), projectontologyversion
+	// (6 sites) and namespacebinding (129). A sweep found no optional assertion
+	// against a COLLECTION store; when converting one of those slices, grep for
+	// type assertions against its store (inline `.(interface{` and named
+	// interfaces alike) before declaring it done, because the compiler will say
+	// nothing.
+	//
+	// What is NOT claimed: the collection slice is not free of
+	// auth.ProjectVersionFromContext. collection's store_postgres.go still calls it
+	// inside ListUsage. That is a store-level read with its own test
+	// (TestListUsage_VersionAware), outside the service-read conversion, and belongs
+	// to the spec's Part 3 sweep. The accessor baseline fell because of the service
+	// conversion, not because the slice reached zero.
 
 	// --- example -----------------------------------------------------
 	// The example slice has no version awareness at all. Its archives
@@ -406,10 +418,15 @@ var UnscopedReadAllowlist = map[string]Exemption{
 	},
 
 	// --- override ----------------------------------------------------
-	"override.ListPlacements": {
-		Reason: trulyUnscoped + "Reads weave_collection_placements live although its archive exists as of " +
-			"migration 019. Named in the phase-1 plan's 'After this plan' section as converting with the slice that renders it.",
-		ConvertsWith: "the collection slice conversion (placements have an archive as of Part 1)",
+	"override.EntityFingerprint": {
+		Reason: "Fingerprints the entity's LIVE override rows, refs and placements to detect that two " +
+			"editors raced on the working state. That is a draft-time question by construction: nothing " +
+			"races on a frozen release, so there is no version at which the question is meaningful. It " +
+			"reads through the Draft reader on purpose and takes no scope.",
+		Permanent: true,
+		CallerObligation: "Compare the fingerprint only on a save path, against the fingerprint the editor " +
+			"loaded from the draft. A caller must never use it to decide whether a release is current, " +
+			"or to fingerprint content it rendered at a pinned scope -- it would hash today's rows.",
 	},
 
 	// --- vocabulary: project content ---------------------------------
