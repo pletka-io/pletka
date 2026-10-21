@@ -322,3 +322,154 @@ SELECT EXISTS (
     JOIN weave_vocabulary_entries ve ON ve.id = cle.vocabulary_entry_id AND ve.uri = @uri::text
     WHERE (cl.id = ANY(@ids::text[]) OR cl.semantic_id = ANY(@ids::text[]))
 ) AS present;
+
+-- ===========================================================================
+-- Queries moved out of pkg/weave/vocabulary/service.go, where they were Go
+-- string literals. Moved verbatim: a behaviour change hidden inside a
+-- mechanical move is the hardest kind to find later, so any improvement to
+-- these is a separate commit with its own test.
+-- ===========================================================================
+
+-- name: WeaveListAdminVocabularies :many
+-- Administrative inventory of every vocabulary with its project and entry count.  (was ListAdminVocabularies)
+SELECT
+    v.id,
+    COALESCE(v.semantic_id, '') AS semantic_id,
+    COALESCE(v.system_name, '') AS system_name,
+    COALESCE(v.ui_name, '{}'::jsonb) AS ui_name,
+    COALESCE(v.description, '{}'::jsonb) AS description,
+    v.status,
+    v.project_id,
+    v.connector_type,
+    COALESCE(v.base_uri, '') AS base_uri,
+    v.created_at,
+    v.updated_at,
+    COUNT(DISTINCT ve.id) AS entry_count,
+    COUNT(DISTINCT v.project_id) AS project_count
+FROM weave_vocabularies v
+LEFT JOIN weave_vocabulary_entries ve ON ve.vocabulary_id = v.id
+GROUP BY v.id
+ORDER BY v.system_name ASC, v.id ASC;
+
+-- name: WeaveConceptListDecoration :many
+-- The vocabulary and bound-field decoration beside each of a project's concept lists.  (was decorateConceptLists)
+SELECT
+    cl.id,
+    COALESCE(v.id, '') AS vocabulary_id,
+    COALESCE(v.semantic_id, '') AS vocabulary_semantic_id,
+    COALESCE(v.system_name, '') AS vocabulary_system_name,
+    COALESCE(v.ui_name, '{}'::jsonb) AS vocabulary_ui_name,
+    COALESCE(v.base_uri, '') AS vocabulary_base_uri,
+    COALESCE(lte.id, '') AS list_type_id,
+    COALESCE(lte.vocabulary_id, '') AS list_type_vocabulary_id,
+    COALESCE(lte.uri, '') AS list_type_uri,
+    COALESCE(lte.label, '{}'::jsonb) AS list_type_label,
+    COALESCE(lte.scope_note, '{}'::jsonb) AS list_type_scope_note,
+    COALESCE(lte.broader_uri, '') AS list_type_broader_uri,
+    COALESCE(lte.external_id, '') AS list_type_external_id,
+    COUNT(DISTINCT cle.id) AS entry_count,
+    COUNT(DISTINCT fo.field_id) AS bound_field_count
+FROM weave_concept_lists cl
+LEFT JOIN weave_vocabularies v ON v.id = cl.vocabulary_id
+LEFT JOIN weave_vocabulary_entries lte ON lte.id = cl.list_type
+LEFT JOIN weave_concept_list_entries cle ON cle.concept_list_id = cl.id
+LEFT JOIN weave_override_refs r
+    ON r.ref_type = 'concept_list'
+    AND (r.target_id = cl.id OR r.semantic_id = cl.semantic_id)
+LEFT JOIN weave_field_overrides fo
+    ON fo.id = r.override_id
+    AND fo.project_id = cl.project_id
+WHERE cl.project_id = $1
+GROUP BY cl.id, v.id, v.semantic_id, v.system_name, v.ui_name, v.base_uri, lte.id, lte.vocabulary_id, lte.uri, lte.label, lte.scope_note, lte.broader_uri, lte.external_id;
+
+-- name: WeaveUpdateConceptList :exec
+-- Update a concept list's editable fields.  (was UpdateConceptList)
+UPDATE weave_concept_lists
+SET system_name = $3,
+    ui_name = $4::jsonb,
+    description = $5::jsonb,
+    status = $6,
+    vocabulary_id = $7,
+    list_type = $8,
+    updated_at = NOW()
+WHERE project_id = $1
+  AND (id = $2 OR semantic_id = $2);
+
+-- name: WeaveConceptListOverrideRefCount :one
+-- How many distinct fields reference the list through an override; the delete guard.  (was DeleteConceptList)
+SELECT COUNT(DISTINCT fo.field_id)
+FROM weave_override_refs r
+JOIN weave_field_overrides fo ON fo.id = r.override_id
+WHERE fo.project_id = $1
+  AND r.ref_type = 'concept_list'
+  AND (r.target_id = $2 OR r.semantic_id = $3);
+
+-- name: WeaveDeleteConceptList :exec
+-- Delete a concept list by id or semantic id.  (was DeleteConceptList)
+DELETE FROM weave_concept_lists
+WHERE project_id = $1
+  AND (id = $2 OR semantic_id = $2);
+
+-- name: WeaveFindConceptListEntryByVocabEntry :one
+-- Find an existing entry so adding the same term twice is idempotent.  (was AddConceptListEntry)
+SELECT id
+FROM weave_concept_list_entries
+WHERE concept_list_id = $1 AND vocabulary_entry_id = $2
+LIMIT 1;
+
+-- name: WeaveNextConceptListEntryPosition :one
+-- The next position in a list; MAX(position)+1.  (was AddConceptListEntry)
+SELECT COALESCE(MAX(position), 0) + 1
+FROM weave_concept_list_entries
+WHERE concept_list_id = $1;
+
+-- name: WeaveNextLocalTermPosition :one
+-- The next position when appending a locally created term.  (was CreateLocalTerm)
+SELECT COALESCE(MAX(position), 0) + 1 FROM weave_concept_list_entries WHERE concept_list_id = $1;
+
+-- name: WeaveFindLocalVocabulary :one
+-- The project's local vocabulary, if it already has one.  (was ensureLocalVocabulary)
+SELECT id FROM weave_vocabularies
+WHERE project_id = $1 AND connector_type = 'local'
+ORDER BY created_at LIMIT 1;
+
+-- name: WeaveDeleteConceptListEntryInList :exec
+-- Remove one entry from a list.  (was RemoveConceptListEntry)
+DELETE FROM weave_concept_list_entries
+WHERE id = $1 AND concept_list_id = $2;
+-- Scoped to the list as well as the entry id. The existing WeaveDeleteConceptListEntry is not:
+-- a wrong id there can touch an entry in another list. That looser form has
+-- one legacy caller and is left alone here rather than changed underneath it.
+-- name: WeaveUpdateConceptListEntryLabel :exec
+-- Set an entry's custom label.  (was UpdateConceptListEntry)
+UPDATE weave_concept_list_entries
+SET custom_label = $1::jsonb,
+    updated_at = NOW()
+WHERE id = $2
+  AND concept_list_id = $3;
+
+-- name: WeaveSetConceptListEntryPositionInList :exec
+-- Set one entry's position; the reorder loop calls it per id.  (was ReorderConceptListEntries)
+UPDATE weave_concept_list_entries
+SET position = $1,
+    updated_at = NOW()
+WHERE id = $2
+  AND concept_list_id = $3;
+-- Scoped to the list as well as the entry id. The existing WeaveSetConceptListEntryPosition is not:
+-- a wrong id there can touch an entry in another list. That looser form has
+-- one legacy caller and is left alone here rather than changed underneath it.
+-- name: WeaveMaxConceptListNumber :one
+-- Highest existing CL number for a project, scanned from the id.  (was nextConceptListID)
+SELECT COALESCE(MAX((regexp_match(id, '^' || $1 || '\.CL\.([0-9]+)$'))[1]::bigint), 0)
+FROM weave_concept_lists
+WHERE project_id = $1
+  AND id ~ ('^' || $1 || '\.CL\.[0-9]+$');
+
+-- name: WeaveReserveConceptListCounter :exec
+-- Advance and return the project's concept-list counter.  (was nextConceptListID)
+INSERT INTO weave_entity_counters (project_id, kind, next_n)
+VALUES ($1, 'concept_list', $2)
+ON CONFLICT (project_id, kind)
+DO UPDATE SET
+    next_n = GREATEST(weave_entity_counters.next_n, EXCLUDED.next_n),
+    updated_at = NOW();

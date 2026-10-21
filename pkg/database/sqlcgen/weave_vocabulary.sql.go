@@ -64,6 +64,115 @@ func (q *Queries) WeaveAddProjectServiceVocabulary(ctx context.Context, arg Weav
 	return id, err
 }
 
+const weaveConceptListDecoration = `-- name: WeaveConceptListDecoration :many
+SELECT
+    cl.id,
+    COALESCE(v.id, '') AS vocabulary_id,
+    COALESCE(v.semantic_id, '') AS vocabulary_semantic_id,
+    COALESCE(v.system_name, '') AS vocabulary_system_name,
+    COALESCE(v.ui_name, '{}'::jsonb) AS vocabulary_ui_name,
+    COALESCE(v.base_uri, '') AS vocabulary_base_uri,
+    COALESCE(lte.id, '') AS list_type_id,
+    COALESCE(lte.vocabulary_id, '') AS list_type_vocabulary_id,
+    COALESCE(lte.uri, '') AS list_type_uri,
+    COALESCE(lte.label, '{}'::jsonb) AS list_type_label,
+    COALESCE(lte.scope_note, '{}'::jsonb) AS list_type_scope_note,
+    COALESCE(lte.broader_uri, '') AS list_type_broader_uri,
+    COALESCE(lte.external_id, '') AS list_type_external_id,
+    COUNT(DISTINCT cle.id) AS entry_count,
+    COUNT(DISTINCT fo.field_id) AS bound_field_count
+FROM weave_concept_lists cl
+LEFT JOIN weave_vocabularies v ON v.id = cl.vocabulary_id
+LEFT JOIN weave_vocabulary_entries lte ON lte.id = cl.list_type
+LEFT JOIN weave_concept_list_entries cle ON cle.concept_list_id = cl.id
+LEFT JOIN weave_override_refs r
+    ON r.ref_type = 'concept_list'
+    AND (r.target_id = cl.id OR r.semantic_id = cl.semantic_id)
+LEFT JOIN weave_field_overrides fo
+    ON fo.id = r.override_id
+    AND fo.project_id = cl.project_id
+WHERE cl.project_id = $1
+GROUP BY cl.id, v.id, v.semantic_id, v.system_name, v.ui_name, v.base_uri, lte.id, lte.vocabulary_id, lte.uri, lte.label, lte.scope_note, lte.broader_uri, lte.external_id
+`
+
+type WeaveConceptListDecorationRow struct {
+	ID                   string          `json:"id"`
+	VocabularyID         string          `json:"vocabulary_id"`
+	VocabularySemanticID string          `json:"vocabulary_semantic_id"`
+	VocabularySystemName string          `json:"vocabulary_system_name"`
+	VocabularyUiName     []byte          `json:"vocabulary_ui_name"`
+	VocabularyBaseUri    string          `json:"vocabulary_base_uri"`
+	ListTypeID           string          `json:"list_type_id"`
+	ListTypeVocabularyID string          `json:"list_type_vocabulary_id"`
+	ListTypeUri          string          `json:"list_type_uri"`
+	ListTypeLabel        json.RawMessage `json:"list_type_label"`
+	ListTypeScopeNote    []byte          `json:"list_type_scope_note"`
+	ListTypeBroaderUri   string          `json:"list_type_broader_uri"`
+	ListTypeExternalID   string          `json:"list_type_external_id"`
+	EntryCount           int64           `json:"entry_count"`
+	BoundFieldCount      int64           `json:"bound_field_count"`
+}
+
+// The vocabulary and bound-field decoration beside each of a project's concept lists.  (was decorateConceptLists)
+func (q *Queries) WeaveConceptListDecoration(ctx context.Context, projectID string) ([]WeaveConceptListDecorationRow, error) {
+	rows, err := q.db.Query(ctx, weaveConceptListDecoration, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveConceptListDecorationRow{}
+	for rows.Next() {
+		var i WeaveConceptListDecorationRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.VocabularyID,
+			&i.VocabularySemanticID,
+			&i.VocabularySystemName,
+			&i.VocabularyUiName,
+			&i.VocabularyBaseUri,
+			&i.ListTypeID,
+			&i.ListTypeVocabularyID,
+			&i.ListTypeUri,
+			&i.ListTypeLabel,
+			&i.ListTypeScopeNote,
+			&i.ListTypeBroaderUri,
+			&i.ListTypeExternalID,
+			&i.EntryCount,
+			&i.BoundFieldCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveConceptListOverrideRefCount = `-- name: WeaveConceptListOverrideRefCount :one
+SELECT COUNT(DISTINCT fo.field_id)
+FROM weave_override_refs r
+JOIN weave_field_overrides fo ON fo.id = r.override_id
+WHERE fo.project_id = $1
+  AND r.ref_type = 'concept_list'
+  AND (r.target_id = $2 OR r.semantic_id = $3)
+`
+
+type WeaveConceptListOverrideRefCountParams struct {
+	ProjectID  string `json:"project_id"`
+	TargetID   string `json:"target_id"`
+	SemanticID string `json:"semantic_id"`
+}
+
+// How many distinct fields reference the list through an override; the delete guard.  (was DeleteConceptList)
+func (q *Queries) WeaveConceptListOverrideRefCount(ctx context.Context, arg WeaveConceptListOverrideRefCountParams) (int64, error) {
+	row := q.db.QueryRow(ctx, weaveConceptListOverrideRefCount, arg.ProjectID, arg.TargetID, arg.SemanticID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const weaveConceptURIInLists = `-- name: WeaveConceptURIInLists :one
 SELECT EXISTS (
     SELECT 1
@@ -285,12 +394,45 @@ func (q *Queries) WeaveCreateVocabularyEntry(ctx context.Context, arg WeaveCreat
 	return i, err
 }
 
+const weaveDeleteConceptList = `-- name: WeaveDeleteConceptList :exec
+DELETE FROM weave_concept_lists
+WHERE project_id = $1
+  AND (id = $2 OR semantic_id = $2)
+`
+
+type WeaveDeleteConceptListParams struct {
+	ProjectID string `json:"project_id"`
+	ID        string `json:"id"`
+}
+
+// Delete a concept list by id or semantic id.  (was DeleteConceptList)
+func (q *Queries) WeaveDeleteConceptList(ctx context.Context, arg WeaveDeleteConceptListParams) error {
+	_, err := q.db.Exec(ctx, weaveDeleteConceptList, arg.ProjectID, arg.ID)
+	return err
+}
+
 const weaveDeleteConceptListEntry = `-- name: WeaveDeleteConceptListEntry :exec
 DELETE FROM weave_concept_list_entries WHERE id = $1
 `
 
 func (q *Queries) WeaveDeleteConceptListEntry(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, weaveDeleteConceptListEntry, id)
+	return err
+}
+
+const weaveDeleteConceptListEntryInList = `-- name: WeaveDeleteConceptListEntryInList :exec
+DELETE FROM weave_concept_list_entries
+WHERE id = $1 AND concept_list_id = $2
+`
+
+type WeaveDeleteConceptListEntryInListParams struct {
+	ID            string `json:"id"`
+	ConceptListID string `json:"concept_list_id"`
+}
+
+// Remove one entry from a list.  (was RemoveConceptListEntry)
+func (q *Queries) WeaveDeleteConceptListEntryInList(ctx context.Context, arg WeaveDeleteConceptListEntryInListParams) error {
+	_, err := q.db.Exec(ctx, weaveDeleteConceptListEntryInList, arg.ID, arg.ConceptListID)
 	return err
 }
 
@@ -323,6 +465,26 @@ type WeaveDeprecateProjectVocabularyParams struct {
 // vocabulary simply stops being offered for anything new.
 func (q *Queries) WeaveDeprecateProjectVocabulary(ctx context.Context, arg WeaveDeprecateProjectVocabularyParams) (string, error) {
 	row := q.db.QueryRow(ctx, weaveDeprecateProjectVocabulary, arg.ID, arg.ProjectID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
+const weaveFindConceptListEntryByVocabEntry = `-- name: WeaveFindConceptListEntryByVocabEntry :one
+SELECT id
+FROM weave_concept_list_entries
+WHERE concept_list_id = $1 AND vocabulary_entry_id = $2
+LIMIT 1
+`
+
+type WeaveFindConceptListEntryByVocabEntryParams struct {
+	ConceptListID     string `json:"concept_list_id"`
+	VocabularyEntryID string `json:"vocabulary_entry_id"`
+}
+
+// Find an existing entry so adding the same term twice is idempotent.  (was AddConceptListEntry)
+func (q *Queries) WeaveFindConceptListEntryByVocabEntry(ctx context.Context, arg WeaveFindConceptListEntryByVocabEntryParams) (string, error) {
+	row := q.db.QueryRow(ctx, weaveFindConceptListEntryByVocabEntry, arg.ConceptListID, arg.VocabularyEntryID)
 	var id string
 	err := row.Scan(&id)
 	return id, err
@@ -365,6 +527,20 @@ func (q *Queries) WeaveFindConceptListsByListType(ctx context.Context, listType 
 		return nil, err
 	}
 	return items, nil
+}
+
+const weaveFindLocalVocabulary = `-- name: WeaveFindLocalVocabulary :one
+SELECT id FROM weave_vocabularies
+WHERE project_id = $1 AND connector_type = 'local'
+ORDER BY created_at LIMIT 1
+`
+
+// The project's local vocabulary, if it already has one.  (was ensureLocalVocabulary)
+func (q *Queries) WeaveFindLocalVocabulary(ctx context.Context, projectID string) (string, error) {
+	row := q.db.QueryRow(ctx, weaveFindLocalVocabulary, projectID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
 }
 
 const weaveFindVocabularyForURI = `-- name: WeaveFindVocabularyForURI :one
@@ -659,6 +835,85 @@ func (q *Queries) WeaveGetVocabularyEntryByVocabularyURI(ctx context.Context, ar
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const weaveListAdminVocabularies = `-- name: WeaveListAdminVocabularies :many
+
+SELECT
+    v.id,
+    COALESCE(v.semantic_id, '') AS semantic_id,
+    COALESCE(v.system_name, '') AS system_name,
+    COALESCE(v.ui_name, '{}'::jsonb) AS ui_name,
+    COALESCE(v.description, '{}'::jsonb) AS description,
+    v.status,
+    v.project_id,
+    v.connector_type,
+    COALESCE(v.base_uri, '') AS base_uri,
+    v.created_at,
+    v.updated_at,
+    COUNT(DISTINCT ve.id) AS entry_count,
+    COUNT(DISTINCT v.project_id) AS project_count
+FROM weave_vocabularies v
+LEFT JOIN weave_vocabulary_entries ve ON ve.vocabulary_id = v.id
+GROUP BY v.id
+ORDER BY v.system_name ASC, v.id ASC
+`
+
+type WeaveListAdminVocabulariesRow struct {
+	ID            string    `json:"id"`
+	SemanticID    string    `json:"semantic_id"`
+	SystemName    string    `json:"system_name"`
+	UiName        []byte    `json:"ui_name"`
+	Description   []byte    `json:"description"`
+	Status        string    `json:"status"`
+	ProjectID     string    `json:"project_id"`
+	ConnectorType string    `json:"connector_type"`
+	BaseUri       string    `json:"base_uri"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	EntryCount    int64     `json:"entry_count"`
+	ProjectCount  int64     `json:"project_count"`
+}
+
+// ===========================================================================
+// Queries moved out of pkg/weave/vocabulary/service.go, where they were Go
+// string literals. Moved verbatim: a behaviour change hidden inside a
+// mechanical move is the hardest kind to find later, so any improvement to
+// these is a separate commit with its own test.
+// ===========================================================================
+// Administrative inventory of every vocabulary with its project and entry count.  (was ListAdminVocabularies)
+func (q *Queries) WeaveListAdminVocabularies(ctx context.Context) ([]WeaveListAdminVocabulariesRow, error) {
+	rows, err := q.db.Query(ctx, weaveListAdminVocabularies)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveListAdminVocabulariesRow{}
+	for rows.Next() {
+		var i WeaveListAdminVocabulariesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SemanticID,
+			&i.SystemName,
+			&i.UiName,
+			&i.Description,
+			&i.Status,
+			&i.ProjectID,
+			&i.ConnectorType,
+			&i.BaseUri,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.EntryCount,
+			&i.ProjectCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const weaveListConceptListEntries = `-- name: WeaveListConceptListEntries :many
@@ -1086,6 +1341,70 @@ func (q *Queries) WeaveListVocabularySettingsOptions(ctx context.Context, projec
 	return items, nil
 }
 
+const weaveMaxConceptListNumber = `-- name: WeaveMaxConceptListNumber :one
+SELECT COALESCE(MAX((regexp_match(id, '^' || $1 || '\.CL\.([0-9]+)$'))[1]::bigint), 0)
+FROM weave_concept_lists
+WHERE project_id = $1
+  AND id ~ ('^' || $1 || '\.CL\.[0-9]+$')
+`
+
+// Scoped to the list as well as the entry id. The existing WeaveSetConceptListEntryPosition is not:
+// a wrong id there can touch an entry in another list. That looser form has
+// one legacy caller and is left alone here rather than changed underneath it.
+// Highest existing CL number for a project, scanned from the id.  (was nextConceptListID)
+func (q *Queries) WeaveMaxConceptListNumber(ctx context.Context, dollar_1 *string) (interface{}, error) {
+	row := q.db.QueryRow(ctx, weaveMaxConceptListNumber, dollar_1)
+	var coalesce interface{}
+	err := row.Scan(&coalesce)
+	return coalesce, err
+}
+
+const weaveNextConceptListEntryPosition = `-- name: WeaveNextConceptListEntryPosition :one
+SELECT COALESCE(MAX(position), 0) + 1
+FROM weave_concept_list_entries
+WHERE concept_list_id = $1
+`
+
+// The next position in a list; MAX(position)+1.  (was AddConceptListEntry)
+func (q *Queries) WeaveNextConceptListEntryPosition(ctx context.Context, conceptListID string) (int32, error) {
+	row := q.db.QueryRow(ctx, weaveNextConceptListEntryPosition, conceptListID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const weaveNextLocalTermPosition = `-- name: WeaveNextLocalTermPosition :one
+SELECT COALESCE(MAX(position), 0) + 1 FROM weave_concept_list_entries WHERE concept_list_id = $1
+`
+
+// The next position when appending a locally created term.  (was CreateLocalTerm)
+func (q *Queries) WeaveNextLocalTermPosition(ctx context.Context, conceptListID string) (int32, error) {
+	row := q.db.QueryRow(ctx, weaveNextLocalTermPosition, conceptListID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const weaveReserveConceptListCounter = `-- name: WeaveReserveConceptListCounter :exec
+INSERT INTO weave_entity_counters (project_id, kind, next_n)
+VALUES ($1, 'concept_list', $2)
+ON CONFLICT (project_id, kind)
+DO UPDATE SET
+    next_n = GREATEST(weave_entity_counters.next_n, EXCLUDED.next_n),
+    updated_at = NOW()
+`
+
+type WeaveReserveConceptListCounterParams struct {
+	ProjectID string `json:"project_id"`
+	NextN     int64  `json:"next_n"`
+}
+
+// Advance and return the project's concept-list counter.  (was nextConceptListID)
+func (q *Queries) WeaveReserveConceptListCounter(ctx context.Context, arg WeaveReserveConceptListCounterParams) error {
+	_, err := q.db.Exec(ctx, weaveReserveConceptListCounter, arg.ProjectID, arg.NextN)
+	return err
+}
+
 const weaveSearchConceptListEntries = `-- name: WeaveSearchConceptListEntries :many
 SELECT
     cle.id AS concept_list_entry_id,
@@ -1244,6 +1563,88 @@ type WeaveSetConceptListClosedParams struct {
 
 func (q *Queries) WeaveSetConceptListClosed(ctx context.Context, arg WeaveSetConceptListClosedParams) error {
 	_, err := q.db.Exec(ctx, weaveSetConceptListClosed, arg.ID, arg.IsClosed)
+	return err
+}
+
+const weaveSetConceptListEntryPositionInList = `-- name: WeaveSetConceptListEntryPositionInList :exec
+UPDATE weave_concept_list_entries
+SET position = $1,
+    updated_at = NOW()
+WHERE id = $2
+  AND concept_list_id = $3
+`
+
+type WeaveSetConceptListEntryPositionInListParams struct {
+	Position      int32  `json:"position"`
+	ID            string `json:"id"`
+	ConceptListID string `json:"concept_list_id"`
+}
+
+// Set one entry's position; the reorder loop calls it per id.  (was ReorderConceptListEntries)
+func (q *Queries) WeaveSetConceptListEntryPositionInList(ctx context.Context, arg WeaveSetConceptListEntryPositionInListParams) error {
+	_, err := q.db.Exec(ctx, weaveSetConceptListEntryPositionInList, arg.Position, arg.ID, arg.ConceptListID)
+	return err
+}
+
+const weaveUpdateConceptList = `-- name: WeaveUpdateConceptList :exec
+UPDATE weave_concept_lists
+SET system_name = $3,
+    ui_name = $4::jsonb,
+    description = $5::jsonb,
+    status = $6,
+    vocabulary_id = $7,
+    list_type = $8,
+    updated_at = NOW()
+WHERE project_id = $1
+  AND (id = $2 OR semantic_id = $2)
+`
+
+type WeaveUpdateConceptListParams struct {
+	ProjectID    string          `json:"project_id"`
+	ID           string          `json:"id"`
+	SystemName   *string         `json:"system_name"`
+	Column4      json.RawMessage `json:"column_4"`
+	Column5      json.RawMessage `json:"column_5"`
+	Status       string          `json:"status"`
+	VocabularyID *string         `json:"vocabulary_id"`
+	ListType     *string         `json:"list_type"`
+}
+
+// Update a concept list's editable fields.  (was UpdateConceptList)
+func (q *Queries) WeaveUpdateConceptList(ctx context.Context, arg WeaveUpdateConceptListParams) error {
+	_, err := q.db.Exec(ctx, weaveUpdateConceptList,
+		arg.ProjectID,
+		arg.ID,
+		arg.SystemName,
+		arg.Column4,
+		arg.Column5,
+		arg.Status,
+		arg.VocabularyID,
+		arg.ListType,
+	)
+	return err
+}
+
+const weaveUpdateConceptListEntryLabel = `-- name: WeaveUpdateConceptListEntryLabel :exec
+UPDATE weave_concept_list_entries
+SET custom_label = $1::jsonb,
+    updated_at = NOW()
+WHERE id = $2
+  AND concept_list_id = $3
+`
+
+type WeaveUpdateConceptListEntryLabelParams struct {
+	Column1       json.RawMessage `json:"column_1"`
+	ID            string          `json:"id"`
+	ConceptListID string          `json:"concept_list_id"`
+}
+
+// Scoped to the list as well as the entry id. The existing WeaveDeleteConceptListEntry is not:
+// a wrong id there can touch an entry in another list. That looser form has
+// one legacy caller and is left alone here rather than changed underneath it.
+// Set an entry's custom label.  (was UpdateConceptListEntry)
+func (q *Queries) WeaveUpdateConceptListEntryLabel(ctx context.Context, arg WeaveUpdateConceptListEntryLabelParams) error {
+	_, err := q.db.Exec(ctx, weaveUpdateConceptListEntryLabel, arg.Column1, arg.ID, arg.ConceptListID)
 	return err
 }
 
