@@ -968,17 +968,23 @@ func (s *postgresStore) compositionCountsVersion(ctx context.Context, collection
 	return out, nil
 }
 
+// listAdoptedByReferenceVersion reads the adopting project's references at the
+// release and the foreign collections they name from the LIVE table. That mix
+// is deliberate and the query's own comment carries the reasoning: a reference
+// adoption records no source version, and the adopting project's version
+// cannot resolve another project's rows, so hot content inside a release view
+// is the only answer that is not silently empty.
 func (s *postgresStore) listAdoptedByReferenceVersion(ctx context.Context, projectID, version string) ([]*domain.Collection, error) {
 	rows, err := s.queries.WeaveListReferenceAdoptedCollectionsAtVersion(ctx, sqlcgen.WeaveListReferenceAdoptedCollectionsAtVersionParams{
 		ProjectID:     projectID,
 		VersionNumber: version,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("archived reference-adopted collections: %w", err)
+		return nil, fmt.Errorf("reference-adopted collections at version: %w", err)
 	}
 	out := make([]*domain.Collection, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, archiveRowToCollection(r))
+		out = append(out, rowToCollection(r))
 	}
 	return out, nil
 }

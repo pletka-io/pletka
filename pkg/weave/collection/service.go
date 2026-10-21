@@ -213,15 +213,16 @@ func (s *Service) ListAdoptedByReference(ctx context.Context, scope auth.ReadSco
 // via an explicit receipt. Mirror of model.Service.ListAdoptedExplicit
 // from task 3a — same pattern, same dedup, same dangling-receipt skip.
 //
-// Receipts come from the adoption store, which answers at a version itself;
-// each receipt's source collection is resolved through the same scope.
+// Receipts come from the adoption store at the ADOPTING project's version,
+// because a receipt is this project's own row. The collection each receipt
+// names belongs to another project, and is resolved at that project's version
+// — see the comment in the loop.
 func (s *Service) ListAdoptedExplicit(ctx context.Context, scope auth.ReadScope, projectID string) ([]*domain.Collection, map[string]domain.Origin, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, nil, err
 	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, nil, err
+	if !scope.Valid() {
+		return nil, nil, fmt.Errorf("collection: read scope is required; the zero ReadScope means a caller did not name draft or a release")
 	}
 	if s.adoptions == nil {
 		return nil, nil, nil
@@ -242,12 +243,35 @@ func (s *Service) ListAdoptedExplicit(ctx context.Context, scope auth.ReadScope,
 	out := make([]*domain.Collection, 0, len(adoptions))
 	origins := make(map[string]domain.Origin, len(adoptions))
 	seen := map[string]bool{}
+	// One reader per distinct source version, because the source scope is a
+	// property of the receipt rather than of this request.
+	sourceReaders := map[string]Reader{}
 	for _, a := range adoptions {
 		if seen[a.SourceEntityID] {
 			continue
 		}
 		seen[a.SourceEntityID] = true
-		c, err := r.Lookup(ctx, a.SourceEntityID)
+		// Resolve at the SOURCE project's own version, not at this request's
+		// scope. Version strings are per-project while the archive PK is
+		// (id, version_number) global across projects, so asking for a
+		// foreign collection at THIS project's version either misses — the
+		// adopted collection silently vanishes from the release view — or
+		// hits an unrelated release of the source project that happens to
+		// share the version string. The adoption picker already works this
+		// way: it lists an ancestor's entities at the ancestor's own
+		// release, not at the adopting project's. An empty SourceVersion is
+		// auth.Draft(), which is the right answer for a receipt that pinned
+		// no release.
+		sr, ok := sourceReaders[a.SourceVersion]
+		if !ok {
+			var rerr error
+			sr, rerr = s.store.At(auth.Release(a.SourceVersion))
+			if rerr != nil {
+				return nil, nil, rerr
+			}
+			sourceReaders[a.SourceVersion] = sr
+		}
+		c, err := sr.Lookup(ctx, a.SourceEntityID)
 		if err != nil || c == nil {
 			continue
 		}

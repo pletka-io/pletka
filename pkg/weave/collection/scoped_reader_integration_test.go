@@ -13,10 +13,49 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
-func newServiceWithPool(t *testing.T) (*Service, *pgxpool.Pool) {
+// newServiceWithPool builds the service over a real pool. The adoption store
+// is always wired, with the receipts the caller names: a nil AdoptionStore
+// makes ListAdoptedExplicit return early, so leaving it nil means no test can
+// reach the adopted-collection resolution at all.
+func newServiceWithPool(t *testing.T, receipts ...domain.Adoption) (*Service, *pgxpool.Pool) {
 	t.Helper()
 	pool := testdb.Pool(t)
-	return NewService(NewPostgresStore(pool), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil), pool
+	adoptions := &stubAdoptions{rows: receipts}
+	return NewService(NewPostgresStore(pool), nil, adoptions, nil, nil, nil, nil, nil, nil, nil, nil), pool
+}
+
+// stubAdoptions stands in for the real receipt store, which lives in pkg/weave
+// — a package that imports this one, so it cannot be used from here. It
+// filters the way the real store does: a receipt is the ADOPTING project's own
+// row, so a version filter selects on the receipt's own version_number.
+type stubAdoptions struct{ rows []domain.Adoption }
+
+func (s *stubAdoptions) List(_ context.Context, opts ...domain.QueryOption) ([]domain.Adoption, error) {
+	cfg := domain.ApplyOptions(opts)
+	out := []domain.Adoption{}
+	for _, a := range s.rows {
+		if cfg.ProjectID != "" && a.ProjectID != cfg.ProjectID {
+			continue
+		}
+		if v, _ := cfg.Filters["entity_type"].(string); v != "" && a.EntityType != v {
+			continue
+		}
+		if v, _ := cfg.Filters["context_entity_type"].(string); v != "" && a.ContextEntityType != v {
+			continue
+		}
+		if v, _ := cfg.Filters["context_entity_id"].(string); v != "" && a.ContextEntityID != v {
+			continue
+		}
+		if cfg.Version != "" && a.VersionNumber != cfg.Version {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out, nil
+}
+
+func (s *stubAdoptions) ReplaceForContext(_ context.Context, _, _, _ string, _ []domain.Adoption) error {
+	return nil
 }
 
 func seedProject(t *testing.T, pool *pgxpool.Pool, projectID string) {
@@ -91,5 +130,96 @@ func TestListAppliesQueryOptionsOnBothPaths(t *testing.T) {
 		if len(got) != 1 || got[0].SystemName != "beta" {
 			t.Fatalf("scope %v: search returned %d rows, want 1 (beta) — the archive path must honour the same options", scope, len(got))
 		}
+	}
+}
+
+// collectionReceipt is an explicit adoption receipt recorded by adopting at
+// adoptedAt, naming the source entity at the source project's own release.
+func collectionReceipt(adopting, adoptedAt, sourceProject, sourceEntity, sourceVersion string) domain.Adoption {
+	return domain.Adoption{
+		ProjectID:         adopting,
+		ContextEntityType: "project",
+		ContextEntityID:   adopting,
+		EntityType:        "collection",
+		SourceProjectID:   sourceProject,
+		SourceEntityID:    sourceEntity,
+		SourceVersion:     sourceVersion,
+		VersionNumber:     adoptedAt,
+	}
+}
+
+func seedArchivedOverrideRef(t *testing.T, pool *pgxpool.Pool, projectID, partOfCollectionID, version string) {
+	t.Helper()
+	seedProject(t, pool, projectID)
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO weave_field_overrides_archive (field_id, project_id, part_of_collection_id, version_number)
+		 VALUES ($1, $2, $3, $4)`, projectID+".f1", projectID, partOfCollectionID, version); err != nil {
+		t.Fatalf("seed archived override: %v", err)
+	}
+}
+
+// TestListAdoptedExplicitResolvesAtTheSourceVersion pins the rule that the
+// archive PK is (id, version_number) global across projects while version
+// strings are per-project: a foreign collection can only be resolved at the
+// version its OWN project recorded.
+func TestListAdoptedExplicitResolvesAtTheSourceVersion(t *testing.T) {
+	svc, pool := newServiceWithPool(t, collectionReceipt("SRI4", "1.0.0", "SRI5", "SRI5.x", "7.0.0"))
+	seedArchivedNamed(t, pool, "SRI4", "SRI4.own", "a-own", "1.0.0")
+	// Project B archived its collection at ITS OWN version only; it has no
+	// release called 1.0.0 at all.
+	seedArchivedNamed(t, pool, "SRI5", "SRI5.x", "b-coll-at-7", "7.0.0")
+
+	got, origins, err := svc.ListAdoptedExplicit(context.Background(), auth.Release("1.0.0"), "SRI4")
+	if err != nil {
+		t.Fatalf("ListAdoptedExplicit: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d adopted collections, want 1 — a foreign collection must be resolved at the SOURCE project's version (7.0.0), not the adopting project's (1.0.0)", len(got))
+	}
+	if got[0].SystemName != "b-coll-at-7" {
+		t.Fatalf("got %q, want %q as the source's own release recorded it", got[0].SystemName, "b-coll-at-7")
+	}
+	if _, ok := origins["SRI5.x"]; !ok {
+		t.Fatalf("origins %v carries no entry for the adopted id", origins)
+	}
+}
+
+// TestListAdoptedExplicitIgnoresAVersionStringCollision proves the resolution
+// follows the receipt's SourceVersion rather than a version string that
+// happens to exist in both projects with different content.
+func TestListAdoptedExplicitIgnoresAVersionStringCollision(t *testing.T) {
+	svc, pool := newServiceWithPool(t, collectionReceipt("SRI6", "1.0.0", "SRI7", "SRI7.x", "7.0.0"))
+	seedArchivedNamed(t, pool, "SRI7", "SRI7.x", "right-at-7", "7.0.0")
+	// The same id in the same source project, in an unrelated release that
+	// shares the adopting project's version string.
+	seedArchivedNamed(t, pool, "SRI7", "SRI7.x", "wrong-at-1", "1.0.0")
+
+	got, _, err := svc.ListAdoptedExplicit(context.Background(), auth.Release("1.0.0"), "SRI6")
+	if err != nil {
+		t.Fatalf("ListAdoptedExplicit: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d adopted collections, want 1", len(got))
+	}
+	if got[0].SystemName != "right-at-7" {
+		t.Fatalf("got %q, want %q — a same-named release of the source project is not the adopted snapshot", got[0].SystemName, "right-at-7")
+	}
+}
+
+// TestListAdoptedByReferenceAtReleaseSeesTheForeignCollection pins that a
+// reference adoption stays visible in a release view. The overrides are read
+// at the release; the foreign collection they point at is not archived under
+// the adopting project's version and never will be.
+func TestListAdoptedByReferenceAtReleaseSeesTheForeignCollection(t *testing.T) {
+	svc, pool := newServiceWithPool(t)
+	seedLiveNamed(t, pool, "SRI9", "SRI9.x", "foreign-live")
+	seedArchivedOverrideRef(t, pool, "SRI8", "SRI9.x", "1.0.0")
+
+	got, err := svc.ListAdoptedByReference(context.Background(), auth.Release("1.0.0"), "SRI8")
+	if err != nil {
+		t.Fatalf("ListAdoptedByReference: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "SRI9.x" {
+		t.Fatalf("got %d reference-adopted collections %v, want exactly [SRI9.x] — a reference adoption must not vanish from a release view", len(got), got)
 	}
 }

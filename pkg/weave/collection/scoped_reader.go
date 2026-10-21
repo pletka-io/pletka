@@ -44,7 +44,11 @@ type Reader interface {
 	CompositionCounts(ctx context.Context, projectID string, collectionIDs []string) (map[string]domain.CompositionCounts, error)
 
 	// ListAdoptedByReference returns the foreign collections this scope's
-	// own field overrides point at.
+	// own field overrides point at. The references are read at this scope;
+	// the foreign collections themselves are read live, because a reference
+	// adoption records no source version and this scope's version cannot
+	// resolve another project's rows. See the query's comment and the
+	// allowlist entry.
 	//
 	// There is deliberately no ListAdoptedExplicit or ForkOrigins here.
 	// Neither is a read of the collection tables: explicit adoptions come

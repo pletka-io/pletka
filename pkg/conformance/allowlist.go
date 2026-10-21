@@ -51,6 +51,12 @@ const (
 	convNamespace   = "the namespacebinding slice conversion"
 	convProject     = "the project slice conversion"
 	convOntologyVer = "the projectontologyversion slice conversion"
+	// Not a slice conversion: none of the ones above supplies it. A
+	// reference adoption is a field-override row carrying
+	// part_of_collection_id, and it records no source version, so the
+	// foreign collection it names has no version to be read at.
+	convReferenceSourceVersion = "recording a source version on a reference adoption, so the " +
+		"foreign collection it names has a version to be resolved at"
 )
 
 // UnscopedReadAllowlist maps "slice.Method" to its exemption.
@@ -254,6 +260,20 @@ var UnscopedReadAllowlist = map[string]Exemption{
 			"behind for the same reason: it converts when the field slice does.",
 		ConvertsWith: convField,
 	},
+	"collection.ListAdoptedByReference": {
+		Reason: "Mixed by necessity. The REFERENCES are read at the release: the archived " +
+			"field-override rows that carry part_of_collection_id belong to the asking project, " +
+			"so they genuinely live at that project's version. The foreign collections those " +
+			"rows point at are read HOT, from the live table, and that is not a shortcut -- the " +
+			"archive key is (id, version_number) and version strings are per-project, while a " +
+			"reference adoption records no source version anywhere, so there is no version at " +
+			"which another project's collection could be resolved. Binding the foreign row to " +
+			"the asking project's version instead returns nothing, which drops the whole " +
+			"reference-adopted slice out of a release view with no signal; stale but present " +
+			"and labelled beats silently absent. Removing it needs a source version recorded on " +
+			"the reference itself -- a write-path and schema change, not a read conversion.",
+		ConvertsWith: convReferenceSourceVersion,
+	},
 	"collection.ForkFromSource": {
 		Reason:           "A mutation: it creates a forked collection. Mutations run hot by design and take no scope, which is structural in the Store/Reader split rather than a rule to remember.",
 		Permanent:        true,
@@ -292,7 +312,7 @@ var UnscopedReadAllowlist = map[string]Exemption{
 	// version (fork_store.go branches on cfg.Version and selects the fork archive
 	// itself), and the service is what holds those dependencies. Putting them on the
 	// Reader would mean handing the collection store two foreign stores to proxy.
-	// What remains here is deliberate. Three decisions are recorded,
+	// What remains here is deliberate. Four decisions are recorded,
 	// because the reasoning is the part nobody can reconstruct later:
 	//
 	//  1. AnchorIndex is permanent: it spans every project, so no release scope can
@@ -302,6 +322,17 @@ var UnscopedReadAllowlist = map[string]Exemption{
 	//  3. View and LookupView are left behind, temporary, and convert with the field
 	//     slice -- scoping the collection while its fields read live would build a
 	//     release-era entity carrying draft fields.
+	//  4. A cross-project read takes the OTHER project's version, never the asking
+	//     project's. The archive key is (id, version_number) while version strings
+	//     are per-project, so "that project's collection at MY release" is not a
+	//     question with an answer. ListAdoptedExplicit therefore resolves each
+	//     receipt at auth.Release(receipt.SourceVersion) -- the source's own scope,
+	//     which is what the adoption picker already does -- and is correct, not
+	//     exempt. ListAdoptedByReference cannot do the same, because a reference
+	//     adoption records no source version at all: it reads the overrides at the
+	//     release and the foreign collections they name from the live table, and it
+	//     keeps a temporary entry below saying so. Served by the Reader either way;
+	//     being on the Reader is not a claim that every row it returns is archived.
 	//
 	// Decision 3 carries a hazard that is the most important finding of this
 	// conversion, and it applies to every slice still waiting:

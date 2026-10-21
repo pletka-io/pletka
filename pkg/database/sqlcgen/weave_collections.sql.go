@@ -40,6 +40,8 @@ type WeaveCategoriesUsedAtVersionRow struct {
 	CanonicalOrder int32  `json:"canonical_order"`
 }
 
+// Answers "every category the release carried", NOT "the categories the
+// release's placements cited" — a reader of the plan will expect the latter.
 // All categories the release recorded for this project. Mirrors
 // WeaveListCollectionCategoriesForProject against the archive, deliberately
 // NOT a placements join: that join is the bug the live query's comment
@@ -812,16 +814,11 @@ func (q *Queries) WeaveListReferenceAdoptedCollections(ctx context.Context, proj
 }
 
 const weaveListReferenceAdoptedCollectionsAtVersion = `-- name: WeaveListReferenceAdoptedCollectionsAtVersion :many
-SELECT DISTINCT c.id, c.created_at, c.updated_at, c.system_name, c.ui_name,
-       c.description, c.status, c.project_id, c.ontology_scope,
-       c.collection_number, c.canonical_collection_order, c.staging_id,
-       c.deprecated, c.default_category_id, c.version_number
-FROM weave_collections_archive c
-JOIN weave_field_overrides_archive o
-  ON o.part_of_collection_id = c.id
- AND o.version_number = c.version_number
+SELECT DISTINCT c.id, c.created_at, c.updated_at, c.system_name, c.ui_name, c.description, c.status, c.project_id, c.ontology_scope, c.collection_number, c.canonical_collection_order, c.staging_id, c.deprecated, c.default_category_id, c.version_number
+FROM weave_collections c
+JOIN weave_field_overrides_archive o ON o.part_of_collection_id = c.id
 WHERE o.project_id = $1::text
-  AND c.version_number = $2::text
+  AND o.version_number = $2::text
   AND COALESCE(o.part_of_collection_id, '') <> ''
   AND c.project_id <> $1::text
 ORDER BY c.id
@@ -832,18 +829,29 @@ type WeaveListReferenceAdoptedCollectionsAtVersionParams struct {
 	VersionNumber string `json:"version_number"`
 }
 
-// The reference-adopted slice as the release recorded it. Mirrors
-// WeaveListReferenceAdoptedCollections against both archives. Columns are in
-// scanArchivedCollection's order.
-func (q *Queries) WeaveListReferenceAdoptedCollectionsAtVersion(ctx context.Context, arg WeaveListReferenceAdoptedCollectionsAtVersionParams) ([]WeaveCollectionsArchive, error) {
+// The reference-adopted slice of a release view. The REFERENCES are read at
+// the release: weave_field_overrides_archive rows belong to the adopting
+// project, so they genuinely live at that project's version. The foreign
+// collections they point at are read from the LIVE table, deliberately.
+//
+// Why there is no alternative: the archive PK is (id, version_number) and
+// version strings are per-project, so a foreign collection cannot be resolved
+// at the adopting project's version — and a reference adoption records no
+// source version anywhere, so there is nothing else to resolve it at. Binding
+// c.version_number to the adopting project's release instead returns nothing,
+// which drops the reference-adopted slice out of the release view with no
+// signal. Stale but present and labelled beats silently absent. This is the
+// same commented cross-project fallback the detail view already makes for a
+// single-collection header.
+func (q *Queries) WeaveListReferenceAdoptedCollectionsAtVersion(ctx context.Context, arg WeaveListReferenceAdoptedCollectionsAtVersionParams) ([]WeaveCollection, error) {
 	rows, err := q.db.Query(ctx, weaveListReferenceAdoptedCollectionsAtVersion, arg.ProjectID, arg.VersionNumber)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []WeaveCollectionsArchive{}
+	items := []WeaveCollection{}
 	for rows.Next() {
-		var i WeaveCollectionsArchive
+		var i WeaveCollection
 		if err := rows.Scan(
 			&i.ID,
 			&i.CreatedAt,
