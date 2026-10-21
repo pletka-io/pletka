@@ -19,7 +19,6 @@ import (
 type postgresStore struct {
 	queries *sqlcgen.Queries
 	pool    *pgxpool.Pool
-
 }
 
 // entityTypeCollection is the weave_field_overrides.entity_type value for
@@ -998,19 +997,4 @@ func (s *postgresStore) lookupVersion(ctx context.Context, id, version string) (
 		return nil, fmt.Errorf("lookup archived collection: %w", err)
 	}
 	return archiveRowToCollection(row), nil
-}
-
-// Transitional: service.go still type-asserts versionedCollectionReader on
-// these exported names. Without them its release branches would fail at
-// runtime. Task 3 moves the service onto At and deletes these.
-func (s *postgresStore) GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error) {
-	return s.getByIDVersion(ctx, projectID, id, version)
-}
-
-func (s *postgresStore) ListVersion(ctx context.Context, projectID, version string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error) {
-	return s.listVersion(ctx, projectID, version, opts...)
-}
-
-func (s *postgresStore) UsageVersion(ctx context.Context, projectID, collectionID, version string) (UsageReport, error) {
-	return s.usageVersion(ctx, projectID, collectionID, version)
 }
