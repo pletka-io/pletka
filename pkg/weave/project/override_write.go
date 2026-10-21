@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
 	overridepkg "github.com/pletka-io/pletka/pkg/weave/override"
@@ -168,7 +169,7 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 			var placementUpserts []domain.CollectionPlacement
 			var placementDeletes []placementKey
 			if entityType == "model" {
-				existing, err := h.overrides.ListPlacements(ctx, entityID)
+				existing, err := h.overrides.ListPlacements(ctx, auth.Draft(), projectID, entityID)
 				if err != nil {
 					return err
 				}

@@ -458,6 +458,10 @@ func (s *Service) requireProjectWrite(ctx context.Context, projectID string) err
 // placements. A later API/MCP writer calls this directly, so it takes no
 // projectID and performs no permission check — the caller has already
 // authorized the read.
+//
+// It is draft-only by construction and stays that way: it detects two
+// editors racing on the working state, and nothing races on a frozen
+// release. It reads through the Draft reader, never a caller-supplied scope.
 func (s *Service) EntityFingerprint(ctx context.Context, entityType, entityID string) (string, error) {
 	r, err := s.draft()
 	if err != nil {
@@ -477,7 +481,7 @@ func (s *Service) EntityFingerprint(ctx context.Context, entityType, entityID st
 	}
 	var placements []domain.CollectionPlacement
 	if entityType == "model" {
-		placements, err = s.store.ListPlacements(ctx, entityID)
+		placements, err = r.ListPlacements(ctx, "", entityID)
 		if err != nil {
 			return "", fmt.Errorf("load placements: %w", err)
 		}
@@ -511,9 +515,16 @@ func (s *Service) WithEntityLock(ctx context.Context, projectID, entityType, ent
 // Collection placements
 // ---------------------------------------------------------------------------
 
-// ListPlacements returns all collection placements for a model.
-func (s *Service) ListPlacements(ctx context.Context, modelID string) ([]domain.CollectionPlacement, error) {
-	return s.store.ListPlacements(ctx, modelID)
+// ListPlacements returns the collection placements of a model, at scope.
+func (s *Service) ListPlacements(ctx context.Context, scope auth.ReadScope, projectID, modelID string) ([]domain.CollectionPlacement, error) {
+	if err := s.requireProjectRead(ctx, projectID); err != nil {
+		return nil, err
+	}
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
+	return r.ListPlacements(ctx, projectID, modelID)
 }
 
 // UpsertPlacement inserts or updates one collection placement.
