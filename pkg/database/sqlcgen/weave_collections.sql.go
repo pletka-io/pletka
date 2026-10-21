@@ -21,6 +21,55 @@ func (q *Queries) WeaveActivateCollection(ctx context.Context, id string) error 
 	return err
 }
 
+const weaveCategoriesUsedAtVersion = `-- name: WeaveCategoriesUsedAtVersion :many
+SELECT p.category_id,
+       COALESCE(c.ui_name, '{}'::jsonb) AS ui_name,
+       COALESCE(c.canonical_order, 0)::int AS canonical_order
+FROM weave_collection_placements_archive p
+LEFT JOIN weave_categories_archive c
+       ON c.id = p.category_id
+      AND c.version_number = p.version_number
+WHERE p.project_id = $1::text
+  AND p.version_number = $2::text
+  AND p.category_id <> ''
+GROUP BY p.category_id, c.ui_name, c.canonical_order
+ORDER BY canonical_order, p.category_id
+`
+
+type WeaveCategoriesUsedAtVersionParams struct {
+	ProjectID     string `json:"project_id"`
+	VersionNumber string `json:"version_number"`
+}
+
+type WeaveCategoriesUsedAtVersionRow struct {
+	CategoryID     string `json:"category_id"`
+	UiName         []byte `json:"ui_name"`
+	CanonicalOrder int32  `json:"canonical_order"`
+}
+
+// Categories the release's placements referenced. A LEFT JOIN on the category
+// archive on purpose: a release may cite a category deleted since, and dropping
+// the row would understate what the release contains.
+func (q *Queries) WeaveCategoriesUsedAtVersion(ctx context.Context, arg WeaveCategoriesUsedAtVersionParams) ([]WeaveCategoriesUsedAtVersionRow, error) {
+	rows, err := q.db.Query(ctx, weaveCategoriesUsedAtVersion, arg.ProjectID, arg.VersionNumber)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveCategoriesUsedAtVersionRow{}
+	for rows.Next() {
+		var i WeaveCategoriesUsedAtVersionRow
+		if err := rows.Scan(&i.CategoryID, &i.UiName, &i.CanonicalOrder); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveCollectionIsInUse = `-- name: WeaveCollectionIsInUse :one
 SELECT EXISTS (
     SELECT 1 FROM weave_override_refs r
@@ -108,6 +157,48 @@ func (q *Queries) WeaveCollectionUsageSamples(ctx context.Context, arg WeaveColl
 	for rows.Next() {
 		var i WeaveCollectionUsageSamplesRow
 		if err := rows.Scan(&i.FieldID, &i.FieldSemanticID, &i.FieldName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveCompositionCountsAtVersion = `-- name: WeaveCompositionCountsAtVersion :many
+SELECT fo.entity_id, count(*) AS field_count
+FROM weave_field_overrides_archive fo
+WHERE fo.entity_type = 'collection'
+  AND fo.version_number = $1::text
+  AND fo.entity_id = ANY($2::text[])
+GROUP BY fo.entity_id
+`
+
+type WeaveCompositionCountsAtVersionParams struct {
+	VersionNumber string   `json:"version_number"`
+	CollectionIds []string `json:"collection_ids"`
+}
+
+type WeaveCompositionCountsAtVersionRow struct {
+	EntityID   string `json:"entity_id"`
+	FieldCount int64  `json:"field_count"`
+}
+
+// Field counts per collection as the release recorded them. entity_id
+// identifies the collection uniquely, so no project filter is needed (same as
+// the live batch count).
+func (q *Queries) WeaveCompositionCountsAtVersion(ctx context.Context, arg WeaveCompositionCountsAtVersionParams) ([]WeaveCompositionCountsAtVersionRow, error) {
+	rows, err := q.db.Query(ctx, weaveCompositionCountsAtVersion, arg.VersionNumber, arg.CollectionIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveCompositionCountsAtVersionRow{}
+	for rows.Next() {
+		var i WeaveCompositionCountsAtVersionRow
+		if err := rows.Scan(&i.EntityID, &i.FieldCount); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -231,6 +322,47 @@ func (q *Queries) WeaveDeprecateCollection(ctx context.Context, id string) error
 	return err
 }
 
+const weaveForkOriginsAtVersion = `-- name: WeaveForkOriginsAtVersion :many
+SELECT f.fork_entity_id, f.source_entity_id, f.source_project_id
+FROM weave_entity_forks_archive f
+WHERE f.project_id = $1::text
+  AND f.version_number = $2::text
+  AND f.entity_type = 'collection'
+`
+
+type WeaveForkOriginsAtVersionParams struct {
+	ProjectID     string `json:"project_id"`
+	VersionNumber string `json:"version_number"`
+}
+
+type WeaveForkOriginsAtVersionRow struct {
+	ForkEntityID    string `json:"fork_entity_id"`
+	SourceEntityID  string `json:"source_entity_id"`
+	SourceProjectID string `json:"source_project_id"`
+}
+
+// Fork origins the release recorded, so a pinned view reports the ancestor the
+// release was cut against rather than today's fork graph.
+func (q *Queries) WeaveForkOriginsAtVersion(ctx context.Context, arg WeaveForkOriginsAtVersionParams) ([]WeaveForkOriginsAtVersionRow, error) {
+	rows, err := q.db.Query(ctx, weaveForkOriginsAtVersion, arg.ProjectID, arg.VersionNumber)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveForkOriginsAtVersionRow{}
+	for rows.Next() {
+		var i WeaveForkOriginsAtVersionRow
+		if err := rows.Scan(&i.ForkEntityID, &i.SourceEntityID, &i.SourceProjectID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveGetCollectionByID = `-- name: WeaveGetCollectionByID :one
 SELECT id, created_at, updated_at, system_name, ui_name, description, status, project_id, ontology_scope, collection_number, canonical_collection_order, staging_id, deprecated, default_category_id, version_number FROM weave_collections WHERE id = $1
 `
@@ -238,6 +370,48 @@ SELECT id, created_at, updated_at, system_name, ui_name, description, status, pr
 func (q *Queries) WeaveGetCollectionByID(ctx context.Context, id string) (WeaveCollection, error) {
 	row := q.db.QueryRow(ctx, weaveGetCollectionByID, id)
 	var i WeaveCollection
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SystemName,
+		&i.UiName,
+		&i.Description,
+		&i.Status,
+		&i.ProjectID,
+		&i.OntologyScope,
+		&i.CollectionNumber,
+		&i.CanonicalCollectionOrder,
+		&i.StagingID,
+		&i.Deprecated,
+		&i.DefaultCategoryID,
+		&i.VersionNumber,
+	)
+	return i, err
+}
+
+const weaveGetCollectionByIDAtVersion = `-- name: WeaveGetCollectionByIDAtVersion :one
+SELECT id, created_at, updated_at, system_name, ui_name, description,
+       status, project_id, ontology_scope, collection_number,
+       canonical_collection_order, staging_id, deprecated,
+       default_category_id, version_number
+FROM weave_collections_archive
+WHERE id = $1::text
+  AND version_number = $2::text
+`
+
+type WeaveGetCollectionByIDAtVersionParams struct {
+	ID            string `json:"id"`
+	VersionNumber string `json:"version_number"`
+}
+
+// Resolve one collection by global id inside a release. No project_id filter:
+// callers resolve cross-project ids on purpose, and the version pins the row.
+// Columns are listed explicitly, in scanArchivedCollection's order, so the
+// generated row maps through the same helper GetByIDVersion already uses.
+func (q *Queries) WeaveGetCollectionByIDAtVersion(ctx context.Context, arg WeaveGetCollectionByIDAtVersionParams) (WeaveCollectionsArchive, error) {
+	row := q.db.QueryRow(ctx, weaveGetCollectionByIDAtVersion, arg.ID, arg.VersionNumber)
+	var i WeaveCollectionsArchive
 	err := row.Scan(
 		&i.ID,
 		&i.CreatedAt,
@@ -675,6 +849,105 @@ func (q *Queries) WeaveListReferenceAdoptedCollections(ctx context.Context, proj
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveListReferenceAdoptedCollectionsAtVersion = `-- name: WeaveListReferenceAdoptedCollectionsAtVersion :many
+SELECT DISTINCT c.id, c.created_at, c.updated_at, c.system_name, c.ui_name,
+       c.description, c.status, c.project_id, c.ontology_scope,
+       c.collection_number, c.canonical_collection_order, c.staging_id,
+       c.deprecated, c.default_category_id, c.version_number
+FROM weave_collections_archive c
+JOIN weave_field_overrides_archive o
+  ON o.part_of_collection_id = c.id
+ AND o.version_number = c.version_number
+WHERE o.project_id = $1::text
+  AND c.version_number = $2::text
+  AND COALESCE(o.part_of_collection_id, '') <> ''
+  AND c.project_id <> $1::text
+ORDER BY c.id
+`
+
+type WeaveListReferenceAdoptedCollectionsAtVersionParams struct {
+	ProjectID     string `json:"project_id"`
+	VersionNumber string `json:"version_number"`
+}
+
+// The reference-adopted slice as the release recorded it. Mirrors
+// WeaveListReferenceAdoptedCollections against both archives. Columns are in
+// scanArchivedCollection's order.
+func (q *Queries) WeaveListReferenceAdoptedCollectionsAtVersion(ctx context.Context, arg WeaveListReferenceAdoptedCollectionsAtVersionParams) ([]WeaveCollectionsArchive, error) {
+	rows, err := q.db.Query(ctx, weaveListReferenceAdoptedCollectionsAtVersion, arg.ProjectID, arg.VersionNumber)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveCollectionsArchive{}
+	for rows.Next() {
+		var i WeaveCollectionsArchive
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SystemName,
+			&i.UiName,
+			&i.Description,
+			&i.Status,
+			&i.ProjectID,
+			&i.OntologyScope,
+			&i.CollectionNumber,
+			&i.CanonicalCollectionOrder,
+			&i.StagingID,
+			&i.Deprecated,
+			&i.DefaultCategoryID,
+			&i.VersionNumber,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveScopeClassesAtVersion = `-- name: WeaveScopeClassesAtVersion :many
+SELECT DISTINCT ((c.ontology_scope::jsonb->>'prefix') || ':' || (c.ontology_scope::jsonb->>'local_name'))::text AS scope_class
+FROM weave_collections_archive c
+WHERE c.project_id = $1::text
+  AND c.version_number = $2::text
+  AND c.ontology_scope IS NOT NULL
+  AND c.ontology_scope->>'prefix' IS NOT NULL
+  AND c.ontology_scope->>'local_name' IS NOT NULL
+ORDER BY scope_class ASC
+`
+
+type WeaveScopeClassesAtVersionParams struct {
+	ProjectID     string `json:"project_id"`
+	VersionNumber string `json:"version_number"`
+}
+
+// Scope classes (prefix:local_name) the release recorded on its archived
+// collections. Mirrors WeaveListCollectionScopeClasses against the archive, so
+// a pinned view does not report classes added to live collections since.
+func (q *Queries) WeaveScopeClassesAtVersion(ctx context.Context, arg WeaveScopeClassesAtVersionParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, weaveScopeClassesAtVersion, arg.ProjectID, arg.VersionNumber)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var scope_class string
+		if err := rows.Scan(&scope_class); err != nil {
+			return nil, err
+		}
+		items = append(items, scope_class)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

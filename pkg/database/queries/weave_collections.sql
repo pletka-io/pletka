@@ -226,3 +226,84 @@ SELECT * FROM weave_collections
 WHERE project_id = @project_id::text
   AND (system_name = @identifier::text OR id = @identifier::text)
 LIMIT 1;
+
+-- name: WeaveScopeClassesAtVersion :many
+-- Scope classes (prefix:local_name) the release recorded on its archived
+-- collections. Mirrors WeaveListCollectionScopeClasses against the archive, so
+-- a pinned view does not report classes added to live collections since.
+SELECT DISTINCT ((c.ontology_scope::jsonb->>'prefix') || ':' || (c.ontology_scope::jsonb->>'local_name'))::text AS scope_class
+FROM weave_collections_archive c
+WHERE c.project_id = @project_id::text
+  AND c.version_number = @version_number::text
+  AND c.ontology_scope IS NOT NULL
+  AND c.ontology_scope->>'prefix' IS NOT NULL
+  AND c.ontology_scope->>'local_name' IS NOT NULL
+ORDER BY scope_class ASC;
+
+-- name: WeaveCategoriesUsedAtVersion :many
+-- Categories the release's placements referenced. A LEFT JOIN on the category
+-- archive on purpose: a release may cite a category deleted since, and dropping
+-- the row would understate what the release contains.
+SELECT p.category_id,
+       COALESCE(c.ui_name, '{}'::jsonb) AS ui_name,
+       COALESCE(c.canonical_order, 0)::int AS canonical_order
+FROM weave_collection_placements_archive p
+LEFT JOIN weave_categories_archive c
+       ON c.id = p.category_id
+      AND c.version_number = p.version_number
+WHERE p.project_id = @project_id::text
+  AND p.version_number = @version_number::text
+  AND p.category_id <> ''
+GROUP BY p.category_id, c.ui_name, c.canonical_order
+ORDER BY canonical_order, p.category_id;
+
+-- name: WeaveCompositionCountsAtVersion :many
+-- Field counts per collection as the release recorded them. entity_id
+-- identifies the collection uniquely, so no project filter is needed (same as
+-- the live batch count).
+SELECT fo.entity_id, count(*) AS field_count
+FROM weave_field_overrides_archive fo
+WHERE fo.entity_type = 'collection'
+  AND fo.version_number = @version_number::text
+  AND fo.entity_id = ANY(@collection_ids::text[])
+GROUP BY fo.entity_id;
+
+-- name: WeaveForkOriginsAtVersion :many
+-- Fork origins the release recorded, so a pinned view reports the ancestor the
+-- release was cut against rather than today's fork graph.
+SELECT f.fork_entity_id, f.source_entity_id, f.source_project_id
+FROM weave_entity_forks_archive f
+WHERE f.project_id = @project_id::text
+  AND f.version_number = @version_number::text
+  AND f.entity_type = 'collection';
+
+-- name: WeaveGetCollectionByIDAtVersion :one
+-- Resolve one collection by global id inside a release. No project_id filter:
+-- callers resolve cross-project ids on purpose, and the version pins the row.
+-- Columns are listed explicitly, in scanArchivedCollection's order, so the
+-- generated row maps through the same helper GetByIDVersion already uses.
+SELECT id, created_at, updated_at, system_name, ui_name, description,
+       status, project_id, ontology_scope, collection_number,
+       canonical_collection_order, staging_id, deprecated,
+       default_category_id, version_number
+FROM weave_collections_archive
+WHERE id = @id::text
+  AND version_number = @version_number::text;
+
+-- name: WeaveListReferenceAdoptedCollectionsAtVersion :many
+-- The reference-adopted slice as the release recorded it. Mirrors
+-- WeaveListReferenceAdoptedCollections against both archives. Columns are in
+-- scanArchivedCollection's order.
+SELECT DISTINCT c.id, c.created_at, c.updated_at, c.system_name, c.ui_name,
+       c.description, c.status, c.project_id, c.ontology_scope,
+       c.collection_number, c.canonical_collection_order, c.staging_id,
+       c.deprecated, c.default_category_id, c.version_number
+FROM weave_collections_archive c
+JOIN weave_field_overrides_archive o
+  ON o.part_of_collection_id = c.id
+ AND o.version_number = c.version_number
+WHERE o.project_id = @project_id::text
+  AND c.version_number = @version_number::text
+  AND COALESCE(o.part_of_collection_id, '') <> ''
+  AND c.project_id <> @project_id::text
+ORDER BY c.id;
