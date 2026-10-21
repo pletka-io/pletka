@@ -2,7 +2,6 @@ package collection
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/pletka-io/pletka/pkg/auth"
@@ -35,21 +34,26 @@ type Reader interface {
 	// field paths.
 	ScopeClasses(ctx context.Context, projectID string) ([]string, error)
 
-	// CategoriesUsed lists the categories this scope's placements cite,
-	// including any deleted since the release was cut.
+	// CategoriesUsed lists every category this scope recorded for the
+	// project, not only the placed ones — the live rule, preserved. A
+	// placements-derived answer empties the filter dropdown on a project
+	// whose collections carry no default category.
 	CategoriesUsed(ctx context.Context, projectID string) ([]CollectionCategoryOption, error)
 
 	// CompositionCounts returns per-collection field counts from this scope.
 	CompositionCounts(ctx context.Context, projectID string, collectionIDs []string) (map[string]domain.CompositionCounts, error)
 
-	// ListAdoptedExplicit and ListAdoptedByReference answer from the same
-	// scope as each other. They disagreed before the conversion: one
-	// branched on the version and one did not.
-	ListAdoptedExplicit(ctx context.Context, projectID string) ([]*domain.Collection, map[string]domain.Origin, error)
+	// ListAdoptedByReference returns the foreign collections this scope's
+	// own field overrides point at.
+	//
+	// There is deliberately no ListAdoptedExplicit or ForkOrigins here.
+	// Neither is a read of the collection tables: explicit adoptions come
+	// from the adoption store and fork origins from the fork store, both of
+	// which already answer at a version. They stay on the service, which
+	// holds those dependencies, and take a scope there. Mirroring them onto
+	// this Reader would mean handing the collection store two foreign stores
+	// to proxy.
 	ListAdoptedByReference(ctx context.Context, projectID string) ([]*domain.Collection, error)
-
-	// ForkOrigins reports the ancestors this scope was cut against.
-	ForkOrigins(ctx context.Context, projectID string) (map[string]domain.Origin, error)
 
 	// Lookup resolves a collection across projects without a project gate,
 	// for internal cross-slice resolution where route auth already ran. It
@@ -117,76 +121,11 @@ func (r reader) CompositionCounts(ctx context.Context, projectID string, collect
 	return r.s.BatchCompositionCounts(ctx, collectionIDs)
 }
 
-func (r reader) ListAdoptedExplicit(ctx context.Context, projectID string) ([]*domain.Collection, map[string]domain.Origin, error) {
-	if r.s.adoptions == nil {
-		return nil, nil, nil
-	}
-	opts := []domain.QueryOption{
-		domain.WithProjectID(projectID),
-		domain.WithFilter("context_entity_type", "project"),
-		domain.WithFilter("context_entity_id", projectID),
-		domain.WithFilter("entity_type", "collection"),
-	}
-	if r.isRelease() {
-		opts = append(opts, domain.WithVersion(r.version))
-	}
-	adoptions, err := r.s.adoptions.List(ctx, opts...)
-	if err != nil {
-		return nil, nil, fmt.Errorf("list collection adoptions: %w", err)
-	}
-	out := make([]*domain.Collection, 0, len(adoptions))
-	origins := make(map[string]domain.Origin, len(adoptions))
-	seen := map[string]bool{}
-	for _, a := range adoptions {
-		if seen[a.SourceEntityID] {
-			continue
-		}
-		seen[a.SourceEntityID] = true
-		// A dangling receipt (source gone from this scope) is skipped, as
-		// the live service does.
-		c, err := r.Lookup(ctx, a.SourceEntityID)
-		if err != nil || c == nil {
-			continue
-		}
-		out = append(out, c)
-		origins[a.SourceEntityID] = domain.AdoptedOrigin(a.SourceProjectID, a.SourceEntityID)
-	}
-	return out, origins, nil
-}
-
 func (r reader) ListAdoptedByReference(ctx context.Context, projectID string) ([]*domain.Collection, error) {
 	if r.isRelease() {
 		return r.s.listAdoptedByReferenceVersion(ctx, projectID, r.version)
 	}
 	return r.s.ListReferenceAdopted(ctx, projectID)
-}
-
-func (r reader) ForkOrigins(ctx context.Context, projectID string) (map[string]domain.Origin, error) {
-	if projectID == "" {
-		return map[string]domain.Origin{}, nil
-	}
-	if r.isRelease() {
-		return r.s.forkOriginsVersion(ctx, projectID, r.version)
-	}
-	if r.s.forks == nil {
-		return nil, errors.New("collection: fork store not wired into the store")
-	}
-	forks, err := r.s.forks.List(ctx,
-		domain.WithProjectID(projectID),
-		domain.WithFilter("entity_type", "collection"),
-	)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]domain.Origin, len(forks))
-	for _, f := range forks {
-		out[f.ForkEntityID] = domain.Origin{
-			Kind:            domain.OriginForked,
-			SourceProjectID: f.SourceProjectID,
-			SourceEntityID:  f.SourceEntityID,
-		}
-	}
-	return out, nil
 }
 
 func (r reader) Lookup(ctx context.Context, id string) (*domain.Collection, error) {

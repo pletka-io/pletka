@@ -318,47 +318,6 @@ func (q *Queries) WeaveDeprecateCollection(ctx context.Context, id string) error
 	return err
 }
 
-const weaveForkOriginsAtVersion = `-- name: WeaveForkOriginsAtVersion :many
-SELECT f.fork_entity_id, f.source_entity_id, f.source_project_id
-FROM weave_entity_forks_archive f
-WHERE f.project_id = $1::text
-  AND f.version_number = $2::text
-  AND f.entity_type = 'collection'
-`
-
-type WeaveForkOriginsAtVersionParams struct {
-	ProjectID     string `json:"project_id"`
-	VersionNumber string `json:"version_number"`
-}
-
-type WeaveForkOriginsAtVersionRow struct {
-	ForkEntityID    string `json:"fork_entity_id"`
-	SourceEntityID  string `json:"source_entity_id"`
-	SourceProjectID string `json:"source_project_id"`
-}
-
-// Fork origins the release recorded, so a pinned view reports the ancestor the
-// release was cut against rather than today's fork graph.
-func (q *Queries) WeaveForkOriginsAtVersion(ctx context.Context, arg WeaveForkOriginsAtVersionParams) ([]WeaveForkOriginsAtVersionRow, error) {
-	rows, err := q.db.Query(ctx, weaveForkOriginsAtVersion, arg.ProjectID, arg.VersionNumber)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []WeaveForkOriginsAtVersionRow{}
-	for rows.Next() {
-		var i WeaveForkOriginsAtVersionRow
-		if err := rows.Scan(&i.ForkEntityID, &i.SourceEntityID, &i.SourceProjectID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const weaveGetCollectionByID = `-- name: WeaveGetCollectionByID :one
 SELECT id, created_at, updated_at, system_name, ui_name, description, status, project_id, ontology_scope, collection_number, canonical_collection_order, staging_id, deprecated, default_category_id, version_number FROM weave_collections WHERE id = $1
 `

@@ -264,15 +264,6 @@ WHERE fo.entity_type = 'collection'
   AND fo.entity_id = ANY(@collection_ids::text[])
 GROUP BY fo.entity_id;
 
--- name: WeaveForkOriginsAtVersion :many
--- Fork origins the release recorded, so a pinned view reports the ancestor the
--- release was cut against rather than today's fork graph.
-SELECT f.fork_entity_id, f.source_entity_id, f.source_project_id
-FROM weave_entity_forks_archive f
-WHERE f.project_id = @project_id::text
-  AND f.version_number = @version_number::text
-  AND f.entity_type = 'collection';
-
 -- name: WeaveGetCollectionByIDAtVersion :one
 -- Resolve one collection by global id inside a release. No project_id filter:
 -- callers resolve cross-project ids on purpose, and the version pins the row.

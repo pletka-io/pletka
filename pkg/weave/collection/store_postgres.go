@@ -20,13 +20,6 @@ type postgresStore struct {
 	queries *sqlcgen.Queries
 	pool    *pgxpool.Pool
 
-	// adoptions and forks back Reader.ListAdoptedExplicit and the draft
-	// branch of Reader.ForkOrigins, which are not collection queries. They
-	// are nil until Task 3 wires them in; a nil adoptions store yields an
-	// empty adoption list and a nil forks store makes the draft ForkOrigins
-	// return an error.
-	adoptions domain.AdoptionStore
-	forks     domain.ForkStore
 }
 
 // entityTypeCollection is the weave_field_overrides.entity_type value for
@@ -972,25 +965,6 @@ func (s *postgresStore) compositionCountsVersion(ctx context.Context, collection
 	}
 	for _, r := range rows {
 		out[r.EntityID] = domain.CompositionCounts{FieldCount: int(r.FieldCount)}
-	}
-	return out, nil
-}
-
-func (s *postgresStore) forkOriginsVersion(ctx context.Context, projectID, version string) (map[string]domain.Origin, error) {
-	rows, err := s.queries.WeaveForkOriginsAtVersion(ctx, sqlcgen.WeaveForkOriginsAtVersionParams{
-		ProjectID:     projectID,
-		VersionNumber: version,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("archived collection fork origins: %w", err)
-	}
-	out := make(map[string]domain.Origin, len(rows))
-	for _, r := range rows {
-		out[r.ForkEntityID] = domain.Origin{
-			Kind:            domain.OriginForked,
-			SourceProjectID: r.SourceProjectID,
-			SourceEntityID:  r.SourceEntityID,
-		}
 	}
 	return out, nil
 }
