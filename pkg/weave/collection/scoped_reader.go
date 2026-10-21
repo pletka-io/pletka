@@ -23,7 +23,7 @@ type Reader interface {
 	Get(ctx context.Context, projectID, id string) (*domain.Collection, error)
 
 	// List returns the collections this scope carries, with the same
-	// QueryOption handling on both paths: a filter honoured on the draft
+	// QueryOption handling on both paths: a filter honored on the draft
 	// and dropped on the archive makes the two disagree for one query.
 	List(ctx context.Context, projectID string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error)
 
