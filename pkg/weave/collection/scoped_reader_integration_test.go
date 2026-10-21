@@ -4,6 +4,8 @@ package collection
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -221,5 +223,71 @@ func TestListAdoptedByReferenceAtReleaseSeesTheForeignCollection(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != "SRI9.x" {
 		t.Fatalf("got %d reference-adopted collections %v, want exactly [SRI9.x] — a reference adoption must not vanish from a release view", len(got), got)
+	}
+}
+
+// seedFilterable seeds the same collection shape on both paths: live, and
+// archived at version. scopeClass drives the scope_class filter and categoryID
+// the category_id filter.
+func seedFilterable(t *testing.T, pool *pgxpool.Pool, projectID, id, name, scopeClass, categoryID, version string) {
+	t.Helper()
+	ctx := context.Background()
+	seedProject(t, pool, projectID)
+	prefix, local, _ := strings.Cut(scopeClass, ":")
+	scope := fmt.Sprintf(`{"prefix":%q,"local_name":%q}`, prefix, local)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_categories (id, project_id) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
+		categoryID, projectID); err != nil {
+		t.Fatalf("seed category: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_collections (id, project_id, system_name, ontology_scope, default_category_id)
+		 VALUES ($1, $2, $3, $4::jsonb, $5)`,
+		id+".live", projectID, name, scope, categoryID); err != nil {
+		t.Fatalf("seed live filterable collection: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO weave_collections_archive (id, project_id, system_name, ontology_scope, default_category_id, version_number)
+		 VALUES ($1, $2, $3, $4::jsonb, $5, $6)`,
+		id+".arch", projectID, name, scope, categoryID, version); err != nil {
+		t.Fatalf("seed archived filterable collection: %v", err)
+	}
+}
+
+// TestListFiltersApplyOnBothPaths pins the Reader's own contract: the same
+// QueryOption handling on both paths. A filter honored on the draft and
+// dropped on the archive makes the two disagree for one query — the release
+// view would return every archived collection, with a matching total, while
+// the dropdown that produced the filter was itself scoped to the archive.
+func TestListFiltersApplyOnBothPaths(t *testing.T) {
+	svc, pool := newServiceWithPool(t)
+	seedFilterable(t, pool, "SRIF", "SRIF.place", "place", "crm:E53_Place", "SRIF.cat-a", "1.0.0")
+	seedFilterable(t, pool, "SRIF", "SRIF.object", "object", "crm:E22_Man-Made_Object", "SRIF.cat-b", "1.0.0")
+
+	cases := []struct {
+		name string
+		opt  domain.QueryOption
+		want string
+	}{
+		{"scope_class", domain.WithFilter("scope_class", "crm:E53_Place"), "place"},
+		{"category_id", domain.WithFilter("category_id", "SRIF.cat-b"), "object"},
+	}
+	for _, tc := range cases {
+		for _, scope := range []auth.ReadScope{auth.Draft(), auth.Release("1.0.0")} {
+			got, n, err := svc.List(context.Background(), scope, "SRIF", tc.opt)
+			if err != nil {
+				t.Fatalf("%s at %v: %v", tc.name, scope, err)
+			}
+			if len(got) != 1 || got[0].SystemName != tc.want {
+				names := make([]string, 0, len(got))
+				for _, c := range got {
+					names = append(names, c.SystemName)
+				}
+				t.Errorf("%s filter at %v returned %v, want exactly [%s] — the archive path must honour the same filters as the draft", tc.name, scope, names, tc.want)
+			}
+			if n != 1 {
+				t.Errorf("%s filter at %v reported total %d, want 1 — the COUNT query must carry the same filters as the row query", tc.name, scope, n)
+			}
+		}
 	}
 }

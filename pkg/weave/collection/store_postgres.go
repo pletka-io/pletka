@@ -293,6 +293,14 @@ func (s *postgresStore) listVersion(ctx context.Context, projectID, version stri
 	if offset < 0 {
 		offset = 0
 	}
+	// The same three filters List applies, with the same semantics: an empty
+	// string means "no filter", scope_class and category_id accept a
+	// comma-separated set. A filter honoured on the draft and dropped here
+	// makes one query answer differently depending on whether a version was
+	// named, which is what the Reader contract forbids.
+	scopeClass, _ := cfg.Filters["scope_class"].(string)
+	categoryID, _ := cfg.Filters["category_id"].(string)
+	status, _ := cfg.Filters["status"].(string)
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			id, created_at, updated_at, system_name, ui_name, description,
@@ -305,6 +313,9 @@ func (s *postgresStore) listVersion(ctx context.Context, projectID, version stri
 		       OR EXISTS (SELECT 1 FROM jsonb_each_text(ui_name) jt WHERE jt.value ILIKE '%' || $3 || '%')
 		       OR EXISTS (SELECT 1 FROM jsonb_each_text(description) jt WHERE jt.value ILIKE '%' || $3 || '%')
 		       OR system_name ILIKE '%' || $3 || '%')
+		  AND ($8 = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array($8, ',')))
+		  AND ($9 = '' OR default_category_id = ANY(string_to_array($9, ',')))
+		  AND ($10 = '' OR status = $10)
 		ORDER BY
 			CASE WHEN $4 = 'ui_name' AND NOT $5::boolean THEN ui_name->>'en' END ASC NULLS LAST,
 			CASE WHEN $4 = 'ui_name' AND $5::boolean THEN ui_name->>'en' END DESC NULLS LAST,
@@ -316,7 +327,7 @@ func (s *postgresStore) listVersion(ctx context.Context, projectID, version stri
 			CASE WHEN $4 = 'updated_at' AND $5::boolean THEN updated_at END DESC,
 			canonical_collection_order ASC, system_name ASC
 		LIMIT $6 OFFSET $7
-	`, projectID, version, cfg.Search, cfg.OrderBy, cfg.OrderDesc, limit, offset)
+	`, projectID, version, cfg.Search, cfg.OrderBy, cfg.OrderDesc, limit, offset, scopeClass, categoryID, status)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list archived weave collections: %w", err)
 	}
@@ -341,7 +352,10 @@ func (s *postgresStore) listVersion(ctx context.Context, projectID, version stri
 		       OR EXISTS (SELECT 1 FROM jsonb_each_text(ui_name) jt WHERE jt.value ILIKE '%' || $3 || '%')
 		       OR EXISTS (SELECT 1 FROM jsonb_each_text(description) jt WHERE jt.value ILIKE '%' || $3 || '%')
 		       OR system_name ILIKE '%' || $3 || '%')
-	`, projectID, version, cfg.Search).Scan(&total); err != nil {
+		  AND ($4 = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array($4, ',')))
+		  AND ($5 = '' OR default_category_id = ANY(string_to_array($5, ',')))
+		  AND ($6 = '' OR status = $6)
+	`, projectID, version, cfg.Search, scopeClass, categoryID, status).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count archived weave collections: %w", err)
 	}
 	return out, total, nil
