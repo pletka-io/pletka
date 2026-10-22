@@ -52,6 +52,13 @@ type Reader interface {
 	// project) pair, or (nil, nil) if none exists. Hot path for the
 	// resolver — the base layer is consulted for every field render.
 	GetBase(ctx context.Context, fieldID, projectID string) (*domain.FieldOverride, error)
+
+	// ListPlacements returns the collection placements of a model, ordered
+	// by category then collection. The live reader keys on modelID alone
+	// (model ids are unique across projects) and ignores projectID; the
+	// archive is keyed by (project, version), so the release reader
+	// requires it.
+	ListPlacements(ctx context.Context, projectID, modelID string) ([]domain.CollectionPlacement, error)
 }
 
 // Store is the data-access contract for field overrides. Implementations
@@ -112,10 +119,6 @@ type Store interface {
 	// UpsertPlacement inserts or updates the placement keyed by
 	// (ModelID, CategoryID, CollectionID); ID is written back.
 	UpsertPlacement(ctx context.Context, p *domain.CollectionPlacement) error
-
-	// ListPlacements returns all placements for a model, ordered by
-	// category then collection.
-	ListPlacements(ctx context.Context, modelID string) ([]domain.CollectionPlacement, error)
 
 	// DeletePlacement removes one placement; missing rows are a no-op.
 	DeletePlacement(ctx context.Context, modelID, categoryID, collectionID string) error

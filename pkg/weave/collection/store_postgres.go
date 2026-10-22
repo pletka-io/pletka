@@ -116,7 +116,7 @@ func (s *postgresStore) ListReceiptCollectionClosure(ctx context.Context, seedID
 	return ids, nil
 }
 
-func (s *postgresStore) GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error) {
+func (s *postgresStore) getByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT
 			id, created_at, updated_at, system_name, ui_name, description,
@@ -283,7 +283,7 @@ func (s *postgresStore) ScopeClasses(ctx context.Context, projectID string) ([]s
 	return out, nil
 }
 
-func (s *postgresStore) ListVersion(ctx context.Context, projectID, version string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error) {
+func (s *postgresStore) listVersion(ctx context.Context, projectID, version string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error) {
 	cfg := domain.ApplyOptions(opts)
 	limit := int32(cfg.Limit)
 	if limit <= 0 {
@@ -293,6 +293,14 @@ func (s *postgresStore) ListVersion(ctx context.Context, projectID, version stri
 	if offset < 0 {
 		offset = 0
 	}
+	// The same three filters List applies, with the same semantics: an empty
+	// string means "no filter", scope_class and category_id accept a
+	// comma-separated set. A filter honored on the draft and dropped here
+	// makes one query answer differently depending on whether a version was
+	// named, which is what the Reader contract forbids.
+	scopeClass, _ := cfg.Filters["scope_class"].(string)
+	categoryID, _ := cfg.Filters["category_id"].(string)
+	status, _ := cfg.Filters["status"].(string)
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			id, created_at, updated_at, system_name, ui_name, description,
@@ -305,6 +313,9 @@ func (s *postgresStore) ListVersion(ctx context.Context, projectID, version stri
 		       OR EXISTS (SELECT 1 FROM jsonb_each_text(ui_name) jt WHERE jt.value ILIKE '%' || $3 || '%')
 		       OR EXISTS (SELECT 1 FROM jsonb_each_text(description) jt WHERE jt.value ILIKE '%' || $3 || '%')
 		       OR system_name ILIKE '%' || $3 || '%')
+		  AND ($8 = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array($8, ',')))
+		  AND ($9 = '' OR default_category_id = ANY(string_to_array($9, ',')))
+		  AND ($10 = '' OR status = $10)
 		ORDER BY
 			CASE WHEN $4 = 'ui_name' AND NOT $5::boolean THEN ui_name->>'en' END ASC NULLS LAST,
 			CASE WHEN $4 = 'ui_name' AND $5::boolean THEN ui_name->>'en' END DESC NULLS LAST,
@@ -316,7 +327,7 @@ func (s *postgresStore) ListVersion(ctx context.Context, projectID, version stri
 			CASE WHEN $4 = 'updated_at' AND $5::boolean THEN updated_at END DESC,
 			canonical_collection_order ASC, system_name ASC
 		LIMIT $6 OFFSET $7
-	`, projectID, version, cfg.Search, cfg.OrderBy, cfg.OrderDesc, limit, offset)
+	`, projectID, version, cfg.Search, cfg.OrderBy, cfg.OrderDesc, limit, offset, scopeClass, categoryID, status)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list archived weave collections: %w", err)
 	}
@@ -341,7 +352,10 @@ func (s *postgresStore) ListVersion(ctx context.Context, projectID, version stri
 		       OR EXISTS (SELECT 1 FROM jsonb_each_text(ui_name) jt WHERE jt.value ILIKE '%' || $3 || '%')
 		       OR EXISTS (SELECT 1 FROM jsonb_each_text(description) jt WHERE jt.value ILIKE '%' || $3 || '%')
 		       OR system_name ILIKE '%' || $3 || '%')
-	`, projectID, version, cfg.Search).Scan(&total); err != nil {
+		  AND ($4 = '' OR ((ontology_scope::jsonb->>'prefix') || ':' || (ontology_scope::jsonb->>'local_name')) = ANY(string_to_array($4, ',')))
+		  AND ($5 = '' OR default_category_id = ANY(string_to_array($5, ',')))
+		  AND ($6 = '' OR status = $6)
+	`, projectID, version, cfg.Search, scopeClass, categoryID, status).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count archived weave collections: %w", err)
 	}
 	return out, total, nil
@@ -408,7 +422,7 @@ func (s *postgresStore) Usage(ctx context.Context, projectID, collectionID strin
 	return report, nil
 }
 
-func (s *postgresStore) UsageVersion(ctx context.Context, projectID, collectionID, version string) (UsageReport, error) {
+func (s *postgresStore) usageVersion(ctx context.Context, projectID, collectionID, version string) (UsageReport, error) {
 	var count int64
 	if err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(DISTINCT o.field_id) AS field_count
@@ -884,4 +898,123 @@ func longestCommonClassPrefixTail(chains [][]string) string {
 		return ""
 	}
 	return chains[0][prefixLen-1]
+}
+
+// --- archive reads behind Reader's release branch ---
+
+func archiveRowToCollection(row sqlcgen.WeaveCollectionsArchive) *domain.Collection {
+	c := &domain.Collection{
+		Entity: domain.Entity{
+			ID:            row.ID,
+			CreatedAt:     row.CreatedAt,
+			UpdatedAt:     row.UpdatedAt,
+			SemanticID:    row.ID,
+			SystemName:    derefStr(row.SystemName),
+			UIName:        unmarshalTranslations(row.UiName),
+			Description:   unmarshalTranslations(row.Description),
+			Status:        domain.Status(row.Status),
+			VersionNumber: row.VersionNumber,
+			ProjectID:     row.ProjectID,
+			Deprecated:    row.Deprecated,
+		},
+		CollectionNumber:         derefInt32(row.CollectionNumber),
+		CanonicalCollectionOrder: derefInt32(row.CanonicalCollectionOrder),
+		DefaultCategoryID:        row.DefaultCategoryID,
+		StagingID:                row.StagingID,
+	}
+	if len(row.OntologyScope) > 0 {
+		_ = json.Unmarshal(row.OntologyScope, &c.OntologyScope)
+	}
+	return c
+}
+
+func (s *postgresStore) scopeClassesVersion(ctx context.Context, projectID, version string) ([]string, error) {
+	rows, err := s.queries.WeaveScopeClassesAtVersion(ctx, sqlcgen.WeaveScopeClassesAtVersionParams{
+		ProjectID:     projectID,
+		VersionNumber: version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("archived collection scope classes: %w", err)
+	}
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if r != "" {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (s *postgresStore) categoriesUsedVersion(ctx context.Context, projectID, version string) ([]CollectionCategoryOption, error) {
+	rows, err := s.queries.WeaveCategoriesUsedAtVersion(ctx, sqlcgen.WeaveCategoriesUsedAtVersionParams{
+		ProjectID:     projectID,
+		VersionNumber: version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("archived collection categories: %w", err)
+	}
+	out := make([]CollectionCategoryOption, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, CollectionCategoryOption{
+			ID:             r.ID,
+			UIName:         unmarshalTranslations(r.UiName),
+			CanonicalOrder: int(r.CanonicalOrder),
+		})
+	}
+	return out, nil
+}
+
+func (s *postgresStore) compositionCountsVersion(ctx context.Context, collectionIDs []string, version string) (map[string]domain.CompositionCounts, error) {
+	out := make(map[string]domain.CompositionCounts, len(collectionIDs))
+	if len(collectionIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.queries.WeaveCompositionCountsAtVersion(ctx, sqlcgen.WeaveCompositionCountsAtVersionParams{
+		VersionNumber: version,
+		CollectionIds: collectionIDs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("archived collection composition counts: %w", err)
+	}
+	for _, r := range rows {
+		out[r.EntityID] = domain.CompositionCounts{FieldCount: int(r.FieldCount)}
+	}
+	return out, nil
+}
+
+// listAdoptedByReferenceVersion reads the adopting project's references at the
+// release and the foreign collections they name from the LIVE table. That mix
+// is deliberate and the query's own comment carries the reasoning: a reference
+// adoption records no source version, and the adopting project's version
+// cannot resolve another project's rows, so hot content inside a release view
+// is the only answer that is not silently empty.
+func (s *postgresStore) listAdoptedByReferenceVersion(ctx context.Context, projectID, version string) ([]*domain.Collection, error) {
+	rows, err := s.queries.WeaveListReferenceAdoptedCollectionsAtVersion(ctx, sqlcgen.WeaveListReferenceAdoptedCollectionsAtVersionParams{
+		ProjectID:     projectID,
+		VersionNumber: version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reference-adopted collections at version: %w", err)
+	}
+	out := make([]*domain.Collection, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, rowToCollection(r))
+	}
+	return out, nil
+}
+
+// lookupVersion resolves a collection by global id inside a release, with no
+// project gate. Returns (nil, nil) when the release did not archive it.
+func (s *postgresStore) lookupVersion(ctx context.Context, id, version string) (*domain.Collection, error) {
+	row, err := s.queries.WeaveGetCollectionByIDAtVersion(ctx, sqlcgen.WeaveGetCollectionByIDAtVersionParams{
+		ID:            id,
+		VersionNumber: version,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lookup archived collection: %w", err)
+	}
+	return archiveRowToCollection(row), nil
 }

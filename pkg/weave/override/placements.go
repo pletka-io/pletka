@@ -34,16 +34,46 @@ func (s *postgresStore) UpsertPlacement(ctx context.Context, p *domain.Collectio
 	return nil
 }
 
-// ListPlacements returns all placements for a model, ordered by category
-// then collection. Empty slice when the model has none.
-func (s *postgresStore) ListPlacements(ctx context.Context, modelID string) ([]domain.CollectionPlacement, error) {
-	rows, err := s.queries.WeaveListCollectionPlacementsByModel(ctx, modelID)
+// ListPlacements returns all live placements for a model, ordered by
+// category then collection. Empty slice when the model has none. projectID is
+// unused: the live table is keyed by model.
+func (r *liveReader) ListPlacements(ctx context.Context, _, modelID string) ([]domain.CollectionPlacement, error) {
+	rows, err := r.queries.WeaveListCollectionPlacementsByModel(ctx, modelID)
 	if err != nil {
 		return nil, fmt.Errorf("list collection placements for %s: %w", modelID, err)
 	}
 	out := make([]domain.CollectionPlacement, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, placementFromRow(r))
+	for _, row := range rows {
+		out = append(out, placementFromRow(row))
+	}
+	return out, nil
+}
+
+// ListPlacements returns the placements a model carried at r.version, from
+// the archive. A version with none archived reads empty; there is no fallback
+// to the live table.
+func (r *archiveReader) ListPlacements(ctx context.Context, projectID, modelID string) ([]domain.CollectionPlacement, error) {
+	rows, err := r.queries.WeaveListPlacementsAtVersion(ctx, sqlcgen.WeaveListPlacementsAtVersionParams{
+		ProjectID:     projectID,
+		VersionNumber: r.version,
+		ModelID:       modelID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list archived collection placements for %s: %w", modelID, err)
+	}
+	out := make([]domain.CollectionPlacement, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.CollectionPlacement{
+			ID:           row.ID,
+			ProjectID:    row.ProjectID,
+			ModelID:      row.ModelID,
+			CategoryID:   row.CategoryID,
+			CollectionID: row.CollectionID,
+			IsRequired:   row.IsRequired,
+			MinOccurs:    int(row.MinOccurs),
+			MaxOccurs:    int32PtrToIntPtr(row.MaxOccurs),
+			IsHidden:     row.IsHidden,
+		})
 	}
 	return out, nil
 }

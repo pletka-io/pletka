@@ -13,12 +13,6 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/override"
 )
 
-type versionedCollectionReader interface {
-	GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error)
-	ListVersion(ctx context.Context, projectID, version string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error)
-	UsageVersion(ctx context.Context, projectID, collectionID, version string) (UsageReport, error)
-}
-
 type HierarchyReader interface {
 	ResolvedOntologyVersions(ctx context.Context, projectID string, opts domain.ResolvedOntologyVersionOpts) ([]domain.ResolvedOntologyVersion, error)
 }
@@ -172,74 +166,63 @@ type StatsReport struct {
 // Reads
 // ---------------------------------------------------------------------------
 
-// ListAt lists a project's collections at an explicitly named scope, rather
-// than at whatever version the request happens to carry.
-//
-// List answers "what does this project look like to the current reader".
-// ListAt answers "what did THIS project look like at THIS version", which is
-// a different question and the one a caller reading ANOTHER project needs --
-// the adoption picker lists an ancestor's entities at the ancestor's own
-// release, not at the adopting project's.
-//
-// The signature is the scoped-reader shape the read model is converging on,
-// so callers written against it survive this slice's conversion unchanged.
-func (s *Service) ListAt(ctx context.Context, scope auth.ReadScope, projectID string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error) {
-	if !scope.Valid() {
-		return nil, 0, fmt.Errorf("collection: ListAt without a scope — the caller must name auth.Draft() or auth.Release(version)")
-	}
-	if err := s.requireProjectRead(ctx, projectID); err != nil {
-		return nil, 0, err
-	}
-	if scope.IsRelease() {
-		vr, ok := s.store.(versionedCollectionReader)
-		if !ok {
-			return nil, 0, fmt.Errorf("collection: store cannot read a release")
-		}
-		return vr.ListVersion(ctx, projectID, scope.Version(), opts...)
-	}
-	opts = append([]domain.QueryOption{domain.WithProjectID(projectID)}, opts...)
-	return s.store.List(ctx, opts...)
-}
+// Reads take the scope the caller names and answer through store.At(scope).
+// A release scope reads the archive and never falls back to live rows.
 
-func (s *Service) List(ctx context.Context, projectID string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error) {
+// List lists a project's collections at scope.
+func (s *Service) List(ctx context.Context, scope auth.ReadScope, projectID string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, 0, err
 	}
-	if version := auth.ProjectVersionFromContext(ctx); version != "" {
-		if vr, ok := s.store.(versionedCollectionReader); ok {
-			return vr.ListVersion(ctx, projectID, version, opts...)
-		}
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, 0, err
 	}
-	opts = append([]domain.QueryOption{domain.WithProjectID(projectID)}, opts...)
-	return s.store.List(ctx, opts...)
+	return r.List(ctx, projectID, opts...)
 }
 
 // BatchCompositionCounts returns per-collection field counts for the given
 // collection IDs — the list field-count badge.
-func (s *Service) BatchCompositionCounts(ctx context.Context, projectID string, collectionIDs []string) (map[string]domain.CompositionCounts, error) {
+func (s *Service) BatchCompositionCounts(ctx context.Context, scope auth.ReadScope, projectID string, collectionIDs []string) (map[string]domain.CompositionCounts, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	return s.store.BatchCompositionCounts(ctx, collectionIDs)
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
+	return r.CompositionCounts(ctx, projectID, collectionIDs)
 }
 
 // ListAdoptedByReference returns every collection from another project
-// that the current project's field overrides reference via
-// part_of_collection_id. Drives the reference slice of the four-state
+// that the project's field overrides reference via part_of_collection_id,
+// as scope recorded them. Drives the reference slice of the four-state
 // list rule — task 3b.
-func (s *Service) ListAdoptedByReference(ctx context.Context, projectID string) ([]*domain.Collection, error) {
+func (s *Service) ListAdoptedByReference(ctx context.Context, scope auth.ReadScope, projectID string) ([]*domain.Collection, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	return s.store.ListReferenceAdopted(ctx, projectID)
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
+	return r.ListAdoptedByReference(ctx, projectID)
 }
 
 // ListAdoptedExplicit returns every collection the project has adopted
 // via an explicit receipt. Mirror of model.Service.ListAdoptedExplicit
 // from task 3a — same pattern, same dedup, same dangling-receipt skip.
-func (s *Service) ListAdoptedExplicit(ctx context.Context, projectID string) ([]*domain.Collection, map[string]domain.Origin, error) {
+//
+// Receipts come from the adoption store at the ADOPTING project's version,
+// because a receipt is this project's own row. The collection each receipt
+// names belongs to another project, and is resolved at that project's version
+// — see the comment in the loop.
+func (s *Service) ListAdoptedExplicit(ctx context.Context, scope auth.ReadScope, projectID string) ([]*domain.Collection, map[string]domain.Origin, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, nil, err
+	}
+	if !scope.Valid() {
+		return nil, nil, fmt.Errorf("collection: read scope is required; the zero ReadScope means a caller did not name draft or a release")
 	}
 	if s.adoptions == nil {
 		return nil, nil, nil
@@ -250,8 +233,8 @@ func (s *Service) ListAdoptedExplicit(ctx context.Context, projectID string) ([]
 		domain.WithFilter("context_entity_id", projectID),
 		domain.WithFilter("entity_type", "collection"),
 	}
-	if version := auth.ProjectVersionFromContext(ctx); version != "" {
-		opts = append(opts, domain.WithVersion(version))
+	if scope.IsRelease() {
+		opts = append(opts, domain.WithVersion(scope.Version()))
 	}
 	adoptions, err := s.adoptions.List(ctx, opts...)
 	if err != nil {
@@ -260,12 +243,35 @@ func (s *Service) ListAdoptedExplicit(ctx context.Context, projectID string) ([]
 	out := make([]*domain.Collection, 0, len(adoptions))
 	origins := make(map[string]domain.Origin, len(adoptions))
 	seen := map[string]bool{}
+	// One reader per distinct source version, because the source scope is a
+	// property of the receipt rather than of this request.
+	sourceReaders := map[string]Reader{}
 	for _, a := range adoptions {
 		if seen[a.SourceEntityID] {
 			continue
 		}
 		seen[a.SourceEntityID] = true
-		c, err := s.store.GetByID(ctx, a.SourceEntityID)
+		// Resolve at the SOURCE project's own version, not at this request's
+		// scope. Version strings are per-project while the archive PK is
+		// (id, version_number) global across projects, so asking for a
+		// foreign collection at THIS project's version either misses — the
+		// adopted collection silently vanishes from the release view — or
+		// hits an unrelated release of the source project that happens to
+		// share the version string. The adoption picker already works this
+		// way: it lists an ancestor's entities at the ancestor's own
+		// release, not at the adopting project's. An empty SourceVersion is
+		// auth.Draft(), which is the right answer for a receipt that pinned
+		// no release.
+		sr, ok := sourceReaders[a.SourceVersion]
+		if !ok {
+			var rerr error
+			sr, rerr = s.store.At(auth.Release(a.SourceVersion))
+			if rerr != nil {
+				return nil, nil, rerr
+			}
+			sourceReaders[a.SourceVersion] = sr
+		}
+		c, err := sr.Lookup(ctx, a.SourceEntityID)
 		if err != nil || c == nil {
 			continue
 		}
@@ -277,86 +283,74 @@ func (s *Service) ListAdoptedExplicit(ctx context.Context, projectID string) ([]
 
 // ScopeClasses returns the distinct ontology scope classes used by
 // collections in the project. Drives the scope_class filter dropdown.
-func (s *Service) ScopeClasses(ctx context.Context, projectID string) ([]string, error) {
+func (s *Service) ScopeClasses(ctx context.Context, scope auth.ReadScope, projectID string) ([]string, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	return s.store.ScopeClasses(ctx, projectID)
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
+	return r.ScopeClasses(ctx, projectID)
 }
 
 // CategoriesUsed returns the distinct categories assigned to
 // collections in the project. Drives the category filter dropdown
 // on the collection list.
-func (s *Service) CategoriesUsed(ctx context.Context, projectID string) ([]CollectionCategoryOption, error) {
+func (s *Service) CategoriesUsed(ctx context.Context, scope auth.ReadScope, projectID string) ([]CollectionCategoryOption, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	return s.store.CategoriesUsed(ctx, projectID)
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
+	return r.CategoriesUsed(ctx, projectID)
 }
 
-func (s *Service) Get(ctx context.Context, projectID, id string) (*domain.Collection, error) {
+// Get returns the collection at scope, or (nil, nil) when scope does not
+// carry it.
+func (s *Service) Get(ctx context.Context, scope auth.ReadScope, projectID, id string) (*domain.Collection, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	if version := auth.ProjectVersionFromContext(ctx); version != "" {
-		if vr, ok := s.store.(versionedCollectionReader); ok {
-			return vr.GetByIDVersion(ctx, projectID, id, version)
-		}
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
 	}
-	c, err := s.store.GetByID(ctx, id)
+	return r.Get(ctx, projectID, id)
+}
+
+// Stats takes the collection and its usage from one reader, so the two
+// cannot disagree about which scope they describe.
+func (s *Service) Stats(ctx context.Context, scope auth.ReadScope, projectID, id string) (*StatsReport, error) {
+	if err := s.requireProjectRead(ctx, projectID); err != nil {
+		return nil, err
+	}
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
+	c, err := r.Get(ctx, projectID, id)
 	if err != nil {
 		return nil, err
 	}
 	if c == nil {
-		return nil, nil
-	}
-	if c.ProjectID != projectID {
 		return nil, errNotFound
 	}
-	return c, nil
-}
-
-func (s *Service) Stats(ctx context.Context, projectID, id string) (*StatsReport, error) {
-	if err := s.requireProjectRead(ctx, projectID); err != nil {
+	usage, err := r.Usage(ctx, projectID, id)
+	if err != nil {
 		return nil, err
-	}
-	var (
-		c     *domain.Collection
-		usage UsageReport
-		err   error
-	)
-	if version := auth.ProjectVersionFromContext(ctx); version != "" {
-		if vr, ok := s.store.(versionedCollectionReader); ok {
-			c, err = vr.GetByIDVersion(ctx, projectID, id, version)
-			if err != nil {
-				return nil, err
-			}
-			if c == nil || c.ProjectID != projectID {
-				return nil, errNotFound
-			}
-			usage, err = vr.UsageVersion(ctx, projectID, id, version)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-	if c == nil {
-		c, err = s.store.GetByID(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		if c == nil || c.ProjectID != projectID {
-			return nil, errNotFound
-		}
-		usage, err = s.store.Usage(ctx, projectID, id)
-		if err != nil {
-			return nil, err
-		}
 	}
 	return &StatsReport{Collection: c, Usage: usage}, nil
 }
 
-func (s *Service) ForkOriginsForProject(ctx context.Context, projectID string) (map[string]domain.Origin, error) {
+// ForkOriginsForProject maps fork collection IDs to their origin. The fork
+// store answers at a version itself, so the scope's version is threaded in.
+func (s *Service) ForkOriginsForProject(ctx context.Context, scope auth.ReadScope, projectID string) (map[string]domain.Origin, error) {
+	if !scope.Valid() {
+		return nil, fmt.Errorf("collection: read scope is required")
+	}
 	if projectID == "" {
 		return map[string]domain.Origin{}, nil
 	}
@@ -364,8 +358,8 @@ func (s *Service) ForkOriginsForProject(ctx context.Context, projectID string) (
 		domain.WithProjectID(projectID),
 		domain.WithFilter("entity_type", "collection"),
 	}
-	if version := auth.ProjectVersionFromContext(ctx); version != "" {
-		opts = append(opts, domain.WithVersion(version))
+	if scope.IsRelease() {
+		opts = append(opts, domain.WithVersion(scope.Version()))
 	}
 	forks, err := s.forks.List(ctx, opts...)
 	if err != nil {
@@ -386,8 +380,12 @@ func (s *Service) ForkOriginsForProject(ctx context.Context, projectID string) (
 // project-scoped ownership check. It is intended for internal cross-slice
 // resolution where route/project auth has already been enforced and the caller
 // only needs the collection's source project.
-func (s *Service) LookupByID(ctx context.Context, id string) (*domain.Collection, error) {
-	return s.store.GetByID(ctx, id)
+func (s *Service) LookupByID(ctx context.Context, scope auth.ReadScope, id string) (*domain.Collection, error) {
+	r, err := s.store.At(scope)
+	if err != nil {
+		return nil, err
+	}
+	return r.Lookup(ctx, id)
 }
 
 // LookupView returns a collection's resolved fields by ID, looking up

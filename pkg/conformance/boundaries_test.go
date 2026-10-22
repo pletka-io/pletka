@@ -44,7 +44,7 @@ func TestProjectVersionFromContextOnlyShrinks(t *testing.T) {
 	// Measured 2026-10-03 over non-test files under pkg/, excluding pkg/auth
 	// which defines the accessor and pkg/conformance which only writes about it. Lower this when a conversion removes call
 	// sites. Never raise it.
-	const baseline = 69
+	const baseline = 60
 
 	found := accessorCallSites(t, repoRoot(t))
 	if len(found) > baseline {

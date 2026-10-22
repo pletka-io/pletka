@@ -90,18 +90,18 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		opts = append(opts, domain.WithFilter("category_id", cat))
 	}
 
-	collections, _, err := h.svc.List(r.Context(), projectID, opts...)
+	collections, _, err := h.svc.List(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, opts...)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
 	}
-	forkedOrigins, err := h.svc.ForkOriginsForProject(r.Context(), projectID)
+	forkedOrigins, err := h.svc.ForkOriginsForProject(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
 	}
 	// Receipt-adopted collections — UNION with local rows. Task 3a.
-	adoptedCollections, adoptedOrigins, err := h.svc.ListAdoptedExplicit(r.Context(), projectID)
+	adoptedCollections, adoptedOrigins, err := h.svc.ListAdoptedExplicit(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -109,7 +109,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	// Reference-adopted collections — task 3b. Collections referenced
 	// via part_of_collection_id by overrides in this project but living
 	// in another project.
-	referenceAdoptedCollections, err := h.svc.ListAdoptedByReference(r.Context(), projectID)
+	referenceAdoptedCollections, err := h.svc.ListAdoptedByReference(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -230,7 +230,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		for i := range items {
 			ids = append(ids, items[i].ID)
 		}
-		if counts, cErr := h.svc.BatchCompositionCounts(r.Context(), projectID, ids); cErr != nil {
+		if counts, cErr := h.svc.BatchCompositionCounts(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, ids); cErr != nil {
 			h.log.Warn("collection composition counts", "project", projectID, "err", cErr)
 		} else {
 			for i := range items {
@@ -338,7 +338,7 @@ func paginateItems[T any](items []T, page, perPage int) []T {
 func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	collectionID := chi.URLParam(r, "collectionID")
-	c, err := h.svc.Get(r.Context(), projectID, collectionID)
+	c, err := h.svc.Get(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, collectionID)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -353,7 +353,7 @@ func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	collectionID := chi.URLParam(r, "collectionID")
-	report, err := h.svc.Stats(r.Context(), projectID, collectionID)
+	report, err := h.svc.Stats(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, collectionID)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -385,7 +385,7 @@ func (h *Handler) Fork(w http.ResponseWriter, r *http.Request) {
 // expected by the entity-list lazy-options loader.
 func (h *Handler) ScopeClassesOptions(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
-	classes, err := h.svc.ScopeClasses(r.Context(), projectID)
+	classes, err := h.svc.ScopeClasses(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return
@@ -404,7 +404,7 @@ func (h *Handler) ScopeClassesOptions(w http.ResponseWriter, r *http.Request) {
 // collections in the project, in the {"options":[...]} envelope.
 func (h *Handler) CategoriesOptions(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
-	cats, err := h.svc.CategoriesUsed(r.Context(), projectID)
+	cats, err := h.svc.CategoriesUsed(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID)
 	if err != nil {
 		h.writeServiceError(w, r, err)
 		return

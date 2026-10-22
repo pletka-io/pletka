@@ -230,3 +230,51 @@ func mustScopeExec(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
 		t.Fatalf("exec %q: %v", sql, err)
 	}
 }
+
+// TestListPlacementsAtReleaseReadsTheArchive proves a pinned view stops
+// reporting placements added after the release was cut, and that the draft
+// scope still sees the live rows.
+func TestListPlacementsAtReleaseReadsTheArchive(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx := serviceTestContext(t, "ZPLC")
+	svc := NewService(NewPostgresStore(pool), nil, nil)
+
+	const projectID, modelID, version = "ZPLC", "ZPLCM.1", "1.0.0"
+	mustScopeExec(t, pool, `INSERT INTO weave_collection_placements_archive
+			(id, project_id, model_id, category_id, collection_id, version_number)
+		VALUES (nextval('weave_collection_placements_id_seq'), $1, $2, 'cat-1', 'coll-1', $3)`,
+		projectID, modelID, version)
+	mustScopeExec(t, pool, `INSERT INTO weave_collection_placements
+			(id, project_id, model_id, category_id, collection_id)
+		VALUES (nextval('weave_collection_placements_id_seq'), $1, $2, 'cat-1', 'coll-2')`,
+		projectID, modelID)
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM weave_collection_placements_archive WHERE project_id=$1`, projectID)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_collection_placements WHERE project_id=$1`, projectID)
+	})
+
+	got, err := svc.ListPlacements(ctx, auth.Release(version), projectID, modelID)
+	if err != nil {
+		t.Fatalf("ListPlacements at release: %v", err)
+	}
+	if len(got) != 1 || got[0].CollectionID != "coll-1" {
+		t.Fatalf("release got %v, want only the archived placement coll-1", got)
+	}
+
+	live, err := svc.ListPlacements(ctx, auth.Draft(), projectID, modelID)
+	if err != nil {
+		t.Fatalf("ListPlacements at draft: %v", err)
+	}
+	if len(live) != 1 || live[0].CollectionID != "coll-2" {
+		t.Fatalf("draft got %v, want only the live placement coll-2", live)
+	}
+
+	unreleased, err := svc.ListPlacements(ctx, auth.Release("9.9.9"), projectID, modelID)
+	if err != nil {
+		t.Fatalf("ListPlacements at unreleased: %v", err)
+	}
+	if len(unreleased) != 0 {
+		t.Fatalf("unreleased version got %v, want none (no fallback to live)", unreleased)
+	}
+}

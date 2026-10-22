@@ -103,6 +103,57 @@ func (q *Queries) WeaveListCollectionPlacementsByModel(ctx context.Context, mode
 	return items, nil
 }
 
+const weaveListPlacementsAtVersion = `-- name: WeaveListPlacementsAtVersion :many
+SELECT id, project_id, model_id, category_id, collection_id,
+       is_required, min_occurs, max_occurs, is_hidden,
+       created_at, updated_at, version_number
+FROM weave_collection_placements_archive
+WHERE project_id = $1::text
+  AND version_number = $2::text
+  AND ($3::text = '' OR model_id = $3::text)
+ORDER BY model_id, category_id, collection_id
+`
+
+type WeaveListPlacementsAtVersionParams struct {
+	ProjectID     string `json:"project_id"`
+	VersionNumber string `json:"version_number"`
+	ModelID       string `json:"model_id"`
+}
+
+// Placements at a release. Empty model_id means every model in the project.
+func (q *Queries) WeaveListPlacementsAtVersion(ctx context.Context, arg WeaveListPlacementsAtVersionParams) ([]WeaveCollectionPlacementsArchive, error) {
+	rows, err := q.db.Query(ctx, weaveListPlacementsAtVersion, arg.ProjectID, arg.VersionNumber, arg.ModelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveCollectionPlacementsArchive{}
+	for rows.Next() {
+		var i WeaveCollectionPlacementsArchive
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.ModelID,
+			&i.CategoryID,
+			&i.CollectionID,
+			&i.IsRequired,
+			&i.MinOccurs,
+			&i.MaxOccurs,
+			&i.IsHidden,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VersionNumber,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveUpsertCollectionPlacement = `-- name: WeaveUpsertCollectionPlacement :one
 
 INSERT INTO weave_collection_placements (

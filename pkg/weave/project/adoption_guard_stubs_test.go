@@ -16,7 +16,7 @@ func (stubModelLister) ListAt(context.Context, weaveauth.ReadScope, string, ...d
 
 type stubCollectionLister struct{}
 
-func (stubCollectionLister) ListAt(context.Context, weaveauth.ReadScope, string, ...domain.QueryOption) ([]*domain.Collection, int64, error) {
+func (stubCollectionLister) List(context.Context, weaveauth.ReadScope, string, ...domain.QueryOption) ([]*domain.Collection, int64, error) {
 	return nil, 0, nil
 }
 

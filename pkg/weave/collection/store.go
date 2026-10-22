@@ -3,17 +3,20 @@ package collection
 import (
 	"context"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 // Store is the data-access contract for collections.
+//
+// Writes live here. Reads of a versioned slice live on the Reader returned by
+// At, which binds one scope (draft or a release) for every method it exposes.
 type Store interface {
+	// At returns the Reader for scope, or an error for the zero ReadScope.
+	At(scope auth.ReadScope) (Reader, error)
+
 	Create(ctx context.Context, c *domain.Collection) error
 	GetByID(ctx context.Context, id string) (*domain.Collection, error)
-	// GetByIDVersion returns the archived collection at a specific
-	// release version, scoped to projectID, or (nil, nil) when no such
-	// row was archived. See versionedCollectionReader.
-	GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error)
 	GetByIdentifier(ctx context.Context, projectID, identifier string) (*domain.Collection, error)
 	Update(ctx context.Context, c *domain.Collection) error
 	Delete(ctx context.Context, id string) error

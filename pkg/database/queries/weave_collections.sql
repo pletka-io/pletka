@@ -226,3 +226,79 @@ SELECT * FROM weave_collections
 WHERE project_id = @project_id::text
   AND (system_name = @identifier::text OR id = @identifier::text)
 LIMIT 1;
+
+-- name: WeaveScopeClassesAtVersion :many
+-- Scope classes (prefix:local_name) the release recorded on its archived
+-- collections. Mirrors WeaveListCollectionScopeClasses against the archive, so
+-- a pinned view does not report classes added to live collections since.
+SELECT DISTINCT ((c.ontology_scope::jsonb->>'prefix') || ':' || (c.ontology_scope::jsonb->>'local_name'))::text AS scope_class
+FROM weave_collections_archive c
+WHERE c.project_id = @project_id::text
+  AND c.version_number = @version_number::text
+  AND c.ontology_scope IS NOT NULL
+  AND c.ontology_scope->>'prefix' IS NOT NULL
+  AND c.ontology_scope->>'local_name' IS NOT NULL
+ORDER BY scope_class ASC;
+
+-- name: WeaveCategoriesUsedAtVersion :many
+-- Answers "every category the release carried", not "the categories the
+-- release's placements cited" -- a reader of the plan will expect the latter.
+-- All categories the release recorded for this project. Mirrors
+-- WeaveListCollectionCategoriesForProject against the archive, deliberately
+-- NOT a placements join: that join is the bug the live query's comment
+-- records, where a project whose collections were not yet tagged with
+-- default_category_id got an empty filter dropdown. A release view must not
+-- reintroduce it behind a version.
+SELECT id, ui_name, canonical_order
+FROM weave_categories_archive
+WHERE project_id = @project_id::text
+  AND version_number = @version_number::text
+ORDER BY canonical_order ASC, id ASC;
+
+-- name: WeaveCompositionCountsAtVersion :many
+-- Field counts per collection as the release recorded them. entity_id
+-- identifies the collection uniquely, so no project filter is needed (same as
+-- the live batch count).
+SELECT fo.entity_id, count(*) AS field_count
+FROM weave_field_overrides_archive fo
+WHERE fo.entity_type = 'collection'
+  AND fo.version_number = @version_number::text
+  AND fo.entity_id = ANY(@collection_ids::text[])
+GROUP BY fo.entity_id;
+
+-- name: WeaveGetCollectionByIDAtVersion :one
+-- Resolve one collection by global id inside a release. No project_id filter:
+-- callers resolve cross-project ids on purpose, and the version pins the row.
+-- Columns are listed explicitly, in scanArchivedCollection's order, so the
+-- generated row maps through the same helper GetByIDVersion already uses.
+SELECT id, created_at, updated_at, system_name, ui_name, description,
+       status, project_id, ontology_scope, collection_number,
+       canonical_collection_order, staging_id, deprecated,
+       default_category_id, version_number
+FROM weave_collections_archive
+WHERE id = @id::text
+  AND version_number = @version_number::text;
+
+-- name: WeaveListReferenceAdoptedCollectionsAtVersion :many
+-- The reference-adopted slice of a release view. The REFERENCES are read at
+-- the release: weave_field_overrides_archive rows belong to the adopting
+-- project, so they genuinely live at that project's version. The foreign
+-- collections they point at are read from the LIVE table, deliberately.
+--
+-- Why there is no alternative: the archive PK is (id, version_number) and
+-- version strings are per-project, so a foreign collection cannot be resolved
+-- at the adopting project's version — and a reference adoption records no
+-- source version anywhere, so there is nothing else to resolve it at. Binding
+-- c.version_number to the adopting project's release instead returns nothing,
+-- which drops the reference-adopted slice out of the release view with no
+-- signal. Stale but present and labeled beats silently absent. This is the
+-- same commented cross-project fallback the detail view already makes for a
+-- single-collection header.
+SELECT DISTINCT c.*
+FROM weave_collections c
+JOIN weave_field_overrides_archive o ON o.part_of_collection_id = c.id
+WHERE o.project_id = @project_id::text
+  AND o.version_number = @version_number::text
+  AND COALESCE(o.part_of_collection_id, '') <> ''
+  AND c.project_id <> @project_id::text
+ORDER BY c.id;

@@ -214,7 +214,15 @@ func (a *collectionStoreAdapter) GetByID(ctx context.Context, id string) (*domai
 }
 
 func (a *collectionStoreAdapter) GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error) {
-	return a.inner.GetByIDVersion(ctx, projectID, id, version)
+	if version == "" {
+		// Release("") is Draft(); the archive never holds an empty version.
+		return nil, nil
+	}
+	r, err := a.inner.At(weaveauth.Release(version))
+	if err != nil {
+		return nil, err
+	}
+	return r.Get(ctx, projectID, id)
 }
 
 func (a *collectionStoreAdapter) GetByIdentifier(ctx context.Context, identifier, projectID string) (*domain.Collection, error) {

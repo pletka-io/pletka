@@ -67,3 +67,26 @@ func TestPermanentEntriesDoNotAlsoClaimAConversion(t *testing.T) {
 		}
 	}
 }
+
+// TestNoEntryWaitsOnTheCollectionConversion inverts the check for this slice,
+// as Part 4 describes: from "this read has a version branch" to "this slice
+// has no unscoped read it is still waiting to convert".
+//
+// A collection.* entry may survive, but only as a permanent exemption with a
+// caller obligation, or as a temporary one waiting on a DIFFERENT slice
+// (View and LookupView return resolved fields, which convert with the field
+// slice). Nothing, in any slice, may still name the collection conversion as
+// what will remove it -- that work is done.
+func TestNoEntryWaitsOnTheCollectionConversion(t *testing.T) {
+	for key, ex := range UnscopedReadAllowlist {
+		if strings.Contains(ex.ConvertsWith, "collection slice conversion") {
+			t.Errorf("%s still waits on the collection slice conversion, which is done", key)
+		}
+		if !strings.HasPrefix(key, "collection.") {
+			continue
+		}
+		if ex.Permanent && strings.TrimSpace(ex.CallerObligation) == "" {
+			t.Errorf("%s is permanent with no caller obligation; an exemption covers the slice, never its callers", key)
+		}
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -23,7 +24,7 @@ type ModelReader interface {
 
 // CollectionReader is the collection slice surface generators need.
 type CollectionReader interface {
-	Get(ctx context.Context, projectID, id string) (*domain.Collection, error)
+	Get(ctx context.Context, scope auth.ReadScope, projectID, id string) (*domain.Collection, error)
 	View(ctx context.Context, projectID, id string) ([]domain.ResolvedField, error)
 }
 
@@ -32,7 +33,7 @@ type CollectionReader interface {
 // on the target project; this lookup only resolves the owning project for
 // adopted collections already present in a readable model view.
 type CollectionLookupByID interface {
-	LookupByID(ctx context.Context, id string) (*domain.Collection, error)
+	LookupByID(ctx context.Context, scope auth.ReadScope, id string) (*domain.Collection, error)
 }
 
 // CollectionAnchorIndexer is an optional capability — when the
@@ -196,9 +197,15 @@ func (s *Service) SnapshotForCollection(ctx context.Context, projectID, collecti
 	if err != nil {
 		return nil, fmt.Errorf("load project %s: %w", projectID, err)
 	}
-	collection, err := s.collections.Get(ctx, projectID, collectionID)
+	if project == nil {
+		return nil, fmt.Errorf("load project %s: not found", projectID)
+	}
+	collection, err := s.collections.Get(ctx, auth.Draft(), projectID, collectionID) // generators has no scope of its own yet: exports are draft-only
 	if err != nil {
 		return nil, fmt.Errorf("load collection %s: %w", collectionID, err)
+	}
+	if collection == nil {
+		return nil, fmt.Errorf("load collection %s: not found", collectionID)
 	}
 	fields, err := s.collections.View(ctx, projectID, collectionID)
 	if err != nil {
@@ -346,7 +353,7 @@ func (s *Service) loadCollections(ctx context.Context, projectID string, view *d
 			err        error
 		)
 		if hasLookup {
-			collection, err = lookup.LookupByID(ctx, id)
+			collection, err = lookup.LookupByID(ctx, auth.Draft(), id) // generators has no scope of its own yet: exports are draft-only
 			if err != nil {
 				return nil, fmt.Errorf("lookup collection %s for model snapshot: %w", id, err)
 			}
@@ -354,7 +361,7 @@ func (s *Service) loadCollections(ctx context.Context, projectID string, view *d
 				return nil, fmt.Errorf("lookup collection %s for model snapshot: not found", id)
 			}
 		} else {
-			collection, err = s.collections.Get(ctx, projectID, id)
+			collection, err = s.collections.Get(ctx, auth.Draft(), projectID, id) // generators has no scope of its own yet: exports are draft-only
 			if err != nil {
 				return nil, fmt.Errorf("load collection %s for model snapshot: %w", id, err)
 			}
@@ -480,7 +487,7 @@ func (s *Service) loadExtraAnchoredCollections(ctx context.Context, view *domain
 				pickScore = cScore
 			}
 		}
-		coll, err := s.collections.(CollectionLookupByID).LookupByID(ctx, pick.CollectionID)
+		coll, err := s.collections.(CollectionLookupByID).LookupByID(ctx, auth.Draft(), pick.CollectionID) // generators has no scope of its own yet: exports are draft-only
 		if err != nil || coll == nil {
 			continue
 		}

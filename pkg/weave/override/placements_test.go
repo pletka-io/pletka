@@ -10,6 +10,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -41,7 +42,7 @@ func TestCollectionPlacements_CRUD(t *testing.T) {
 		t.Fatalf("upsert new: expected generated id, got 0")
 	}
 
-	list, err := store.ListPlacements(ctx, modelID)
+	list, err := listLive(t, store, ctx, modelID)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -60,7 +61,7 @@ func TestCollectionPlacements_CRUD(t *testing.T) {
 	if err := store.UpsertPlacement(ctx, &p); err != nil {
 		t.Fatalf("upsert existing: %v", err)
 	}
-	list, err = store.ListPlacements(ctx, modelID)
+	list, err = listLive(t, store, ctx, modelID)
 	if err != nil {
 		t.Fatalf("list after update: %v", err)
 	}
@@ -77,7 +78,7 @@ func TestCollectionPlacements_CRUD(t *testing.T) {
 	if err := store.DeletePlacement(ctx, modelID, p.CategoryID, p.CollectionID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	list, err = store.ListPlacements(ctx, modelID)
+	list, err = listLive(t, store, ctx, modelID)
 	if err != nil {
 		t.Fatalf("list after delete: %v", err)
 	}
@@ -90,11 +91,22 @@ func TestCollectionPlacements_ListUnknownModelEmpty(t *testing.T) {
 	pool := testdb.Pool(t)
 	store := NewPostgresStore(pool)
 
-	list, err := store.ListPlacements(context.Background(), "TSTPLCM.NOPE")
+	list, err := listLive(t, store, context.Background(), "TSTPLCM.NOPE")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(list) != 0 {
 		t.Fatalf("want empty list, got %d", len(list))
 	}
+}
+
+// listLive reads placements through the Draft reader, the only way a Store
+// now exposes them.
+func listLive(t *testing.T, store Store, ctx context.Context, modelID string) ([]domain.CollectionPlacement, error) {
+	t.Helper()
+	r, err := store.At(auth.Draft())
+	if err != nil {
+		t.Fatalf("At(Draft): %v", err)
+	}
+	return r.ListPlacements(ctx, "", modelID)
 }
