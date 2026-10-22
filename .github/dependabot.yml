@@ -11,6 +11,19 @@ updates:
     commit-message:
       prefix: "deps"
       include: scope
+    groups:
+      # Without grouping, five unrelated patch bumps fill
+      # open-pull-requests-limit on their own and Dependabot then stops
+      # opening anything new -- including security updates. Minor and patch
+      # updates arrive as one reviewable PR; majors stay separate so a
+      # breaking change is never bundled with routine bumps.
+      go-minor-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: npm
     directory: "/frontend"
