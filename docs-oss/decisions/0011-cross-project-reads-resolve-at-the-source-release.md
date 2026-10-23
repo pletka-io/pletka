@@ -1,0 +1,122 @@
+# ADR-0011: Cross-project reads resolve at the source project's release
+
+Date: 2026-10-23  
+Status: Accepted
+
+---
+
+## Why this decision was needed
+
+[ADR-0010](0010-versioned-reads-through-a-scope-bound-reader.md) decides *which*
+scope a request reads at. It says nothing about *whose* data that scope may be
+pointed at, and cross-project reuse — one project adopting another's fields,
+models or collections — is a design goal here, so that silence was load-bearing.
+It produced wrong answers in shipped code twice, in the same direction.
+
+`auth.Release("")` returns `Draft()` (`pkg/auth/read_scope.go:30`). That is
+correct at a request boundary, where an empty version string means the working
+state. Applied to a *foreign* project it is wrong, and two converted call sites
+applied it there: an adoption with no recorded source version resolved to
+`auth.Release("")` and therefore read the source project's hot tables, and an
+export resolved a picked collection at `auth.Draft()` outright. One project read
+another's unpublished working state — the wrong side of a visibility boundary,
+not merely stale data. Two allowlist exemptions had also been written claiming
+the question was structurally unanswerable.
+
+## What we decided
+
+> A read of another project's content resolves at **that project's** release.
+> When the adoption records a version, that version. When it records none, the
+> source project's **latest release**. Draft is never a cross-project answer.
+
+Draft is the odd one out, and naming why is the justification. A draft is one
+authenticated user's working state inside their own project. It is not a
+version; it is the absence of one — the thing a release is cut *from*. Release
+content is what a project has published and therefore what it has offered to
+others. So `release(v)` and `latest release` are cross-project answers and
+`draft` is not, by construction rather than by policy.
+
+A source project that has published nothing is an **error**, not a fallback: the
+adoption renders as unavailable. This is why the resolution returns
+`(ReadScope, error)` and not a bare scope — `LatestReleaseReader` returns `""`
+for a project with no release (`pkg/auth/project_version.go:17`), and
+`Release("")` is `Draft()`, so the naive one-line composition reproduces exactly
+the defect this rule removes.
+
+Reading a source's draft deliberately is a **third kind of scope**
+(follow-source-draft), reached only by explicit configuration. It is a
+legitimate, explicitly-chosen state, not an accident the type should make
+unreachable.
+
+## What we considered and rejected
+
+- **Resolve the foreign entity at the asking project's version** (project A
+  reads B's rows at A's release tag): rejected because it is incoherent against
+  the schema. Archive primary keys are `(id, version_number)` and are *global*
+  across projects, while version strings are *per-project* and releases archive
+  `WHERE project_id = $1` — own rows only. So resolving a foreign entity at the
+  asking project's version either misses silently or hits an unrelated
+  same-named release in another project. This was the premise behind both
+  mistaken exemptions.
+- **Fall back to the source's draft when no version is recorded** — what the
+  code did. Rejected because it crosses a visibility boundary: the source's
+  draft is not content the source has offered anyone. It would have been
+  *better* at one thing — an adoption always resolves to something, so nothing
+  renders as unavailable — and that convenience is exactly what hid the defect.
+- **Record the exemption as permanent** ("a per-project archive cannot answer a
+  cross-project question", "this needs a write-path and schema change"):
+  rejected because it is false. Each foreign project answers at its own release,
+  and the resolution is an existing latest-release CTE without its
+  single-project predicate — the semantic-version ordering it needs is already
+  expressed in SQL (`pkg/weave/publication/publication.go:108`). No schema
+  change is required.
+- **Bind every scope to the project it was minted for** and refuse a read whose
+  target project differs: attractive, because it makes the rule unrepresentable
+  rather than remembered, and partially adopted. Rejected as a total rule for
+  now because `Reader` methods take `projectID` as a per-call argument rather
+  than fixing it at `At(scope)`, so total enforcement is a signature change
+  across every converted slice. The binding applies to scopes minted by the
+  cross-project resolution; the general case is revisitable when the last slice
+  converts.
+
+## Consequences
+
+- **Easier:** a cross-project read has one answer, derived once, instead of each
+  slice re-deriving it. Five slices still to convert all have adoption reads
+  that would otherwise re-litigate it.
+- **Easier:** two exemptions written on the rejected premise become convertible
+  rather than permanent.
+- **Harder:** "latest release" is a *moving* target. A release of the asking
+  project that resolves a source at read time is not immutable — it answers
+  differently after the source publishes again. Pinning the resolved version
+  when the asking project's release is cut is what makes a released artifact
+  reproducible, and it is the companion change to this rule, not an optional
+  extra.
+- **Harder:** an adoption whose source has never published now renders as
+  unavailable where it previously rendered stale content. That is correct and it
+  is a visible behaviour change.
+- **Constrained:** no slice may resolve a foreign entity with
+  `auth.Release(recordedVersion)` directly, because an empty recorded version
+  collapses to the draft. The resolution goes through the constructor that
+  returns an error instead.
+- **Constrained:** follow-source-draft cannot be implemented until its
+  configuration point is decided — per adoption, per project, or per request.
+  Only a per-adoption record travels with the data, which is what a reproducible
+  export requires.
+
+## References
+
+- Related ADRs:
+  [ADR-0010](0010-versioned-reads-through-a-scope-bound-reader.md) (which scope
+  a request reads at — this ADR answers whose data it may be pointed at),
+  [ADR-0012](0012-whole-project-reads-belong-to-an-assembler.md) (the one place
+  that sees every adoption in a project, and so the natural place to apply this
+  rule).
+- Architecture: [`../architecture/slices.md`](../architecture/slices.md)
+  ("Versioned slices").
+- Evidence: `pkg/auth/read_scope.go:30` (`Release("")` is `Draft()`),
+  `pkg/auth/project_version.go:17` (`LatestReleaseReader` returns `""` for a
+  project with no release), `:63` (`ResolveEffectiveVersion` — the same
+  resolution *with* the draft fallback, which is correct at a request boundary
+  and wrong across projects), `pkg/weave/publication/publication.go:108` (the
+  latest-release CTE this rule generalizes).

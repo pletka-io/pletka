@@ -26,4 +26,8 @@ Format: [`TEMPLATE.md`](TEMPLATE.md). Numbering is zero-padded and sequential.
 | [0005](0005-pletka-auth-boundary.md) | Pletka auth boundary — `pkg/auth` owns identity, capabilities, and role mappings; slices consume, never fork. |
 | [0006](0006-override-shared-infrastructure-slice.md) | Override is a shared infrastructure slice — peer entity slices may import it directly; the peer-isolation rule otherwise stays hard. |
 | [0007](0007-host-injection-over-global-registration.md) | Host injection over global registration — extensions are explicit constructor arguments through app/CLI options; no package-global registries, no `init()`. |
+| [0008](0008-services-out-seam.md) | Services-out seam — hosts receive narrowed slice interfaces; core never imports the aggregate. |
 | [0009](0009-server-errors-through-one-door.md) | Server errors go through one door that takes the cause — 5xx only via functions that require the `error`; lint bans the other paths. |
+| [0010](0010-versioned-reads-through-a-scope-bound-reader.md) | Versioned slice reads go through a scope-bound `Reader` — `Store` writes, `At(scope)` reads, zero scope fails closed, no fallback to live. |
+| [0011](0011-cross-project-reads-resolve-at-the-source-release.md) | Cross-project reads resolve at the source project's release — recorded version, else its latest release; draft is never a cross-project answer. |
+| [0012](0012-whole-project-reads-belong-to-an-assembler.md) | Whole-project reads belong to an assembler, not a slice — one `Snapshot(scope, projectID)` that the materializer, generators and publication consume. |
