@@ -144,8 +144,9 @@ func NewService(store Store, projects ProjectReader, ...) *Service
 `field.NewService(fieldStore, projectService, ...)`.)
 
 Generators follow the same pattern at a larger scale: `pkg/weave/generators`
-depends on five narrow readers — `ProjectReader`, `ModelReader`,
-`CollectionReader`, `FieldReader`, `NamespaceReader` — plus a `*Registry`
+depends on six narrow readers — `ProjectReader`, `ModelReader`,
+`CollectionReader`, `FieldReader`, `NamespaceReader`, `ConceptEnumReader` —
+plus a `*Registry`
 (`generators/service.go:68-75`). It never depends on the `domain.WeaveStore`
 aggregate.
 
@@ -173,6 +174,52 @@ ambient pattern the split exists to remove.
 
 Mutations always run hot. They take no scope, and a path that deliberately
 reads the draft says so by passing `auth.Draft()`.
+
+The shape is recorded in
+[ADR-0010](../decisions/0010-versioned-reads-through-a-scope-bound-reader.md),
+which also lists the mechanisms it replaced — optional capability assertions,
+paired `XVersion` methods, and a version read from the request context inside a
+service. All three are red flags now.
+
+### Reading another project's content
+
+A scope says which version to read. It does not say whose data it may be
+pointed at, and cross-project reuse means that question comes up constantly.
+
+> A read of another project's content resolves at **that project's** release.
+> When the adoption records a version, that version. When it records none, the
+> source project's latest release. Draft is never a cross-project answer.
+
+A draft is one authenticated user's working state inside their own project — it
+is not a version, it is the absence of one. Release content is what a project
+has published and therefore what it has offered to others.
+
+The trap is worth naming because the one-line version of this walks into it:
+`auth.Release("")` returns `auth.Draft()`, and the latest-release lookup returns
+`""` for a project that has published nothing. Composing the two gives a foreign
+*draft* read for every unreleased source. A source with no release is an error
+instead, so the resolution returns `(ReadScope, error)` and a slice never builds
+a foreign scope with `auth.Release(recordedVersion)` directly. Reading a source's
+draft on purpose is a third kind of scope, reached only by explicit
+configuration. See
+[ADR-0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md).
+
+### Whole-project reads are not a slice's job
+
+A `Reader` answers for an entity or a filtered page of them. Some consumers want
+a project *whole* — the git materializer writing its tree, a generator emitting
+a whole-project serialization, `publication` comparing two whole states. That is
+a second read shape, and it belongs to one assembler parameterized by scope, not
+to each consumer:
+
+```go
+func Snapshot(ctx context.Context, scope auth.ReadScope, projectID string) (*ProjectSnapshot, error)
+```
+
+Draft is a scope like any other there, so one implementation decides which
+tables answer. A slice that grows a `ProjectTree`- or `ExportView`-shaped read
+has taken on the assembler's job. See
+[ADR-0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).
 
 ## EventBus is active
 

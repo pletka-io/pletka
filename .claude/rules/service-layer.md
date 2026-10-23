@@ -51,10 +51,10 @@ func NewService(store Store, projects ProjectReader, ...) *Service
 > **Resolved** (compliance backlog item 8): `orgmembers` no longer imports
 > `organization`. The `RequireEdit`/`RequireRead` auth middleware moved out
 > of `organization` into `pkg/auth` (`auth.RequireOrgEdit`/`auth.RequireOrgRead`,
-> per ADR-0005 — request-plumbing middleware belongs in `pkg/auth`). See
-> `docs/plans/2026-07-06-compliance-debt-backlog.md` item 8.
+> per ADR-0005 — request-plumbing middleware belongs in `pkg/auth`). The
+> change is done; the planning doc it cited does not live in this repo.
 
-Generators follow the reader pattern at scale: five narrow readers (`ProjectReader`, `ModelReader`, `CollectionReader`, `FieldReader`, `NamespaceReader`) plus a `*Registry` — never the `domain.WeaveStore` aggregate.
+Generators follow the reader pattern at scale: six narrow readers (`ProjectReader`, `ModelReader`, `CollectionReader`, `FieldReader`, `NamespaceReader`, `ConceptEnumReader`) plus a `*Registry` — never the `domain.WeaveStore` aggregate.
 
 ## Dispatcher Rule
 
@@ -72,6 +72,29 @@ A slice owning a table with an `_archive` counterpart is a **versioned slice**. 
 
 `pkg/conformance` fails the build on an unscoped read in a versioned slice, on an `_archive` table no slice claims, and on `ReadScopeFromContext` outside a request boundary. The allowlist is the phase-out plan: it has permanent members, and the rule is that every entry names why, not that the list reaches zero.
 
+Full decision: [ADR-0010](../../docs-oss/decisions/0010-versioned-reads-through-a-scope-bound-reader.md).
+
+### Reading another project's content
+
+A scope names a version; it does not name whose data it may be pointed at.
+
+- **A read of another project's content resolves at that project's release.** Recorded version if the adoption has one, else the source's latest release. **Draft is never a cross-project answer** — a draft is one user's working state in their own project, not something that project has published.
+- **Never build a foreign scope with `auth.Release(recordedVersion)`.** `auth.Release("")` is `auth.Draft()` and the latest-release lookup returns `""` for a project that has published nothing, so the obvious composition gives a foreign *draft* read for every unreleased source. Resolution returns `(ReadScope, error)`; a source with no release is an error, and the adoption renders unavailable.
+- **"Latest release" moves.** A released project that resolves its sources at read time is not immutable. The resolved version is pinned when the asking project's release is cut.
+- **Following a source's draft is a third kind of scope**, reached only by explicit configuration — never a fallback.
+
+Full decision: [ADR-0011](../../docs-oss/decisions/0011-cross-project-reads-resolve-at-the-source-release.md).
+
+### Whole-project reads belong to the assembler
+
+A `Reader` answers for one entity or one filtered page. Consumers that want a project whole — the git materializer, a generator, `publication` — go through one assembler parameterized by scope, `Snapshot(ctx, scope, projectID)`, not through their own archive queries. Draft is a scope like any other there, so one implementation decides which tables answer.
+
+- **A slice never grows a whole-project or export-shaped read.** That is the assembler's job.
+- **A whole-project consumer never writes its own archive query** once the assembler exists.
+- **Foreign content is carried as its source published it**, not normalized into the asking project's release.
+
+Full decision: [ADR-0012](../../docs-oss/decisions/0012-whole-project-reads-belong-to-an-assembler.md).
+
 ## Red Flags
 
 - A full slice importing another full slice directly, other than the `override` exception
@@ -85,4 +108,7 @@ A slice owning a table with an `_archive` counterpart is a **versioned slice**. 
 - A SQL string literal anywhere but `pkg/database/queries/*.sql` — see `database-patterns.md`
 - `ReadScopeFromContext` called anywhere but a handler or an MCP tool
 - A paired `X` and `XVersion` on a public surface — a caller that can choose is a caller that can choose wrong
+- `auth.Release(v)` built from a version recorded on an adoption, without the error path — an empty `v` is `auth.Draft()`, pointed at someone else's project
+- A whole-project or export-shaped read on a slice — that belongs to the assembler
+- A whole-project consumer reading an `_archive` table directly instead of taking a snapshot
 - A new `_archive` table whose slice is not registered in `pkg/conformance/slices.go`
