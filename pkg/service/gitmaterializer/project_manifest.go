@@ -243,6 +243,15 @@ func (m *Materializer) loadProjectManifestNamespaces(ctx context.Context, projec
 			Source:    manifestNamespaceSource(row, projectID),
 		})
 	}
+	return manifestBindings(project, visible), nil
+}
+
+// manifestBindings derives the effective namespace map and orders it. Both the
+// draft and the release manifest path call it, so the two cannot disagree
+// about derivation or ordering -- they previously did: the release path
+// mapped the set without sorting, leaving the order to whatever Postgres
+// returned, which a git tree cannot tolerate.
+func manifestBindings(project domain.Project, visible []*domain.NamespaceBinding) []projectManifestNamespaceBinding {
 	set := generators.BuildNamespaceSet(project, visible)
 	bindings := make([]projectManifestNamespaceBinding, 0, len(set.Bindings))
 	for _, binding := range set.Bindings {
@@ -261,16 +270,30 @@ func (m *Materializer) loadProjectManifestNamespaces(ctx context.Context, projec
 		}
 		return bindings[i].Source < bindings[j].Source
 	})
-	return bindings, nil
+	return bindings
 }
 
 func manifestNamespaceSource(row sqlcgen.WeaveNamespaceBinding, projectID string) string {
+	return namespaceSourceFor(row.ProjectID, row.OntologyID, row.Source, projectID)
+}
+
+// namespaceSourceFor answers the question the MANIFEST field asks -- where
+// does this binding come from, relative to this project -- which is not the
+// question the stored source column answers. That column records how the row
+// was created ("user", "version-derived", "rdf-declared", "system"); the
+// manifest wants project / ontology / system / global.
+//
+// Both manifest paths classify through here. The release path used to emit the
+// stored column verbatim instead, so a release tree labeled the same binding
+// "version-derived" where the draft tree labeled it "ontology" -- one field,
+// two vocabularies, decided by which path happened to write the file.
+func namespaceSourceFor(rowProjectID, rowOntologyID *string, rowSource, projectID string) string {
 	switch {
-	case row.ProjectID != nil && strings.TrimSpace(*row.ProjectID) == projectID:
+	case rowProjectID != nil && strings.TrimSpace(*rowProjectID) == projectID:
 		return "project"
-	case row.OntologyID != nil && strings.TrimSpace(*row.OntologyID) != "":
+	case rowOntologyID != nil && strings.TrimSpace(*rowOntologyID) != "":
 		return "ontology"
-	case row.Source == "system":
+	case rowSource == "system":
 		return "system"
 	default:
 		return "global"

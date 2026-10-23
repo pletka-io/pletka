@@ -8,7 +8,6 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
-	"github.com/pletka-io/pletka/pkg/weave/generators"
 )
 
 func (m *Materializer) writeProjectTreeVersion(ctx context.Context, workDir, projectID, version string) error {
@@ -214,9 +213,10 @@ func (m *Materializer) loadProjectManifestOntologiesAtVersion(ctx context.Contex
 
 func (m *Materializer) loadProjectManifestNamespacesAtVersion(ctx context.Context, project domain.Project, version string) ([]projectManifestNamespaceBinding, error) {
 	rows, err := m.pool.Query(ctx, `
-		SELECT prefix, namespace, weight, source
+		SELECT prefix, namespace, weight, source, project_id, ontology_id
 		FROM weave_namespace_bindings_archive
-		WHERE project_id = $1 AND version_number = $2
+		WHERE (project_id = $1 OR project_id IS NULL OR project_id = '')
+		  AND version_number = $2
 	`, project.ID, version)
 	if err != nil {
 		return nil, fmt.Errorf("list archived namespace bindings for manifest: %w", err)
@@ -226,25 +226,18 @@ func (m *Materializer) loadProjectManifestNamespacesAtVersion(ctx context.Contex
 	visible := make([]*domain.NamespaceBinding, 0)
 	for rows.Next() {
 		b := &domain.NamespaceBinding{ProjectID: project.ID}
-		if err := rows.Scan(&b.Prefix, &b.Namespace, &b.Weight, &b.Source); err != nil {
+		var rowProjectID, rowOntologyID *string
+		if err := rows.Scan(&b.Prefix, &b.Namespace, &b.Weight, &b.Source, &rowProjectID, &rowOntologyID); err != nil {
 			return nil, fmt.Errorf("scan archived namespace binding for manifest: %w", err)
 		}
+		b.Source = namespaceSourceFor(rowProjectID, rowOntologyID, b.Source, project.ID)
 		visible = append(visible, b)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate archived namespace bindings for manifest: %w", err)
 	}
 
-	set := generators.BuildNamespaceSet(project, visible)
-	bindings := make([]projectManifestNamespaceBinding, 0, len(set.Bindings))
-	for _, binding := range set.Bindings {
-		bindings = append(bindings, projectManifestNamespaceBinding{
-			Prefix:    binding.Prefix,
-			Namespace: binding.Namespace,
-			Source:    binding.Source,
-		})
-	}
-	return bindings, nil
+	return manifestBindings(project, visible), nil
 }
 
 func (m *Materializer) writePletkaModVersion(ctx context.Context, workDir, projectID, version string) error {
