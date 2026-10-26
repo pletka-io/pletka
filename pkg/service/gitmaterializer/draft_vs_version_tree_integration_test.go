@@ -31,8 +31,8 @@ func TestDraftTreeVersusVersionTreeAfterARealCut(t *testing.T) {
 	f.placeFieldOnModel("MATSCOPED_DVFIELD", "MATSCOPED_DVMODEL")
 	f.placeFieldOnCollection("MATSCOPED_DVFIELD", "MATSCOPED_DVCOLL")
 
-	// A cross-project adoption that records NO source version -- the case
-	// loadAdoptedModelAtSource resolves by reading the source's LIVE table.
+	// A published source is required for a release dependency. The separate
+	// dependency tests cover resolving an initially unpinned receipt.
 	f.sourceProject("MATSCOPED_SOURCE_DV")
 	f.sourceModel("MATSCOPED_SOURCE_DV", "MATSCOPED_SOURCE_DV_MODEL")
 	f.adoptSource("model", "MATSCOPED_SOURCE_DV", "MATSCOPED_SOURCE_DV_MODEL")
@@ -41,6 +41,7 @@ func TestDraftTreeVersusVersionTreeAfterARealCut(t *testing.T) {
 	t.Cleanup(func() {
 		bg := context.Background()
 		for _, stmt := range []string{
+			`DELETE FROM weave_release_project_dependencies WHERE project_id = $1`,
 			`DELETE FROM weave_adoptions_archive WHERE project_id = $1`,
 			`DELETE FROM weave_override_refs_archive WHERE project_id = $1`,
 			`DELETE FROM weave_field_overrides_archive WHERE project_id = $1`,
@@ -56,22 +57,29 @@ func TestDraftTreeVersusVersionTreeAfterARealCut(t *testing.T) {
 			`DELETE FROM weave_change_set WHERE project_id = $1`,
 			`DELETE FROM weave_releases WHERE project_id = $1`,
 		} {
-			if _, err := f.pool.Exec(bg, stmt, f.projectID); err != nil {
+			if _, err := f.pool.Exec(bg, strings.ReplaceAll(stmt, " = $1", " = ANY($1)"), []string{f.projectID, "MATSCOPED_SOURCE_DV"}); err != nil {
 				t.Errorf("cleanup %q: %v", stmt, err)
 			}
 		}
 	})
-
-	draftDir := t.TempDir()
-	if err := f.mat.writeProjectTree(f.ctx, draftDir, f.projectID); err != nil {
-		t.Fatalf("write draft tree: %v", err)
-	}
 
 	authCtx := weaveauth.WithPrincipal(
 		weaveauth.WithSnapshot(f.ctx, &weaveauth.AuthSnapshot{IsSuperAdmin: true}),
 		&weaveauth.Principal{ActorID: matScopedOwnerActorID},
 	)
 	rel := release.NewService(release.NewPostgresStore(f.pool), f.pool, nil)
+	if _, err := rel.Create(authCtx, "MATSCOPED_SOURCE_DV", release.CreateInput{Version: version}); err != nil {
+		t.Fatalf("cut source release: %v", err)
+	}
+	if _, err := f.pool.Exec(f.ctx, `UPDATE weave_adoptions SET source_version=$1 WHERE project_id=$2 AND source_project_id='MATSCOPED_SOURCE_DV'`, version, f.projectID); err != nil {
+		t.Fatal(err)
+	}
+
+	draftDir := t.TempDir()
+	if err := f.mat.writeProjectTree(f.ctx, draftDir, f.projectID); err != nil {
+		t.Fatalf("write draft tree: %v", err)
+	}
+
 	if _, err := rel.Create(authCtx, f.projectID, release.CreateInput{
 		Version: version,
 		Title:   "Draft versus version tree",
@@ -138,19 +146,21 @@ func TestDraftTreeVersusVersionTreeAfterARealCut(t *testing.T) {
 		}
 	})
 
-	// bug-022: loadAdoptedModelAtSource falls back to the source project's
-	// LIVE table when the adoption records no source version. A release is
-	// supposed to be immutable, so re-materializing it after the source's
-	// draft moves must produce the same bytes.
+	// Regression for bug-022: source edits, newer releases and live deletion
+	// must leave the consuming release byte-identical.
 	t.Run("a release tree does not move when the SOURCE project's draft moves", func(t *testing.T) {
-		t.Skip("KNOWN DEFECT, reproduces: loadAdoptedModelAtSource (versioned_loaders.go:335) " +
-			"and its field/collection/base-override siblings (:300, :362, :396) read the source's LIVE " +
-			"table when the adoption records no source version, and the cut copies that empty " +
-			"source_version through verbatim (release/service.go:456). Unskip when the cut pins " +
-			"source_version and the empty-version branch becomes an error instead of a live read; " +
-			"this subtest is that work's acceptance test.")
-
-		before := treeContents(t, versionDir)
+		// Also cut from an unpinned receipt: its release must resolve once,
+		// even when the source later publishes the same version string.
+		if _, err := f.pool.Exec(f.ctx, `UPDATE weave_adoptions SET source_version='' WHERE project_id=$1`, f.projectID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := rel.Create(authCtx, f.projectID, release.CreateInput{Version: "2.0.0"}); err != nil {
+			t.Fatal(err)
+		}
+		unpinnedDir := t.TempDir()
+		if err := f.mat.writeProjectTreeVersion(f.ctx, unpinnedDir, f.projectID, "2.0.0"); err != nil {
+			t.Fatal(err)
+		}
 
 		if _, err := f.pool.Exec(f.ctx,
 			`UPDATE weave_models SET ui_name = '{"en":"Source edited after the cut"}'::jsonb WHERE id = $1`,
@@ -158,17 +168,20 @@ func TestDraftTreeVersusVersionTreeAfterARealCut(t *testing.T) {
 			t.Fatalf("edit the source project's draft: %v", err)
 		}
 
-		again := t.TempDir()
-		if err := f.mat.writeProjectTreeVersion(f.ctx, again, f.projectID, version); err != nil {
-			t.Fatalf("re-write version tree: %v", err)
+		if _, err := rel.Create(authCtx, "MATSCOPED_SOURCE_DV", release.CreateInput{Version: "2.0.0"}); err != nil {
+			t.Fatal(err)
 		}
-		after := treeContents(t, again)
+		if _, err := f.pool.Exec(f.ctx, `DELETE FROM weave_models WHERE id='MATSCOPED_SOURCE_DV_MODEL'`); err != nil {
+			t.Fatal(err)
+		}
 
-		for path, bodyBefore := range before {
-			if bodyAfter := after[path]; bodyAfter != bodyBefore {
-				t.Errorf("release %s changed in %s after an edit to the SOURCE project's DRAFT.\n"+
-					"A released tree must be immutable; this one re-reads the source's live rows.\n"+
-					"--- before ---\n%s\n--- after ---\n%s", version, path, bodyBefore, bodyAfter)
+		for _, selection := range []struct{ version, before string }{{version, versionDir}, {"2.0.0", unpinnedDir}} {
+			again := t.TempDir()
+			if err := f.mat.writeProjectTreeVersion(f.ctx, again, f.projectID, selection.version); err != nil {
+				t.Fatalf("re-write version tree: %v", err)
+			}
+			if diff := diffTrees(t, selection.before, again); diff != "" {
+				t.Errorf("release %s changed after source edit, release and deletion:\n%s", selection.version, diff)
 			}
 		}
 	})

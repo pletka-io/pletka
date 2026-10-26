@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/database/releasearchive"
+	"github.com/pletka-io/pletka/pkg/database/releasedeps"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
@@ -492,6 +493,18 @@ func (m *Materializer) writeAdoptedEntitiesVersion(ctx context.Context, workDir,
 	adoptions, err := m.loadProjectAdoptionsAtVersion(ctx, projectID, version)
 	if err != nil {
 		return err
+	}
+	for _, a := range adoptions {
+		if a.SourceProjectID == projectID {
+			continue
+		}
+		source, pin, err := releasedeps.EntitySource(ctx, m.queries, projectID, version, a.EntityType, a.SourceEntityID)
+		if err != nil {
+			return err
+		}
+		if source != a.SourceProjectID || pin != a.SourceVersion {
+			return fmt.Errorf("adoption %s %s disagrees with captured dependency", a.EntityType, a.SourceEntityID)
+		}
 	}
 	ids := adoptedIDsFromAdoptions(adoptions, projectID)
 

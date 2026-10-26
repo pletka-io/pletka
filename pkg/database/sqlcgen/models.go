@@ -954,15 +954,25 @@ type WeaveProjectsArchive struct {
 }
 
 type WeaveRelease struct {
-	ProjectID               string             `json:"project_id"`
-	Version                 string             `json:"version"`
-	Title                   string             `json:"title"`
-	Description             string             `json:"description"`
-	CreatedAt               time.Time          `json:"created_at"`
-	CreatedByID             string             `json:"created_by_id"`
-	ArchivedAt              pgtype.Timestamptz `json:"archived_at"`
-	ArchivedMessage         string             `json:"archived_message"`
-	ArchiveOwnershipVersion int16              `json:"archive_ownership_version"`
+	ProjectID                  string             `json:"project_id"`
+	Version                    string             `json:"version"`
+	Title                      string             `json:"title"`
+	Description                string             `json:"description"`
+	CreatedAt                  time.Time          `json:"created_at"`
+	CreatedByID                string             `json:"created_by_id"`
+	ArchivedAt                 pgtype.Timestamptz `json:"archived_at"`
+	ArchivedMessage            string             `json:"archived_message"`
+	ArchiveOwnershipVersion    int16              `json:"archive_ownership_version"`
+	ProjectDependenciesVersion int16              `json:"project_dependencies_version"`
+}
+
+type WeaveReleaseDependencyEntity struct {
+	ProjectID       string `json:"project_id"`
+	VersionNumber   string `json:"version_number"`
+	EntityType      string `json:"entity_type"`
+	EntityID        string `json:"entity_id"`
+	SourceProjectID string `json:"source_project_id"`
+	SourceVersion   string `json:"source_version"`
 }
 
 type WeaveReleaseNamespaceBindingsArchive struct {
@@ -986,6 +996,13 @@ type WeaveReleaseNamespaceBindingsArchive struct {
 	Weight           int64     `json:"weight"`
 	Source           string    `json:"source"`
 	OntologyID       *string   `json:"ontology_id"`
+}
+
+type WeaveReleaseProjectDependency struct {
+	ProjectID       string `json:"project_id"`
+	VersionNumber   string `json:"version_number"`
+	SourceProjectID string `json:"source_project_id"`
+	SourceVersion   string `json:"source_version"`
 }
 
 type WeaveVocabulariesArchive struct {

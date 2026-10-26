@@ -198,12 +198,28 @@ export picks, ontology versions, defaults and namespace aliases. Shared captured
 state needs membership owned by the consuming release. Copying parent metadata
 under the child's version or joining global rows solely by textual version number
 creates collisions. Migration 021 corrects capture ownership for new cuts and
-keeps unverified history unavailable. The collection/override bound-session pilot
-is implemented; dependency resolution and the complete closure remain pending.
-Adoption and aggregate APIs still use registered legacy paths. Until source
-readers exist, collection usage labels for foreign fields use the recorded ID
-without looking up live foreign content.
+keeps unverified history unavailable. Migration 022 captures project pins and
+direct entity membership at cut time, with source-release retention. The bound
+session's `Dependency(kind, id)` supplies a source reader on the same snapshot
+and lifetime, using captured membership only. One source version per project is
+allowed in a closure; conflicting pins, cycles and unverified history fail.
+The marker covers project dependencies, not ontology artifacts or complete output.
+Draft source resolution and migration of adoption/aggregate APIs remain pending.
+Collection usage labels for foreign fields still use the recorded ID until that
+consumer is migrated to the source reader.
 See [ADR-0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md).
+
+### Ontology editing starts with the release boundary
+
+The ontology editor must expose separate draft writes and immutable release
+readers from the outset. The bound owner is an ontology, not a project passed
+through a generic string parameter. Publication freezes source files, terms,
+relations, metadata, descriptors, namespaces and concrete dependencies together.
+Active/default selection is mutable policy outside the artifact. Storage must
+prevent every import/admin/restore path from overwriting a published identity;
+an identical restore may be a verified no-op. This is accepted direction, not
+current enforcement: existing ontology versions can still be replaced or edited.
+See [ADR-0013](../decisions/0013-ontology-drafts-and-immutable-releases.md).
 
 ### Whole-project reads belong to an assembler
 

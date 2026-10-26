@@ -112,8 +112,30 @@ access. See ADRs
 [0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md) and
 [0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).
 
-The bound session is implemented for the collection/override pilot. Legacy
-adoption/aggregate paths and the complete dependency closure remain pending.
+Migration 022 adds `weave_release_project_dependencies`, keyed by consumer
+project/version and source project, and `weave_release_dependency_entities` for
+direct foreign membership. A cut captures the transitive project closure in its
+transaction, validates referenced bodies against the selected source archives,
+and writes concrete source versions into archived adoption receipts. An explicit
+pin and its closure constrain unpinned references; otherwise each direct source
+selects its latest non-retired release independently before closures are merged.
+Conflicting versions of one source project, cycles and unverified sources fail.
+Source foreign keys prevent deleting a retained release or its project; retirement
+does not break existing pins. Draft rows remain editable.
+
+`project_dependencies_version = 1` certifies this project inventory only. It does
+not certify ontology artifacts, frozen actor/module descriptors or complete
+serialized output. Old releases stay at zero; `pletka release audit-dependencies`
+reports them without guessing pins. New dependent cuts require sources already
+captured under this model: cut source projects first, or separately establish
+historical evidence. A downgrade refuses to discard captured inventories.
+
+`Session.Dependency(kind, id)` resolves recorded membership and binds a source
+session on the parent's transaction and lifetime. Its resolver receives only
+captured-membership queries. It cannot look up live owners or latest releases.
+Source authorization remains the caller's responsibility. Draft source resolution
+and migration of legacy adoption/aggregate callers remain pending.
+
 Migration 021 does not certify historical releases or complete content coverage. Run
 `pletka release audit-ownership` for a read-only JSON inventory of
 `unverified_release` and `orphan_project_archive` entries. Collision indicators
@@ -121,6 +143,13 @@ are investigation leads, not proof of corruption. Historical membership requires
 retained artifacts or other verifiable evidence; filling it from current drafts
 would invent history. A downgrade is refused while verified release snapshots
 exist, because the old key cannot represent them without loss.
+
+Ontology editing follows
+[ADR-0013](../decisions/0013-ontology-drafts-and-immutable-releases.md): separate
+editable drafts from immutable releases, freeze the complete artifact and its
+dependencies, and enforce sealing in storage for every writer. Existing ontology
+version IDs are not yet sealed: force-import and metadata APIs can change them.
+The editor, ontology enforcement and complete project assembler are still pending.
 
 ## Migrations: goose
 

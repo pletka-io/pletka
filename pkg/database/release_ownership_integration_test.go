@@ -21,6 +21,21 @@ func TestReleaseOwnershipMigrationPreservesLegacyAndGuardsDowngrade(t *testing.T
 	ctx := context.Background()
 	db := stdlib.OpenDB(*pool.Config().ConnConfig)
 	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() {
+		if err := database.Migrate(db); err != nil {
+			t.Error(err)
+		}
+	})
+	// Exercise migration 021 itself even after newer migrations are added.
+	latest, err := database.LatestMigrationVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for version := latest; version > 21; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var projectID, ownerID string
 	if err := pool.QueryRow(ctx, `SELECT id, owner_id FROM weave_projects ORDER BY id LIMIT 1`).Scan(&projectID, &ownerID); err != nil {
 		t.Fatal(err)
@@ -47,8 +62,15 @@ func TestReleaseOwnershipMigrationPreservesLegacyAndGuardsDowngrade(t *testing.T
 	if err := database.MigrateDown(db); err != nil {
 		t.Fatal(err)
 	}
+	// Migrate restores later migrations too; step down to 021 before its
+	// guarded downgrade assertion below.
 	if err := database.Migrate(db); err != nil {
 		t.Fatal(err)
+	}
+	for version := latest; version > 21; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var ownership, captured, legacy int
 	if err := pool.QueryRow(ctx, `SELECT archive_ownership_version FROM weave_releases WHERE project_id=$1 AND version=$2`, projectID, version).Scan(&ownership); err != nil {
