@@ -106,6 +106,24 @@ ontologies, defaults and aliases. Explicit draft-following is a draft workflow
 only; unresolved/draft dependencies cannot be cut into a release. Shared archive
 membership belongs to the consuming release, never a global textual version key.
 
+Project pins and direct membership now live in migration 022's tables. Released
+source readers use `Session.Dependency(kind, id)` on the same transaction and
+lifetime; they never select latest. Conflicting source versions, cycles and
+unverified inventories fail. Source pins retain the referenced release. This
+does not migrate all legacy consumers or certify ontology/output completeness.
+
+### Ontology editor boundary
+
+[ADR-0013](../../docs-oss/decisions/0013-ontology-drafts-and-immutable-releases.md)
+requires ontology-bound draft and immutable release capabilities from the start.
+Freeze metadata, terms/relations, source/companion files, descriptors, namespace
+aliases and dependency pins as one artifact. Keep active/default policy separate.
+Enforce sealing in storage across importer, admin, editor, CLI and restore;
+neither a force flag nor an existing version ID proves immutable content.
+Restore must verify content identity before treating an existing ID as a no-op.
+These are requirements for the next implementation, not guarantees of the current
+mutable ontology store. Do not reuse the project dependency marker for them.
+
 ### Whole-project reads belong to the assembler
 
 The assembler of

@@ -143,6 +143,7 @@ func TestBoundReadersCannotReadAnotherProjectsIDs(t *testing.T) {
 
 func TestCollectionUsageKeepsCallerMembershipWithoutLiveForeignLabels(t *testing.T) {
 	a, b := newFixture(t, "RSP_USAGE_A"), newFixture(t, "RSP_USAGE_B")
+	b.cut(t)
 	// A uses B's field. B also references A's collection, but B's usage is not
 	// part of A's content. Both publish the same textual version deliberately.
 	if _, err := a.pool.Exec(a.ctx, `UPDATE weave_field_overrides SET field_id=$1 WHERE id=$2`, b.field, a.override); err != nil {
@@ -152,7 +153,6 @@ func TestCollectionUsageKeepsCallerMembershipWithoutLiveForeignLabels(t *testing
 		t.Fatal(err)
 	}
 	a.cut(t)
-	b.cut(t)
 	service := collection.NewService(collection.NewPostgresStore(a.pool), collection.NewReadSessions(a.factory), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	check := func(scope auth.ReadScope, wantCount int64) {
 		t.Helper()

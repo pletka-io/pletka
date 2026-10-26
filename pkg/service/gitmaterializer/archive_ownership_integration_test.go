@@ -27,6 +27,8 @@ func ownershipFixture(t *testing.T) (*matScopedFixture, context.Context, string)
 	f.sourceModel(source, "MATSCOPED_SOURCE_OWNMODEL")
 	t.Cleanup(func() {
 		for _, stmt := range []string{
+			// Remove these fixture consumers before their retained sources.
+			`DELETE FROM weave_release_project_dependencies WHERE project_id = ANY($1)`,
 			`DELETE FROM weave_project_inheritance WHERE project_id = ANY($1)`,
 			`DELETE FROM weave_project_inheritance_archive WHERE project_id = ANY($1)`,
 			`DELETE FROM weave_project_ontology_versions_archive WHERE project_id = ANY($1)`,

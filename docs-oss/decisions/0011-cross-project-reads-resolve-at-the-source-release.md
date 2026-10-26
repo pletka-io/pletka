@@ -52,8 +52,18 @@ membership may be unreconstructable; current drafts cannot fabricate it.
 These are required write-path and schema changes, not merely a new latest-release
 query. An assembler consumes the recorded dependency graph; it does not infer or
 repair it at read time. Ownership and the collection/override bound-session pilot
-are implemented; complete dependency resolution, closure and historical
-verification remain pending. `auth.Release("")` and whitespace-only versions are
+are implemented. Migration 022 now captures transitive project pins and direct
+foreign entity membership during the cut, normalizes archived adoption pins and
+retains source releases with foreign keys. `Session.Dependency` binds source
+readers on the same transaction/lifetime using captured queries only. Explicit
+pins and their closures constrain unpinned references; other direct sources
+resolve independently before merging their closures. One version per source
+project is supported: conflicting pins and project cycles reject the cut.
+Existing inventories remain unverified; the read-only `audit-dependencies`
+command identifies them. Historical verification, draft-session resolution,
+remaining legacy callers and complete output dependencies are still pending.
+Ontology artifacts follow ADR-0013 and are not certified by this marker.
+`auth.Release("")` and whitespace-only versions are
 now invalid. Only `auth.ScopeForResolvedVersion` deliberately translates a
 successful empty request-policy result to draft. This removes the implicit
 foreign-draft substitution; it does not supply missing source pins.

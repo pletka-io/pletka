@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
 )
@@ -298,15 +298,7 @@ func (m *Materializer) loadProjectForksAtVersion(ctx context.Context, projectID,
 
 func (m *Materializer) loadAdoptedFieldAtSource(ctx context.Context, sourceProjectID, fieldID, sourceVersion string) (*domain.Field, error) {
 	if strings.TrimSpace(sourceVersion) == "" {
-		row, err := m.queries.WeaveGetFieldByID(ctx, fieldID)
-		if err != nil {
-			return nil, fmt.Errorf("get adopted field %s: %w", fieldID, err)
-		}
-		field := rowToField(row)
-		if field.ProjectID == "" {
-			field.ProjectID = sourceProjectID
-		}
-		return field, nil
+		return nil, &releasearchive.UnavailableError{ProjectID: sourceProjectID, Version: sourceVersion}
 	}
 	row := m.pool.QueryRow(ctx, `
 		SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id,
@@ -333,11 +325,7 @@ func (m *Materializer) loadAdoptedFieldAtSource(ctx context.Context, sourceProje
 
 func (m *Materializer) loadAdoptedModelAtSource(ctx context.Context, sourceProjectID, modelID, sourceVersion string) (*domain.Model, error) {
 	if strings.TrimSpace(sourceVersion) == "" {
-		row, err := m.queries.WeaveGetModelByID(ctx, modelID)
-		if err != nil {
-			return nil, fmt.Errorf("get adopted model %s: %w", modelID, err)
-		}
-		return rowToModel(row), nil
+		return nil, &releasearchive.UnavailableError{ProjectID: sourceProjectID, Version: sourceVersion}
 	}
 	row := m.pool.QueryRow(ctx, `
 		SELECT id, created_at, updated_at, system_name, ui_name, description, status, project_id, ontology_scope, staging_id, deprecated
@@ -360,11 +348,7 @@ func (m *Materializer) loadAdoptedModelAtSource(ctx context.Context, sourceProje
 
 func (m *Materializer) loadAdoptedCollectionAtSource(ctx context.Context, sourceProjectID, collectionID, sourceVersion string) (*domain.Collection, error) {
 	if strings.TrimSpace(sourceVersion) == "" {
-		row, err := m.queries.WeaveGetCollectionByID(ctx, collectionID)
-		if err != nil {
-			return nil, fmt.Errorf("get adopted collection %s: %w", collectionID, err)
-		}
-		return rowToCollection(row), nil
+		return nil, &releasearchive.UnavailableError{ProjectID: sourceProjectID, Version: sourceVersion}
 	}
 	row := m.pool.QueryRow(ctx, `
 		SELECT id, created_at, updated_at, system_name, ui_name, description, status, project_id, ontology_scope,
@@ -390,47 +374,19 @@ func (m *Materializer) loadAdoptedCollectionAtSource(ctx context.Context, source
 }
 
 func (m *Materializer) writeAdoptedBaseOverrideAtSource(ctx context.Context, workDir, fieldID, ownerProjectID, sourceVersion string) error {
-	var override *domain.FieldOverride
-	var ok bool
-	var err error
 	if strings.TrimSpace(sourceVersion) == "" {
-		row, err := m.queries.WeaveGetBaseOverride(ctx, sqlcgen.WeaveGetBaseOverrideParams{
-			FieldID:   fieldID,
-			ProjectID: ownerProjectID,
-		})
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return nil
-			}
-			return fmt.Errorf("get adopted base override for %s: %w", fieldID, err)
-		}
-		override = rowToOverride(row)
-		ok = true
-	} else {
-		override, ok, err = m.loadArchivedBaseOverride(ctx, fieldID, ownerProjectID, sourceVersion)
-		if err != nil {
-			return err
-		}
+		return &releasearchive.UnavailableError{ProjectID: ownerProjectID, Version: sourceVersion}
+	}
+	override, ok, err := m.loadArchivedBaseOverride(ctx, fieldID, ownerProjectID, sourceVersion)
+	if err != nil {
+		return err
 	}
 	if !ok || override == nil {
 		return nil
 	}
-
-	var refs []domain.OverrideRef
-	if strings.TrimSpace(sourceVersion) == "" {
-		refRows, err := m.queries.WeaveListOverrideRefs(ctx, override.ID)
-		if err != nil {
-			return fmt.Errorf("list adopted base override refs for %d: %w", override.ID, err)
-		}
-		refs = make([]domain.OverrideRef, 0, len(refRows))
-		for _, rr := range refRows {
-			refs = append(refs, rowToOverrideRef(rr))
-		}
-	} else {
-		refs, err = m.loadArchivedOverrideRefs(ctx, override.ID, sourceVersion)
-		if err != nil {
-			return err
-		}
+	refs, err := m.loadArchivedOverrideRefs(ctx, override.ID, sourceVersion)
+	if err != nil {
+		return err
 	}
 
 	payload, err := canonical.Override(override, refs)

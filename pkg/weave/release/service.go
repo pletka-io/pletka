@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/releasedeps"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
@@ -145,6 +146,16 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 		if _, err := tx.Exec(ctx, stmt, projectID, in.Version); err != nil {
 			return nil, fmt.Errorf("snapshot release state: %w", err)
 		}
+	}
+	if err := releasedeps.Capture(ctx, sqlcgen.New(tx), projectID, in.Version); err != nil {
+		var unavailable *releasedeps.UnavailableError
+		if errors.As(err, &unavailable) {
+			return nil, &ErrValidation{Fields: map[string][]string{"dependencies": {unavailable.Error()}}}
+		}
+		return nil, fmt.Errorf("capture release project dependencies: %w", err)
+	}
+	if err := sqlcgen.New(tx).WeaveSnapshotPinnedAdoptions(ctx, sqlcgen.WeaveSnapshotPinnedAdoptionsParams{ProjectID: projectID, Version: in.Version}); err != nil {
+		return nil, fmt.Errorf("capture pinned adoption receipts: %w", err)
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -311,19 +322,6 @@ var snapshotStatements = []string{
 	JOIN weave_field_overrides o ON o.id = r.override_id
 	WHERE o.project_id = $1
 	ON CONFLICT (override_id, ref_type, "position", version_number) DO NOTHING`,
-	`INSERT INTO weave_adoptions_archive (
-		project_id, context_entity_type, context_entity_id, entity_type,
-		source_project_id, source_entity_id, source_version, adopted_at, created_by_id, version_number
-	)
-	SELECT
-		project_id, context_entity_type, context_entity_id, entity_type,
-		source_project_id, source_entity_id, source_version, adopted_at, created_by_id, $2
-	FROM weave_adoptions
-	WHERE project_id = $1
-	ON CONFLICT (
-		project_id, context_entity_type, context_entity_id, entity_type,
-		source_project_id, source_entity_id, source_version, version_number
-	) DO NOTHING`,
 	`INSERT INTO weave_entity_forks_archive (
 		project_id, entity_type, fork_entity_id, source_project_id,
 		source_entity_id, source_version, forked_at, created_by_id, version_number
