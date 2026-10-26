@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -141,11 +142,13 @@ type Store interface {
 	SetActiveVersion(ctx context.Context, ontologyID, versionID string) error
 	DeleteVersion(ctx context.Context, id string) error
 
-	// ImportVersion is the high-level transactional entry for the importer.
-	// Atomic: writes the version row, replaces classes/properties for that
-	// version, and replaces relations for those classes/properties. On
-	// error the entire transaction rolls back.
+	// ImportVersion atomically imports, seals and publishes the dependency closure.
+	// Any error rolls back body, aliases, active selection and publication.
 	ImportVersion(ctx context.Context, in ImportVersionInput) (*domain.OntologyVersion, error)
+
+	// StageLegacyVersion is only for the old Git vendor format, which carries
+	// no verifiable artifact or dependency pins. It does NOT publish a release.
+	StageLegacyVersion(ctx context.Context, in ImportVersionInput) (*domain.OntologyVersion, error)
 
 	// ReplaceFieldRefs bulk-replaces the ontology-ref rows for one field.
 	// Called by pkg/weave/field on save (Phase E).
@@ -278,6 +281,7 @@ type UpdateVersionMetadataInput struct {
 // Classes / Properties / Relations are bulk-written; the version row is
 // upserted in the same transaction.
 type ImportVersionInput struct {
+	Publication       ontologyrelease.Options
 	Version           CreateVersionInput
 	SetActive         bool
 	NamespaceBindings []NamespaceBinding

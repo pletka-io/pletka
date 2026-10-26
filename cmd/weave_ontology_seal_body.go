@@ -18,7 +18,7 @@ func newWeaveOntologySealBodyCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ontology-seal-body <ontologyID> <versionID>",
 		Short: "Permanently seal the current local body of an ontology version",
-		Long:  "Captures the current metadata, terms, relations, companion files, catalog descriptor and namespace context, then prevents body edits and deletion in storage. The IDs are ontology and version storage identities, not project IDs or version labels. This operation establishes a guarantee from now onward; it does not certify historical content, resolve dependency/default pins, or migrate project materialization and restore. New imports remain unsealed until explicitly sealed. There is no unseal operation.",
+		Long:  "Captures the current metadata, terms, relations, companion files, catalog descriptor and namespace context, then prevents body edits and deletion in storage. The IDs are ontology and version storage identities, not project IDs or version labels. This operation establishes a guarantee from now onward; it does not certify historical content, resolve dependency/default pins, or migrate project materialization and restore. Ordinary new imports publish automatically; this command only seals a local body. There is no unseal operation.",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref, err := ontologybody.NewReference(ontologybody.OntologyID(args[0]), ontologybody.VersionID(args[1]))

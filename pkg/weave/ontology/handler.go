@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
@@ -597,7 +598,21 @@ func decodeImportUpload(w http.ResponseWriter, r *http.Request, ontologyID strin
 		writeValidationError(w, fieldError("rdf_file", "empty file"))
 		return ImportUploadInput{}, false
 	}
+	var publication ontologyrelease.Options
+	if raw := strings.TrimSpace(r.FormValue("publication")); raw != "" {
+		decoder := json.NewDecoder(strings.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&publication); err != nil {
+			writeValidationError(w, fieldError("publication", "invalid publication options JSON"))
+			return ImportUploadInput{}, false
+		}
+		if err := decoder.Decode(new(any)); err != io.EOF {
+			writeValidationError(w, fieldError("publication", "expected one JSON object"))
+			return ImportUploadInput{}, false
+		}
+	}
 	return ImportUploadInput{
+		Publication:            publication,
 		OntologyID:             ontologyID,
 		Filename:               header.Filename,
 		Content:                content,
@@ -1015,7 +1030,9 @@ func (h *Handler) familyFilterOptions(ctx context.Context) []formschema.FilterOp
 
 func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error, label string) {
 	var conflict apierror.Conflicter
-	if errors.As(err, &conflict) {
+	var validation apierror.ValidationFielder
+	var missing apierror.NotInReleaser
+	if errors.As(err, &conflict) || errors.As(err, &validation) || errors.As(err, &missing) {
 		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}

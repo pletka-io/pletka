@@ -249,12 +249,16 @@ func TestAdminImportVersionUploadRoutes(t *testing.T) {
 		"version_string":           "9.9.9",
 		"compatible_base_versions": "7.1.3",
 		"set_active":               "true",
+		"publication":              `{"pins":{"base-owner":"base-version"},"external_imports":["https://external.example/"],"external_references":["external:Term"]}`,
 	}, "crm_test_v9.9.9.rdf", testOntologyRDF())
 	if commit.Code != http.StatusCreated {
 		t.Fatalf("commit status=%d body=%s", commit.Code, commit.Body.String())
 	}
 	if store.lastImport == nil {
 		t.Fatal("import was not called")
+	}
+	if p := store.lastImport.Publication; p.Pins["base-owner"] != "base-version" || len(p.ExternalImports) != 1 || len(p.ExternalReferences) != 1 {
+		t.Fatalf("publication options lost: %+v", p)
 	}
 	if got := store.lastImport.Version.VersionString; got != "9.9.9" {
 		t.Fatalf("import version=%q, want 9.9.9", got)
@@ -872,5 +876,22 @@ func TestPublicOntologyDetailShowsAdminActionsForSuperAdmin(t *testing.T) {
 	}
 	if !hasOntologyRouteAction(schema.Actions, "edit") {
 		t.Fatalf("super-admin public page must show the edit action; actions=%#v", schema.Actions)
+	}
+}
+
+func (s *routeTestStore) StageLegacyVersion(ctx context.Context, in ImportVersionInput) (*domain.OntologyVersion, error) {
+	return s.ImportVersion(ctx, in)
+}
+
+func TestImportRejectsUnknownPublicationOptions(t *testing.T) {
+	store := newRouteTestStore()
+	router := chi.NewRouter()
+	handler := NewHandler(NewService(store, nil, nil), nil, nil, nil)
+	router.Route("/admin/ontologies", handler.Mount)
+	for _, raw := range []string{`{"publish":false}`, `{"pins":[]} `, `{} {}`} {
+		response := requestMultipart(t, router, http.MethodPost, "/admin/ontologies/ont-crm/versions/import", map[string]string{"publication": raw}, "test.rdf", testOntologyRDF())
+		if response.Code < 400 || store.lastImport != nil {
+			t.Fatalf("invalid options reached importer: %d %s", response.Code, response.Body.String())
+		}
 	}
 }

@@ -357,3 +357,7 @@ func (s *testStoreAdapter) ImportVersion(context.Context, weaveontology.ImportVe
 func (s *testStoreAdapter) ReplaceFieldRefs(context.Context, string, string, []domain.FieldOntologyRef) error {
 	return nil
 }
+
+func (s *testStoreAdapter) StageLegacyVersion(context.Context, weaveontology.ImportVersionInput) (*domain.OntologyVersion, error) {
+	return nil, nil
+}

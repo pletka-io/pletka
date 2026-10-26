@@ -12,6 +12,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/ontologybody"
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
@@ -1085,13 +1086,21 @@ func (s *postgresStore) DeleteVersion(ctx context.Context, id string) (err error
 // ImportVersion — high-level transactional entry for the importer.
 // ---------------------------------------------------------------------------
 
-func (s *postgresStore) ImportVersion(ctx context.Context, in ImportVersionInput) (out *domain.OntologyVersion, err error) {
+func (s *postgresStore) ImportVersion(ctx context.Context, in ImportVersionInput) (*domain.OntologyVersion, error) {
+	return s.importVersion(ctx, in, true)
+}
+
+func (s *postgresStore) StageLegacyVersion(ctx context.Context, in ImportVersionInput) (*domain.OntologyVersion, error) {
+	return s.importVersion(ctx, in, false)
+}
+
+func (s *postgresStore) importVersion(ctx context.Context, in ImportVersionInput, publish bool) (out *domain.OntologyVersion, err error) {
 	defer func() { err = ontologybody.MapError(err) }()
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return nil, fmt.Errorf("begin import-version tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer tx.Rollback(context.WithoutCancel(ctx)) //nolint:errcheck
 
 	qtx := s.queries.WithTx(tx)
 
@@ -1198,12 +1207,33 @@ func (s *postgresStore) ImportVersion(ctx context.Context, in ImportVersionInput
 		}
 	}
 
+	if publish {
+		if err := publishImportedOntology(ctx, qtx, version, in.Publication); err != nil {
+			return nil, fmt.Errorf("publish ontology: %w", err)
+		}
+	}
+
+	// Read the result in this transaction; a later policy change cannot alter
+	// the response between commit and a second pool read.
+	row, err := qtx.WeaveGetOntologyVersionByID(ctx, version.ID)
+	if err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit import-version tx: %w", err)
 	}
+	return rowToVersion(row), nil
+}
 
-	// Re-read so caller sees updated counts + is_active.
-	return s.GetVersion(ctx, version.ID)
+func publishImportedOntology(ctx context.Context, q *sqlcgen.Queries, version *domain.OntologyVersion, options ontologyrelease.Options) error {
+	ref, err := ontologybody.NewReference(ontologybody.OntologyID(version.OntologyID), ontologybody.VersionID(version.ID))
+	if err != nil {
+		return err
+	}
+	if err := ontologybody.Seal(ctx, q, ref); err != nil {
+		return err
+	}
+	return ontologyrelease.Capture(ctx, q, ref, options)
 }
 
 func upsertNamespaceBindings(ctx context.Context, tx pgx.Tx, defaultOntologyID string, bindings []NamespaceBinding) error {

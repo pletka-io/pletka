@@ -160,18 +160,36 @@ term IDs is blocked pending evidence review. New writes cannot create orphans.
 
 The transaction-owning publication layer calls `ontologybody.Seal`. The explicit
 operator command is `pletka weave ontology-seal-body <ontologyID> <versionID>`;
-ordinary import still leaves a version unsealed. `ontologybody.Factory.Read`
+ordinary imports now invoke it inside the publication transaction. `ontologybody.Factory.Read`
 binds a validated ontology/version reference to a read-only snapshot and a reader
 with only generated seal SELECTs from `queries/read_ontology_body/`. It exposes
 verified immutable body values, not a store or retargetable scope. Authorization
 remains the caller's responsibility. Mutation conflicts use the canonical API
 error adapter, with the database cause preserved.
 
-This is a local-body guarantee, not a completed ontology release. Format 1 hashes
-stored PostgreSQL JSONB text and is not the final portable vendor format. Active
-selection remains mutable legacy policy excluded from the seal. Automatic
-publication, physical draft/policy separation, resolved ontology dependencies,
-materializer/restore migration and the complete project assembler remain pending.
+Migration 024 adds immutable `weave_ontology_releases` and derived
+`weave_ontology_release_dependencies`. Ordinary imports seal and publish in one
+repeatable-read transaction, capturing concrete base/import/default pins and
+validating relation/inverse references. Storage requires repeatable read (or
+serializable), checks body identity, complete
+requirement inventory and source closure; source FKs enforce retention. No
+publication, pin, seal or body mutation, truncate or unsafe downgrade is allowed.
+Historical versions are not automatically published.
+
+The format-1 publication envelope preserves exact local JSONB body bytes in a
+string plus their digest, sorted pins and requirements. SHA256 of exact UTF-8
+envelope bytes is the portable artifact identity; publication timestamps and
+active policy are excluded. `ontologyrelease.Factory.Read` binds an owner/version
+and uses only `queries/read_ontology_release/` SELECTs. `Dependency(owner)` reads
+only the captured source identity/digest, never active/latest. Conformance gates
+restrict raw publication queries and the explicit legacy restore staging path.
+
+`weave ontology-publish <ontologyID> <versionID>` explicitly publishes current
+stored bytes, requiring already-published dependencies; it does not establish
+historical truth. Physical draft/policy separation, project ontology pinning,
+materializer/vendor/restore integration and the complete project assembler remain
+pending. See ADR-0013 for resolution rules, external-reference classification and
+operator options. Current `is_active` stays mutable and outside the artifact.
 
 ## Migrations: goose
 

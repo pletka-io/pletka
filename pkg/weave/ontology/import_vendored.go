@@ -54,8 +54,8 @@ type VendoredOntologyCompanion struct {
 
 // ImportVendoredVersion imports one vendored ontology version snapshot.
 // It is idempotent per req.VersionID and reuses the existing file-based
-// import pipeline (BuildImportVersionInputFromFile +
-// ImportVersionWithOptions) rather than reimplementing RDF parsing.
+// RDF builder, then explicitly stages the legacy version. This old format has
+// no verifiable artifact digest or dependency pins and cannot publish a release.
 func (s *Service) ImportVendoredVersion(ctx context.Context, req VendoredOntologyImportRequest) error {
 	if err := validateVendoredFiles(req.Files); err != nil {
 		return fmt.Errorf("import vendored ontology %s@%s: %w", req.Slug, req.VersionString, err)
@@ -110,10 +110,20 @@ func (s *Service) ImportVendoredVersion(ctx context.Context, req VendoredOntolog
 		return fmt.Errorf("import vendored ontology %s@%s: %w", req.Slug, req.VersionString, err)
 	}
 
-	if _, err := s.ImportVersionWithOptions(ctx, built.Input, ImportVersionOptions{
-		VersionNamespaceBinding: vendoredVersionNamespaceBinding(req),
-	}); err != nil {
-		return fmt.Errorf("import vendored ontology %s@%s: %w", req.Slug, req.VersionString, err)
+	// The legacy vendor format has no publication digest or concrete dependency
+	// closure. Restoring it must not certify today's active policy as history.
+	if binding := vendoredVersionNamespaceBinding(req); binding != nil {
+		normalized, err := normalizeVersionDerivedNamespaceBinding(*binding)
+		if err != nil {
+			return err
+		}
+		built.Input.NamespaceBindings = append(built.Input.NamespaceBindings, normalized)
+	}
+	if _, err := s.store.StageLegacyVersion(ctx, built.Input); err != nil {
+		return fmt.Errorf("stage legacy vendored ontology %s@%s: %w", req.Slug, req.VersionString, err)
+	}
+	if s.bus != nil {
+		s.bus.Publish(ctx, domain.Event{Type: domain.EventOntologyVersionImported, EntityID: built.Input.Version.ID})
 	}
 
 	if err := s.activateIfOntologyHasNoActiveVersion(ctx, ont.ID, req.VersionID); err != nil {

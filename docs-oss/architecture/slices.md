@@ -220,8 +220,13 @@ prevent every import/admin/restore path from overwriting a published identity;
 an identical restore may be a verified no-op. Migration 023 and `ontologybody`
 implement explicit local-body sealing and an ontology-bound reader with only seal
 SELECT capabilities. All writers reject changes to a sealed body; unsealed
-imports remain editable. Automatic publication, draft/policy separation,
-dependency/default resolution and materializer/restore migration remain pending.
+legacy rows remain editable. Migration 024 and `ontologyrelease` add automatic
+publication on ordinary import: the same transaction captures concrete dependency
+closure, validates referenced terms and freezes a portable artifact identity.
+The bound release reader has only publication SELECTs, and `Dependency(owner)`
+can only follow recorded pins. Conformance limits legacy staging to old Git
+restore and raw publication queries to the publisher. Draft/policy separation,
+project ontology pins and materializer/vendor/restore integration remain pending.
 See [ADR-0013](../decisions/0013-ontology-drafts-and-immutable-releases.md).
 
 ### Whole-project reads belong to an assembler

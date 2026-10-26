@@ -1,7 +1,7 @@
 # ADR-0013: Ontology editing uses drafts; dependencies use immutable releases
 
 Date: 2026-10-26
-Status: Accepted architectural direction; local body sealing implemented, publication/editor migration pending
+Status: Accepted; body sealing and automatic publication implemented, consumer/editor migration pending
 
 ## Context
 
@@ -13,7 +13,7 @@ dependency rule of ADR-0011, rather than requiring that migration afterward.
 
 The current materializer already treats ontology version IDs as stable artifact
 identities. `vendorOntologyVersion` loads version content by ID, while restore's
-`ImportVendoredVersion` returns early when that ID exists. The write side does not
+`ImportVendoredVersion` returns early when that ID exists. Before migrations 023–024, the write side did not
 enforce that assumption:
 
 - `ontology.postgresStore.ImportVersion` deletes and recreates the version and
@@ -31,8 +31,9 @@ dependency inventory marker deliberately certifies project dependencies only.
 It must not be reused as proof that ontology artifacts or complete output are frozen.
 
 Migration 023 now supplies an explicit local-body seal and storage guards, as
-described below. Unsealed versions retain the legacy mutation behavior; imports
-do not automatically become published ontology releases yet.
+described below. Migration 024 adds complete publication on ordinary import.
+Existing unsealed versions retain their legacy mutation behavior and are not
+automatically certified.
 
 ## Decision
 
@@ -134,11 +135,84 @@ body; toggling it no longer rewrites body timestamps. Moving selection to a
 separate policy record is still required for the final editor structure.
 
 `pletka weave ontology-seal-body <ontologyID> <versionID>` explicitly seals current
-bytes. It does not establish what an older project saw. Automatic import
-publication, dependency/default pins, draft editing, materializer/restore routing
-and portable digest verification remain pending. In particular, the existing
-materializer still uses live descriptor/alias/default queries; this foundation
-does not yet make complete project output immutable.
+bytes. It does not establish what an older project saw. Body-only sealing remains
+a separate operation from the publication boundary below.
+
+## Implemented publication boundary (2026-10-27)
+
+Ordinary `Store.ImportVersion` now imports, seals and publishes in one
+repeatable-read transaction. This includes counts, companions, aliases and active
+selection; a failed cut rolls them all back and emits no import event. A committed
+publication cannot be force-overwritten. The only legacy staging entry point is
+`StageLegacyVersion`, restricted by conformance tests to the old Git vendor
+restore path. Old snapshots carry no dependency evidence and must not acquire
+current pins while being restored. Raw create/edit APIs can still stage legacy
+rows, but released readers never expose them.
+
+`ontologyrelease.Capture` owns the resolution policy:
+
+- Resolve the declared base to an explicit owner/version pin or its active
+  **published** version; compatibility labels constrain that choice and do not
+  select another version heuristically.
+- Resolve each `owl:imports` IRI to an exact version IRI, otherwise a unique
+  ontology namespace/ontology URI and its selected published version. Ambiguity
+  or absence fails. Exact explicitly external imports remain references; no
+  network fetch or automatic external fallback occurs.
+- Capture the `defaults` ontology once, using an explicit pin or its active
+  published version. If no defaults catalog entry exists, record absence; the
+  defaults ontology records itself. An existing but unpublished selection fails.
+- Select every direct choice before merging source closures. Keep one version
+  and digest per ontology; conflicting versions and cycles back to the consuming
+  owner fail. A defaults upgrade can therefore require an explicit older pin
+  when another source still depends on that older defaults artifact.
+- Check relation and inverse-property targets against the local body and captured
+  source bodies. Additional sources require explicit pins; missing terms require
+  correction or an exact external-reference declaration. Namespace binding owner
+  metadata is provenance, not proof of term ownership. Effective prefixes follow
+  ADR-0004 through `namespace.Effective`, shared with project generators.
+
+Migration 024 stores `weave_ontology_releases` and derives retained dependency
+rows from each artifact. Storage requires repeatable read (or serializable), checks local body identity,
+requirement inventory, source identities and closure containment, then computes
+the artifact digest.
+Foreign keys retain every source; update, delete, truncate and unsafe downgrade
+are rejected. Exact selection/compatibility policy stays in the single publisher,
+with conformance gates against raw publication query calls elsewhere.
+
+Artifact format 1 contains owner/version, the exact sealed body JSON **as a
+string**, its SHA256 digest, sorted closure pins and sorted direct requirements.
+The artifact digest is SHA256 over the exact stored UTF-8 envelope bytes. Transport
+must preserve these bytes; another database need not reproduce PostgreSQL's JSONB
+formatting. Publication time and mutable active policy are outside the envelope.
+`Artifact.Decode` verifies format, body ownership and both content hashes.
+
+`ontologyrelease.Factory.Read` binds an owner/version to a read-only snapshot. Its
+reader holds only generated SELECTs from `queries/read_ontology_release/`.
+`Dependency(owner)` accepts only owners captured in that artifact, verifies their
+pinned digest and never resolves active/latest. Zero, missing, wrong-owner and
+unpublished selections fail before callback entry; escaped readers fail.
+
+Existing stored bytes may be explicitly published with:
+
+```
+pletka weave ontology-publish <ontologyID> <versionID> \
+  --pin <dependencyOntologyID>=<dependencyVersionID>
+```
+
+Publish dependencies first. `--external-import` and `--external-reference` classify
+exact references and can be repeated; the same options exist on `ontology-import`.
+HTTP multipart import accepts a `publication` JSON object with `pins`,
+`external_imports` and `external_references`. Parse probes do not certify that
+publication will succeed. This operator action establishes a guarantee from now
+onward and never reconstructs historical content automatically.
+
+The remaining work is consumer integration: project cuts must retain these
+ontology artifacts, materializers must serialize their immutable values, and a
+new vendor/restore format must compare complete identities instead of accepting
+an existing ID. Current materialization still reads live descriptor/alias/default
+queries. Separate editor draft tables and a separate mutable policy record are
+also pending; `is_active` remains a compatibility column excluded from bodies.
+This checkpoint does not certify complete project output immutability.
 
 ## Alternatives rejected
 

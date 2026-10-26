@@ -11,17 +11,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pletka-io/pletka/pkg/app/cliruntime"
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/ontology"
 )
 
 var weaveOntologyImportOpts struct {
-	ontologyID string
-	file       string
-	version    string
-	setActive  bool
-	commit     bool
-	jsonOut    bool
+	ontologyID  string
+	file        string
+	version     string
+	setActive   bool
+	commit      bool
+	publication ontologyrelease.Options
+	jsonOut     bool
 }
 
 func newWeaveOntologyImportCommand() *cobra.Command {
@@ -35,7 +37,8 @@ the connected database, so namespace resolution is checked against live bindings
 Default is a dry-run probe: it parses the file, resolves qnames against the target
 database's namespace bindings, and reports class/property counts, any missing namespace
 bindings, warnings, and whether the version can be imported. Nothing is written unless
---commit is passed.
+--commit is passed. A committed import publishes an immutable artifact and dependency
+closure; publication may reject unresolved dependencies after a successful parse probe.
 
 Examples:
   # Dry-run probe against the connected DB
@@ -51,6 +54,7 @@ Examples:
 	cmd.Flags().BoolVar(&weaveOntologyImportOpts.setActive, "set-active", false, "mark the imported version active (only with --commit)")
 	cmd.Flags().BoolVar(&weaveOntologyImportOpts.commit, "commit", false, "perform the import; without it the command only probes (dry-run)")
 	cmd.Flags().BoolVar(&weaveOntologyImportOpts.jsonOut, "json", false, "emit the probe result as JSON")
+	ontologyPublicationFlags(cmd, &weaveOntologyImportOpts.publication)
 	return cmd
 }
 
@@ -76,6 +80,7 @@ func runWeaveOntologyImport(cmd *cobra.Command, args []string) error {
 	svc := ontology.NewService(ontology.NewPostgresStore(pool), weaveStore.Projects(), slog.Default())
 
 	input := ontology.ImportUploadInput{
+		Publication:   o.publication,
 		OntologyID:    o.ontologyID,
 		Filename:      filepath.Base(o.file),
 		Content:       content,
