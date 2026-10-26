@@ -148,8 +148,30 @@ Ontology editing follows
 [ADR-0013](../decisions/0013-ontology-drafts-and-immutable-releases.md): separate
 editable drafts from immutable releases, freeze the complete artifact and its
 dependencies, and enforce sealing in storage for every writer. Existing ontology
-version IDs are not yet sealed: force-import and metadata APIs can change them.
-The editor, ontology enforcement and complete project assembler are still pending.
+version IDs alone are not proof of immutability: unsealed versions remain editable.
+
+Migration 023 adds explicit `weave_ontology_body_seals`. The database captures
+version metadata/source bytes, terms, relations, companions, catalog descriptors
+and global namespace context, computes a digest and guards all body writers.
+Child writes and sealing serialize on the version row, including at repeatable
+read. Relations now have version/source constraints; unowned historical edges
+remain available through `WeaveAuditOrphanOntologyRelations`, and reusing their
+term IDs is blocked pending evidence review. New writes cannot create orphans.
+
+The transaction-owning publication layer calls `ontologybody.Seal`. The explicit
+operator command is `pletka weave ontology-seal-body <ontologyID> <versionID>`;
+ordinary import still leaves a version unsealed. `ontologybody.Factory.Read`
+binds a validated ontology/version reference to a read-only snapshot and a reader
+with only generated seal SELECTs from `queries/read_ontology_body/`. It exposes
+verified immutable body values, not a store or retargetable scope. Authorization
+remains the caller's responsibility. Mutation conflicts use the canonical API
+error adapter, with the database cause preserved.
+
+This is a local-body guarantee, not a completed ontology release. Format 1 hashes
+stored PostgreSQL JSONB text and is not the final portable vendor format. Active
+selection remains mutable legacy policy excluded from the seal. Automatic
+publication, physical draft/policy separation, resolved ontology dependencies,
+materializer/restore migration and the complete project assembler remain pending.
 
 ## Migrations: goose
 

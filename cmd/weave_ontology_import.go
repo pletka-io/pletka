@@ -41,7 +41,7 @@ Examples:
   # Dry-run probe against the connected DB
   pletka weave ontology-import --ontology 0000000000QK4Q8BDE2S5KFTK4 --file CRMsurv_v1.0.2_nsfix.rdf
 
-  # Actually import (replaces the version if the ID already exists)
+  # Import (replaces an existing unsealed version; sealed bodies reject changes)
   pletka weave ontology-import --ontology <id> --file fixed.rdf --commit --set-active`,
 		RunE: runWeaveOntologyImport,
 	}

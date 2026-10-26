@@ -1,7 +1,7 @@
 # ADR-0013: Ontology editing uses drafts; dependencies use immutable releases
 
 Date: 2026-10-26
-Status: Accepted architectural direction; editor and enforcement not yet implemented
+Status: Accepted architectural direction; local body sealing implemented, publication/editor migration pending
 
 ## Context
 
@@ -29,6 +29,10 @@ enforce that assumption:
 A version ID alone therefore does not yet prove immutable content. The project
 dependency inventory marker deliberately certifies project dependencies only.
 It must not be reused as proof that ontology artifacts or complete output are frozen.
+
+Migration 023 now supplies an explicit local-body seal and storage guards, as
+described below. Unsealed versions retain the legacy mutation behavior; imports
+do not automatically become published ontology releases yet.
 
 ## Decision
 
@@ -102,6 +106,39 @@ identical. Exercise missing pins, failed publication and concurrent editing.
 
 Structural checks must cover importer, admin, editor, CLI and restore paths, not
 only the ontology service file. The same enforcement applies to all writers.
+
+## Implemented foundation (2026-10-26)
+
+Migration 023 gives relations enforceable version/source ownership. Existing
+orphan rows remain evidence with no invented owner; new writes must satisfy the
+constraints, and term-ID reuse cannot reconnect those orphans to new content.
+Unsealed re-import now really removes the old owned relations by cascade.
+
+`pkg/database/ontologybody.Seal` captures the local body and digest in a caller's
+write transaction. Storage constructs the evidence itself and rejects subsequent
+metadata, term, relation, companion and seal mutations, including cascade and
+truncate paths. Body writers and sealing update the same parent revision, so a
+stale repeatable-read operation fails serialization instead of missing a commit.
+The seal retains its version and ontology; this initial implementation has no
+unseal or purge operation.
+
+The captured value includes catalog descriptors and the global namespace binding
+context, preserving aliases and weights. Its format-1 digest is SHA256 of stored
+PostgreSQL JSONB text with sorted arrays. This is a local evidence format, not the
+final portable vendor/restore format. The ontology-specific bound reader receives
+only generated SELECTs over seals, verifies the digest and fails closed for
+unsealed/missing/wrong-owner bodies. Its callback owns a read-only snapshot.
+
+Active selection remains a legacy mutable `is_active` column, excluded from the
+body; toggling it no longer rewrites body timestamps. Moving selection to a
+separate policy record is still required for the final editor structure.
+
+`pletka weave ontology-seal-body <ontologyID> <versionID>` explicitly seals current
+bytes. It does not establish what an older project saw. Automatic import
+publication, dependency/default pins, draft editing, materializer/restore routing
+and portable digest verification remain pending. In particular, the existing
+materializer still uses live descriptor/alias/default queries; this foundation
+does not yet make complete project output immutable.
 
 ## Alternatives rejected
 

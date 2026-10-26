@@ -57,14 +57,12 @@ WHERE id = $1;
 -- active version per ontology.
 WITH cleared AS (
     UPDATE weave_ontology_versions
-    SET is_active = false,
-        updated_at = now()
+    SET is_active = false
     WHERE weave_ontology_versions.ontology_id = sqlc.arg(ontology_id)
       AND is_active = true
 )
 UPDATE weave_ontology_versions
-SET is_active = true,
-    updated_at = now()
+SET is_active = true
 WHERE weave_ontology_versions.ontology_id = sqlc.arg(ontology_id)
   AND weave_ontology_versions.id = sqlc.arg(target_id);
 

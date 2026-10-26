@@ -73,7 +73,7 @@ func (q *Queries) WeaveInsertOntologyRelation(ctx context.Context, arg WeaveInse
 }
 
 const weaveListOntologyRelationsForSource = `-- name: WeaveListOntologyRelationsForSource :many
-SELECT source_id, source_kind, rel_type, target_qname, position FROM weave_ontology_relations
+SELECT source_id, source_kind, rel_type, target_qname, position, ontology_version_id, source_class_id, source_property_id FROM weave_ontology_relations
 WHERE source_id = $1 AND source_kind = $2
 ORDER BY rel_type ASC, position ASC
 `
@@ -98,6 +98,9 @@ func (q *Queries) WeaveListOntologyRelationsForSource(ctx context.Context, arg W
 			&i.RelType,
 			&i.TargetQname,
 			&i.Position,
+			&i.OntologyVersionID,
+			&i.SourceClassID,
+			&i.SourcePropertyID,
 		); err != nil {
 			return nil, err
 		}
@@ -110,7 +113,7 @@ func (q *Queries) WeaveListOntologyRelationsForSource(ctx context.Context, arg W
 }
 
 const weaveListOntologyRelationsForSourceByType = `-- name: WeaveListOntologyRelationsForSourceByType :many
-SELECT source_id, source_kind, rel_type, target_qname, position FROM weave_ontology_relations
+SELECT source_id, source_kind, rel_type, target_qname, position, ontology_version_id, source_class_id, source_property_id FROM weave_ontology_relations
 WHERE source_id = $1 AND source_kind = $2 AND rel_type = $3
 ORDER BY position ASC
 `
@@ -136,6 +139,9 @@ func (q *Queries) WeaveListOntologyRelationsForSourceByType(ctx context.Context,
 			&i.RelType,
 			&i.TargetQname,
 			&i.Position,
+			&i.OntologyVersionID,
+			&i.SourceClassID,
+			&i.SourcePropertyID,
 		); err != nil {
 			return nil, err
 		}
@@ -148,7 +154,7 @@ func (q *Queries) WeaveListOntologyRelationsForSourceByType(ctx context.Context,
 }
 
 const weaveListOntologyRelationsForTarget = `-- name: WeaveListOntologyRelationsForTarget :many
-SELECT source_id, source_kind, rel_type, target_qname, position FROM weave_ontology_relations
+SELECT source_id, source_kind, rel_type, target_qname, position, ontology_version_id, source_class_id, source_property_id FROM weave_ontology_relations
 WHERE target_qname = $1 AND rel_type = $2
 ORDER BY source_id ASC
 `
@@ -173,6 +179,9 @@ func (q *Queries) WeaveListOntologyRelationsForTarget(ctx context.Context, arg W
 			&i.RelType,
 			&i.TargetQname,
 			&i.Position,
+			&i.OntologyVersionID,
+			&i.SourceClassID,
+			&i.SourcePropertyID,
 		); err != nil {
 			return nil, err
 		}

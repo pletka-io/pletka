@@ -217,8 +217,11 @@ through a generic string parameter. Publication freezes source files, terms,
 relations, metadata, descriptors, namespaces and concrete dependencies together.
 Active/default selection is mutable policy outside the artifact. Storage must
 prevent every import/admin/restore path from overwriting a published identity;
-an identical restore may be a verified no-op. This is accepted direction, not
-current enforcement: existing ontology versions can still be replaced or edited.
+an identical restore may be a verified no-op. Migration 023 and `ontologybody`
+implement explicit local-body sealing and an ontology-bound reader with only seal
+SELECT capabilities. All writers reject changes to a sealed body; unsealed
+imports remain editable. Automatic publication, draft/policy separation,
+dependency/default resolution and materializer/restore migration remain pending.
 See [ADR-0013](../decisions/0013-ontology-drafts-and-immutable-releases.md).
 
 ### Whole-project reads belong to an assembler

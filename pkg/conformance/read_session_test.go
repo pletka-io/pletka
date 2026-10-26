@@ -230,6 +230,9 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 				continue
 			}
 			allowed := rel == "pkg/weave/collection/reader_draft.go" || rel == "pkg/weave/collection/reader_archive.go" || rel == "pkg/weave/override/reader_draft.go" || rel == "pkg/weave/override/reader_archive.go"
+			if p == "github.com/pletka-io/pletka/pkg/database/readsql/ontologybody" && (rel == "pkg/database/ontologybody/session.go" || rel == "pkg/database/ontologybody/reader.go") {
+				allowed = true
+			}
 			if !allowed {
 				t.Errorf("%s imports raw pilot queries; use a bound slice reader", rel)
 			}

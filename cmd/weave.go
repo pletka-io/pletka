@@ -37,6 +37,7 @@ func newWeaveCommand(renderers []generators.Renderer) *cobra.Command {
 		newWeaveGenerateCommand(renderers),
 		newWeaveVerifyPathsCommand(),
 		newWeaveOntologyImportCommand(),
+		newWeaveOntologySealBodyCommand(),
 	)
 	return weaveCmd
 }
