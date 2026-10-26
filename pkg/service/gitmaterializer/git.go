@@ -130,8 +130,8 @@ func (g *gitRunner) RevParseHead(ctx context.Context) (string, error) {
 	return strings.TrimSpace(out.String()), nil
 }
 
-// noAutoGC disables git's automatic garbage collection for every command this
-// runner issues.
+// noAutoGC disables automatic garbage collection and maintenance for the
+// runner's write commands.
 //
 // git runs `gc --auto` after a commit, and with gc.autoDetach (the default)
 // it forks a BACKGROUND process that keeps writing to .git/objects after the
@@ -148,13 +148,17 @@ func (g *gitRunner) RevParseHead(ctx context.Context) (string, error) {
 // constantly by the materializer, and an unscheduled gc means unpredictable
 // latency and I/O on the app box at a moment nothing chose. Repacking, if it
 // is ever wanted, belongs in a maintenance job that can be reasoned about.
+// Newer git also starts detached maintenance even with gc.auto=0. Disable that
+// entry point explicitly so no object writes outlive the materializer's lock.
 // It is injected through GIT_CONFIG_* rather than "-c" so the command's argv
 // is untouched: the error messages below quote args verbatim, and gosec reads
 // an appended argv as tainted input.
 var noAutoGC = []string{
-	"GIT_CONFIG_COUNT=1",
+	"GIT_CONFIG_COUNT=2",
 	"GIT_CONFIG_KEY_0=gc.auto",
 	"GIT_CONFIG_VALUE_0=0",
+	"GIT_CONFIG_KEY_1=maintenance.auto",
+	"GIT_CONFIG_VALUE_1=false",
 }
 
 func (g *gitRunner) run(ctx context.Context, extraEnv []string, args ...string) error {
@@ -174,9 +178,7 @@ func (g *gitRunner) run(ctx context.Context, extraEnv []string, args ...string) 
 func (g *gitRunner) runOut(ctx context.Context, extraEnv []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = g.workDir
-	if len(extraEnv) > 0 {
-		cmd.Env = append(os.Environ(), extraEnv...)
-	}
+	cmd.Env = append(append(os.Environ(), noAutoGC...), extraEnv...)
 	var out, stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
