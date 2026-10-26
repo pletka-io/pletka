@@ -52,6 +52,8 @@ help:
 	@echo ""
 	@echo "$(GREEN)Utility:$(NC)"
 	@echo "  make test                 Run Go tests"
+	@echo "  make test-integration     Run required DB tests (Podman/Docker or TEST_DATABASE_URL)"
+	@echo "  make test-db-up/down      Start/stop an optional inspection PostgreSQL"
 	@echo "  make vet                  go vet ./..."
 	@echo "  make lint                 golangci-lint (full — staticcheck + suite)"
 	@echo "  make lint-new             golangci-lint on changes vs origin/main (the gate)"
@@ -270,17 +272,13 @@ test:
 	@go test ./...
 
 .PHONY: test-integration
-test-integration: ## Run DB/integration tests (needs Docker or TEST_DATABASE_URL)
-	# Ryuk is disabled for this run: multiple package processes attach to one
-	# reuse-by-name Postgres container (internal/testdb/container_integration.go),
-	# and Ryuk is owned by whichever process started it — it would otherwise
-	# reap the shared container the moment that first process exits, breaking
-	# every other package still running against it. With Ryuk off the
-	# container survives the whole ./... run; we remove it explicitly below,
-	# on success or failure, so nothing leaks.
-	@TESTCONTAINERS_RYUK_DISABLED=true go test -tags=integration ./...; status=$$?; \
-	docker rm -f pletka-testdb-pg18 >/dev/null 2>&1 || true; \
-	exit $$status
+TEST_PACKAGES ?= ./...
+test-integration: ## Run required DB tests; TEST_PACKAGES selects packages
+	@bash test/integration.sh $(TEST_PACKAGES)
+
+.PHONY: test-db-up test-db-down test-db-reset test-db-logs test-db-psql test-db-config
+test-db-up test-db-down test-db-reset test-db-logs test-db-psql test-db-config:
+	@bash test/postgres.sh $(patsubst test-db-%,%,$@)
 
 # update-fixtures regenerates the real-project fixture snapshots under
 # test/fixtures/ (the pletka-fixtures submodule) via `pletka project init-git
