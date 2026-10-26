@@ -2,6 +2,7 @@ package pages
 
 import (
 	"context"
+	"errors"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/i18n/backend"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
 )
 
@@ -75,6 +77,21 @@ func requestWithProjectContext(target string, project *domain.Project, snap *aut
 
 func publicProjectWithRelease() *domain.Project {
 	return &domain.Project{Entity: domain.Entity{ID: "TPC"}, OwnerID: "OWNER", Visibility: "public"}
+}
+
+func TestProjectDetailPage_ReleaseLookupFailureStopsRender(t *testing.T) {
+	cause := errors.New("release lookup failed")
+	pages := newTestProjectPages(t, &fakeReleaseReader{err: cause})
+	req := requestWithProjectContext("/projects/TPC", publicProjectWithRelease(), &auth.AuthSnapshot{IsAnonymous: true})
+	ctx, slot := errresp.WithCauseSlot(req.Context())
+	rr := httptest.NewRecorder()
+	pages.ProjectDetailPage(rr, req.WithContext(ctx))
+	if rr.Code != http.StatusInternalServerError || !errors.Is(slot.Err(), cause) {
+		t.Fatalf("status = %d, cause = %v; want 500 with lookup cause", rr.Code, slot.Err())
+	}
+	if strings.Contains(rr.Body.String(), "schema-url") {
+		t.Fatal("rendered a content schema URL after lookup failed")
+	}
 }
 
 func TestProjectDetailPage_AnonymousPublicViewer_UsesLatestRelease(t *testing.T) {

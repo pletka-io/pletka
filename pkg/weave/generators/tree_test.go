@@ -63,7 +63,7 @@ func TestBuildModelSnapshotPreservesModelViewTree(t *testing.T) {
 		Model:       model,
 		View:        view,
 		Collections: map[string]*domain.Collection{collection.ID: collection},
-		Namespaces:  BuildNamespaceSet(domain.Project{Entity: domain.Entity{ID: "LA"}}, nil),
+		Namespaces:  buildTestNamespaceSet(t, domain.Project{Entity: domain.Entity{ID: "LA"}}, nil),
 		Options:     Options{Lang: "en"},
 	})
 
@@ -284,7 +284,7 @@ func TestAssignShortPathNodeIDsSharesNodes(t *testing.T) {
 			OntologyScope: pe("class", "crm", "E21_Person", 0),
 		},
 		View:       view,
-		Namespaces: BuildNamespaceSet(domain.Project{Entity: domain.Entity{ID: "LA"}}, nil),
+		Namespaces: buildTestNamespaceSet(t, domain.Project{Entity: domain.Entity{ID: "LA"}}, nil),
 		Options:    Options{Lang: "en"},
 	})
 

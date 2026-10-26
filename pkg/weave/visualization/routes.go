@@ -20,8 +20,8 @@ type Host struct {
 	// LatestRelease backs the release-default policy applied in
 	// loadAndGateProject so a public project's non-editor reader gets the
 	// latest release instead of the hot draft, matching
-	// auth.ResolveContentVersion. Optional; nil disables the default
-	// (readers see hot). Routes here have no {projectID} URL param, so
+	// auth.ResolveContentVersion. A missing reader fails reads that need
+	// a default release. Routes here have no {projectID} URL param, so
 	// auth.ResolveContentVersion can't be installed as router middleware —
 	// the same policy runs inline once the project is resolved.
 	LatestRelease weaveauth.LatestReleaseReader

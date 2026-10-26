@@ -1,7 +1,7 @@
 # ADR-0012: Whole-project reads belong to an assembler, not a slice
 
 Date: 2026-10-23  
-Status: Accepted
+Status: Accepted; amended 2026-10-26, implementation incomplete
 
 ---
 
@@ -37,7 +37,39 @@ The conformance ratchet cannot see any of this: it parses
 `<slice>/service.go` only (`pkg/conformance/readscan.go:60`). Five packages
 outside the slices hold their own archive queries across fourteen files.
 
-## What we decided
+## Amendment: assemble through a bound session (2026-10-26)
+
+This amendment supersedes the free-standing `(scope, projectID)` API and the
+consumer-equivalence claims below. The assembler receives the project-bound read
+session of ADR-0010; it cannot combine independently chosen versions and project
+IDs. Its readers share one database snapshot, and released foreign dependencies
+come from the pins required by ADR-0011. Serializers receive domain values and
+have no database access.
+
+Archive ownership and dependency pinning precede claims of reproducibility.
+Transitional query adapters must be private, transaction-bound, registered and
+scheduled for removal. They cannot retain a pool or independently resolve latest.
+The assembler consumes dependency resolution; it is not the only place where a
+foreign read can occur (interactive reads and refs also cross projects).
+
+Define coverage against the domain and restore contract before replacing writers:
+project metadata, inheritance, fields, models, collections, categories, overrides
+and refs, examples, vocabularies/concepts, placements, credits, ontology artifacts,
+namespace bindings and aliases. Existing tree parity excludes adopted bodies and
+omits domain data; its immutability subtest is skipped. It proves only the covered
+subset. Retain per-slice tests and add complete snapshot equivalence plus edits,
+deletes and new source releases after a cut.
+
+Whole-project materialization and exports share this assembler. Entity exports
+may assemble a smaller dependency graph through the same session. Publication's
+batch dirty-state queries have timestamp semantics; replacing them with a full
+snapshot diff is a separate behavior and performance decision, not an automatic
+consequence of this ADR. Search remains a separate read shape.
+
+This is the intended architecture, not a claim that the assembler already exists.
+The original rationale follows, with the qualifications above taking precedence.
+
+## Original decision (2026-10-23; qualified by the amendment)
 
 There are **two read shapes**, and they get different abstractions.
 
@@ -70,7 +102,7 @@ Two rules follow from what a snapshot means:
 The slice contract gains the corresponding red flag: a whole-project or
 export-shaped read **on a slice** has taken on the assembler's job.
 
-## What we considered and rejected
+## Original alternatives (2026-10-23; qualified by the amendment)
 
 - **Thread a scope through each consumer's existing readers** (add
   `auth.ReadScope` to all six generator reader interfaces and to the
@@ -94,7 +126,7 @@ export-shaped read **on a slice** has taken on the assembler's job.
   would report the duplication without removing it, and the duplication is the
   defect. A wider scanner is worth having once the consumers share one input.
 
-## Consequences
+## Original consequences (2026-10-23; qualified by the amendment)
 
 - **Easier:** exports become version-aware because their input already is, and
   a pick resolving to a foreign draft becomes unrepresentable rather than

@@ -237,7 +237,7 @@ func (m *Materializer) loadProjectManifestNamespacesAtVersion(ctx context.Contex
 		return nil, fmt.Errorf("iterate archived namespace bindings for manifest: %w", err)
 	}
 
-	return manifestBindings(project, visible), nil
+	return manifestBindings(project, visible)
 }
 
 func (m *Materializer) writePletkaModVersion(ctx context.Context, workDir, projectID, version string) error {

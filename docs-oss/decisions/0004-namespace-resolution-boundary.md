@@ -34,6 +34,11 @@ stored namespace bindings derived from it.
   missing bindings to the manager when the binding is valid.
 - If RDF declares a prefix/base pair that conflicts with an existing binding,
   the reader must report an explicit conflict instead of guessing.
+- Effective one-URI-per-prefix maps choose the highest weight and reject
+  different URIs tied at that weight. Equal-weight identical URIs use lexical
+  source ordering for stable provenance. Lower-weight aliases remain valid and
+  travel separately in vendor manifests; the effective map is not an alias
+  registry. This reduction rule was made explicit on 2026-10-26.
 - If a path element, ontology term, or generator target needs a prefix and no
   prefix can be resolved for the base URI, fail with a validation error at the
   import/read boundary.

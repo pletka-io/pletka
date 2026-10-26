@@ -152,73 +152,59 @@ aggregate.
 
 ## Versioned slices
 
-A slice owning a table with an `_archive` counterpart is a *versioned slice*:
-a release can be asked for its rows, so its reads must name the version they
-read at.
+A slice with an `_archive` counterpart is versioned. Its write store and content
+readers have different capabilities. Four slices currently expose `Store.At(scope)`
+with a fail-closed zero scope; this is a migration step, not completed isolation.
+Collection's reader still retains its full store and override's archive reader
+retains unrestricted generated queries.
 
-Such a slice splits in two. `Store` carries the mutations. Reads live on a
-`Reader` obtained with `At(scope)`, where the scope is either the draft or a
-named release, and whose zero value is invalid — so forgetting a scope fails
-at the first call rather than quietly serving draft data later.
-
-```go
-type Store interface {            // writes only
-    Create(...) ; Update(...) ; Delete(...)
-    At(scope auth.ReadScope) (Reader, error)
-}
-```
-
-The scope is resolved once, at the request boundary, and passed down as an
-argument. A service never reaches into the context for it: that is the
-ambient pattern the split exists to remove.
-
-Mutations always run hot. They take no scope, and a path that deliberately
-reads the draft says so by passing `auth.Draft()`.
-
-The shape is recorded in
+The target in
 [ADR-0010](../decisions/0010-versioned-reads-through-a-scope-bound-reader.md),
-which also lists the mechanisms it replaced — optional capability assertions,
-paired `XVersion` methods, and a version read from the request context inside a
-service. All three are red flags now.
+amended 2026-10-26, binds project, explicit draft/release selection and database
+transaction in a read-session factory. Reader methods do not accept an arbitrary
+project to retarget. Archive readers hold only archive query capabilities; their
+existence checks do not depend on live rows. The factory is wired by `pkg/app`,
+while request policy belongs in `pkg/auth`. Services receive the selected reader.
+
+Read-only draft assembly uses repeatable read. Release creation uses one
+repeatable-read write transaction for release metadata, archived content and
+outbox. Mutation destinations are live, but clone/adopt sources may be released.
+A scope selects content; it does not grant authorization.
+
+HTTP, page, visualization and MCP boundaries share `auth.ResolveProjectVersion`.
+A lookup failure stops the request; a successful result saying there is no
+release is a separate visibility-policy case. Optional version capabilities,
+paired `X`/`XVersion` methods and ambient service lookups remain migration debt.
 
 ### Reading another project's content
 
-A scope says which version to read. It does not say whose data it may be
-pointed at, and cross-project reuse means that question comes up constantly.
+Caller-owned content uses the caller's selection. Foreign readers come from a
+dependency resolver and bind the source project. A draft session may resolve an
+unpinned source to its latest release once. A released project uses concrete
+source identities recorded during its cut; it never resolves latest at read time.
+Missing/unpublished sources, unresolved pins and draft dependencies reject a cut.
 
-> A read of another project's content resolves at **that project's** release.
-> When the adoption records a version, that version. When it records none, the
-> source project's latest release. Draft is never a cross-project answer.
+The closure includes inheritance, adoptions, refs without adoption records,
+export picks, ontology versions, defaults and namespace aliases. Shared captured
+state needs membership owned by the consuming release. Copying parent metadata
+under the child's version or joining global rows solely by textual version number
+creates collisions. These ownership and session migrations are still pending.
+See [ADR-0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md).
 
-A draft is one authenticated user's working state inside their own project — it
-is not a version, it is the absence of one. Release content is what a project
-has published and therefore what it has offered to others.
+### Whole-project reads belong to an assembler
 
-The trap is worth naming because the one-line version of this walks into it:
-`auth.Release("")` returns `auth.Draft()`, and the latest-release lookup returns
-`""` for a project that has published nothing. Composing the two gives a foreign
-*draft* read for every unreleased source. A source with no release is an error
-instead, so the resolution returns `(ReadScope, error)` and a slice never builds
-a foreign scope with `auth.Release(recordedVersion)` directly. Reading a source's
-draft on purpose is a third kind of scope, reached only by explicit
-configuration. See
-[ADR-0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md).
+Interactive readers answer for an entity or filtered page. Whole-project consumers
+use one assembler receiving the bound session and emitting a complete value for
+serializers without database access. Transitional adapters must share that
+transaction, remain private and have a removal task. The assembler consumes the
+recorded dependency graph; it does not repair missing historical pins.
 
-### Whole-project reads are not a slice's job
-
-A `Reader` answers for an entity or a filtered page of them. Some consumers want
-a project *whole* — the git materializer writing its tree, a generator emitting
-a whole-project serialization, `publication` comparing two whole states. That is
-a second read shape, and it belongs to one assembler parameterized by scope, not
-to each consumer:
-
-```go
-func Snapshot(ctx context.Context, scope auth.ReadScope, projectID string) (*ProjectSnapshot, error)
-```
-
-Draft is a scope like any other there, so one implementation decides which
-tables answer. A slice that grows a `ProjectTree`- or `ExportView`-shaped read
-has taken on the assembler's job. See
+This assembler is not implemented yet. Its acceptance requires an explicit domain
+coverage inventory, actual-cut parity and isolation after edits, deletions and
+source publications. Existing writer parity covers only a subset. Entity exports
+may assemble a smaller graph through the same session. Publication's timestamp
+based dirty-state queries require a separate semantic/performance decision;
+search retains its separate read shape. See
 [ADR-0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).
 
 ## EventBus is active

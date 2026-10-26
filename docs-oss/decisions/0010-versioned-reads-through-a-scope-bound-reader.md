@@ -1,7 +1,7 @@
 # ADR-0010: Versioned slice reads go through a scope-bound Reader
 
 Date: 2026-10-23  
-Status: Accepted
+Status: Accepted; amended 2026-10-26, implementation incomplete
 
 ---
 
@@ -17,7 +17,39 @@ silently answered from the live tables, so a page or an export rendered under a
 release tag could carry draft content. Nothing in the type system distinguished
 "this read is at the draft" from "this read never named a scope at all".
 
-## What we decided
+## Amendment: bind project and transaction (2026-10-26)
+
+This amendment supersedes the unbound `At(scope)` API below as the target
+contract. That API describes the current migration stage, not complete isolation.
+A read-session factory must bind project identity, an explicit draft/release
+selection and a transaction before exposing slice readers. Reader methods cannot
+retarget another project. Zero/empty release selections fail; the existing
+`Release("")` compatibility behavior must not be used as a strict constructor.
+
+The factory owns database access and reader lifetime. Read-only draft assembly
+uses repeatable read. Release cuts use one repeatable-read write transaction for
+release metadata, archive contents and outbox. Request authorization stays in
+`pkg/auth`; database session construction is wired by `pkg/app`.
+
+An archive reader must receive narrow archive query capabilities, not the entire
+write store, pool or unrestricted generated query set. Current collection and
+override readers do retain these paths; a scope parameter alone does not prevent
+live-table access. Existence checks for released content also use the bound
+reader, so deleting a live entity does not make its archive unreadable.
+
+Mutations write to the live destination. Clone/adopt source reads may target a
+release; they must not be forced to draft merely because the operation writes.
+Authorization is independent of content selection. Latest-release lookup errors
+stop the request; a successful lookup finding no release is a distinct policy
+case. HTTP, page, visualization and MCP boundaries share that resolution.
+
+Enforcement needs an explicit monotonic conversion registry, checks of all
+production files and reader capabilities, and actual-cut tests that mutate and
+delete live data afterward. The current signature ratchet and parity tests alone
+cannot establish isolation. The implementation of this stronger boundary is
+pending; the bullets below describe the earlier migration shape.
+
+## Original decision (2026-10-23; qualified by the amendment)
 
 A slice owning an `_archive` table is a **versioned slice**, and its reads live
 on a scope-bound `Reader`:
@@ -43,7 +75,7 @@ Opting out is per method, with a written reason, in `pkg/conformance`'s
 allowlist. A conformance test fails the build on an unscoped read in a versioned
 slice and on an `_archive` table no slice claims.
 
-## What we considered and rejected
+## Original alternatives (2026-10-23; qualified by the amendment)
 
 - **A wrapper type that resolves the version per call** (a `versionedStore`
   decorating each slice's `Store`, reading the scope from context): this was the
@@ -71,13 +103,13 @@ slice and on an `_archive` table no slice claims.
   it reintroduces the original defect as a documented feature. Failing at the
   call that forgot to name a scope is the whole point.
 
-## Consequences
+## Original consequences (2026-10-23; qualified by the amendment)
 
 - **Easier:** a read's signature says what it reads. `store.At(scope)` is
   greppable and the conformance test can enumerate every read that is not yet
   behind one.
 - **Easier:** a release-scoped `Reader` cannot accidentally serve live rows,
-  because it holds no path to them.
+  once the capability separation in the amendment is implemented.
 - **Harder:** each slice must write a second query per read against its
   `_archive` table, mirroring the live query's rule including any deliberate
   quirk. The compiler does not check that mirroring. The counter-measure is a

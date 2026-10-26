@@ -2,7 +2,7 @@ package auth
 
 import (
 	"context"
-	"log/slog"
+	"fmt"
 	"net/http"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -76,6 +76,22 @@ func ResolveEffectiveVersion(snap *AuthSnapshot, project *domain.Project, explic
 	return latestRelease // public non-editor: latest release ("" ⇒ hot fallback)
 }
 
+// ResolveProjectVersion applies the visibility policy and propagates release lookup failures.
+func ResolveProjectVersion(ctx context.Context, reader LatestReleaseReader, project *domain.Project, explicitVersion string) (string, error) {
+	snap := FromContext(ctx)
+	if explicitVersion != "" || project == nil || project.Visibility != domain.VisibilityPublic || snap.Can(ProjectEdit, ProjectResource(project), nil) {
+		return ResolveEffectiveVersion(snap, project, explicitVersion, ""), nil
+	}
+	if reader == nil {
+		return "", fmt.Errorf("resolve content version for project %s: release reader is required", project.ID)
+	}
+	latest, err := reader.LatestReleaseVersion(ctx, project.ID)
+	if err != nil {
+		return "", fmt.Errorf("resolve content version for project %s: %w", project.ID, err)
+	}
+	return ResolveEffectiveVersion(snap, project, explicitVersion, latest), nil
+}
+
 // ResolveContentVersion sets the effective project version on the request
 // context when none was given explicitly, so non-editor viewers of a public
 // project read the latest release instead of the draft. Install AFTER
@@ -89,23 +105,11 @@ func ResolveContentVersion(reader LatestReleaseReader) func(http.Handler) http.H
 				next.ServeHTTP(w, r) // explicit version, or a mutation: leave as-is
 				return
 			}
-			project := ProjectFromContext(ctx)
-			if project == nil || project.Visibility != domain.VisibilityPublic {
-				next.ServeHTTP(w, r.WithContext(WithReadScope(ctx, Draft())))
-				return
-			}
-			snap := FromContext(ctx)
-			if snap.Can(ProjectEdit, ProjectResource(project), nil) {
-				next.ServeHTTP(w, r.WithContext(WithReadScope(ctx, Draft()))) // editor: hot
-				return
-			}
-			latest, err := reader.LatestReleaseVersion(ctx, project.ID)
+			v, err := ResolveProjectVersion(ctx, reader, ProjectFromContext(ctx), "")
 			if err != nil {
-				slog.Default().ErrorContext(ctx, "resolve content version: latest release lookup failed; serving hot", "project", project.ID, "err", err)
-				next.ServeHTTP(w, r.WithContext(WithReadScope(ctx, Draft()))) // fail safe to hot, never 500
+				errresp.Internal(w, r, err)
 				return
 			}
-			v := ResolveEffectiveVersion(snap, project, "", latest)
 			if v != "" {
 				ctx = WithProjectVersion(ctx, v)
 			}
