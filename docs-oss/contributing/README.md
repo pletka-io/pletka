@@ -26,12 +26,17 @@ Everything goes through the Makefile — `make help` lists all targets.
 | `make air` / `make dev` | run with hot reload |
 | `make build` | build the `pletka` binary into `bin/` |
 | `make test` | run the test suite |
+| `make test-integration` | run required database tests on isolated PostgreSQL |
+| `make test-db-up` / `make test-db-down` | start/stop an optional inspection database |
 | `make typegen` | regenerate TypeScript types from Go (tygo) |
 | `make frontend-build` | build the Svelte islands |
 | `make db-status` | show database statistics |
 
 After changing SQL queries in `pkg/database/queries/`, run `go tool sqlc generate`
 (never a global `sqlc` — see [`../architecture/data-layer.md`](../architecture/data-layer.md)).
+
+See [database testing](database-testing.md) for Podman/Docker setup, the shared
+PostgreSQL image pin and production compatibility checks.
 
 ## Where things go
 

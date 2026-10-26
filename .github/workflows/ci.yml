@@ -22,6 +22,7 @@ jobs:
       - uses: actions/setup-go@v7
         with: { go-version: '1.27.3' }
       - run: go build ./...
+      - run: python3 test/test_integration_launcher.py
       # Generated-code gate — sqlc's own drift check, via `go tool` so the
       # version pinned in go.mod is used. Exits non-zero when
       # pkg/database/sqlcgen/ does not match what pkg/database/queries/*.sql

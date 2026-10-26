@@ -1,0 +1,21 @@
+# Optional persistent inspection DB. Launch through make test-db-up to use
+# the same image pin as the automatic integration test harness.
+services:
+  postgres:
+    image: ${TEST_POSTGRES_IMAGE:?use make test-db-up}
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pletka-test-only
+      POSTGRES_DB: pletka_inspect
+    ports:
+      - "127.0.0.1:${TEST_POSTGRES_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pletka_inspect"]
+      interval: 1s
+      timeout: 3s
+      retries: 60
+    volumes:
+      # PostgreSQL 18 images keep PGDATA in a versioned subdirectory here.
+      - postgres-data:/var/lib/postgresql
+volumes:
+  postgres-data:

@@ -4,20 +4,22 @@ package testdb
 
 import (
 	"context"
+	"crypto/sha256"
+	_ "embed"
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-// reuseContainerName is the stable, label-keyed name that lets parallel test
-// binaries (and successive `go test` runs) attach to one shared Postgres
-// instance instead of each spinning up their own. Ryuk still owns teardown.
-const reuseContainerName = "pletka-testdb-pg18"
-
-// containerImage pins the shared Postgres major version for the fixture server.
-const containerImage = "postgres:18-alpine"
+// defaultContainerImage is also read by test/postgres.sh for manual inspection.
+// Keep the image in one file so CI, direct Go runs and Compose use the same pin.
+//
+//go:embed postgres-image.txt
+var defaultContainerImage string
 
 // init wires the container provider into setup.go's build-agnostic seam. Only
 // this file (//go:build integration) imports testcontainers-go, so the untagged
@@ -36,12 +38,23 @@ func containerAdminDSN(ctx context.Context) (string, error) {
 		return dsn, nil
 	}
 
+	containerImage := strings.TrimSpace(os.Getenv("TEST_POSTGRES_IMAGE"))
+	if containerImage == "" {
+		containerImage = strings.TrimSpace(defaultContainerImage)
+	}
+	containerName := os.Getenv("PLETKA_TEST_CONTAINER_NAME")
+	if containerName == "" {
+		// Direct go test runs may reuse a server, but never one for another image.
+		digest := sha256.Sum256([]byte(containerImage))
+		containerName = fmt.Sprintf("pletka-testdb-%x", digest[:6])
+	}
+	slog.InfoContext(ctx, "testdb: container", "image", containerImage, "name", containerName)
 	ctr, err := postgres.Run(ctx, containerImage,
 		postgres.WithDatabase("postgres"),
 		postgres.WithUsername("postgres"),
 		postgres.WithPassword("postgres"),
 		postgres.BasicWaitStrategies(),
-		testcontainers.WithReuseByName(reuseContainerName),
+		testcontainers.WithReuseByName(containerName),
 	)
 	if err != nil {
 		return "", fmt.Errorf("start postgres container: %w", err)
