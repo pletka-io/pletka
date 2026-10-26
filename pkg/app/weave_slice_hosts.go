@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
@@ -204,7 +205,7 @@ func buildProjectHost(
 ) project.Host {
 	return project.Host{
 		Service:             project.NewService(project.NewPostgresStore(pool), weave.Projects(), weave.Memberships(), vocabulary.NewService(pool, registry.New(http.DefaultClient, vocabServiceURL)), logger),
-		Overrides:           overridepkg.NewService(overridepkg.NewPostgresStore(pool), logger, changeLog),
+		Overrides:           overridepkg.NewService(overridepkg.NewPostgresStore(pool), overridepkg.NewReadSessions(readsession.NewFactory(pool)), logger, changeLog),
 		Weave:               weave,
 		Logger:              logger,
 		Languages:           languages,
@@ -593,8 +594,9 @@ func buildCoreEntityHosts(
 	deps coreEntityDeps,
 	langResolver func(*http.Request) string,
 ) (field.Host, model.Host, collection.Host, *overridepkg.Service) {
+	readFactory := readsession.NewFactory(deps.Pool)
 	overrideStore := overridepkg.NewPostgresStore(deps.Pool)
-	overrideSvc := overridepkg.NewService(overrideStore, deps.Logger, deps.ChangeLog)
+	overrideSvc := overridepkg.NewService(overrideStore, overridepkg.NewReadSessions(readFactory), deps.Logger, deps.ChangeLog)
 	projects := deps.Weave.Projects()
 	categories := deps.Weave.WeaveCategories()
 
@@ -630,7 +632,7 @@ func buildCoreEntityHosts(
 		deps.ChangeLog,
 	)
 	collectionSvc := collection.NewService(
-		collection.NewPostgresStore(deps.Pool),
+		collection.NewPostgresStore(deps.Pool), collection.NewReadSessions(readFactory),
 		overrideSvc,
 		deps.Weave.Adoptions(),
 		deps.Weave.Forks(),

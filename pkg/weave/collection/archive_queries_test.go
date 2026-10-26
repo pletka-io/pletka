@@ -88,6 +88,7 @@ func seedArchivedCategory(t *testing.T, pool *pgxpool.Pool, projectID, categoryI
 
 func seedArchivedCollectionWithFieldPath(t *testing.T, pool *pgxpool.Pool, projectID, collectionID, version, scopeClass string) {
 	t.Helper()
+	seedVerifiedRelease(t, pool, projectID, version)
 	prefix, local, _ := strings.Cut(scopeClass, ":")
 	scope := fmt.Sprintf(`{"prefix":%q,"local_name":%q}`, prefix, local)
 	if _, err := pool.Exec(context.Background(),

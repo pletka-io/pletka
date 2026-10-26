@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 )
 
 // TestWithEntityLockReturnsRealErrLockBusy is lock_busy_classification_test.go's
@@ -25,7 +26,7 @@ import (
 func TestWithEntityLockReturnsRealErrLockBusy(t *testing.T) {
 	pool := testdb.Pool(t)
 	store := NewPostgresStore(pool)
-	svc := NewService(store, nil, nil)
+	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 
 	orig := lockTimeout

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
 
 // TestReleaseViewDoesNotLeakDraftCollections is the symptom test: a read
@@ -68,7 +69,7 @@ func TestReleaseViewDoesNotLeakDraftCollections(t *testing.T) {
 	if err != nil || a == nil || a.SystemName != "orig" {
 		t.Fatalf("release Get(a) = %+v, %v; want the archived name \"orig\"", a, err)
 	}
-	if c, err := svc.Get(ctx, auth.Release(version), project, project+".c"); err != nil || c != nil {
+	if c, err := svc.Get(ctx, auth.Release(version), project, project+".c"); apierror.FromError(err).Code != apierror.CodeNotInRelease || c != nil {
 		t.Fatalf("release Get(c) = %+v, %v; a collection created after the release must not resolve", c, err)
 	}
 	if b, err := svc.Get(ctx, auth.Release(version), project, project+".b"); err != nil || b == nil || b.SystemName != "kept" {

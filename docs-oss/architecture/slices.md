@@ -153,18 +153,27 @@ aggregate.
 ## Versioned slices
 
 A slice with an `_archive` counterpart is versioned. Its write store and content
-readers have different capabilities. Four slices currently expose `Store.At(scope)`
-with a fail-closed zero scope; this is a migration step, not completed isolation.
-Collection's reader still retains its full store and override's archive reader
-retains unrestricted generated queries.
+readers have different capabilities. Collection and override now expose a bound
+`Reader` through `ReadSessions`, injected separately from the write store. Their
+`Store.At(scope)` adapters return `LegacyReader` for explicitly registered
+adoption, aggregate and mutation paths. Other slice conversions remain pending.
 
 The target in
 [ADR-0010](../decisions/0010-versioned-reads-through-a-scope-bound-reader.md),
-amended 2026-10-26, binds project, explicit draft/release selection and database
+amended 2026-10-26 and implemented by the pilot, binds project, explicit draft/release selection and database
 transaction in a read-session factory. Reader methods do not accept an arbitrary
 project to retarget. Archive readers hold only archive query capabilities; their
 existence checks do not depend on live rows. The factory is wired by `pkg/app`,
-while request policy belongs in `pkg/auth`. Services receive the selected reader.
+while request policy belongs in `pkg/auth`. Services receive a `ReadSessions`
+dependency and use its callback; all readers in that callback share one snapshot.
+Reader use after callback return fails because the transaction is closed.
+
+`auth.Release("")`, whitespace-only versions and the zero scope are invalid.
+Only request policy deliberately maps a successful empty version lookup to draft
+through `auth.ScopeForResolvedVersion`. Converted release reads validate archive
+ownership and report missing bodies through canonical `not_in_release` errors.
+Structural tests enforce converted methods, capability imports and table state;
+actual-cut tests verify isolation after live edits/deletes and reject foreign IDs.
 
 Read-only draft assembly uses repeatable read. Release creation uses one
 repeatable-read write transaction for release metadata, archived content and
@@ -189,8 +198,11 @@ export picks, ontology versions, defaults and namespace aliases. Shared captured
 state needs membership owned by the consuming release. Copying parent metadata
 under the child's version or joining global rows solely by textual version number
 creates collisions. Migration 021 corrects capture ownership for new cuts and
-keeps unverified history unavailable. The bound session and complete dependency
-closure remain pending.
+keeps unverified history unavailable. The collection/override bound-session pilot
+is implemented; dependency resolution and the complete closure remain pending.
+Adoption and aggregate APIs still use registered legacy paths. Until source
+readers exist, collection usage labels for foreign fields use the recorded ID
+without looking up live foreign content.
 See [ADR-0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md).
 
 ### Whole-project reads belong to an assembler

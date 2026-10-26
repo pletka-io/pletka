@@ -28,7 +28,9 @@ var sqlVerb = regexp.MustCompile(`(?is)\b(SELECT\s+|INSERT\s+INTO\s+|UPDATE\s+\w
 // generatedOrExempt are paths whose SQL is not hand-written, or not a query.
 func generatedOrExempt(rel string) bool {
 	switch {
-	case strings.HasPrefix(rel, "pkg/database/sqlcgen/"):
+	case strings.HasPrefix(rel, "pkg/database/sqlcgen/"),
+		strings.HasPrefix(rel, "pkg/database/readsql/draft/"),
+		strings.HasPrefix(rel, "pkg/database/readsql/archive/"):
 		// sqlc output: this is the pipeline's product, not a bypass of it.
 		return true
 	case strings.HasPrefix(rel, "pkg/database/migrations/"):

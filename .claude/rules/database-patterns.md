@@ -9,11 +9,14 @@ The data layer is **pgx + sqlc + goose — there is no ORM.** Handlers never tou
 the `*pgxpool.Pool` directly. Each full slice (`pkg/weave/<entity>/`) owns a
 `Store` interface (`store.go`) and a pgx-backed implementation
 (`store_postgres.go`) that wraps sqlc-generated queries. Services call the store;
-handlers call the service.
+handlers call the service. Converted collection/override content reads instead
+use `ReadSessions` and a bound `Reader`, injected separately from the write store.
+`pkg/database/readsession` owns their read-only repeatable-read transaction.
 
 Red flags that the store boundary is leaking:
 - Handler or service code holding a `*pgxpool.Pool` or `*sqlcgen.Queries`
-- SQL strings, or `sqlcgen` types, used outside a slice's `store_postgres.go`
+- SQL strings outside named query sources, or generated row types escaping a
+  slice's store/reader implementation into services
 - Business logic in a store method (stores query; they don't decide — that's the service)
 - A handler-only module growing its own `Store` (it must pull through a slice service)
 - Any reference to GORM, `*gorm.DB`, `pkg/repository/`, or `BaseRepository` —
@@ -23,13 +26,14 @@ Sanctioned exceptions (resolved compliance backlog item 3): `pkg/weave/health/ha
 (DB ping), `pkg/weave/pathaudit` (single raw-SQL audit sweep, lifted from the
 verify-paths CLI), and tx-owning services (`organization`, `release`) hold the pool by
 design — see `docs-oss/architecture/data-layer.md`. Everything else goes
-through a slice `Store`; this is a closed list, not a pattern to copy for new
-code.
+through a slice `Store` or bound `Reader`; this is a closed list, not a pattern
+to copy for new slice pool holders. The data-layer read-session factory owns its
+pool by design and exposes no pool or transaction to readers.
 
 ## Query Rules (sqlc)
 
 - **No inline SQL. Not mixed with named queries, not "just this one".** Every
-  statement lives in `pkg/database/queries/*.sql` and is reached through the
+  statement lives in a named `.sql` file under `pkg/database/queries/` and is reached through the
   generated method. `pkg/conformance` fails the build on a SQL string literal
   in any non-generated, non-test Go file, with a per-file ceiling in
   `inline_sql_allowlist.go` that may only go down.
@@ -46,9 +50,12 @@ code.
   validate against the schema.
 
 - Hand-written SQL lives in `pkg/database/queries/*.sql` (one file per area).
+  Bound pilot SELECTs live in `queries/read_draft/` and `queries/read_archive/`;
+  the two states generate separate capabilities and may not access each other's
+  tables. Only binding infrastructure obtains these raw query interfaces.
 - **Always run `go tool sqlc generate`** — never a global `sqlc` binary (the
   version is pinned in `go.mod`; a different one emits incompatible types).
-- **Never hand-edit `pkg/database/sqlcgen/`** — it is generated. Change the
+- **Never hand-edit `pkg/database/sqlcgen/` or `pkg/database/readsql/`** — generated. Change the
   `.sql` query and regenerate.
 - Stores map between domain types and generated row types; services never see
   a `sqlcgen` type.

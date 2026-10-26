@@ -113,7 +113,7 @@ func ResolveContentVersion(reader LatestReleaseReader) func(http.Handler) http.H
 			if v != "" {
 				ctx = WithProjectVersion(ctx, v)
 			}
-			ctx = WithReadScope(ctx, Release(v))
+			ctx = WithReadScope(ctx, ScopeForResolvedVersion(v))
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

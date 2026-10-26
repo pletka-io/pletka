@@ -12,7 +12,9 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
 
 // newServiceWithPool builds the service over a real pool. The adoption store
@@ -23,7 +25,7 @@ func newServiceWithPool(t *testing.T, receipts ...domain.Adoption) (*Service, *p
 	t.Helper()
 	pool := testdb.Pool(t)
 	adoptions := &stubAdoptions{rows: receipts}
-	return NewService(NewPostgresStore(pool), nil, adoptions, nil, nil, nil, nil, nil, nil, nil, nil), pool
+	return NewService(NewPostgresStore(pool), NewReadSessions(readsession.NewFactory(pool)), nil, adoptions, nil, nil, nil, nil, nil, nil, nil, nil), pool
 }
 
 // stubAdoptions stands in for the real receipt store, which lives in pkg/weave
@@ -79,6 +81,7 @@ func seedLiveNamed(t *testing.T, pool *pgxpool.Pool, projectID, id, name string)
 
 func seedArchivedNamed(t *testing.T, pool *pgxpool.Pool, projectID, id, name, version string) {
 	t.Helper()
+	seedVerifiedRelease(t, pool, projectID, version)
 	seedProject(t, pool, projectID)
 	if _, err := pool.Exec(context.Background(),
 		`INSERT INTO weave_collections_archive (id, project_id, system_name, version_number) VALUES ($1, $2, $3, $4)`,
@@ -87,14 +90,14 @@ func seedArchivedNamed(t *testing.T, pool *pgxpool.Pool, projectID, id, name, ve
 	}
 }
 
-// TestListAtReleaseThatArchivedNothingReturnsEmpty pins Review Focus 1.
-func TestListAtReleaseThatArchivedNothingReturnsEmpty(t *testing.T) {
+// Missing release metadata is unavailable, not an empty successfully read release.
+func TestListAtUnknownReleaseFailsClosed(t *testing.T) {
 	svc, pool := newServiceWithPool(t)
 	seedLiveNamed(t, pool, "SRI1", "SRI1.c1", "coll-live")
 
 	got, n, err := svc.List(context.Background(), auth.Release("9.9.9"), "SRI1")
-	if err != nil {
-		t.Fatalf("List at empty release: %v", err)
+	if apierror.FromError(err).Code != apierror.CodeNotInRelease {
+		t.Fatalf("List at unknown release: %v", err)
 	}
 	if len(got) != 0 || n != 0 {
 		t.Fatalf("got %d rows (count %d); a release that archived nothing must not fall back to live rows", len(got), n)
@@ -108,8 +111,8 @@ func TestGetAtReleaseMissesACollectionCreatedAfterIt(t *testing.T) {
 	seedLiveNamed(t, pool, "SRI2", "SRI2.new", "coll-new")
 
 	got, err := svc.Get(context.Background(), auth.Release("1.0.0"), "SRI2", "SRI2.new")
-	if err != nil {
-		t.Fatalf("Get at release: %v", err)
+	if apierror.FromError(err).Code != apierror.CodeNotInRelease {
+		t.Fatalf("missing content at release: %v", err)
 	}
 	if got != nil {
 		t.Fatal("a collection created after the release resolved under it")
@@ -231,6 +234,7 @@ func TestListAdoptedByReferenceAtReleaseSeesTheForeignCollection(t *testing.T) {
 // the category_id filter.
 func seedFilterable(t *testing.T, pool *pgxpool.Pool, projectID, id, name, scopeClass, categoryID, version string) {
 	t.Helper()
+	seedVerifiedRelease(t, pool, projectID, version)
 	ctx := context.Background()
 	seedProject(t, pool, projectID)
 	prefix, local, _ := strings.Cut(scopeClass, ":")

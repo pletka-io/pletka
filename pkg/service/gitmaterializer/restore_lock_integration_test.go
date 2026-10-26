@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/advisorylock"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/weave/override"
 )
 
@@ -93,7 +94,7 @@ func minimalRestorePlan(projectID string) *RestorePlan {
 func TestSeamNoSaveCanCommitBetweenOverridesAndProvenance(t *testing.T) {
 	pool := hydrateTestPool(t)
 	m := NewMaterializer(pool, t.TempDir(), nil)
-	overrideSvc := override.NewService(override.NewPostgresStore(pool), nil, nil)
+	overrideSvc := override.NewService(override.NewPostgresStore(pool), override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 	const projectID = "TSTSEAM"
 
@@ -184,7 +185,7 @@ func TestSeamNoSaveCanCommitBetweenOverridesAndProvenance(t *testing.T) {
 func TestHydrateProjectOverridesAndProvenanceBlocksOnInFlightSaveThenCompletes(t *testing.T) {
 	pool := hydrateTestPool(t)
 	m := NewMaterializer(pool, t.TempDir(), nil)
-	overrideSvc := override.NewService(override.NewPostgresStore(pool), nil, nil)
+	overrideSvc := override.NewService(override.NewPostgresStore(pool), override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 	const projectID = "TSTRESTOREWRAP"
 
@@ -228,7 +229,7 @@ func TestHydrateProjectOverridesAndProvenanceBlocksOnInFlightSaveThenCompletes(t
 func TestRestoreProjectLockTimesOutWhenSaveHeldTooLong(t *testing.T) {
 	pool := hydrateTestPool(t)
 	m := NewMaterializer(pool, t.TempDir(), nil)
-	overrideSvc := override.NewService(override.NewPostgresStore(pool), nil, nil)
+	overrideSvc := override.NewService(override.NewPostgresStore(pool), override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 
 	orig := restoreProjectLockTimeout
@@ -361,7 +362,7 @@ func TestLockProjectForRestoreResetsLockTimeoutOnBusyFailure(t *testing.T) {
 func TestHydrateRestorePlanAcquiresLockBeforeAnyPhase(t *testing.T) {
 	pool := hydrateTestPool(t)
 	m := NewMaterializer(pool, t.TempDir(), nil)
-	overrideSvc := override.NewService(override.NewPostgresStore(pool), nil, nil)
+	overrideSvc := override.NewService(override.NewPostgresStore(pool), override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 
 	orig := restoreProjectLockTimeout

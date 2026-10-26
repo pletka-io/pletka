@@ -43,6 +43,7 @@ type CategoryReader interface {
 }
 
 type Service struct {
+	reads      ReadSessions
 	store      Store
 	overrides  *override.Service
 	adoptions  domain.AdoptionStore
@@ -62,6 +63,7 @@ type Service struct {
 // without wiring this slice.
 func NewService(
 	store Store,
+	reads ReadSessions,
 	overrides *override.Service,
 	adoptions domain.AdoptionStore,
 	forks domain.ForkStore,
@@ -73,6 +75,9 @@ func NewService(
 	log *slog.Logger,
 	runner domain.ChangeLogRunner,
 ) *Service {
+	if reads == nil {
+		panic("collection: read sessions are required")
+	}
 	if log == nil {
 		log = slog.Default()
 	}
@@ -81,6 +86,7 @@ func NewService(
 	}
 	return &Service{
 		store:      store,
+		reads:      reads,
 		overrides:  overrides,
 		adoptions:  adoptions,
 		forks:      forks,
@@ -166,19 +172,22 @@ type StatsReport struct {
 // Reads
 // ---------------------------------------------------------------------------
 
-// Reads take the scope the caller names and answer through store.At(scope).
-// A release scope reads the archive and never falls back to live rows.
+// Converted reads use a project-bound session. Adoption and aggregate methods
+// below retain explicitly registered legacy paths pending dependency resolution.
 
 // List lists a project's collections at scope.
 func (s *Service) List(ctx context.Context, scope auth.ReadScope, projectID string, opts ...domain.QueryOption) ([]*domain.Collection, int64, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, 0, err
 	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, 0, err
-	}
-	return r.List(ctx, projectID, opts...)
+	var out []*domain.Collection
+	var total int64
+	err := s.reads.Read(ctx, scope, projectID, func(r Reader, _ override.Reader) error {
+		var readErr error
+		out, total, readErr = r.List(ctx, opts...)
+		return readErr
+	})
+	return out, total, err
 }
 
 // BatchCompositionCounts returns per-collection field counts for the given
@@ -187,11 +196,13 @@ func (s *Service) BatchCompositionCounts(ctx context.Context, scope auth.ReadSco
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, err
-	}
-	return r.CompositionCounts(ctx, projectID, collectionIDs)
+	var out map[string]domain.CompositionCounts
+	err := s.reads.Read(ctx, scope, projectID, func(r Reader, _ override.Reader) error {
+		var readErr error
+		out, readErr = r.CompositionCounts(ctx, collectionIDs)
+		return readErr
+	})
+	return out, err
 }
 
 // ListAdoptedByReference returns every collection from another project
@@ -245,7 +256,7 @@ func (s *Service) ListAdoptedExplicit(ctx context.Context, scope auth.ReadScope,
 	seen := map[string]bool{}
 	// One reader per distinct source version, because the source scope is a
 	// property of the receipt rather than of this request.
-	sourceReaders := map[string]Reader{}
+	sourceReaders := map[string]LegacyReader{}
 	for _, a := range adoptions {
 		if seen[a.SourceEntityID] {
 			continue
@@ -259,9 +270,9 @@ func (s *Service) ListAdoptedExplicit(ctx context.Context, scope auth.ReadScope,
 		// hits an unrelated release of the source project that happens to
 		// share the version string. The adoption picker already works this
 		// way: it lists an ancestor's entities at the ancestor's own
-		// release, not at the adopting project's. An empty SourceVersion is
-		// auth.Draft(), which is the right answer for a receipt that pinned
-		// no release.
+		// release, not at the adopting project's. Empty source pins now fail
+		// closed. This legacy path still needs the dependency resolver, bound
+		// source ownership and explicit unavailable-content handling.
 		sr, ok := sourceReaders[a.SourceVersion]
 		if !ok {
 			var rerr error
@@ -287,11 +298,13 @@ func (s *Service) ScopeClasses(ctx context.Context, scope auth.ReadScope, projec
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, err
-	}
-	return r.ScopeClasses(ctx, projectID)
+	var out []string
+	err := s.reads.Read(ctx, scope, projectID, func(r Reader, _ override.Reader) error {
+		var readErr error
+		out, readErr = r.ScopeClasses(ctx)
+		return readErr
+	})
+	return out, err
 }
 
 // CategoriesUsed returns the distinct categories assigned to
@@ -301,11 +314,13 @@ func (s *Service) CategoriesUsed(ctx context.Context, scope auth.ReadScope, proj
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, err
-	}
-	return r.CategoriesUsed(ctx, projectID)
+	var out []CollectionCategoryOption
+	err := s.reads.Read(ctx, scope, projectID, func(r Reader, _ override.Reader) error {
+		var readErr error
+		out, readErr = r.CategoriesUsed(ctx)
+		return readErr
+	})
+	return out, err
 }
 
 // Get returns the collection at scope, or (nil, nil) when scope does not
@@ -314,11 +329,13 @@ func (s *Service) Get(ctx context.Context, scope auth.ReadScope, projectID, id s
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, err
-	}
-	return r.Get(ctx, projectID, id)
+	var out *domain.Collection
+	err := s.reads.Read(ctx, scope, projectID, func(r Reader, _ override.Reader) error {
+		var readErr error
+		out, readErr = r.Get(ctx, id)
+		return readErr
+	})
+	return out, err
 }
 
 // Stats takes the collection and its usage from one reader, so the two
@@ -327,22 +344,23 @@ func (s *Service) Stats(ctx context.Context, scope auth.ReadScope, projectID, id
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, err
-	}
-	c, err := r.Get(ctx, projectID, id)
-	if err != nil {
-		return nil, err
-	}
-	if c == nil {
-		return nil, errNotFound
-	}
-	usage, err := r.Usage(ctx, projectID, id)
-	if err != nil {
-		return nil, err
-	}
-	return &StatsReport{Collection: c, Usage: usage}, nil
+	var out *StatsReport
+	err := s.reads.Read(ctx, scope, projectID, func(r Reader, _ override.Reader) error {
+		c, err := r.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		if c == nil {
+			return errNotFound
+		}
+		usage, err := r.Usage(ctx, id)
+		if err != nil {
+			return err
+		}
+		out = &StatsReport{Collection: c, Usage: usage}
+		return nil
+	})
+	return out, err
 }
 
 // ForkOriginsForProject maps fork collection IDs to their origin. The fork
@@ -442,10 +460,19 @@ func (s *Service) ListOverrides(ctx context.Context, scope auth.ReadScope, proje
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	if _, err := s.requireOwn(ctx, projectID, collectionID); err != nil {
-		return nil, err
-	}
-	return s.overrides.ListForEntity(ctx, scope, projectID, "collection", collectionID)
+	var out []domain.FieldOverride
+	err := s.reads.Read(ctx, scope, projectID, func(r Reader, o override.Reader) error {
+		c, err := r.Get(ctx, collectionID)
+		if err != nil {
+			return err
+		}
+		if c == nil {
+			return errNotFound
+		}
+		out, err = o.ListForEntity(ctx, "collection", collectionID)
+		return err
+	})
+	return out, err
 }
 
 func (s *Service) SaveOverrides(ctx context.Context, projectID, collectionID string, desired []domain.FieldOverride, commitMessage string) ([]domain.FieldOverride, override.Diff, error) {
@@ -514,10 +541,9 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceCollectio
 	// rewritten consistently from source-project semantic IDs onto the
 	// current project's local equivalents (adopt/adapt implementation
 	// task 3).
-	// Fork reads the working state, whatever the request is scoped to: this is
-	// a write path, and copying a release's archived overrides into live rows
-	// would be a silent corruption.
-	srcOverridesForRemap, err := s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "collection", source.ID)
+	// This legacy fork explicitly copies the source draft. Bind reads to the
+	// source project; destination write authorization does not select its content.
+	srcOverridesForRemap, err := s.overrides.ListForEntity(ctx, auth.Draft(), source.ProjectID, "collection", source.ID)
 	if err != nil {
 		return nil, fmt.Errorf("load source overrides for remap: %w", err)
 	}
@@ -577,10 +603,9 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceCollectio
 		return nil, fmt.Errorf("persist forked collection overrides: %w", err)
 	}
 
-	// Fork reads the working state, whatever the request is scoped to: this is
-	// a write path, and copying a release's archived overrides into live rows
-	// would be a silent corruption.
-	sourceOverrides, err := s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "collection", source.ID)
+	// This legacy fork explicitly copies the source draft. Bind reads to the
+	// source project; destination write authorization does not select its content.
+	sourceOverrides, err := s.overrides.ListForEntity(ctx, auth.Draft(), source.ProjectID, "collection", source.ID)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("load source collection overrides: %w", err)
@@ -591,7 +616,7 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceCollectio
 		}
 		// Same as above: refs are copied from the working state, never a
 		// release archive.
-		refs, err := s.overrides.GetRefs(ctx, auth.Draft(), projectID, sourceOverrides[i].ID)
+		refs, err := s.overrides.GetRefs(ctx, auth.Draft(), source.ProjectID, sourceOverrides[i].ID)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("load source override refs: %w", err)

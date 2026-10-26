@@ -17,6 +17,7 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/ids"
 	"github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/override"
@@ -118,7 +119,7 @@ func newSaveConflictRouter(pool *pgxpool.Pool) http.Handler {
 func newSaveConflictRouterWithPools(pool, overridePool *pgxpool.Pool) http.Handler {
 	weaveStore := weave.NewPostgresStore(pool)
 	overrideStore := override.NewPostgresStore(overridePool)
-	overrideSvc := override.NewService(overrideStore, nil, nil)
+	overrideSvc := override.NewService(overrideStore, override.NewReadSessions(readsession.NewFactory(overridePool)), nil, nil)
 	projectStore := project.NewPostgresStore(pool)
 	projectSvc := project.NewService(projectStore, nil, nil, nil, nil)
 

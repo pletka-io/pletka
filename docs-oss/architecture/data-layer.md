@@ -18,15 +18,18 @@ Handlers and services never see SQL; the frontend never sees the database.
 
 Hand-written SQL lives in `pkg/database/queries/*.sql`, one file per area
 (`weave_categories.sql`, `fields.sql`, `weave_collections.sql`, …). `sqlc`
-generates Go into `pkg/database/sqlcgen/`.
+generates Go into `pkg/database/sqlcgen/`. The bound-reader pilot has separate
+SELECT-only sources in `queries/read_draft/` and `queries/read_archive/`, generated
+into `pkg/database/readsql/draft` and `pkg/database/readsql/archive`. The main
+configuration's `*.sql` glob excludes these subdirectories deliberately.
 
 **Always run `go tool sqlc generate`** — never a globally installed `sqlc`. The
 correct version is pinned in `go.mod` as a tool dependency; a different binary can
 emit incompatible types (e.g. `pgtype.Text` instead of `*string`). The config is
 `sqlc.yaml`.
 
-**Never hand-edit `pkg/database/sqlcgen/`.** It is generated. Change the `.sql`
-query and regenerate.
+**Never hand-edit `pkg/database/sqlcgen/` or `pkg/database/readsql/`.** They are
+generated. Change the `.sql` query and regenerate.
 
 The workflow for a new query:
 
@@ -93,17 +96,25 @@ An archive key already populated without release metadata blocks a new cut
 instead of silently retaining or overwriting that row.
 
 Release creation uses a repeatable-read transaction covering validation, archive
-writes, release metadata and outbox. The target read-session factory similarly
+writes, release metadata and outbox. `pkg/database/readsession.Factory` now
 binds project, concrete selection and a shared transaction before exposing
 readers. Archive readers receive only archive query capabilities. Multi-query
-draft snapshots use read-only repeatable read; serialization happens after values
-are assembled, without retaining database access. See ADRs
+draft snapshots use read-only repeatable read. Its callback exposes bound slice
+readers; callback return closes the transaction, even on failure or cancellation.
+Collection and override services receive this factory through slice-specific
+`ReadSessions` adapters, separate from their write stores. Their archive readers
+hold only the generated archive SELECT interface, with no pool or full query set;
+draft readers hold the corresponding draft interface. Conformance checks restrict
+raw query access to binding infrastructure and reject SQL crossing states.
+Serialization happens after values are assembled, without retaining database
+access. See ADRs
 [0010](../decisions/0010-versioned-reads-through-a-scope-bound-reader.md),
 [0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md) and
 [0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).
 
-The bound session and complete dependency closure are still pending. Migration
-021 does not certify historical releases or complete content coverage. Run
+The bound session is implemented for the collection/override pilot. Legacy
+adoption/aggregate paths and the complete dependency closure remain pending.
+Migration 021 does not certify historical releases or complete content coverage. Run
 `pletka release audit-ownership` for a read-only JSON inventory of
 `unverified_release` and `orphan_project_archive` entries. Collision indicators
 are investigation leads, not proof of corruption. Historical membership requires

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"strings"
 
 	"github.com/pletka-io/pletka/pkg/domain"
 )
@@ -23,15 +24,22 @@ type ReadScope struct {
 // Draft reads the working state.
 func Draft() ReadScope { return ReadScope{valid: true} }
 
-// Release reads the archive at version. Release("") is Draft(): callers build
-// a scope from a version string that is empty for the working state, and
-// turning that into an invalid scope would report the mistake at the read
-// rather than where it was made.
+// Release reads a named archive. An empty or whitespace-only release is invalid;
+// only Draft explicitly selects working content.
 func Release(version string) ReadScope {
+	if strings.TrimSpace(version) == "" {
+		return ReadScope{}
+	}
+	return ReadScope{version: version, valid: true}
+}
+
+// ScopeForResolvedVersion translates the result of request selection policy.
+// An empty resolved version deliberately means draft here, not in Release.
+func ScopeForResolvedVersion(version string) ReadScope {
 	if version == "" {
 		return Draft()
 	}
-	return ReadScope{version: version, valid: true}
+	return Release(version)
 }
 
 // Valid reports whether a scope was actually chosen.
@@ -62,7 +70,7 @@ func (s ReadScope) String() string {
 // it, a public editor sees the working state, and everyone else gets the
 // latest release — falling back to the working state when there is none.
 func ResolveReadScope(snap *AuthSnapshot, project *domain.Project, explicitVersion, latestRelease string) ReadScope {
-	return Release(ResolveEffectiveVersion(snap, project, explicitVersion, latestRelease))
+	return ScopeForResolvedVersion(ResolveEffectiveVersion(snap, project, explicitVersion, latestRelease))
 }
 
 type readScopeKey struct{}

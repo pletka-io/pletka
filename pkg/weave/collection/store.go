@@ -9,11 +9,11 @@ import (
 
 // Store is the data-access contract for collections.
 //
-// Writes live here. Reads of a versioned slice live on the Reader returned by
-// At, which binds one scope (draft or a release) for every method it exposes.
+// Writes and transitional aggregate/mutation reads live here. New content reads
+// use Reader through ReadSessions; At retains the old scope-only LegacyReader.
 type Store interface {
-	// At returns the Reader for scope, or an error for the zero ReadScope.
-	At(scope auth.ReadScope) (Reader, error)
+	// At returns the LegacyReader for scope, or an error for the zero ReadScope.
+	At(scope auth.ReadScope) (LegacyReader, error)
 
 	Create(ctx context.Context, c *domain.Collection) error
 	GetByID(ctx context.Context, id string) (*domain.Collection, error)

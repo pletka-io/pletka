@@ -215,7 +215,7 @@ func (a *collectionStoreAdapter) GetByID(ctx context.Context, id string) (*domai
 
 func (a *collectionStoreAdapter) GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error) {
 	if version == "" {
-		// Release("") is Draft(); the archive never holds an empty version.
+		// This legacy adapter treats an empty archive version as absent.
 		return nil, nil
 	}
 	r, err := a.inner.At(weaveauth.Release(version))
@@ -303,17 +303,13 @@ func (a *overrideStoreAdapter) GetByID(ctx context.Context, id int64) (*domain.F
 
 // GetBase reads the base override at the caller's scope — unlike this
 // adapter's other reads, it is not a Draft() stopgap: the caller already
-// names a scope, so this passes its version straight to
-// Store.At(auth.Release(scope.Version())), which resolves to the archived
-// row for a release scope, or the live row for draft. scope.Valid() is
-// checked explicitly first, because reconstructing via
-// Release(scope.Version()) alone would silently turn an unresolved
-// (zero-value) scope into a valid draft read.
+// names a valid domain scope. This legacy adapter translates its chosen version
+// explicitly; the bound-session readers do not use this adapter.
 func (a *overrideStoreAdapter) GetBase(ctx context.Context, scope domain.ReadScope, fieldID, projectID string) (*domain.FieldOverride, error) {
 	if !scope.Valid() {
 		return nil, fmt.Errorf("weave: GetBase called with an unresolved read scope")
 	}
-	r, err := a.inner.At(weaveauth.Release(scope.Version()))
+	r, err := a.inner.At(weaveauth.ScopeForResolvedVersion(scope.Version()))
 	if err != nil {
 		return nil, err
 	}
