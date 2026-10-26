@@ -91,7 +91,7 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 		return nil, errors.New("release: missing principal")
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return nil, fmt.Errorf("begin release tx: %w", err)
 	}

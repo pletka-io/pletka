@@ -1,7 +1,7 @@
 # ADR-0011: Cross-project reads resolve at the source project's release
 
 Date: 2026-10-23  
-Status: Accepted
+Status: Accepted; amended 2026-10-26, implementation incomplete
 
 ---
 
@@ -23,7 +23,36 @@ another's unpublished working state — the wrong side of a visibility boundary,
 not merely stale data. Two allowlist exemptions had also been written claiming
 the question was structurally unanswerable.
 
-## What we decided
+## Amendment: pin the dependency closure (2026-10-26)
+
+This amendment supersedes the deferred project binding and "no schema change"
+claims below. Every content reader binds its project, as amended in ADR-0010.
+Caller-owned reads use that caller's selected draft/release; only foreign reads
+resolve a source release. A foreign reader is obtained through a dependency
+resolver, not by retargeting an ordinary scope.
+
+A draft session may resolve an unpinned source to its latest release once. A
+released project must use the concrete source identities recorded during its cut,
+never latest-at-read-time. Resolve the transitive closure in the cut transaction,
+including inheritance, adoptions, refs without adoption rows, export picks,
+ontology versions, defaults and aliases. Reject missing/unpublished sources,
+unresolved pins and follow-source-draft dependencies when cutting a release.
+Explicit draft-following may be supported for draft workflows; it cannot become
+an immutable release dependency.
+
+Archive ownership must also change. Current cuts copy parent metadata under the
+child's version and copy shared bindings under globally colliding textual version
+keys. Source content must retain its own release identity. Captured shared state
+needs membership owned by the consuming release. Overwriting collisions would
+mutate history and is forbidden. Historical membership may be unreconstructable;
+current drafts cannot be used to fabricate missing history.
+
+These are required write-path and schema changes, not merely a new latest-release
+query. An assembler consumes the recorded dependency graph; it does not infer or
+repair it at read time. This amendment is the target contract; the migration is
+not yet complete.
+
+## Original decision (2026-10-23; qualified by the amendment)
 
 > A read of another project's content resolves at **that project's** release.
 > When the adoption records a version, that version. When it records none, the
@@ -48,7 +77,7 @@ Reading a source's draft deliberately is a **third kind of scope**
 legitimate, explicitly-chosen state, not an accident the type should make
 unreachable.
 
-## What we considered and rejected
+## Original alternatives (2026-10-23; qualified by the amendment)
 
 - **Resolve the foreign entity at the asking project's version** (project A
   reads B's rows at A's release tag): rejected because it is incoherent against
@@ -72,14 +101,13 @@ unreachable.
   change is required.
 - **Bind every scope to the project it was minted for** and refuse a read whose
   target project differs: attractive, because it makes the rule unrepresentable
-  rather than remembered, and partially adopted. Rejected as a total rule for
-  now because `Reader` methods take `projectID` as a per-call argument rather
+  rather than remembered, and partially adopted. Deferred in the original decision (superseded by the amendment) because `Reader` methods take `projectID` as a per-call argument rather
   than fixing it at `At(scope)`, so total enforcement is a signature change
   across every converted slice. The binding applies to scopes minted by the
   cross-project resolution; the general case is revisitable when the last slice
   converts.
 
-## Consequences
+## Original consequences (2026-10-23; qualified by the amendment)
 
 - **Easier:** a cross-project read has one answer, derived once, instead of each
   slice re-deriving it. Five slices still to convert all have adoption reads

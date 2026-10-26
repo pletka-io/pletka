@@ -243,7 +243,7 @@ func (m *Materializer) loadProjectManifestNamespaces(ctx context.Context, projec
 			Source:    manifestNamespaceSource(row, projectID),
 		})
 	}
-	return manifestBindings(project, visible), nil
+	return manifestBindings(project, visible)
 }
 
 // manifestBindings derives the effective namespace map and orders it. Both the
@@ -251,8 +251,11 @@ func (m *Materializer) loadProjectManifestNamespaces(ctx context.Context, projec
 // about derivation or ordering -- they previously did: the release path
 // mapped the set without sorting, leaving the order to whatever Postgres
 // returned, which a git tree cannot tolerate.
-func manifestBindings(project domain.Project, visible []*domain.NamespaceBinding) []projectManifestNamespaceBinding {
-	set := generators.BuildNamespaceSet(project, visible)
+func manifestBindings(project domain.Project, visible []*domain.NamespaceBinding) ([]projectManifestNamespaceBinding, error) {
+	set, err := generators.BuildNamespaceSet(project, visible)
+	if err != nil {
+		return nil, fmt.Errorf("build manifest namespaces for project %s: %w", project.ID, err)
+	}
 	bindings := make([]projectManifestNamespaceBinding, 0, len(set.Bindings))
 	for _, binding := range set.Bindings {
 		bindings = append(bindings, projectManifestNamespaceBinding{
@@ -270,7 +273,7 @@ func manifestBindings(project domain.Project, visible []*domain.NamespaceBinding
 		}
 		return bindings[i].Source < bindings[j].Source
 	})
-	return bindings
+	return bindings, nil
 }
 
 func manifestNamespaceSource(row sqlcgen.WeaveNamespaceBinding, projectID string) string {

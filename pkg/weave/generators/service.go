@@ -312,7 +312,7 @@ func (s *Service) loadNamespaces(ctx context.Context, project domain.Project) (N
 	if err != nil {
 		return NamespaceSet{}, fmt.Errorf("load namespace bindings for project %s: %w", project.ID, err)
 	}
-	return BuildNamespaceSet(project, bindings), nil
+	return BuildNamespaceSet(project, bindings)
 }
 
 func (s *Service) loadOntologies(ctx context.Context, projectID string, opts Options) ([]domain.ResolvedOntologyVersion, error) {

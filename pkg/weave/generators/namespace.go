@@ -1,6 +1,7 @@
 package generators
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -87,23 +88,40 @@ func (s NamespaceSet) Prefixes() map[string]string {
 }
 
 // BuildNamespaceSet merges project namespace metadata and visible namespace
-// bindings into a deterministic prefix set.
-func BuildNamespaceSet(project domain.Project, bindings []*domain.NamespaceBinding) NamespaceSet {
-	byPrefix := make(map[string]NamespaceBinding)
+// bindings into a deterministic prefix set, rejecting conflicting highest-weight URIs.
+func BuildNamespaceSet(project domain.Project, bindings []*domain.NamespaceBinding) (NamespaceSet, error) {
+	candidates := make([]NamespaceBinding, 0, len(bindings))
 	for _, b := range bindings {
 		if b == nil || strings.TrimSpace(b.Prefix) == "" || strings.TrimSpace(b.Namespace) == "" {
 			continue
 		}
-		prefix := strings.TrimSpace(b.Prefix)
-		ns := strings.TrimSpace(b.Namespace)
-		existing, ok := byPrefix[prefix]
-		if !ok || b.Weight > existing.Weight {
-			byPrefix[prefix] = NamespaceBinding{
-				Prefix:    prefix,
-				Namespace: ns,
-				Weight:    b.Weight,
-				Source:    b.Source,
-			}
+		candidates = append(candidates, NamespaceBinding{
+			Prefix: strings.TrimSpace(b.Prefix), Namespace: strings.TrimSpace(b.Namespace),
+			Weight: b.Weight, Source: b.Source,
+		})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		a, b := candidates[i], candidates[j]
+		if a.Prefix != b.Prefix {
+			return a.Prefix < b.Prefix
+		}
+		if a.Weight != b.Weight {
+			return a.Weight > b.Weight
+		}
+		if a.Namespace != b.Namespace {
+			return a.Namespace < b.Namespace
+		}
+		return a.Source < b.Source
+	})
+	byPrefix := make(map[string]NamespaceBinding)
+	for _, b := range candidates {
+		existing, ok := byPrefix[b.Prefix]
+		if !ok {
+			byPrefix[b.Prefix] = b
+			continue
+		}
+		if b.Weight == existing.Weight && b.Namespace != existing.Namespace {
+			return NamespaceSet{}, fmt.Errorf("namespace prefix %q has conflicting bindings at weight %d: %q and %q", b.Prefix, b.Weight, existing.Namespace, b.Namespace)
 		}
 	}
 
@@ -142,7 +160,7 @@ func BuildNamespaceSet(project domain.Project, bindings []*domain.NamespaceBindi
 		Bindings:      out,
 		ByPrefix:      lookup,
 		Project:       projectBinding,
-	}
+	}, nil
 }
 
 func projectNamespaceURI(project domain.Project) string {

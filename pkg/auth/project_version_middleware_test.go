@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
+
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -183,14 +185,6 @@ func TestResolveContentVersion_InstallsReadScope(t *testing.T) {
 			want:    "draft",
 		},
 		{
-			name:    "latest release lookup fails",
-			target:  "/x",
-			project: publicProject,
-			snap:    &AuthSnapshot{IsAnonymous: true},
-			reader:  &fakeReleaseReader{err: errReaderBoom},
-			want:    "draft",
-		},
-		{
 			name:    "public non-editor with a release",
 			target:  "/x",
 			project: publicProject,
@@ -276,20 +270,28 @@ func TestWithProjectVersionContext_InstallsReadScopeAlone(t *testing.T) {
 	}
 }
 
-func TestResolveContentVersion_ReaderError_FailsSafeToHot(t *testing.T) {
+func TestResolveContentVersion_ReaderErrorStopsContentRead(t *testing.T) {
 	project := &domain.Project{Entity: domain.Entity{ID: "P"}, OwnerID: "P", Visibility: "public"}
-	snap := &AuthSnapshot{IsAnonymous: true}
 	reader := &fakeReleaseReader{err: errReaderBoom}
-
-	req := newRequestWithContext(t, http.MethodGet, "/x", project, snap)
+	req := newRequestWithContext(t, http.MethodGet, "/x", project, &AuthSnapshot{IsAnonymous: true})
+	ctx, slot := errresp.WithCauseSlot(req.Context())
 	w := httptest.NewRecorder()
-
-	ResolveContentVersion(reader)(versionEchoHandler()).ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (fail-safe, not 500)", w.Code)
+	ResolveContentVersion(reader)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("content handler ran after release lookup failed")
+	})).ServeHTTP(w, req.WithContext(ctx))
+	if w.Code != http.StatusInternalServerError || !errors.Is(slot.Err(), errReaderBoom) {
+		t.Fatalf("status = %d, cause = %v; want 500 with lookup cause", w.Code, slot.Err())
 	}
-	if got := w.Body.String(); got != "" {
-		t.Fatalf("body = %q, want empty (hot)", got)
+}
+
+func TestResolveProjectVersionMissingReaderIsNotNoRelease(t *testing.T) {
+	project := &domain.Project{Entity: domain.Entity{ID: "P"}, Visibility: domain.VisibilityPublic}
+	ctx := WithSnapshot(context.Background(), &AuthSnapshot{IsAnonymous: true})
+	if _, err := ResolveProjectVersion(ctx, nil, project, ""); err == nil {
+		t.Fatal("missing release reader must fail")
+	}
+	version, err := ResolveProjectVersion(ctx, &fakeReleaseReader{}, project, "")
+	if err != nil || version != "" {
+		t.Fatalf("successful empty lookup = %q, %v; want draft", version, err)
 	}
 }

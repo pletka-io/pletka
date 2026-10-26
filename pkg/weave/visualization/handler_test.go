@@ -3,6 +3,7 @@ package visualization
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/generators/exportgraph"
 )
@@ -23,6 +25,46 @@ func superAdminRequest(method, url string) *http.Request {
 	req := httptest.NewRequest(method, url, nil)
 	snap := &auth.AuthSnapshot{IsSuperAdmin: true}
 	return req.WithContext(auth.WithSnapshot(req.Context(), snap))
+}
+
+type failedReleaseReader struct{ err error }
+
+func (f failedReleaseReader) LatestReleaseVersion(context.Context, string) (string, error) {
+	return "", f.err
+}
+
+func TestReleaseLookupFailureStopsEntityReads(t *testing.T) {
+	cause := errors.New("release lookup failed")
+	project := domain.Project{Entity: domain.Entity{ID: "P"}, Visibility: domain.VisibilityPublic}
+	entity := domain.Entity{ID: "E", ProjectID: project.ID}
+	h := NewHandler(testWeaveStore{
+		project: project, model: domain.Model{Entity: entity},
+		collection: domain.Collection{Entity: entity}, field: domain.Field{Entity: entity},
+	}, nil, nil, nil, failedReleaseReader{err: cause})
+	for _, kind := range []string{"model", "collection", "field"} {
+		t.Run(kind, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/gen/"+kind+"/E", nil)
+			ctx := auth.WithSnapshot(req.Context(), &auth.AuthSnapshot{IsAnonymous: true})
+			route := chi.NewRouteContext()
+			route.URLParams.Add(kind+"ID", "E")
+			ctx = context.WithValue(ctx, chi.RouteCtxKey, route)
+			ctx, slot := errresp.WithCauseSlot(ctx)
+			req = req.WithContext(ctx)
+			rr := httptest.NewRecorder()
+			var ok bool
+			switch kind {
+			case "model":
+				_, _, ok = h.loadModelAndGate(rr, req)
+			case "collection":
+				_, _, ok = h.loadCollectionAndGate(rr, req)
+			case "field":
+				_, _, ok = h.loadFieldAndGate(rr, req)
+			}
+			if ok || rr.Code != http.StatusInternalServerError || !errors.Is(slot.Err(), cause) {
+				t.Fatalf("ok=%v, status=%d, cause=%v; want failure with lookup cause", ok, rr.Code, slot.Err())
+			}
+		})
+	}
 }
 
 func TestExportGraphRoutesRenderModelGraph(t *testing.T) {
@@ -182,6 +224,7 @@ type testWeaveStore struct {
 	project    domain.Project
 	model      domain.Model
 	collection domain.Collection
+	field      domain.Field
 }
 
 func (s testWeaveStore) Projects() domain.WeaveProjectStore {
@@ -194,6 +237,22 @@ func (s testWeaveStore) Models() domain.WeaveModelStore {
 
 func (s testWeaveStore) Collections() domain.WeaveCollectionStore {
 	return testWeaveCollectionStore{collection: s.collection}
+}
+
+func (s testWeaveStore) WeaveFields() domain.WeaveFieldStore {
+	return testWeaveFieldStore{field: s.field}
+}
+
+type testWeaveFieldStore struct {
+	domain.WeaveFieldStore
+	field domain.Field
+}
+
+func (s testWeaveFieldStore) GetByID(ctx context.Context, id string) (*domain.Field, error) {
+	if s.field.ID != id {
+		return nil, nil
+	}
+	return &s.field, ctx.Err()
 }
 
 type testProjectStore struct {

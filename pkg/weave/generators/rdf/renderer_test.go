@@ -81,7 +81,7 @@ func TestJSONLDRendererCanRenderBlankNodesWithLabels(t *testing.T) {
 				},
 			},
 		},
-		Namespaces: namespaces(),
+		Namespaces: namespaces(t),
 		Options:    generators.Options{RDFNodeMode: generators.RDFNodeModeBlankNode},
 	})
 
@@ -132,7 +132,7 @@ func TestTurtleRendererRendersCollectionSnapshot(t *testing.T) {
 				},
 			},
 		},
-		Namespaces: namespaces(),
+		Namespaces: namespaces(t),
 		Options:    generators.Options{RDFNodeMode: generators.RDFNodeModeResource},
 	})
 
@@ -211,7 +211,7 @@ func TestTurtleRendererGroupsFieldsBySharedClassPath(t *testing.T) {
 				},
 			},
 		},
-		Namespaces: namespaces(),
+		Namespaces: namespaces(t),
 		Options:    generators.Options{RDFNodeMode: generators.RDFNodeModeResource},
 	})
 
@@ -300,7 +300,7 @@ func TestTurtleRendererDefaultsClassResourcesToBlankNodes(t *testing.T) {
 				},
 			},
 		},
-		Namespaces: namespaces(),
+		Namespaces: namespaces(t),
 	})
 
 	var buf bytes.Buffer
@@ -390,7 +390,7 @@ func TestTurtleRendererRendersModelCollectionsAsResourceGroups(t *testing.T) {
 				OntologyScope: pe("class", "crm", "E67_Birth", 0),
 			},
 		},
-		Namespaces: namespaces(),
+		Namespaces: namespaces(t),
 		Options:    generators.Options{RDFNodeMode: generators.RDFNodeModeResource},
 	})
 
@@ -453,7 +453,7 @@ func TestTurtleRendererUsesSnapshotTreeOrder(t *testing.T) {
 				},
 			},
 		},
-		Namespaces: namespaces(),
+		Namespaces: namespaces(t),
 	})
 	snap.Fields[0], snap.Fields[1] = snap.Fields[1], snap.Fields[0]
 
@@ -504,7 +504,7 @@ func TestTurtleRendererDeclaresKnownUsedPrefixes(t *testing.T) {
 				SetValue: "Label",
 			},
 		},
-		Namespaces: generators.BuildNamespaceSet(
+		Namespaces: buildTestNamespaceSet(t,
 			domain.Project{
 				Entity:    domain.Entity{ID: "LA"},
 				Namespace: "https://data.example.org/ns/LA/",
@@ -551,7 +551,7 @@ func TestTurtleRendererRejectsMissingNamespaceBinding(t *testing.T) {
 				},
 			},
 		},
-		Namespaces: generators.BuildNamespaceSet(
+		Namespaces: buildTestNamespaceSet(t,
 			domain.Project{
 				Entity:    domain.Entity{ID: "LA"},
 				Namespace: "https://data.example.org/ns/LA/",
@@ -591,7 +591,7 @@ func TestJSONLDRendererRejectsMissingNamespaceBinding(t *testing.T) {
 				},
 			},
 		},
-		Namespaces: generators.BuildNamespaceSet(
+		Namespaces: buildTestNamespaceSet(t,
 			domain.Project{
 				Entity:    domain.Entity{ID: "LA"},
 				Namespace: "https://data.example.org/ns/LA/",
@@ -634,7 +634,7 @@ func TestTurtleRendererUsesFieldIdentityCommentWhenDescriptionMissing(t *testing
 				},
 			},
 		},
-		Namespaces: namespaces(),
+		Namespaces: namespaces(t),
 	})
 
 	var buf bytes.Buffer
@@ -671,7 +671,7 @@ func TestTurtleRendererIncludesFieldIdentityBeforeDescription(t *testing.T) {
 				},
 			},
 		},
-		Namespaces: namespaces(),
+		Namespaces: namespaces(t),
 	})
 
 	var buf bytes.Buffer
@@ -689,7 +689,7 @@ func TestTurtleRendererIncludesFieldIdentityBeforeDescription(t *testing.T) {
 
 func TestTurtleRendererRejectsSnapshotErrors(t *testing.T) {
 	snap := &generators.Snapshot{
-		Namespaces: namespaces(),
+		Namespaces: namespaces(t),
 		Report: generators.Report{
 			Errors: []generators.Diagnostic{{Code: "legacy_inverse_path"}},
 		},
@@ -739,7 +739,7 @@ func TestTurtleRendererEmitsMultiClassScope(t *testing.T) {
 				},
 			},
 		},
-		Namespaces: generators.BuildNamespaceSet(
+		Namespaces: buildTestNamespaceSet(t,
 			domain.Project{
 				Entity:    domain.Entity{ID: "LA"},
 				Namespace: "https://data.example.org/ns/LA/",
@@ -789,7 +789,7 @@ func TestJSONLDRendererEmitsMultiClassScope(t *testing.T) {
 				},
 			},
 		},
-		Namespaces: generators.BuildNamespaceSet(
+		Namespaces: buildTestNamespaceSet(t,
 			domain.Project{
 				Entity:    domain.Entity{ID: "LA"},
 				Namespace: "https://data.example.org/ns/LA/",
@@ -822,8 +822,17 @@ func TestJSONLDRendererEmitsMultiClassScope(t *testing.T) {
 	}
 }
 
-func namespaces() generators.NamespaceSet {
-	return generators.BuildNamespaceSet(
+func buildTestNamespaceSet(t *testing.T, project domain.Project, bindings []*domain.NamespaceBinding) generators.NamespaceSet {
+	t.Helper()
+	set, err := generators.BuildNamespaceSet(project, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return set
+}
+
+func namespaces(t *testing.T) generators.NamespaceSet {
+	return buildTestNamespaceSet(t,
 		domain.Project{
 			Entity:    domain.Entity{ID: "LA"},
 			Namespace: "https://data.example.org/ns/LA/",

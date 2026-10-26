@@ -62,38 +62,57 @@ A handler-only module that needs a list- or form-schema calls `<slice>.BuildXSch
 
 ## Versioned Slices
 
-A slice owning a table with an `_archive` counterpart is a **versioned slice**. Its reads name the version they read at.
+A slice owning an `_archive` counterpart is versioned. The target contract in
+[ADR-0010](../../docs-oss/decisions/0010-versioned-reads-through-a-scope-bound-reader.md)
+binds **project, explicit draft/release selection and transaction** before exposing
+readers. Reader methods cannot retarget another project. Zero/empty release
+selections fail. Current `Store.At(scope)` implementations are transitional;
+collection and override still retain access to live stores/generated queries.
+Do not treat their signatures as proof of isolation or copy that capability leak.
 
-- **A versioned slice is a named shape**: `Store` for writes, plus `At(scope auth.ReadScope) (Reader, error)`. Reads live on the `Reader` and nowhere else.
-- **Services never resolve a scope; they receive one.** `ReadScopeFromContext(ctx)` is called at the request boundary — an HTTP handler or an MCP tool — and nowhere else.
-- **Mutations are hot, structurally.** They sit on `Store`, take no scope, and a clone or remap path passes `auth.Draft()` explicitly so reading the draft is visible in the diff.
-- **The conformance check reads signatures, not bodies.** A read that takes an `auth.ReadScope` and ignores it passes the build and fails in production. Adding the parameter is half the work; the read must go through `store.At(scope)`.
-- **Opting out is per method, with a reason, in the allowlist** (`pkg/conformance/allowlist.go`). A permanent exemption covers the slice, never its callers.
-
-`pkg/conformance` fails the build on an unscoped read in a versioned slice, on an `_archive` table no slice claims, and on `ReadScopeFromContext` outside a request boundary. The allowlist is the phase-out plan: it has permanent members, and the rule is that every entry names why, not that the list reaches zero.
-
-Full decision: [ADR-0010](../../docs-oss/decisions/0010-versioned-reads-through-a-scope-bound-reader.md).
+- Read construction belongs in the session factory, wired by `pkg/app`. Services
+  receive bound readers; request policy belongs at HTTP/MCP/CLI boundaries.
+- Archive readers hold narrow archive query capabilities, not a full write store,
+  pool or unrestricted `sqlcgen.Queries`. Released existence checks use archives.
+- Mutation destinations are live. Clone/adopt sources may be released; name the
+  source selection explicitly instead of automatically substituting `Draft()`.
+- Multi-query draft assembly uses one read-only repeatable-read transaction.
+  Release cuts atomically capture metadata, content and outbox at repeatable read.
+- Latest-release lookup errors stop the request. A successful empty lookup is a
+  different policy case. Use `auth.ResolveProjectVersion` at request boundaries.
+- The current conformance ratchet checks signatures and selected files; it cannot
+  prove query isolation. The target includes an explicit monotonic conversion
+  registry, capability/import checks and edit/delete-after-cut tests.
 
 ### Reading another project's content
 
-A scope names a version; it does not name whose data it may be pointed at.
+[ADR-0011](../../docs-oss/decisions/0011-cross-project-reads-resolve-at-the-source-release.md)
+requires foreign readers to resolve through the dependency boundary. Caller-owned
+reads retain the caller's selection. A draft session may resolve an unpinned
+source's latest release once; released consumers use concrete pins recorded at
+cut time. No release or failed lookup is an error, never a foreign draft read.
 
-- **A read of another project's content resolves at that project's release.** Recorded version if the adoption has one, else the source's latest release. **Draft is never a cross-project answer** — a draft is one user's working state in their own project, not something that project has published.
-- **Never build a foreign scope with `auth.Release(recordedVersion)`.** `auth.Release("")` is `auth.Draft()` and the latest-release lookup returns `""` for a project that has published nothing, so the obvious composition gives a foreign *draft* read for every unreleased source. Resolution returns `(ReadScope, error)`; a source with no release is an error, and the adoption renders unavailable.
-- **"Latest release" moves.** A released project that resolves its sources at read time is not immutable. The resolved version is pinned when the asking project's release is cut.
-- **Following a source's draft is a third kind of scope**, reached only by explicit configuration — never a fallback.
-
-Full decision: [ADR-0011](../../docs-oss/decisions/0011-cross-project-reads-resolve-at-the-source-release.md).
+Never compose `auth.Release(recordedVersion)` for a foreign source: empty currently
+means draft. All content readers must bind project identity, not only foreign
+scopes. Cuts must freeze the transitive dependency closure, including refs/picks,
+ontologies, defaults and aliases. Explicit draft-following is a draft workflow
+only; unresolved/draft dependencies cannot be cut into a release. Shared archive
+membership belongs to the consuming release, never a global textual version key.
 
 ### Whole-project reads belong to the assembler
 
-A `Reader` answers for one entity or one filtered page. Consumers that want a project whole — the git materializer, a generator, `publication` — go through one assembler parameterized by scope, `Snapshot(ctx, scope, projectID)`, not through their own archive queries. Draft is a scope like any other there, so one implementation decides which tables answer.
+The assembler of
+[ADR-0012](../../docs-oss/decisions/0012-whole-project-reads-belong-to-an-assembler.md)
+receives the bound session and emits complete domain values. It is planned, not
+yet implemented. Consumers serialize these values without database access.
 
-- **A slice never grows a whole-project or export-shaped read.** That is the assembler's job.
-- **A whole-project consumer never writes its own archive query** once the assembler exists.
-- **Foreign content is carried as its source published it**, not normalized into the asking project's release.
-
-Full decision: [ADR-0012](../../docs-oss/decisions/0012-whole-project-reads-belong-to-an-assembler.md).
+- A slice never grows whole-project assembly or its own export-shaped data model.
+- Transitional adapters must share the transaction and be registered for removal.
+- Foreign content retains its source's status and provenance.
+- Entity exports may assemble a smaller graph through the same session.
+- Publication dirty-state semantics and search remain explicit separate concerns.
+- Writer parity is insufficient: inventory coverage and test immutability after
+  live edits, deletions and new source releases.
 
 ## Red Flags
 

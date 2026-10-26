@@ -1,7 +1,6 @@
 package pages
 
 import (
-	"context"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -31,9 +30,8 @@ type Host struct {
 	// schema-url. This route is mounted directly with auth.WrapProjectRead
 	// (not through a slice's projectRead middleware chain), so
 	// auth.ResolveContentVersion never runs for it — the page resolves the
-	// version itself, mirroring visualization.Handler.effectiveVersion.
-	// Optional; nil disables the lookup (schema-url stays version-less
-	// unless the request already had one).
+	// version through auth.ResolveProjectVersion. A missing reader or failed
+	// lookup stops a public non-editor read that needs a default release.
 	LatestRelease auth.LatestReleaseReader
 }
 
@@ -155,7 +153,12 @@ func (h *ProjectPages) ProjectDetailPage(w http.ResponseWriter, r *http.Request)
 
 	projectName := project.UIName.Get(lang, project.ID)
 	schemaURL := "/projects/" + project.ID + "/page-schema"
-	if version := h.effectiveVersion(ctx, project, r); version != "" {
+	version, err := auth.ResolveProjectVersion(ctx, h.latestRelease, project, r.URL.Query().Get("version"))
+	if err != nil {
+		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
+		return
+	}
+	if version != "" {
 		schemaURL += "?version=" + url.QueryEscape(version)
 	}
 	page := weavetemplates.IslandPage{
@@ -185,32 +188,6 @@ func (h *ProjectPages) ProjectDetailPage(w http.ResponseWriter, r *http.Request)
 		h.logger.Error("render weave project detail page", "project_id", project.ID, "err", err)
 		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 	}
-}
-
-// effectiveVersion applies auth.ResolveEffectiveVersion for the project
-// landing page. This route is mounted with only auth.WrapProjectRead (see
-// Mount above), so auth.ResolveContentVersion — the middleware every
-// mountSlice-based JSON read surface gets — never runs here; the page
-// resolves the version itself instead, mirroring
-// visualization.Handler.effectiveVersion. The reader lookup is guarded so
-// it only ever runs for a public, non-editor read with no explicit
-// ?version= — editors and private/internal projects cost no query, and a
-// reader error fails safe to hot (never blocks the page render).
-func (h *ProjectPages) effectiveVersion(ctx context.Context, project *domain.Project, r *http.Request) string {
-	explicit := r.URL.Query().Get("version")
-	snap := auth.FromContext(ctx)
-
-	var latest string
-	if explicit == "" && h.latestRelease != nil && project != nil && project.Visibility == "public" &&
-		!snap.Can(auth.ProjectEdit, auth.ProjectResource(project), nil) {
-		v, err := h.latestRelease.LatestReleaseVersion(ctx, project.ID)
-		if err != nil {
-			h.logger.ErrorContext(ctx, "resolve content version: latest release lookup failed; serving hot", "project", project.ID, "err", err)
-		} else {
-			latest = v
-		}
-	}
-	return auth.ResolveEffectiveVersion(snap, project, explicit, latest)
 }
 
 func (h *ProjectPages) ProjectSettingsPage(w http.ResponseWriter, r *http.Request) {

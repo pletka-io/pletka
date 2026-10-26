@@ -143,6 +143,9 @@ func TestVendorSnapshotIncludesDefaultsOntology(t *testing.T) {
 				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_versions WHERE id = $1`, ordinaryVersionID)
 			}
 			if ordinaryOntologyID != "" {
+				if _, err := pool.Exec(ctx, `DELETE FROM weave_namespace_bindings WHERE ontology_id = $1`, ordinaryOntologyID); err != nil {
+					t.Errorf("cleanup imported namespace bindings: %v", err)
+				}
 				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontologies WHERE id = $1`, ordinaryOntologyID)
 			}
 			_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id = $1`, ownerID)
@@ -244,6 +247,9 @@ func TestVendorSnapshotIncludesDefaultsOntology(t *testing.T) {
 				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontology_versions WHERE id = $1`, ordinaryVersionID)
 			}
 			if ordinaryOntologyID != "" {
+				if _, err := pool.Exec(ctx, `DELETE FROM weave_namespace_bindings WHERE ontology_id = $1`, ordinaryOntologyID); err != nil {
+					t.Errorf("cleanup imported namespace bindings: %v", err)
+				}
 				_, _ = pool.Exec(ctx, `DELETE FROM weave_ontologies WHERE id = $1`, ordinaryOntologyID)
 			}
 			_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id = $1`, ownerID)

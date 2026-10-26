@@ -72,6 +72,29 @@ list — don't add new pool holders; `actoradmin` held the pool the same way
 and was refactored into a standard `Store`-backed slice instead of being
 blessed.
 
+## Release archives and read sessions
+
+Version strings are local to a project. Existing archive rows commonly join by
+entity ID and textual `version_number`; a matching string in another project is
+not a release identity. Shared/global state must have membership owned by the
+consuming release. Foreign project content is read using its source release,
+never copied into a source archive key stamped with the consumer's version.
+The current schema has collisions in these areas; ownership migration is pending.
+
+Release creation uses a repeatable-read transaction covering validation, archive
+writes, release metadata and outbox. The target read-session factory similarly
+binds project, concrete selection and a shared transaction before exposing
+readers. Archive readers receive only archive query capabilities. Multi-query
+draft snapshots use read-only repeatable read; serialization happens after values
+are assembled, without retaining database access. See ADRs
+[0010](../decisions/0010-versioned-reads-through-a-scope-bound-reader.md),
+[0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md) and
+[0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).
+
+The session and ownership changes are target requirements, not descriptions of
+completed infrastructure. Historical missing membership must be audited against
+verifiable evidence; filling it from current drafts would invent history.
+
 ## Migrations: goose
 
 Schema changes are numbered SQL files in `pkg/database/migrations/`

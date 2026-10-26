@@ -864,7 +864,12 @@ func (h *Handler) loadModelAndGate(w http.ResponseWriter, r *http.Request) (*pkg
 		return nil, ctx, false
 	}
 	ctx = auth.WithProject(ctx, project)
-	if version := h.effectiveVersion(ctx, project); version != "" {
+	version, err := h.effectiveVersion(ctx, project)
+	if err != nil {
+		apierror.Write(w, r, apierror.Internal(err))
+		return nil, ctx, false
+	}
+	if version != "" {
 		if vr, ok := h.weave.Models().(versionedModelLookup); ok {
 			versioned, err := vr.GetByIDVersion(ctx, model.ProjectID, modelID, version)
 			if err != nil {
@@ -900,7 +905,12 @@ func (h *Handler) loadCollectionAndGate(w http.ResponseWriter, r *http.Request) 
 		return nil, ctx, false
 	}
 	ctx = auth.WithProject(ctx, project)
-	if version := h.effectiveVersion(ctx, project); version != "" {
+	version, err := h.effectiveVersion(ctx, project)
+	if err != nil {
+		apierror.Write(w, r, apierror.Internal(err))
+		return nil, ctx, false
+	}
+	if version != "" {
 		if vr, ok := h.weave.Collections().(versionedCollectionLookup); ok {
 			versioned, err := vr.GetByIDVersion(ctx, coll.ProjectID, collectionID, version)
 			if err != nil {
@@ -936,7 +946,12 @@ func (h *Handler) loadFieldAndGate(w http.ResponseWriter, r *http.Request) (*pkg
 		return nil, ctx, false
 	}
 	ctx = auth.WithProject(ctx, project)
-	if version := h.effectiveVersion(ctx, project); version != "" {
+	version, err := h.effectiveVersion(ctx, project)
+	if err != nil {
+		apierror.Write(w, r, apierror.Internal(err))
+		return nil, ctx, false
+	}
+	if version != "" {
 		if vr, ok := h.weave.WeaveFields().(versionedFieldLookup); ok {
 			versioned, err := vr.GetByIDVersion(ctx, field.ProjectID, fieldID, version)
 			if err != nil {
@@ -968,30 +983,8 @@ func (h *Handler) loadAndGateProject(ctx context.Context, projectID string) (*pk
 	return project, true
 }
 
-// effectiveVersion applies auth.ResolveEffectiveVersion for routes where the
-// project can only be resolved from inside the handler (these /gen/ routes
-// have no {projectID} URL param, so auth.ResolveContentVersion can't be
-// installed as router middleware — see the Host.LatestRelease doc comment).
-// auth.ResolveEffectiveVersion is the single source of truth for the
-// decision; the only logic kept here is a perf guard so the reader is
-// queried at most once, only when its answer could actually matter
-// (implicit lookup, public project, non-editor) — and a fail-safe-to-hot
-// on a reader error.
-func (h *Handler) effectiveVersion(ctx context.Context, project *pkgdomain.Project) string {
-	explicit := auth.ProjectVersionFromContext(ctx)
-	snap := auth.FromContext(ctx)
-
-	var latest string
-	if explicit == "" && h.latestRelease != nil && project != nil && project.Visibility == pkgdomain.VisibilityPublic &&
-		!snap.Can(auth.ProjectEdit, auth.ProjectResource(project), nil) {
-		v, err := h.latestRelease.LatestReleaseVersion(ctx, project.ID)
-		if err != nil {
-			h.logger.ErrorContext(ctx, "resolve content version: latest release lookup failed; serving hot", "project", project.ID, "err", err)
-		} else {
-			latest = v
-		}
-	}
-	return auth.ResolveEffectiveVersion(snap, project, explicit, latest)
+func (h *Handler) effectiveVersion(ctx context.Context, project *pkgdomain.Project) (string, error) {
+	return auth.ResolveProjectVersion(ctx, h.latestRelease, project, auth.ProjectVersionFromContext(ctx))
 }
 
 // sparqlOptionsFromRequest reads ?count and ?limit from the URL.
