@@ -11,6 +11,7 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -25,7 +26,7 @@ import (
 func TestReleaseViewDoesNotServeDraftOverrides(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := serviceTestContext(t, "Z3582")
-	svc := NewService(NewPostgresStore(pool), nil, nil)
+	svc := NewService(NewPostgresStore(pool), NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 
 	const projectID, entityID, version = "Z3582", "Z3582M.1", "1.0.0"
 
@@ -80,6 +81,7 @@ func seedEditedAfterRelease(t *testing.T, pool *pgxpool.Pool, projectID, entityI
 	mustScopeExec(t, pool, `INSERT INTO weave_projects (id, ui_name, description, status, owner_id, visibility, created_at, updated_at)
 		VALUES ($1, $2::jsonb, $2::jsonb, 'draft', $3, 'private', NOW(), NOW())
 		ON CONFLICT (id) DO NOTHING`, projectID, string(uiName), ownerID)
+	seedVerifiedRelease(t, pool, projectID, version)
 
 	liveName, err := json.Marshal(map[string]string{"en": "edited after the release"})
 	if err != nil {

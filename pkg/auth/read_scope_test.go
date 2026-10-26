@@ -28,12 +28,14 @@ func TestReadScope_DraftAndRelease(t *testing.T) {
 	}
 }
 
-// Release("") is Draft(), not an invalid scope: callers build a scope from a
-// version string that is empty for draft, and a silent invalid there would
-// fail at the read instead of at the mistake.
-func TestReadScope_ReleaseWithEmptyVersionIsDraft(t *testing.T) {
-	if s := Release(""); s.IsRelease() || !s.Valid() {
-		t.Errorf("Release(\"\") = {release:%v valid:%v}, want {false true}", s.IsRelease(), s.Valid())
+func TestReadScope_EmptyReleaseIsInvalid(t *testing.T) {
+	for _, version := range []string{"", " ", "\t"} {
+		if s := Release(version); s.Valid() {
+			t.Errorf("Release(%q) must be invalid", version)
+		}
+	}
+	if got := ScopeForResolvedVersion(""); got != Draft() {
+		t.Fatal("request policy must still deliberately select draft")
 	}
 }
 

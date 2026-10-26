@@ -5,6 +5,7 @@ package project_test
 import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/collection"
 	"github.com/pletka-io/pletka/pkg/weave/model"
@@ -29,7 +30,7 @@ func releaseReaderForTest(pool *pgxpool.Pool) *release.Service {
 
 func adoptionReadersForTest(pool *pgxpool.Pool) (*model.Service, *collection.Service, *release.Service) {
 	weaveStore := weave.NewPostgresStore(pool)
-	overrideSvc := override.NewService(override.NewPostgresStore(pool), nil, nil)
+	overrideSvc := override.NewService(override.NewPostgresStore(pool), override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	projects := weaveStore.Projects()
 	categories := weaveStore.WeaveCategories()
 
@@ -39,7 +40,7 @@ func adoptionReadersForTest(pool *pgxpool.Pool) (*model.Service, *collection.Ser
 		projects, projects, weaveStore, weaveStore, categories, nil, nil,
 	)
 	collectionSvc := collection.NewService(
-		collection.NewPostgresStore(pool), overrideSvc,
+		collection.NewPostgresStore(pool), collection.NewReadSessions(readsession.NewFactory(pool)), overrideSvc,
 		weaveStore.Adoptions(), weaveStore.Forks(),
 		projects, projects, weaveStore, weaveStore, categories, nil, nil,
 	)

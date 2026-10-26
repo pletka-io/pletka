@@ -52,6 +52,8 @@ _data/
 # one-shot maintenance scripts.
 !pkg/database/migrations/*.sql
 !pkg/database/queries/*.sql
+!pkg/database/queries/read_draft/*.sql
+!pkg/database/queries/read_archive/*.sql
 !pletka/store/migrations/*.sql
 !pletka/store/queries/*.sql
 !scripts/sql/*.sql

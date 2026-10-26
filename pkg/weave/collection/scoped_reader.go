@@ -8,15 +8,11 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
-// Reader is the scope-bound read surface for collections. Every method answers
-// from one scope — the draft or one release — fixed when the Reader was
-// obtained. A Reader cannot be asked to read "whichever version the request
-// carried", which is the ambiguity the split exists to remove.
-//
-// A release scope answers from the archive and does NOT fall back to the live
-// table. A release that archived nothing answers "not here", because draft
-// content served under a release tag is the defect, not a convenience.
-type Reader interface {
+// LegacyReader is the transitional scope-only surface for adoption and aggregate
+// callers. It retains full store capabilities and per-call project arguments;
+// foreign joins do not provide release isolation. New content reads use Reader
+// through ReadSessions, which binds project, selection and transaction together.
+type LegacyReader interface {
 	// Get returns the collection, or (nil, nil) when this scope does not
 	// carry it. A collection created after the release was cut is not in
 	// that release, so a release reader answers nil.
@@ -57,13 +53,13 @@ type Reader interface {
 	// from the adoption store and fork origins from the fork store, both of
 	// which already answer at a version. They stay on the service, which
 	// holds those dependencies, and take a scope there. Mirroring them onto
-	// this Reader would mean handing the collection store two foreign stores
+	// this LegacyReader would mean handing the collection store two foreign stores
 	// to proxy.
 	ListAdoptedByReference(ctx context.Context, projectID string) ([]*domain.Collection, error)
 
 	// Lookup resolves a collection across projects without a project gate,
 	// for internal cross-slice resolution where route auth already ran. It
-	// still takes its answer from this Reader's scope, so a draft Lookup is
+	// still takes its answer from this LegacyReader's scope, so a draft Lookup is
 	// a visible decision at the call site rather than an implicit one.
 	Lookup(ctx context.Context, id string) (*domain.Collection, error)
 }
@@ -144,7 +140,7 @@ func (r reader) Lookup(ctx context.Context, id string) (*domain.Collection, erro
 // At returns the reader for scope, or an error when scope is the invalid zero
 // value — which means a caller forgot to name one. Failing here is the point:
 // a nil-safe default would reintroduce the silent draft read.
-func (s *postgresStore) At(scope auth.ReadScope) (Reader, error) {
+func (s *postgresStore) At(scope auth.ReadScope) (LegacyReader, error) {
 	if !scope.Valid() {
 		return nil, fmt.Errorf("collection: read scope is required; the zero ReadScope means a caller did not name draft or a release")
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/service/gitmaterializer"
@@ -222,7 +223,7 @@ func TestServerCreatedProjectRoundTrip(t *testing.T) {
 	}
 
 	overrideStore := override.NewPostgresStore(pool)
-	overrideSvc := override.NewService(overrideStore, nil, nil)
+	overrideSvc := override.NewService(overrideStore, override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	savedOverrides, _, err := overrideSvc.SaveForEntity(ctx, projectID, "model", mdl.ID, []domain.FieldOverride{
 		{
 			FieldID:         fld.ID,

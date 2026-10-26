@@ -22,11 +22,10 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
-// Reader serves reads at one already-bound scope: draft (live rows) or one
-// named release (that release's archive rows). There is one method per read
-// and no way to obtain a Reader without naming a scope via Store.At, so an
-// unscoped read is not merely discouraged — it is unrepresentable.
-type Reader interface {
+// LegacyReader selects draft or archive tables but binds neither project nor
+// transaction. It remains for mutation helpers and aggregate adapters. New
+// content reads use Reader through ReadSessions, not Store.At.
+type LegacyReader interface {
 	// ListForEntity returns every override row attached to an entity
 	// (model or collection), ordered by position.
 	ListForEntity(ctx context.Context, entityType, entityID string) ([]domain.FieldOverride, error)
@@ -77,11 +76,12 @@ type Reader interface {
 // The override resolver (pkg/weave/resolve.go) layers these in priority
 // order (collection > model > base) when materialising a model view.
 //
-// Store owns mutations. Reads live on Reader, reached only through At.
+// Store owns mutations and the transitional At adapter. Converted content reads
+// are constructed separately through ReadSessions.
 type Store interface {
 	// At returns the reader for scope, or an error when scope is the
 	// invalid zero value — which means a caller forgot to name one.
-	At(scope auth.ReadScope) (Reader, error)
+	At(scope auth.ReadScope) (LegacyReader, error)
 
 	// --- CRUD ---
 

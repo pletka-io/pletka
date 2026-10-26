@@ -66,12 +66,15 @@ A slice owning an `_archive` counterpart is versioned. The target contract in
 [ADR-0010](../../docs-oss/decisions/0010-versioned-reads-through-a-scope-bound-reader.md)
 binds **project, explicit draft/release selection and transaction** before exposing
 readers. Reader methods cannot retarget another project. Zero/empty release
-selections fail. Current `Store.At(scope)` implementations are transitional;
-collection and override still retain access to live stores/generated queries.
-Do not treat their signatures as proof of isolation or copy that capability leak.
+selections fail. Collection and override implement this through `ReadSessions`
+callbacks. Their `Store.At(scope)` returns `LegacyReader` for registered migration
+paths, which retain unrestricted capabilities. New content reads use the bound
+`Reader` API; never extend the legacy API for a newly converted method.
 
-- Read construction belongs in the session factory, wired by `pkg/app`. Services
-  receive bound readers; request policy belongs at HTTP/MCP/CLI boundaries.
+- Read construction belongs in `pkg/database/readsession`, wired by `pkg/app`.
+  Services receive a separate `ReadSessions` dependency and use its callback.
+  Collection and override readers in one callback share a transaction; never
+  retain a reader after return. Request policy belongs at HTTP/MCP/CLI boundaries.
 - Archive readers hold narrow archive query capabilities, not a full write store,
   pool or unrestricted `sqlcgen.Queries`. Released existence checks use archives.
 - Mutation destinations are live. Clone/adopt sources may be released; name the
@@ -80,9 +83,11 @@ Do not treat their signatures as proof of isolation or copy that capability leak
   Release cuts atomically capture metadata, content and outbox at repeatable read.
 - Latest-release lookup errors stop the request. A successful empty lookup is a
   different policy case. Use `auth.ResolveProjectVersion` at request boundaries.
-- The current conformance ratchet checks signatures and selected files; it cannot
-  prove query isolation. The target includes an explicit monotonic conversion
-  registry, capability/import checks and edit/delete-after-cut tests.
+- The pilot conformance registry checks all production files in the converted
+  slices, held capabilities, raw query imports and cross-state/write SQL. Keep
+  converted methods in that registry; adding an exception cannot remove them.
+  Actual-cut tests cover foreign IDs, live deletion and snapshot consistency.
+  Remaining slices still have the weaker signature ratchet.
 
 ### Reading another project's content
 
@@ -92,8 +97,10 @@ reads retain the caller's selection. A draft session may resolve an unpinned
 source's latest release once; released consumers use concrete pins recorded at
 cut time. No release or failed lookup is an error, never a foreign draft read.
 
-Never compose `auth.Release(recordedVersion)` for a foreign source: empty currently
-means draft. All content readers must bind project identity, not only foreign
+`auth.Release("")` and whitespace-only versions are invalid. Only resolved request
+policy uses `auth.ScopeForResolvedVersion` to deliberately select draft on empty.
+Foreign reads still need the dependency resolver: strict scope construction alone
+does not validate a source pin or authorize access. All content readers must bind project identity, not only foreign
 scopes. Cuts must freeze the transitive dependency closure, including refs/picks,
 ontologies, defaults and aliases. Explicit draft-following is a draft workflow
 only; unresolved/draft dependencies cannot be cut into a release. Shared archive
@@ -124,10 +131,10 @@ yet implemented. Consumers serialize these values without database access.
 - Generators depending on the `domain.WeaveStore` aggregate instead of narrow readers
 - A handler emitting `http.Error`/`http.NotFound` instead of `weaverouter.Error`/`apierror.Write`
 - A read method outside a `Reader` in a versioned slice
-- A SQL string literal anywhere but `pkg/database/queries/*.sql` — see `database-patterns.md`
+- A SQL string literal outside named `.sql` files under `pkg/database/queries/` — see `database-patterns.md`
 - `ReadScopeFromContext` called anywhere but a handler or an MCP tool
 - A paired `X` and `XVersion` on a public surface — a caller that can choose is a caller that can choose wrong
-- `auth.Release(v)` built from a version recorded on an adoption, without the error path — an empty `v` is `auth.Draft()`, pointed at someone else's project
+- A foreign read bypassing dependency resolution, or `ScopeForResolvedVersion` used to turn an absent foreign pin into draft
 - A whole-project or export-shaped read on a slice — that belongs to the assembler
 - A whole-project consumer reading an `_archive` table directly instead of taking a snapshot
 - A new `_archive` table whose slice is not registered in `pkg/conformance/slices.go`

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -37,7 +38,7 @@ func cleanupFPEntity(t *testing.T, pool *pgxpool.Pool) {
 func TestEntityFingerprintChangesWithSave(t *testing.T) {
 	pool := testdb.Pool(t)
 	store := NewPostgresStore(pool)
-	svc := NewService(store, nil, nil)
+	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 	cleanupFPEntity(t, pool)
 
@@ -89,7 +90,7 @@ func TestEntityFingerprintChangesWithSave(t *testing.T) {
 func TestEntityFingerprintCoversRefs(t *testing.T) {
 	pool := testdb.Pool(t)
 	store := NewPostgresStore(pool)
-	svc := NewService(store, nil, nil)
+	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 	cleanupFPEntity(t, pool)
 
@@ -125,7 +126,7 @@ func TestEntityFingerprintCoversRefs(t *testing.T) {
 func TestWithEntityLockSerialises(t *testing.T) {
 	pool := testdb.Pool(t)
 	store := NewPostgresStore(pool)
-	svc := NewService(store, nil, nil)
+	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 
 	holderErr := make(chan error, 1)

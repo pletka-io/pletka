@@ -13,8 +13,8 @@ pointed at, and cross-project reuse — one project adopting another's fields,
 models or collections — is a design goal here, so that silence was load-bearing.
 It produced wrong answers in shipped code twice, in the same direction.
 
-`auth.Release("")` returns `Draft()` (`pkg/auth/read_scope.go:30`). That is
-correct at a request boundary, where an empty version string means the working
+Originally `auth.Release("")` returned `Draft()`. That policy belongs at a request
+boundary, where a successfully resolved empty version may mean the working
 state. Applied to a *foreign* project it is wrong, and two converted call sites
 applied it there: an adoption with no recorded source version resolved to
 `auth.Release("")` and therefore read the source project's hot tables, and an
@@ -51,8 +51,12 @@ membership may be unreconstructable; current drafts cannot fabricate it.
 
 These are required write-path and schema changes, not merely a new latest-release
 query. An assembler consumes the recorded dependency graph; it does not infer or
-repair it at read time. The ownership change is implemented; the bound session,
-complete dependency closure and historical verification remain pending.
+repair it at read time. Ownership and the collection/override bound-session pilot
+are implemented; complete dependency resolution, closure and historical
+verification remain pending. `auth.Release("")` and whitespace-only versions are
+now invalid. Only `auth.ScopeForResolvedVersion` deliberately translates a
+successful empty request-policy result to draft. This removes the implicit
+foreign-draft substitution; it does not supply missing source pins.
 
 ## Original decision (2026-10-23; qualified by the amendment)
 
@@ -71,8 +75,8 @@ A source project that has published nothing is an **error**, not a fallback: the
 adoption renders as unavailable. This is why the resolution returns
 `(ReadScope, error)` and not a bare scope — `LatestReleaseReader` returns `""`
 for a project with no release (`pkg/auth/project_version.go:17`), and
-`Release("")` is `Draft()`, so the naive one-line composition reproduces exactly
-the defect this rule removes.
+`Release("")` originally meant `Draft()`, so the naive one-line composition
+reproduced exactly the defect this rule removes. It now fails closed instead.
 
 Reading a source's draft deliberately is a **third kind of scope**
 (follow-source-draft), reached only by explicit configuration. It is a
@@ -125,10 +129,10 @@ unreachable.
 - **Harder:** an adoption whose source has never published now renders as
   unavailable where it previously rendered stale content. That is correct and it
   is a visible behaviour change.
-- **Constrained:** no slice may resolve a foreign entity with
-  `auth.Release(recordedVersion)` directly, because an empty recorded version
-  collapses to the draft. The resolution goes through the constructor that
-  returns an error instead.
+- **Constrained:** foreign resolution goes through the dependency boundary,
+  including source ownership, pin availability and authorization. A strict
+  `auth.Release(recordedVersion)` prevents an empty-to-draft substitution but
+  does not perform those other checks.
 - **Constrained:** follow-source-draft cannot be implemented until its
   configuration point is decided — per adoption, per project, or per request.
   Only a per-adoption record travels with the data, which is what a reproducible
@@ -144,7 +148,8 @@ unreachable.
   rule).
 - Architecture: [`../architecture/slices.md`](../architecture/slices.md)
   ("Versioned slices").
-- Evidence: `pkg/auth/read_scope.go:30` (`Release("")` is `Draft()`),
+- Evidence: `pkg/auth/read_scope.go` (strict `Release` constructor and explicit
+  request-policy adapter),
   `pkg/auth/project_version.go:17` (`LatestReleaseReader` returns `""` for a
   project with no release), `:63` (`ResolveEffectiveVersion` — the same
   resolution *with* the draft fallback, which is correct at a request boundary

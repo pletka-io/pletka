@@ -11,6 +11,8 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
 
 // TestScopedReader_ReadsTheRightTable pins the whole point of the slice: a
@@ -156,6 +158,7 @@ func seedScopeFixture(t *testing.T, pool *pgxpool.Pool, projectID, entityID, ver
 	mustScopeExec(t, pool, `INSERT INTO weave_projects (id, ui_name, description, status, owner_id, visibility, created_at, updated_at)
 		VALUES ($1, $2::jsonb, $2::jsonb, 'draft', $3, 'private', NOW(), NOW())
 		ON CONFLICT (id) DO NOTHING`, projectID, string(uiName), ownerID)
+	seedVerifiedRelease(t, pool, projectID, version)
 
 	// Two live overrides on (model, entityID). f1's id is captured via
 	// RETURNING so a live ref row can be attached to it below.
@@ -237,9 +240,10 @@ func mustScopeExec(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
 func TestListPlacementsAtReleaseReadsTheArchive(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := serviceTestContext(t, "ZPLC")
-	svc := NewService(NewPostgresStore(pool), nil, nil)
+	svc := NewService(NewPostgresStore(pool), NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 
 	const projectID, modelID, version = "ZPLC", "ZPLCM.1", "1.0.0"
+	seedVerifiedRelease(t, pool, projectID, version)
 	mustScopeExec(t, pool, `INSERT INTO weave_collection_placements_archive
 			(id, project_id, model_id, category_id, collection_id, version_number)
 		VALUES (nextval('weave_collection_placements_id_seq'), $1, $2, 'cat-1', 'coll-1', $3)`,
@@ -271,7 +275,7 @@ func TestListPlacementsAtReleaseReadsTheArchive(t *testing.T) {
 	}
 
 	unreleased, err := svc.ListPlacements(ctx, auth.Release("9.9.9"), projectID, modelID)
-	if err != nil {
+	if apierror.FromError(err).Code != apierror.CodeNotInRelease {
 		t.Fatalf("ListPlacements at unreleased: %v", err)
 	}
 	if len(unreleased) != 0 {

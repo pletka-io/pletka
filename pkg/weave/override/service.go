@@ -25,6 +25,7 @@ import (
 // finer-grained capabilities (ModelEdit, CollectionEdit) is a TODO once
 // those slices define their own.
 type Service struct {
+	reads  ReadSessions
 	store  Store
 	log    *slog.Logger
 	runner domain.ChangeLogRunner
@@ -32,14 +33,17 @@ type Service struct {
 
 // NewService constructs a Service backed by store. nil log → slog.Default;
 // nil runner → NoopChangeLogRunner (during slice migration).
-func NewService(store Store, log *slog.Logger, runner domain.ChangeLogRunner) *Service {
+func NewService(store Store, reads ReadSessions, log *slog.Logger, runner domain.ChangeLogRunner) *Service {
+	if reads == nil {
+		panic("override: read sessions are required")
+	}
 	if log == nil {
 		log = slog.Default()
 	}
 	if runner == nil {
 		runner = domain.NoopChangeLogRunner()
 	}
-	return &Service{store: store, log: log, runner: runner}
+	return &Service{store: store, reads: reads, log: log, runner: runner}
 }
 
 // draft resolves the Store.At(auth.Draft()) reader used by the internal,
@@ -53,7 +57,7 @@ func NewService(store Store, log *slog.Logger, runner domain.ChangeLogRunner) *S
 // is always Valid(), so the error return can never actually fire — callers
 // still check it because every site already returns an error and a silent
 // type assertion here would be the wrong place to assume that invariant.
-func (s *Service) draft() (Reader, error) {
+func (s *Service) draft() (LegacyReader, error) {
 	return s.store.At(auth.Draft())
 }
 
@@ -93,46 +97,43 @@ func (s *Service) ListForEntity(ctx context.Context, scope auth.ReadScope, proje
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, err
-	}
-	return r.ListForEntity(ctx, entityType, entityID)
+	var out []domain.FieldOverride
+	err := s.reads.Read(ctx, scope, projectID, func(r Reader) error {
+		var readErr error
+		out, readErr = r.ListForEntity(ctx, entityType, entityID)
+		return readErr
+	})
+	return out, err
 }
 
-// GetByID returns a single override at scope, or (nil, nil) when not found.
+// GetByID returns an override owned by projectID at scope. Missing draft rows
+// return nil; missing released rows return the canonical not_in_release error.
 func (s *Service) GetByID(ctx context.Context, scope auth.ReadScope, projectID string, id int64) (*domain.FieldOverride, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, err
-	}
-	o, err := r.GetByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if o == nil {
-		return nil, nil
-	}
-	if o.ProjectID != projectID {
-		return nil, errNotFound // don't leak cross-project rows
-	}
-	return o, nil
+	var out *domain.FieldOverride
+	err := s.reads.Read(ctx, scope, projectID, func(r Reader) error {
+		var readErr error
+		out, readErr = r.GetByID(ctx, id)
+		return readErr
+	})
+	return out, err
 }
 
-// ListForField returns every override that references fieldID across all
+// ListForField returns this project's overrides referencing fieldID across all
 // entity types, at scope. Used by the field-usage modal.
 func (s *Service) ListForField(ctx context.Context, scope auth.ReadScope, projectID, fieldID string) ([]domain.FieldOverride, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, err
-	}
-	return r.ListForField(ctx, fieldID)
+	var out []domain.FieldOverride
+	err := s.reads.Read(ctx, scope, projectID, func(r Reader) error {
+		var readErr error
+		out, readErr = r.ListForField(ctx, fieldID)
+		return readErr
+	})
+	return out, err
 }
 
 // GetRefs returns the ref-set attached to overrideID, at scope.
@@ -140,11 +141,13 @@ func (s *Service) GetRefs(ctx context.Context, scope auth.ReadScope, projectID s
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, err
-	}
-	return r.GetRefs(ctx, overrideID)
+	var out []domain.OverrideRef
+	err := s.reads.Read(ctx, scope, projectID, func(r Reader) error {
+		var readErr error
+		out, readErr = r.GetRefs(ctx, overrideID)
+		return readErr
+	})
+	return out, err
 }
 
 // CloneFromCollection returns a draft slice of overrides for use when
@@ -520,11 +523,13 @@ func (s *Service) ListPlacements(ctx context.Context, scope auth.ReadScope, proj
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, err
-	}
-	return r.ListPlacements(ctx, projectID, modelID)
+	var out []domain.CollectionPlacement
+	err := s.reads.Read(ctx, scope, projectID, func(r Reader) error {
+		var readErr error
+		out, readErr = r.ListPlacements(ctx, modelID)
+		return readErr
+	})
+	return out, err
 }
 
 // UpsertPlacement inserts or updates one collection placement.

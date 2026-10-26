@@ -68,13 +68,10 @@ func NewPostgresStore(pool *pgxpool.Pool) Store {
 	}
 }
 
-// At returns a reader bound to scope. The two implementations below —
-// liveReader and archiveReader — are the only place in the slice that knows
-// live rows and archived rows are different tables; every other caller in
-// this slice goes through the Reader interface and cannot tell which one it
-// is holding, so an archive-vs-live mapping mistake here is the one way a
-// release view could silently diverge from the draft it was resolved from.
-func (s *postgresStore) At(scope auth.ReadScope) (Reader, error) {
+// At is the legacy scope-only adapter for mutation helpers and aggregate reads.
+// Its implementations retain unrestricted queries; new content reads must use
+// ReadSessions so their project, state capabilities and transaction are bound.
+func (s *postgresStore) At(scope auth.ReadScope) (LegacyReader, error) {
 	if !scope.Valid() {
 		return nil, fmt.Errorf("override: read without a scope — the caller must name auth.Draft() or auth.Release(version)")
 	}
@@ -382,7 +379,7 @@ func (s *postgresStore) WithAdvisoryLock(ctx context.Context, projectID, key str
 // Scoped readers
 // ---------------------------------------------------------------------------
 
-// liveReader is the Reader bound to auth.Draft(): every method reads
+// liveReader is the LegacyReader bound to auth.Draft(): every method reads
 // weave_field_overrides / weave_override_refs directly, unfiltered by
 // version. These bodies are moved (not retyped) from postgresStore's former
 // read methods, so a live read behaves exactly as it always has.
@@ -390,7 +387,7 @@ type liveReader struct {
 	queries *sqlcgen.Queries
 }
 
-var _ Reader = (*liveReader)(nil)
+var _ LegacyReader = (*liveReader)(nil)
 
 // ListForEntity returns overrides for (entityType, entityID), ordered by position.
 func (r *liveReader) ListForEntity(ctx context.Context, entityType, entityID string) ([]domain.FieldOverride, error) {
@@ -480,7 +477,7 @@ func (r *liveReader) GetBase(ctx context.Context, fieldID, projectID string) (*d
 	return rowToOverride(row), nil
 }
 
-// archiveReader is the Reader bound to auth.Release(version): every method
+// archiveReader is the LegacyReader bound to auth.Release(version): every method
 // reads weave_field_overrides_archive / weave_override_refs_archive at
 // version, via the Task 2 queries. There is no fallback to the live tables
 // anywhere in this type — a version that was never released, or that
@@ -492,7 +489,7 @@ type archiveReader struct {
 	version string
 }
 
-var _ Reader = (*archiveReader)(nil)
+var _ LegacyReader = (*archiveReader)(nil)
 
 // ListForEntity returns the overrides an entity carried at r.version, from
 // the archive. Ordering matches liveReader.ListForEntity so a caller cannot

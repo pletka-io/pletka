@@ -607,10 +607,9 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceModelID s
 		_ = s.store.Delete(ctx, created.ID)
 	}
 
-	// Fork reads the working state, whatever the request is scoped to: this is
-	// a write path, and copying a release's archived overrides into live rows
-	// would be a silent corruption.
-	cloned, err := s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "model", source.ID)
+	// This legacy fork explicitly copies the source draft. Bind reads to the
+	// source project; destination write authorization does not select its content.
+	cloned, err := s.overrides.ListForEntity(ctx, auth.Draft(), source.ProjectID, "model", source.ID)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("load source model overrides: %w", err)
@@ -644,10 +643,9 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceModelID s
 		return nil, fmt.Errorf("persist forked model overrides: %w", err)
 	}
 
-	// Fork reads the working state, whatever the request is scoped to: this is
-	// a write path, and copying a release's archived overrides into live rows
-	// would be a silent corruption.
-	sourceOverrides, err := s.overrides.ListForEntity(ctx, auth.Draft(), projectID, "model", source.ID)
+	// This legacy fork explicitly copies the source draft. Bind reads to the
+	// source project; destination write authorization does not select its content.
+	sourceOverrides, err := s.overrides.ListForEntity(ctx, auth.Draft(), source.ProjectID, "model", source.ID)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("load source override refs: %w", err)
@@ -658,7 +656,7 @@ func (s *Service) ForkFromSource(ctx context.Context, projectID, sourceModelID s
 		}
 		// Same as above: refs are copied from the working state, never a
 		// release archive.
-		refs, err := s.overrides.GetRefs(ctx, auth.Draft(), projectID, sourceOverrides[i].ID)
+		refs, err := s.overrides.GetRefs(ctx, auth.Draft(), source.ProjectID, sourceOverrides[i].ID)
 		if err != nil {
 			cleanup()
 			return nil, fmt.Errorf("load source override refs: %w", err)

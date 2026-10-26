@@ -11,6 +11,7 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/model"
 	"github.com/pletka-io/pletka/pkg/weave/override"
@@ -82,7 +83,7 @@ func forkTestContext(t *testing.T) context.Context {
 // exercise either.
 func newForkTestService(pool *pgxpool.Pool) *model.Service {
 	agg := weave.NewPostgresStore(pool)
-	overrides := override.NewService(override.NewPostgresStore(pool), nil, nil)
+	overrides := override.NewService(override.NewPostgresStore(pool), override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	return model.NewService(
 		model.NewPostgresStore(pool),
 		overrides,

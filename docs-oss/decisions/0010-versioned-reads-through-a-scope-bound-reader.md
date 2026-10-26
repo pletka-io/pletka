@@ -1,7 +1,7 @@
 # ADR-0010: Versioned slice reads go through a scope-bound Reader
 
 Date: 2026-10-23  
-Status: Accepted; amended 2026-10-26, implementation incomplete
+Status: Accepted; amended 2026-10-26, collection/override pilot implemented
 
 ---
 
@@ -20,11 +20,12 @@ release tag could carry draft content. Nothing in the type system distinguished
 ## Amendment: bind project and transaction (2026-10-26)
 
 This amendment supersedes the unbound `At(scope)` API below as the target
-contract. That API describes the current migration stage, not complete isolation.
+contract. That API remains only for legacy migration paths.
 A read-session factory must bind project identity, an explicit draft/release
 selection and a transaction before exposing slice readers. Reader methods cannot
-retarget another project. Zero/empty release selections fail; the existing
-`Release("")` compatibility behavior must not be used as a strict constructor.
+retarget another project. Zero/empty release selections fail: `auth.Release("")`
+and whitespace-only versions are invalid. `auth.ScopeForResolvedVersion` is the
+explicit request-policy adapter when a successful empty resolution means draft.
 
 The factory owns database access and reader lifetime. Read-only draft assembly
 uses repeatable read. Release cuts use one repeatable-read write transaction for
@@ -32,9 +33,9 @@ release metadata, archive contents and outbox. Request authorization stays in
 `pkg/auth`; database session construction is wired by `pkg/app`.
 
 An archive reader must receive narrow archive query capabilities, not the entire
-write store, pool or unrestricted generated query set. Current collection and
-override readers do retain these paths; a scope parameter alone does not prevent
-live-table access. Existence checks for released content also use the bound
+write store, pool or unrestricted generated query set. The collection/override
+pilot now separates these capabilities; their `LegacyReader` adapters still retain
+them. A scope parameter alone does not prevent live-table access. Existence checks for released content also use the bound
 reader, so deleting a live entity does not make its archive unreadable.
 
 Mutations write to the live destination. Clone/adopt source reads may target a
@@ -46,8 +47,41 @@ case. HTTP, page, visualization and MCP boundaries share that resolution.
 Enforcement needs an explicit monotonic conversion registry, checks of all
 production files and reader capabilities, and actual-cut tests that mutate and
 delete live data afterward. The current signature ratchet and parity tests alone
-cannot establish isolation. The implementation of this stronger boundary is
-pending; the bullets below describe the earlier migration shape.
+cannot establish isolation. The pilot implements this boundary for its registered
+methods; the bullets below describe the earlier migration shape.
+
+### Implemented pilot and remaining migration
+
+`pkg/database/readsession.Factory.Read` validates project and selection, verifies
+release ownership, then supplies one read-only repeatable-read transaction for a
+callback. `collection.NewReadSessions` supplies collection and override readers
+from that same session; `override.NewReadSessions` supplies the override reader.
+Services receive this dependency separately from their write store. Bound reader
+methods accept entity IDs and filters, never a project/version to retarget.
+Query options cannot change the bound selection. Authorization precedes opening
+the session and remains the service's responsibility.
+
+The archive implementation holds only `readsql/archive.Querier`; the draft
+implementation holds only `readsql/draft.Querier`. Both generated packages contain
+SELECTs only. Neither concrete generated type provides writes or the other
+state's queries. Only binding infrastructure may obtain those capabilities;
+consumers receive the slice interface. Readers expire at callback return, when
+the factory rolls back and releases the transaction, including on cancellation.
+Callbacks must finish database work before rendering or network operations.
+
+The converted registry covers collection list/get/stats, scope/category filters,
+composition counts and override lists, plus override entity/field lists, get,
+refs and placements. Structural tests scan every production file in those slices,
+check held capabilities and query imports, and forbid cross-state SQL or writes
+in the pilot query packages. Actual-cut tests cover live deletion, foreign IDs,
+multi-reader snapshot consistency, invalid selections and connection release.
+Missing released bodies use the canonical `not_in_release` error.
+
+Adoption membership, foreign source resolution, aggregate views/generators and
+mutation-source orchestration remain explicitly registered legacy paths. Foreign
+field labels in collection usage currently display the recorded field ID instead
+of fetching live foreign content. The dependency resolver and assembler must
+complete those paths; this pilot does not establish whole-project isolation.
 
 ## Original decision (2026-10-23; qualified by the amendment)
 

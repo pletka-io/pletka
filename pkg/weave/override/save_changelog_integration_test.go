@@ -12,6 +12,7 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
@@ -190,7 +191,7 @@ func TestSaveForEntityLogsKeptRowAsChangedAndNewRowWithRealID(t *testing.T) {
 	pool := testdb.Pool(t)
 	store := NewPostgresStore(pool)
 	runner := &testChangeLogRunner{pool: pool}
-	svc := NewService(store, nil, runner)
+	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, runner)
 	ctx := writeCtx()
 	cleanupCLEntity(t, pool)
 

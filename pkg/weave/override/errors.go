@@ -29,6 +29,9 @@ func (e *NotInReleaseError) Error() string {
 	return fmt.Sprintf("release %s does not carry %s", e.Version, e.What)
 }
 
+// IsNotInRelease selects the canonical API error envelope.
+func (e *NotInReleaseError) IsNotInRelease() bool { return true }
+
 // NotInRelease builds the error. draftAvailable is resolved from the auth
 // snapshot at the call site and never inferred by the client: the rendering
 // differs by who is asking, and a reader who cannot see a draft must not be

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 )
 
 // TestDifferentEntitySavesInOneProjectRunConcurrently proves the design's
@@ -21,7 +22,7 @@ import (
 func TestDifferentEntitySavesInOneProjectRunConcurrently(t *testing.T) {
 	pool := testdb.Pool(t)
 	store := NewPostgresStore(pool)
-	svc := NewService(store, nil, nil)
+	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 
 	const projectID = "TSTPLOCKCONC"
@@ -76,7 +77,7 @@ func TestDifferentEntitySavesInOneProjectRunConcurrently(t *testing.T) {
 func TestSaveGetsErrLockBusyWhileProjectLockHeldExclusively(t *testing.T) {
 	pool := testdb.Pool(t)
 	store := NewPostgresStore(pool)
-	svc := NewService(store, nil, nil)
+	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 
 	const projectID = "TSTPLOCKBUSY"
@@ -134,7 +135,7 @@ func TestSaveGetsErrLockBusyWhileProjectLockHeldExclusively(t *testing.T) {
 func TestSaveTotalWaitIsBoundedAcrossBothAcquisitions(t *testing.T) {
 	pool := testdb.Pool(t)
 	store := NewPostgresStore(pool)
-	svc := NewService(store, nil, nil)
+	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 
 	const projectID = "TSTPLOCKBUDGET"
