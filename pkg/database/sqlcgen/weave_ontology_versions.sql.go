@@ -37,7 +37,7 @@ VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19
 )
-RETURNING id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at
+RETURNING id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at, body_sealed_at, body_write_revision
 `
 
 type WeaveCreateOntologyVersionParams struct {
@@ -107,6 +107,8 @@ func (q *Queries) WeaveCreateOntologyVersion(ctx context.Context, arg WeaveCreat
 		&i.PropertyCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BodySealedAt,
+		&i.BodyWriteRevision,
 	)
 	return i, err
 }
@@ -121,7 +123,7 @@ func (q *Queries) WeaveDeleteOntologyVersion(ctx context.Context, id string) err
 }
 
 const weaveGetActiveOntologyVersion = `-- name: WeaveGetActiveOntologyVersion :one
-SELECT id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at FROM weave_ontology_versions
+SELECT id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at, body_sealed_at, body_write_revision FROM weave_ontology_versions
 WHERE ontology_id = $1 AND is_active = true
 `
 
@@ -150,12 +152,14 @@ func (q *Queries) WeaveGetActiveOntologyVersion(ctx context.Context, ontologyID 
 		&i.PropertyCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BodySealedAt,
+		&i.BodyWriteRevision,
 	)
 	return i, err
 }
 
 const weaveGetOntologyVersionByID = `-- name: WeaveGetOntologyVersionByID :one
-SELECT id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at FROM weave_ontology_versions WHERE id = $1
+SELECT id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at, body_sealed_at, body_write_revision FROM weave_ontology_versions WHERE id = $1
 `
 
 func (q *Queries) WeaveGetOntologyVersionByID(ctx context.Context, id string) (WeaveOntologyVersion, error) {
@@ -183,12 +187,14 @@ func (q *Queries) WeaveGetOntologyVersionByID(ctx context.Context, id string) (W
 		&i.PropertyCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BodySealedAt,
+		&i.BodyWriteRevision,
 	)
 	return i, err
 }
 
 const weaveGetOntologyVersionByOntologyAndString = `-- name: WeaveGetOntologyVersionByOntologyAndString :one
-SELECT id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at FROM weave_ontology_versions
+SELECT id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at, body_sealed_at, body_write_revision FROM weave_ontology_versions
 WHERE ontology_id = $1 AND version_string = $2
 `
 
@@ -222,6 +228,8 @@ func (q *Queries) WeaveGetOntologyVersionByOntologyAndString(ctx context.Context
 		&i.PropertyCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BodySealedAt,
+		&i.BodyWriteRevision,
 	)
 	return i, err
 }
@@ -260,7 +268,7 @@ func (q *Queries) WeaveListOntologyVersionCompanions(ctx context.Context, ontolo
 }
 
 const weaveListOntologyVersionsByOntology = `-- name: WeaveListOntologyVersionsByOntology :many
-SELECT id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at FROM weave_ontology_versions
+SELECT id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at, body_sealed_at, body_write_revision FROM weave_ontology_versions
 WHERE ontology_id = $1
 ORDER BY parsed_at DESC NULLS LAST, version_string DESC
 `
@@ -296,6 +304,8 @@ func (q *Queries) WeaveListOntologyVersionsByOntology(ctx context.Context, ontol
 			&i.PropertyCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.BodySealedAt,
+			&i.BodyWriteRevision,
 		); err != nil {
 			return nil, err
 		}
@@ -413,14 +423,12 @@ func (q *Queries) WeaveOntologyVersionUsageCounts(ctx context.Context, ontologyI
 const weaveSetActiveOntologyVersion = `-- name: WeaveSetActiveOntologyVersion :exec
 WITH cleared AS (
     UPDATE weave_ontology_versions
-    SET is_active = false,
-        updated_at = now()
+    SET is_active = false
     WHERE weave_ontology_versions.ontology_id = $1
       AND is_active = true
 )
 UPDATE weave_ontology_versions
-SET is_active = true,
-    updated_at = now()
+SET is_active = true
 WHERE weave_ontology_versions.ontology_id = $1
   AND weave_ontology_versions.id = $2
 `
@@ -471,7 +479,7 @@ SET version_string = $2,
     ontology_metadata = $10,
     updated_at = now()
 WHERE id = $1
-RETURNING id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at
+RETURNING id, ontology_id, version_string, is_active, compatible_base_versions, rdf_content, parsed_at, original_filename, file_size, file_md5, ontology_uri, version_iri, version_info, imported_ontologies, ontology_label, ontology_comment, ontology_metadata, class_count, property_count, created_at, updated_at, body_sealed_at, body_write_revision
 `
 
 type WeaveUpdateOntologyVersionMetadataParams struct {
@@ -523,6 +531,8 @@ func (q *Queries) WeaveUpdateOntologyVersionMetadata(ctx context.Context, arg We
 		&i.PropertyCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.BodySealedAt,
+		&i.BodyWriteRevision,
 	)
 	return i, err
 }

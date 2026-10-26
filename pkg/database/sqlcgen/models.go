@@ -698,6 +698,15 @@ type WeaveOntology struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
+type WeaveOntologyBodySeal struct {
+	VersionID     string          `json:"version_id"`
+	OntologyID    string          `json:"ontology_id"`
+	FormatVersion int16           `json:"format_version"`
+	Body          json.RawMessage `json:"body"`
+	Digest        string          `json:"digest"`
+	SealedAt      time.Time       `json:"sealed_at"`
+}
+
 type WeaveOntologyClass struct {
 	ID                string    `json:"id"`
 	OntologyVersionID string    `json:"ontology_version_id"`
@@ -751,11 +760,14 @@ type WeaveOntologyProperty struct {
 }
 
 type WeaveOntologyRelation struct {
-	SourceID    string `json:"source_id"`
-	SourceKind  string `json:"source_kind"`
-	RelType     string `json:"rel_type"`
-	TargetQname string `json:"target_qname"`
-	Position    int32  `json:"position"`
+	SourceID          string  `json:"source_id"`
+	SourceKind        string  `json:"source_kind"`
+	RelType           string  `json:"rel_type"`
+	TargetQname       string  `json:"target_qname"`
+	Position          int32   `json:"position"`
+	OntologyVersionID *string `json:"ontology_version_id"`
+	SourceClassID     *string `json:"source_class_id"`
+	SourcePropertyID  *string `json:"source_property_id"`
 }
 
 type WeaveOntologyVersion struct {
@@ -780,6 +792,8 @@ type WeaveOntologyVersion struct {
 	PropertyCount          int64              `json:"property_count"`
 	CreatedAt              time.Time          `json:"created_at"`
 	UpdatedAt              time.Time          `json:"updated_at"`
+	BodySealedAt           pgtype.Timestamptz `json:"body_sealed_at"`
+	BodyWriteRevision      int64              `json:"body_write_revision"`
 }
 
 type WeaveOntologyVersionCompanion struct {

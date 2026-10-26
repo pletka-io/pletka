@@ -121,8 +121,14 @@ aliases and dependency pins as one artifact. Keep active/default policy separate
 Enforce sealing in storage across importer, admin, editor, CLI and restore;
 neither a force flag nor an existing version ID proves immutable content.
 Restore must verify content identity before treating an existing ID as a no-op.
-These are requirements for the next implementation, not guarantees of the current
-mutable ontology store. Do not reuse the project dependency marker for them.
+Migration 023 now enforces explicit local-body seals across all writers. Use
+`ontologybody.Factory.Read` for sealed bodies: its ontology-specific reference
+cannot become a project scope, and its reader has only generated seal SELECTs.
+The transaction-owning publication boundary calls `ontologybody.Seal`; operators
+can explicitly seal current bytes with `weave ontology-seal-body`. Ordinary
+imports remain unsealed. Do not equate a local body seal with complete ontology
+publication, historical verification or project dependency completeness. Draft/
+policy separation, dependency pins and materializer/restore migration remain open.
 
 ### Whole-project reads belong to the assembler
 

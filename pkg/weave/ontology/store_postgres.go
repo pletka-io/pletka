@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
+	"github.com/pletka-io/pletka/pkg/database/ontologybody"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
@@ -959,7 +959,8 @@ func (s *postgresStore) UpdateOntology(ctx context.Context, id string, in Update
 	return rowToOntology(row), nil
 }
 
-func (s *postgresStore) DeleteOntology(ctx context.Context, id string) error {
+func (s *postgresStore) DeleteOntology(ctx context.Context, id string) (err error) {
+	defer func() { err = ontologybody.MapError(err) }()
 	if err := s.queries.WeaveDeleteOntology(ctx, id); err != nil {
 		return fmt.Errorf("delete ontology: %w", err)
 	}
@@ -1010,7 +1011,8 @@ func (s *postgresStore) createVersionWith(ctx context.Context, q *sqlcgen.Querie
 	return rowToVersion(row), nil
 }
 
-func (s *postgresStore) UpdateVersionMetadata(ctx context.Context, id string, in UpdateVersionMetadataInput) (*domain.OntologyVersion, error) {
+func (s *postgresStore) UpdateVersionMetadata(ctx context.Context, id string, in UpdateVersionMetadataInput) (out *domain.OntologyVersion, err error) {
+	defer func() { err = ontologybody.MapError(err) }()
 	row, err := s.queries.WeaveUpdateOntologyVersionMetadata(ctx, sqlcgen.WeaveUpdateOntologyVersionMetadataParams{
 		ID:                     id,
 		VersionString:          in.VersionString,
@@ -1029,7 +1031,8 @@ func (s *postgresStore) UpdateVersionMetadata(ctx context.Context, id string, in
 	return rowToVersion(row), nil
 }
 
-func (s *postgresStore) UpdateVersionCounts(ctx context.Context, id string, classCount, propertyCount int64) error {
+func (s *postgresStore) UpdateVersionCounts(ctx context.Context, id string, classCount, propertyCount int64) (err error) {
+	defer func() { err = ontologybody.MapError(err) }()
 	if err := s.queries.WeaveUpdateOntologyVersionCounts(ctx, sqlcgen.WeaveUpdateOntologyVersionCountsParams{
 		ID:            id,
 		ClassCount:    classCount,
@@ -1047,7 +1050,7 @@ func (s *postgresStore) SetActiveVersion(ctx context.Context, ontologyID, versio
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := setActiveOntologyVersion(ctx, tx, ontologyID, versionID); err != nil {
+	if err := setActiveOntologyVersion(ctx, s.queries.WithTx(tx), ontologyID, versionID); err != nil {
 		return fmt.Errorf("set active version: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1056,37 +1059,22 @@ func (s *postgresStore) SetActiveVersion(ctx context.Context, ontologyID, versio
 	return nil
 }
 
-type ontologyVersionExec interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-}
-
-func setActiveOntologyVersion(ctx context.Context, exec ontologyVersionExec, ontologyID, versionID string) error {
-	if _, err := exec.Exec(ctx, `
-UPDATE weave_ontology_versions
-SET is_active = false,
-    updated_at = now()
-WHERE ontology_id = $1
-  AND is_active = true
-`, ontologyID); err != nil {
+func setActiveOntologyVersion(ctx context.Context, q *sqlcgen.Queries, ontologyID, versionID string) error {
+	if err := q.WeaveClearActiveOntologyVersions(ctx, ontologyID); err != nil {
 		return fmt.Errorf("clear active version: %w", err)
 	}
-	tag, err := exec.Exec(ctx, `
-UPDATE weave_ontology_versions
-SET is_active = true,
-    updated_at = now()
-WHERE ontology_id = $1
-  AND id = $2
-`, ontologyID, versionID)
+	affected, err := q.WeaveActivateOntologyVersion(ctx, sqlcgen.WeaveActivateOntologyVersionParams{OntologyID: ontologyID, ID: versionID})
 	if err != nil {
 		return fmt.Errorf("activate target version: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if affected == 0 {
 		return pgx.ErrNoRows
 	}
 	return nil
 }
 
-func (s *postgresStore) DeleteVersion(ctx context.Context, id string) error {
+func (s *postgresStore) DeleteVersion(ctx context.Context, id string) (err error) {
+	defer func() { err = ontologybody.MapError(err) }()
 	if err := s.queries.WeaveDeleteOntologyVersion(ctx, id); err != nil {
 		return fmt.Errorf("delete version: %w", err)
 	}
@@ -1097,7 +1085,8 @@ func (s *postgresStore) DeleteVersion(ctx context.Context, id string) error {
 // ImportVersion — high-level transactional entry for the importer.
 // ---------------------------------------------------------------------------
 
-func (s *postgresStore) ImportVersion(ctx context.Context, in ImportVersionInput) (*domain.OntologyVersion, error) {
+func (s *postgresStore) ImportVersion(ctx context.Context, in ImportVersionInput) (out *domain.OntologyVersion, err error) {
+	defer func() { err = ontologybody.MapError(err) }()
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin import-version tx: %w", err)
@@ -1204,7 +1193,7 @@ func (s *postgresStore) ImportVersion(ctx context.Context, in ImportVersionInput
 	}
 
 	if in.SetActive {
-		if err := setActiveOntologyVersion(ctx, tx, version.OntologyID, version.ID); err != nil {
+		if err := setActiveOntologyVersion(ctx, qtx, version.OntologyID, version.ID); err != nil {
 			return nil, fmt.Errorf("set active during import: %w", err)
 		}
 	}

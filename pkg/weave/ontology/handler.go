@@ -16,6 +16,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/ontology/autocomplete"
 	parsedontology "github.com/pletka-io/pletka/pkg/weave/ontology/rdf"
@@ -1013,6 +1014,11 @@ func (h *Handler) familyFilterOptions(ctx context.Context) []formschema.FilterOp
 }
 
 func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err error, label string) {
+	var conflict apierror.Conflicter
+	if errors.As(err, &conflict) {
+		apierror.Write(w, r, apierror.FromError(err))
+		return
+	}
 	if errors.Is(err, ErrNotFound) {
 		errresp.Error(w, r, http.StatusNotFound, "not_found", label+" not found")
 		return
