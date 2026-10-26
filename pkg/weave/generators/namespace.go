@@ -1,7 +1,6 @@
 package generators
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -19,12 +18,7 @@ type NamespaceSet struct {
 }
 
 // NamespaceBinding is a renderer-neutral namespace binding.
-type NamespaceBinding struct {
-	Prefix    string `json:"prefix"`
-	Namespace string `json:"namespace"`
-	Weight    int64  `json:"weight,omitempty"`
-	Source    string `json:"source,omitempty"`
-}
+type NamespaceBinding = nsutil.Binding
 
 // Manager builds a weighted namespace manager from the snapshot namespace
 // bindings. ByPrefix is folded in as a compatibility source for older/manual
@@ -100,29 +94,13 @@ func BuildNamespaceSet(project domain.Project, bindings []*domain.NamespaceBindi
 			Weight: b.Weight, Source: b.Source,
 		})
 	}
-	sort.Slice(candidates, func(i, j int) bool {
-		a, b := candidates[i], candidates[j]
-		if a.Prefix != b.Prefix {
-			return a.Prefix < b.Prefix
-		}
-		if a.Weight != b.Weight {
-			return a.Weight > b.Weight
-		}
-		if a.Namespace != b.Namespace {
-			return a.Namespace < b.Namespace
-		}
-		return a.Source < b.Source
-	})
-	byPrefix := make(map[string]NamespaceBinding)
-	for _, b := range candidates {
-		existing, ok := byPrefix[b.Prefix]
-		if !ok {
-			byPrefix[b.Prefix] = b
-			continue
-		}
-		if b.Weight == existing.Weight && b.Namespace != existing.Namespace {
-			return NamespaceSet{}, fmt.Errorf("namespace prefix %q has conflicting bindings at weight %d: %q and %q", b.Prefix, b.Weight, existing.Namespace, b.Namespace)
-		}
+	effective, err := nsutil.Effective(candidates)
+	if err != nil {
+		return NamespaceSet{}, err
+	}
+	byPrefix := make(map[string]NamespaceBinding, len(effective))
+	for _, b := range effective {
+		byPrefix[b.Prefix] = b
 	}
 
 	projectPrefix := strings.ToLower(strings.TrimSpace(project.ID))

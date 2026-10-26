@@ -53,7 +53,7 @@ func newFixture(t *testing.T, suffix string) fixture {
 		CompanionFiles:    []ontology.CompanionFileInput{{Filename: "extra.rdf", Content: "<extra/>"}},
 		NamespaceBindings: []ontology.NamespaceBinding{{Prefix: prefix, Namespace: "https://example.org/" + prefix + "/"}},
 	}
-	if _, err := store.ImportVersion(t.Context(), in); err != nil {
+	if _, err := store.StageLegacyVersion(t.Context(), in); err != nil {
 		t.Fatal(err)
 	}
 	ref, err := ontologybody.NewReference(ontologybody.OntologyID(owner), ontologybody.VersionID(version))
@@ -131,7 +131,7 @@ func TestBodySealProtectsEveryTableAndSurvivesPolicyChanges(t *testing.T) {
 		{`TRUNCATE weave_ontology_classes CASCADE`, nil},
 		{`TRUNCATE weave_ontology_properties CASCADE`, nil},
 		{`TRUNCATE weave_ontology_version_companions`, nil},
-		{`TRUNCATE weave_ontology_body_seals`, nil},
+		{`TRUNCATE weave_ontology_body_seals CASCADE`, nil},
 		{`TRUNCATE weave_ontology_versions CASCADE`, nil},
 		{`TRUNCATE weave_ontologies CASCADE`, nil},
 	} {
@@ -145,7 +145,7 @@ func TestBodySealProtectsEveryTableAndSurvivesPolicyChanges(t *testing.T) {
 	requireSealed(t, f.store.DeleteOntology(t.Context(), f.input.Version.OntologyID))
 	changed := f.input
 	changed.Version.RDFContent = "replacement"
-	_, err = f.store.ImportVersion(t.Context(), changed)
+	_, err = f.store.StageLegacyVersion(t.Context(), changed)
 	requireSealed(t, err)
 	// Mutable discovery and catalog data cannot affect the sealed reader.
 	newVersion := ontology.GenerateVersionID("body_guards", "2")
@@ -176,7 +176,7 @@ func TestBodySealProtectsEveryTableAndSurvivesPolicyChanges(t *testing.T) {
 func TestUnsealedReimportRemovesOldRelationsAndValidatesOwners(t *testing.T) {
 	f := newFixture(t, "replace")
 	f.input.Relations = nil
-	if _, err := f.store.ImportVersion(t.Context(), f.input); err != nil {
+	if _, err := f.store.StageLegacyVersion(t.Context(), f.input); err != nil {
 		t.Fatal(err)
 	}
 	var count int

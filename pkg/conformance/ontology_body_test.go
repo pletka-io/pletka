@@ -12,8 +12,17 @@ import (
 )
 
 func TestOntologyBodyReaderHasOnlySealedCapability(t *testing.T) {
+	checkOntologyCapability(t, "ontologybody", "read_ontology_body", "weave_ontology_body_seals")
+}
+
+func TestOntologyReleaseReaderHasOnlyPublishedCapability(t *testing.T) {
+	checkOntologyCapability(t, "ontologyrelease", "read_ontology_release", "weave_ontology_releases")
+}
+
+func checkOntologyCapability(t *testing.T, pkg, queries, table string) {
+	t.Helper()
 	root := repoRoot(t)
-	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(root, "pkg/database/ontologybody/reader.go"), nil, 0)
+	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(root, "pkg/database/"+pkg+"/reader.go"), nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +51,7 @@ func TestOntologyBodyReaderHasOnlySealedCapability(t *testing.T) {
 		}
 		return true
 	})
-	paths, err := filepath.Glob(filepath.Join(root, "pkg/database/queries/read_ontology_body/*.sql"))
+	paths, err := filepath.Glob(filepath.Join(root, "pkg/database/queries/"+queries+"/*.sql"))
 	if err != nil || len(paths) == 0 {
 		t.Fatalf("body query sources missing: %v", err)
 	}
@@ -58,7 +67,7 @@ func TestOntologyBodyReaderHasOnlySealedCapability(t *testing.T) {
 			t.Errorf("%s contains a write", path)
 		}
 		for _, match := range tables.FindAllStringSubmatch(sql, -1) {
-			if match[1] != "weave_ontology_body_seals" {
+			if match[1] != table {
 				t.Errorf("%s reads mutable table %s", path, match[1])
 			}
 		}

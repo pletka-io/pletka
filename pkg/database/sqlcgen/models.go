@@ -770,6 +770,21 @@ type WeaveOntologyRelation struct {
 	SourcePropertyID  *string `json:"source_property_id"`
 }
 
+type WeaveOntologyRelease struct {
+	VersionID   string    `json:"version_id"`
+	OntologyID  string    `json:"ontology_id"`
+	Artifact    string    `json:"artifact"`
+	Digest      string    `json:"digest"`
+	PublishedAt time.Time `json:"published_at"`
+}
+
+type WeaveOntologyReleaseDependency struct {
+	ConsumerVersionID string `json:"consumer_version_id"`
+	OntologyID        string `json:"ontology_id"`
+	VersionID         string `json:"version_id"`
+	Digest            string `json:"digest"`
+}
+
 type WeaveOntologyVersion struct {
 	ID                     string             `json:"id"`
 	OntologyID             string             `json:"ontology_id"`

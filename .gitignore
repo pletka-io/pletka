@@ -55,6 +55,7 @@ _data/
 !pkg/database/queries/read_draft/*.sql
 !pkg/database/queries/read_archive/*.sql
 !pkg/database/queries/read_ontology_body/*.sql
+!pkg/database/queries/read_ontology_release/*.sql
 !pletka/store/migrations/*.sql
 !pletka/store/queries/*.sql
 !scripts/sql/*.sql

@@ -125,10 +125,16 @@ Migration 023 now enforces explicit local-body seals across all writers. Use
 `ontologybody.Factory.Read` for sealed bodies: its ontology-specific reference
 cannot become a project scope, and its reader has only generated seal SELECTs.
 The transaction-owning publication boundary calls `ontologybody.Seal`; operators
-can explicitly seal current bytes with `weave ontology-seal-body`. Ordinary
-imports remain unsealed. Do not equate a local body seal with complete ontology
-publication, historical verification or project dependency completeness. Draft/
-policy separation, dependency pins and materializer/restore migration remain open.
+can explicitly seal current bytes with `weave ontology-seal-body`.
+Migration 024 and `ontologyrelease` now publish ordinary imports atomically with
+their concrete base/import/default closure and term-reference inventory. Use
+`ontologyrelease.Factory.Read` for publications and its captured-only
+`Dependency(owner)` method for sources. Raw publication queries belong only to the
+publisher. `StageLegacyVersion` is confined to old Git restore; it cannot mint a
+published identity. Exact external-reference classification is explicit. Operators
+may publish current stored bytes with `weave ontology-publish`; neither operation
+certifies historical content. Separate draft/policy storage, project ontology
+pins and materializer/vendor/restore migration remain open.
 
 ### Whole-project reads belong to the assembler
 

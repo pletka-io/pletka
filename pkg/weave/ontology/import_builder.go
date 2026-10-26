@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/domain"
 	parsedontology "github.com/pletka-io/pletka/pkg/weave/ontology/rdf"
 )
@@ -29,6 +30,7 @@ type ImportVersionBuildOptions struct {
 }
 
 type ImportUploadInput struct {
+	Publication            ontologyrelease.Options
 	OntologyID             string
 	Filename               string
 	Content                []byte
@@ -268,6 +270,7 @@ func (s *Service) ProbeImportVersion(ctx context.Context, in ImportUploadInput) 
 		CompatibleBaseVersions: in.CompatibleBaseVersions,
 		SetActive:              in.SetActive,
 	}, pr, nsResolver)
+	input.Publication = in.Publication
 	existing := false
 	if current, err := s.store.GetVersion(ctx, input.Version.ID); err == nil && current != nil {
 		existing = true
@@ -276,7 +279,7 @@ func (s *Service) ProbeImportVersion(ctx context.Context, in ImportUploadInput) 
 	}
 	warnings := make([]string, 0, 2)
 	if existing {
-		warnings = append(warnings, "A version with this ID already exists and will be replaced.")
+		warnings = append(warnings, "A version with this ID already exists. Only an unsealed version can be replaced.")
 	}
 	if len(pr.LabelWarnings) > 0 {
 		warnings = append(warnings, fmt.Sprintf("%d classes/properties are missing labels.", len(pr.LabelWarnings)))
