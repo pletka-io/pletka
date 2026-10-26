@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 
+	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
@@ -51,44 +52,20 @@ func (s *postgresStore) List(ctx context.Context, projectID string) ([]*domain.N
 }
 
 func (s *postgresStore) ListVersion(ctx context.Context, projectID, releaseVersion string) ([]*domain.NamespaceBinding, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, project_id, prefix, namespace, weight, source
-		FROM weave_namespace_bindings_archive
-		WHERE version_number = $2
-		  AND (project_id = $1 OR project_id IS NULL)
-		ORDER BY weight ASC, prefix ASC
-	`, projectID, releaseVersion)
+	if err := releasearchive.Require(ctx, s.queries, projectID, releaseVersion); err != nil {
+		return nil, err
+	}
+	rows, err := s.queries.WeaveListReleaseNamespaceBindings(ctx, sqlcgen.WeaveListReleaseNamespaceBindingsParams{ProjectID: projectID, Version: releaseVersion})
 	if err != nil {
-		return nil, fmt.Errorf("list archived namespace bindings: %w", err)
+		return nil, fmt.Errorf("list release namespace bindings: %w", err)
 	}
-	defer rows.Close()
-	out := []*domain.NamespaceBinding{}
-	for rows.Next() {
-		var (
-			id        string
-			projectID *string
-			prefix    string
-			namespace string
-			weight    int64
-			source    string
-		)
-		if err := rows.Scan(&id, &projectID, &prefix, &namespace, &weight, &source); err != nil {
-			return nil, fmt.Errorf("scan archived namespace binding: %w", err)
+	out := make([]*domain.NamespaceBinding, 0, len(rows))
+	for _, row := range rows {
+		binding := &domain.NamespaceBinding{ID: row.ID, Prefix: row.Prefix, Namespace: row.Namespace, Weight: row.Weight, Source: row.Source}
+		if row.ProjectID != nil {
+			binding.ProjectID = *row.ProjectID
 		}
-		b := &domain.NamespaceBinding{
-			ID:        id,
-			Prefix:    prefix,
-			Namespace: namespace,
-			Weight:    weight,
-			Source:    source,
-		}
-		if projectID != nil {
-			b.ProjectID = *projectID
-		}
-		out = append(out, b)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate archived namespace bindings: %w", err)
+		out = append(out, binding)
 	}
 	return out, nil
 }

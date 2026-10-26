@@ -148,7 +148,7 @@ func (h *Handler) searchFields(w http.ResponseWriter, r *http.Request, q *sqlcge
 	targets, err := resolveProjectTargets(ctx, pool, params.ProjectID, params.Scope, weaveauth.ProjectVersionFromContext(ctx))
 	if err != nil {
 		h.logger.Error("resolve project targets failed", "err", err, "project_id", params.ProjectID)
-		apierror.Write(w, r, apierror.InternalWith("search query failed", err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 
@@ -379,7 +379,7 @@ func (h *Handler) searchCollections(w http.ResponseWriter, r *http.Request, q *s
 	targets, err := resolveProjectTargets(ctx, pool, params.ProjectID, params.Scope, weaveauth.ProjectVersionFromContext(ctx))
 	if err != nil {
 		h.logger.Error("resolve project targets failed", "err", err, "project_id", params.ProjectID)
-		apierror.Write(w, r, apierror.InternalWith("search query failed", err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 

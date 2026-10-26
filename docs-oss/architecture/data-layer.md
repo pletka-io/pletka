@@ -79,7 +79,18 @@ entity ID and textual `version_number`; a matching string in another project is
 not a release identity. Shared/global state must have membership owned by the
 consuming release. Foreign project content is read using its source release,
 never copied into a source archive key stamped with the consumer's version.
-The current schema has collisions in these areas; ownership migration is pending.
+Migration 021 adds `weave_release_namespace_bindings_archive`, keyed by
+`(release_project_id, version_number, id)` with a foreign key to the consuming
+release. The original namespace archive is retained as historical evidence and
+is no longer a content read source. New cuts archive only their own project,
+inheritance links and ontology links; foreign metadata keeps its source version.
+
+`weave_releases.archive_ownership_version = 1` records successful capture under
+this model, in the same transaction. Legacy releases remain at zero. The shared
+`pkg/database/releasearchive` checks reject unverified ownership; they never
+substitute live metadata or shared rows selected only by a version string.
+An archive key already populated without release metadata blocks a new cut
+instead of silently retaining or overwriting that row.
 
 Release creation uses a repeatable-read transaction covering validation, archive
 writes, release metadata and outbox. The target read-session factory similarly
@@ -91,9 +102,14 @@ are assembled, without retaining database access. See ADRs
 [0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md) and
 [0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).
 
-The session and ownership changes are target requirements, not descriptions of
-completed infrastructure. Historical missing membership must be audited against
-verifiable evidence; filling it from current drafts would invent history.
+The bound session and complete dependency closure are still pending. Migration
+021 does not certify historical releases or complete content coverage. Run
+`pletka release audit-ownership` for a read-only JSON inventory of
+`unverified_release` and `orphan_project_archive` entries. Collision indicators
+are investigation leads, not proof of corruption. Historical membership requires
+retained artifacts or other verifiable evidence; filling it from current drafts
+would invent history. A downgrade is refused while verified release snapshots
+exist, because the old key cannot represent them without loss.
 
 ## Migrations: goose
 

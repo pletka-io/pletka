@@ -954,14 +954,38 @@ type WeaveProjectsArchive struct {
 }
 
 type WeaveRelease struct {
-	ProjectID       string             `json:"project_id"`
-	Version         string             `json:"version"`
-	Title           string             `json:"title"`
-	Description     string             `json:"description"`
-	CreatedAt       time.Time          `json:"created_at"`
-	CreatedByID     string             `json:"created_by_id"`
-	ArchivedAt      pgtype.Timestamptz `json:"archived_at"`
-	ArchivedMessage string             `json:"archived_message"`
+	ProjectID               string             `json:"project_id"`
+	Version                 string             `json:"version"`
+	Title                   string             `json:"title"`
+	Description             string             `json:"description"`
+	CreatedAt               time.Time          `json:"created_at"`
+	CreatedByID             string             `json:"created_by_id"`
+	ArchivedAt              pgtype.Timestamptz `json:"archived_at"`
+	ArchivedMessage         string             `json:"archived_message"`
+	ArchiveOwnershipVersion int16              `json:"archive_ownership_version"`
+}
+
+type WeaveReleaseNamespaceBindingsArchive struct {
+	ReleaseProjectID string    `json:"release_project_id"`
+	VersionNumber    string    `json:"version_number"`
+	ID               string    `json:"id"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	AirtableRaw      []byte    `json:"airtable_raw"`
+	AirtableContext  []byte    `json:"airtable_context"`
+	AirtableRef      *string   `json:"airtable_ref"`
+	SemanticID       *string   `json:"semantic_id"`
+	LongSemanticID   *string   `json:"long_semantic_id"`
+	SystemName       *string   `json:"system_name"`
+	UiName           []byte    `json:"ui_name"`
+	Description      []byte    `json:"description"`
+	Uri              *string   `json:"uri"`
+	ProjectID        *string   `json:"project_id"`
+	Prefix           string    `json:"prefix"`
+	Namespace        string    `json:"namespace"`
+	Weight           int64     `json:"weight"`
+	Source           string    `json:"source"`
+	OntologyID       *string   `json:"ontology_id"`
 }
 
 type WeaveVocabulariesArchive struct {

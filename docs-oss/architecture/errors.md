@@ -25,7 +25,7 @@ do not build `map[string]any` envelopes inline, and slices do not carry their ow
 - `error` — human summary (always present).
 - `code` — a machine-readable kind the frontend can branch on instead of parsing
   message text. The constant list **is** the contract: `bad_request`,
-  `unauthorized`, `forbidden`, `not_found`, `conflict`, `validation`, `in_use`,
+  `unauthorized`, `forbidden`, `not_found`, `not_in_release`, `conflict`, `validation`, `in_use`,
   `internal`, `method_not_allowed`, `unprocessable`.
 - `message` — optional longer help (the FormRenderer banner).
 - `errors` — per-field messages; what FormRenderer renders inline.
@@ -40,6 +40,7 @@ Build errors with the constructors, never by hand:
 | `Unauthorized()` | 401 | not authenticated |
 | `Forbidden(msg)` | 403 | authenticated but not allowed |
 | `NotFound(msg)` | 404 | resource absent |
+| `FromError` with `NotInReleaser` | 404 | requested release content lacks verified archive ownership |
 | `Conflict(msg)` | 409 | duplicate, optimistic-lock failure |
 | `InUse(msg)` | 409 | delete blocked — dependents exist (distinct `in_use` code so the frontend can show dependent-count UI) |
 | `Validation(fields)` | 422 | per-field validation errors |

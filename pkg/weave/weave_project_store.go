@@ -12,6 +12,7 @@ import (
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
+	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
@@ -191,6 +192,9 @@ func (s *weaveProjectStore) GetByID(ctx context.Context, id string) (*domain.Pro
 }
 
 func (s *weaveProjectStore) GetByIDVersion(ctx context.Context, id, version string) (*domain.Project, error) {
+	if err := releasearchive.Require(ctx, s.queries, id, version); err != nil {
+		return nil, err
+	}
 	row := s.pool.QueryRow(ctx, `
 		SELECT
 			id, created_at, updated_at, system_name, ui_name, description, status,
@@ -902,50 +906,15 @@ func (s *weaveProjectStore) listParentProjectIDsArchived(ctx context.Context, pr
 }
 
 func (s *weaveProjectStore) listParentTargetsArchived(ctx context.Context, projectID, version string) ([]inheritanceTarget, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT parent_project_id, source_mode, COALESCE(source_version, '')
-		FROM weave_project_inheritance_archive
-		WHERE project_id = $1 AND version_number = $2
-		ORDER BY CASE WHEN is_primary THEN 0 ELSE 1 END, canonical_order ASC, parent_project_id ASC
-	`, projectID, version)
+	rows, err := releasearchive.Parents(ctx, s.queries, projectID, version)
 	if err != nil {
-		return nil, fmt.Errorf("query archived project inheritances: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-
-	out := make([]inheritanceTarget, 0)
-	for rows.Next() {
-		var parentID string
-		var sourceMode string
-		var sourceVersion string
-		if err := rows.Scan(&parentID, &sourceMode, &sourceVersion); err != nil {
-			return nil, fmt.Errorf("scan archived project inheritance parent: %w", err)
-		}
-		next := inheritanceTarget{ProjectID: parentID, Version: version}
-		out = append(out, next)
+	out := make([]inheritanceTarget, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, inheritanceTarget{ProjectID: row.ParentProjectID, Version: *row.SourceVersion})
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate archived project inheritances: %w", err)
-	}
-	if len(out) > 0 {
-		return out, nil
-	}
-
-	var parent *string
-	if err := s.pool.QueryRow(ctx, `
-		SELECT parent_project_id
-		FROM weave_projects_archive
-		WHERE id = $1 AND version_number = $2
-	`, projectID, version).Scan(&parent); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("query archived project parent fallback: %w", err)
-	}
-	if parent == nil || *parent == "" {
-		return nil, nil
-	}
-	return []inheritanceTarget{{ProjectID: *parent, Version: version}}, nil
+	return out, nil
 }
 
 // syncProjectPrimaryInheritance bootstraps the legacy scalar parent_project_id

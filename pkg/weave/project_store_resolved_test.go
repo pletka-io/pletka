@@ -4,11 +4,13 @@ package weave_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave"
 )
@@ -353,21 +355,10 @@ func TestWeaveProjectStore_ResolvedOntologyVersions_ArchivedParentChain(t *testi
 		t.Fatalf("seed archived ontology links: %v", err)
 	}
 
-	resolved, err := projects.ResolvedOntologyVersions(ctx, cID, domain.ResolvedOntologyVersionOpts{})
-	if err != nil {
-		t.Fatalf("ResolvedOntologyVersions archived: %v", err)
-	}
-	if len(resolved) != 3 {
-		t.Fatalf("got %d resolved archived entries, want 3", len(resolved))
-	}
-	if resolved[0].Link.OntologyVersionID != v3 || resolved[0].SourceProjectID != "" {
-		t.Fatalf("resolved[0] = (%q,%q), want own %q", resolved[0].Link.OntologyVersionID, resolved[0].SourceProjectID, v3)
-	}
-	if resolved[1].Link.OntologyVersionID != v2 || resolved[1].SourceProjectID != pID {
-		t.Fatalf("resolved[1] = (%q,%q), want (%q,%q)", resolved[1].Link.OntologyVersionID, resolved[1].SourceProjectID, v2, pID)
-	}
-	if resolved[2].Link.OntologyVersionID != v1 || resolved[2].SourceProjectID != gpID {
-		t.Fatalf("resolved[2] = (%q,%q), want (%q,%q)", resolved[2].Link.OntologyVersionID, resolved[2].SourceProjectID, v1, gpID)
+	_, err = projects.ResolvedOntologyVersions(ctx, cID, domain.ResolvedOntologyVersionOpts{})
+	var unavailable *releasearchive.UnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("legacy scalar inheritance should be unavailable, got %v", err)
 	}
 }
 
@@ -482,6 +473,10 @@ func TestWeaveProjectStore_ResolvedOntologyVersions_PinnedParentRelease(t *testi
 		t.Fatalf("seed archived parent ontology link: %v", err)
 	}
 
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_releases (project_id, version, created_by_id, archive_ownership_version) VALUES ($1, $2, $3, 1)`, parentID, parentRelease, ownerID); err != nil {
+		t.Fatal(err)
+	}
+
 	resolved, err := projects.ResolvedOntologyVersions(ctx, childID, domain.ResolvedOntologyVersionOpts{})
 	if err != nil {
 		t.Fatalf("ResolvedOntologyVersions pinned parent release: %v", err)
@@ -519,6 +514,7 @@ func TestWeaveProjectStore_ResolvedOntologyVersions_ArchivedInheritanceGraph(t *
 
 	t.Cleanup(func() {
 		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM weave_releases WHERE project_id IN ($1, $2, $3)`, p1ID, p2ID, childID)
 		_, _ = pool.Exec(bg, `DELETE FROM weave_project_inheritance_archive WHERE project_id LIKE 'TEST_%' OR parent_project_id LIKE 'TEST_%'`)
 		_, _ = pool.Exec(bg, `DELETE FROM weave_project_ontology_versions_archive WHERE project_id LIKE 'TEST_%'`)
 		_, _ = pool.Exec(bg, `DELETE FROM weave_projects_archive WHERE id LIKE 'TEST_%'`)
@@ -530,22 +526,26 @@ func TestWeaveProjectStore_ResolvedOntologyVersions_ArchivedInheritanceGraph(t *
 	seedProject(t, pool, context.Background(), p1ID, ownerID, nil)
 	seedProject(t, pool, context.Background(), p2ID, ownerID, nil)
 	seedProject(t, pool, context.Background(), childID, ownerID, nil)
+	if _, err := pool.Exec(context.Background(), `INSERT INTO weave_releases (project_id, version, created_by_id, archive_ownership_version)
+		VALUES ($1, '0.0.1-test', $4, 1), ($2, '0.0.2-test', $4, 1), ($3, '0.1.1-test', $4, 1)`, p1ID, p2ID, childID, ownerID); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO weave_projects_archive (id, owner_id, parent_project_id, version_number)
 		VALUES
-			($1, $4, NULL, $5),
-			($2, $4, NULL, $5),
+			($1, $4, NULL, '0.0.1-test'),
+			($2, $4, NULL, '0.0.2-test'),
 			($3, $4, NULL, $5)
 	`, p1ID, p2ID, childID, ownerID, "0.1.1-test"); err != nil {
 		t.Fatalf("seed archived projects: %v", err)
 	}
 	if _, err := pool.Exec(context.Background(), `
 		INSERT INTO weave_project_inheritance_archive (
-			project_id, parent_project_id, is_primary, canonical_order, adopted_at, version_number
+			project_id, parent_project_id, is_primary, canonical_order, adopted_at, version_number, source_mode, source_version
 		) VALUES
-			($1, $2, true, 0, now(), $4),
-			($1, $3, false, 1, now(), $4)
+			($1, $2, true, 0, now(), $4, 'release', '0.0.1-test'),
+			($1, $3, false, 1, now(), $4, 'release', '0.0.2-test')
 	`, childID, p1ID, p2ID, "0.1.1-test"); err != nil {
 		t.Fatalf("seed archived inheritance graph: %v", err)
 	}
@@ -553,8 +553,8 @@ func TestWeaveProjectStore_ResolvedOntologyVersions_ArchivedInheritanceGraph(t *
 		INSERT INTO weave_project_ontology_versions_archive
 			(project_id, ontology_version_id, added_at, is_primary, usage_notes, version_number)
 		VALUES
-			($1, $4, now(), false, 'p1', $7),
-			($2, $5, now(), false, 'p2', $7),
+			($1, $4, now(), false, 'p1', '0.0.1-test'),
+			($2, $5, now(), false, 'p2', '0.0.2-test'),
 			($3, $6, now(), false, 'child', $7)
 	`, p1ID, p2ID, childID, v1, v2, v3, "0.1.1-test"); err != nil {
 		t.Fatalf("seed archived ontology links: %v", err)

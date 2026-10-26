@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pletka-io/pletka/pkg/database/releasearchive"
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
 )
@@ -131,6 +133,9 @@ type archivedProjectManifestRow struct {
 }
 
 func (m *Materializer) loadArchivedProject(ctx context.Context, projectID, version string) (*archivedProjectManifestRow, error) {
+	if err := releasearchive.Require(ctx, m.queries, projectID, version); err != nil {
+		return nil, err
+	}
 	row := m.pool.QueryRow(ctx, `
 		SELECT id, COALESCE(system_name, ''), ui_name, description, readme, COALESCE(namespace, ''), visibility, owner_id, created_by_id, license, base_url, topics
 		FROM weave_projects_archive
@@ -148,31 +153,15 @@ func (m *Materializer) loadArchivedProject(ctx context.Context, projectID, versi
 }
 
 func (m *Materializer) loadProjectManifestParentsAtVersion(ctx context.Context, projectID, version string) ([]projectManifestParent, error) {
-	rows, err := m.pool.Query(ctx, `
-		SELECT parent_project_id, is_primary, canonical_order, source_mode, COALESCE(source_version, '')
-		FROM weave_project_inheritance_archive
-		WHERE project_id = $1 AND version_number = $2
-		ORDER BY CASE WHEN is_primary THEN 0 ELSE 1 END, canonical_order ASC, parent_project_id ASC
-	`, projectID, version)
+	rows, err := releasearchive.Parents(ctx, m.queries, projectID, version)
 	if err != nil {
-		return nil, fmt.Errorf("list archived project inheritances for manifest: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-
-	parents := make([]projectManifestParent, 0)
-	for rows.Next() {
-		var parent projectManifestParent
-		if err := rows.Scan(&parent.ProjectID, &parent.IsPrimary, &parent.CanonicalOrder, &parent.SourceMode, &parent.SourceVersion); err != nil {
-			return nil, fmt.Errorf("scan archived project inheritance for manifest: %w", err)
-		}
-		parent.SourceMode = strings.TrimSpace(parent.SourceMode)
-		parent.SourceVersion = strings.TrimSpace(parent.SourceVersion)
-		parents = append(parents, parent)
+	out := make([]projectManifestParent, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, projectManifestParent{ProjectID: row.ParentProjectID, IsPrimary: row.IsPrimary, CanonicalOrder: int(row.CanonicalOrder), SourceMode: row.SourceMode, SourceVersion: *row.SourceVersion})
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate archived project inheritances for manifest: %w", err)
-	}
-	return parents, nil
+	return out, nil
 }
 
 func (m *Materializer) loadProjectManifestOntologiesAtVersion(ctx context.Context, projectID, version string) ([]projectManifestLinkedOntology, error) {
@@ -212,31 +201,17 @@ func (m *Materializer) loadProjectManifestOntologiesAtVersion(ctx context.Contex
 }
 
 func (m *Materializer) loadProjectManifestNamespacesAtVersion(ctx context.Context, project domain.Project, version string) ([]projectManifestNamespaceBinding, error) {
-	rows, err := m.pool.Query(ctx, `
-		SELECT prefix, namespace, weight, source, project_id, ontology_id
-		FROM weave_namespace_bindings_archive
-		WHERE (project_id = $1 OR project_id IS NULL OR project_id = '')
-		  AND version_number = $2
-	`, project.ID, version)
+	if err := releasearchive.Require(ctx, m.queries, project.ID, version); err != nil {
+		return nil, err
+	}
+	rows, err := m.queries.WeaveListReleaseNamespaceBindings(ctx, sqlcgen.WeaveListReleaseNamespaceBindingsParams{ProjectID: project.ID, Version: version})
 	if err != nil {
-		return nil, fmt.Errorf("list archived namespace bindings for manifest: %w", err)
+		return nil, fmt.Errorf("list release namespaces for manifest: %w", err)
 	}
-	defer rows.Close()
-
-	visible := make([]*domain.NamespaceBinding, 0)
-	for rows.Next() {
-		b := &domain.NamespaceBinding{ProjectID: project.ID}
-		var rowProjectID, rowOntologyID *string
-		if err := rows.Scan(&b.Prefix, &b.Namespace, &b.Weight, &b.Source, &rowProjectID, &rowOntologyID); err != nil {
-			return nil, fmt.Errorf("scan archived namespace binding for manifest: %w", err)
-		}
-		b.Source = namespaceSourceFor(rowProjectID, rowOntologyID, b.Source, project.ID)
-		visible = append(visible, b)
+	visible := make([]*domain.NamespaceBinding, 0, len(rows))
+	for _, row := range rows {
+		visible = append(visible, &domain.NamespaceBinding{Prefix: row.Prefix, Namespace: row.Namespace, Weight: row.Weight, Source: namespaceSourceFor(row.ProjectID, row.OntologyID, row.Source, project.ID)})
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate archived namespace bindings for manifest: %w", err)
-	}
-
 	return manifestBindings(project, visible)
 }
 
@@ -287,14 +262,9 @@ func (m *Materializer) loadPletkaProjectRequirementsAtVersion(ctx context.Contex
 	}
 	reqs := make([]pletkaProjectRequirement, 0, len(parents))
 	for _, parent := range parents {
-		parentProject, err := m.loadArchivedProject(ctx, parent.ProjectID, version)
+		parentProject, err := m.loadArchivedProject(ctx, parent.ProjectID, parent.SourceVersion)
 		if err != nil {
-			// pinned parent selectors still need the owner/module path; fall back to hot project row lookup
-			live, liveErr := m.queries.WeaveGetProjectByID(ctx, parent.ProjectID)
-			if liveErr != nil {
-				return nil, fmt.Errorf("get parent project %s for archived pletka.mod: %w", parent.ProjectID, err)
-			}
-			parentProject = &archivedProjectManifestRow{ID: live.ID, OwnerID: live.OwnerID}
+			return nil, fmt.Errorf("get pinned parent for archived pletka.mod: %w", err)
 		}
 		modulePath, err := m.projectModulePath(ctx, parentProject.OwnerID, parent.ProjectID)
 		if err != nil {
