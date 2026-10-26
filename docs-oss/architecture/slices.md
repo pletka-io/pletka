@@ -188,7 +188,9 @@ The closure includes inheritance, adoptions, refs without adoption records,
 export picks, ontology versions, defaults and namespace aliases. Shared captured
 state needs membership owned by the consuming release. Copying parent metadata
 under the child's version or joining global rows solely by textual version number
-creates collisions. These ownership and session migrations are still pending.
+creates collisions. Migration 021 corrects capture ownership for new cuts and
+keeps unverified history unavailable. The bound session and complete dependency
+closure remain pending.
 See [ADR-0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md).
 
 ### Whole-project reads belong to an assembler

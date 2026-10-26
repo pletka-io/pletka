@@ -293,7 +293,7 @@ func (h *Handler) PathSuggestionsHandler(w http.ResponseWriter, r *http.Request)
 	targets, err := resolveProjectTargets(ctx, pool, projectID, scope, weaveauth.ProjectVersionFromContext(ctx))
 	if err != nil {
 		h.logger.Error("resolve project targets failed", "err", err, "project_id", projectID)
-		apierror.Write(w, r, apierror.InternalWith("failed to resolve project scope", err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 

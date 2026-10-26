@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
+	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
@@ -91,6 +92,9 @@ func (s *postgresStore) BundleForVersions(ctx context.Context, versionIDs []stri
 }
 
 func (s *postgresStore) ListVersion(ctx context.Context, projectID, releaseVersion string) ([]*domain.ProjectOntologyVersion, error) {
+	if err := releasearchive.Require(ctx, s.queries, projectID, releaseVersion); err != nil {
+		return nil, err
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT project_id, ontology_version_id, added_at, added_by_id, is_primary, usage_notes
 		FROM weave_project_ontology_versions_archive
@@ -129,6 +133,9 @@ func (s *postgresStore) Get(ctx context.Context, projectID, versionID string) (*
 }
 
 func (s *postgresStore) GetVersion(ctx context.Context, projectID, versionID, releaseVersion string) (*domain.ProjectOntologyVersion, error) {
+	if err := releasearchive.Require(ctx, s.queries, projectID, releaseVersion); err != nil {
+		return nil, err
+	}
 	row := s.pool.QueryRow(ctx, `
 		SELECT project_id, ontology_version_id, added_at, added_by_id, is_primary, usage_notes
 		FROM weave_project_ontology_versions_archive

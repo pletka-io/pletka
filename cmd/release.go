@@ -55,6 +55,7 @@ unprocessed change set already queued, is skipped rather than re-enqueued.`,
 	releaseCmd.AddCommand(archiveCmd)
 	releaseCmd.AddCommand(materializeMissingCmd)
 	releaseCmd.AddCommand(newReleaseReconstructCommand())
+	releaseCmd.AddCommand(newReleaseOwnershipAuditCommand())
 	return releaseCmd
 }
 

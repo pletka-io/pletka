@@ -7,6 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pletka-io/pletka/pkg/database/releasearchive"
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
 type selectorTarget struct {
@@ -114,47 +116,15 @@ func listParentTargetsDraft(ctx context.Context, pool *pgxpool.Pool, projectID s
 }
 
 func listParentTargetsArchived(ctx context.Context, pool *pgxpool.Pool, projectID, version string) ([]selectorTarget, error) {
-	rows, err := pool.Query(ctx, `
-		SELECT parent_project_id
-		FROM weave_project_inheritance_archive
-		WHERE project_id = $1 AND version_number = $2
-		ORDER BY CASE WHEN is_primary THEN 0 ELSE 1 END, canonical_order ASC, parent_project_id ASC
-	`, projectID, version)
+	rows, err := releasearchive.Parents(ctx, sqlcgen.New(pool), projectID, version)
 	if err != nil {
-		return nil, fmt.Errorf("query archived project inheritances: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-
-	out := make([]selectorTarget, 0)
-	for rows.Next() {
-		var parentID string
-		if err := rows.Scan(&parentID); err != nil {
-			return nil, fmt.Errorf("scan archived project inheritance parent: %w", err)
-		}
-		out = append(out, selectorTarget{ProjectID: parentID, Version: version})
+	out := make([]selectorTarget, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, selectorTarget{ProjectID: row.ParentProjectID, Version: *row.SourceVersion})
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate archived project inheritances: %w", err)
-	}
-	if len(out) > 0 {
-		return out, nil
-	}
-
-	var parent *string
-	if err := pool.QueryRow(ctx, `
-		SELECT parent_project_id
-		FROM weave_projects_archive
-		WHERE id = $1 AND version_number = $2
-	`, projectID, version).Scan(&parent); err != nil {
-		if err == pgx.ErrNoRows {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("fallback archived project parent: %w", err)
-	}
-	if parent == nil || *parent == "" {
-		return nil, nil
-	}
-	return []selectorTarget{{ProjectID: *parent, Version: version}}, nil
+	return out, nil
 }
 
 func normalizeSourceMode(mode string) string {

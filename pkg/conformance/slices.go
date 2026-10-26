@@ -57,7 +57,7 @@ var VersionedSlices = []VersionedSlice{
 	{
 		Name:          "namespacebinding",
 		Pkg:           "pkg/weave/namespacebinding",
-		ArchiveTables: []string{"weave_namespace_bindings_archive"},
+		ArchiveTables: []string{"weave_namespace_bindings_archive", "weave_release_namespace_bindings_archive"},
 	},
 	{
 		Name: "project",

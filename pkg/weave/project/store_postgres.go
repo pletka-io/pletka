@@ -12,6 +12,7 @@ import (
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
+	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
@@ -75,6 +76,9 @@ func (s *postgresStore) GetByID(ctx context.Context, id string) (*domain.Project
 }
 
 func (s *postgresStore) GetByIDVersion(ctx context.Context, id, version string) (*domain.Project, error) {
+	if err := releasearchive.Require(ctx, s.queries, id, version); err != nil {
+		return nil, err
+	}
 	row := s.pool.QueryRow(ctx, `
 		SELECT
 			id, created_at, updated_at, system_name, ui_name, description, status,

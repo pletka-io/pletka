@@ -174,6 +174,9 @@ func TestInheritedSearch_UsesPinnedParentReleaseState(t *testing.T) {
 	`, childID, parentID, version); err != nil {
 		t.Fatalf("seed pinned inheritance: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_releases (project_id, version, created_by_id, archive_ownership_version) VALUES ($1, $2, $3, 1)`, parentID, version, ownerID); err != nil {
+		t.Fatal(err)
+	}
 
 	hotPath, _ := json.Marshal([]domain.PathElement{
 		{Type: "property", Prefix: "crm", LocalName: "P1_is_identified_by", Position: 0},
@@ -269,6 +272,9 @@ func TestPathSuggestions_UsePinnedParentReleaseState(t *testing.T) {
 		VALUES ($1, $2, true, 0, 'release', $3)
 	`, childID, parentID, version); err != nil {
 		t.Fatalf("seed pinned inheritance: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_releases (project_id, version, created_by_id, archive_ownership_version) VALUES ($1, $2, $3, 1)`, parentID, version, ownerID); err != nil {
+		t.Fatal(err)
 	}
 
 	hotPath, _ := json.Marshal([]domain.PathElement{

@@ -161,10 +161,8 @@ func seedExampleField(t *testing.T, pool *pgxpool.Pool, fieldID, entityType, ent
 	return overrideID
 }
 
-// runSnapshotStatements executes the package's snapshotStatements against
-// pool in order, with $1 = projectID and $2 = version — the exact list and
-// parameters Service.Create runs in its own transaction, so a statement that
-// only works inside Create cannot pass here.
+// runSnapshotStatements exercises entity snapshots only. Owned project metadata
+// and namespace capture are covered by tests that call Service.Create.
 func runSnapshotStatements(ctx context.Context, pool *pgxpool.Pool, projectID, version string) error {
 	for _, stmt := range snapshotStatements {
 		if _, err := pool.Exec(ctx, stmt, projectID, version); err != nil {

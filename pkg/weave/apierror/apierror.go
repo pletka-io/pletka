@@ -16,10 +16,12 @@ type Code string
 // The error kinds the API returns. Code's own doc comment above says why
 // this list is the contract: the frontend branches on these strings.
 const (
-	CodeBadRequest       Code = "bad_request"
-	CodeUnauthorized     Code = "unauthorized"
-	CodeForbidden        Code = "forbidden"
-	CodeNotFound         Code = "not_found"
+	CodeBadRequest   Code = "bad_request"
+	CodeUnauthorized Code = "unauthorized"
+	CodeForbidden    Code = "forbidden"
+	CodeNotFound     Code = "not_found"
+	// CodeNotInRelease distinguishes unavailable release content from a missing entity.
+	CodeNotInRelease     Code = "not_in_release"
 	CodeConflict         Code = "conflict"
 	CodeValidation       Code = "validation"
 	CodeInUse            Code = "in_use"
@@ -176,6 +178,12 @@ type NotFounder interface {
 	IsNotFound() bool
 }
 
+// NotInReleaser identifies content unavailable in the requested release.
+type NotInReleaser interface {
+	error
+	IsNotInRelease() bool
+}
+
 // InUser is implemented by slice ErrInUse types (e.g. delete blocked
 // because dependents exist).
 //
@@ -215,6 +223,10 @@ func FromError(err error) *Error {
 	var f Forbidder
 	if errors.As(err, &f) {
 		return Forbidden(f.Error())
+	}
+	var nr NotInReleaser
+	if errors.As(err, &nr) && nr.IsNotInRelease() {
+		return &Error{Status: http.StatusNotFound, Code: CodeNotInRelease, Message: nr.Error()}
 	}
 	var nf NotFounder
 	if errors.As(err, &nf) {

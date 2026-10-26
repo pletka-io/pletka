@@ -40,17 +40,19 @@ unresolved pins and follow-source-draft dependencies when cutting a release.
 Explicit draft-following may be supported for draft workflows; it cannot become
 an immutable release dependency.
 
-Archive ownership must also change. Current cuts copy parent metadata under the
-child's version and copy shared bindings under globally colliding textual version
-keys. Source content must retain its own release identity. Captured shared state
-needs membership owned by the consuming release. Overwriting collisions would
-mutate history and is forbidden. Historical membership may be unreconstructable;
-current drafts cannot be used to fabricate missing history.
+Archive ownership must be explicit. Migration 021 replaces the earlier copying
+of parent metadata under a child's version and shared bindings under globally
+colliding keys. New namespace captures belong to `(release_project_id, version)`;
+new project/inheritance/ontology captures contain only the releasing project's
+rows. Source metadata is read at the recorded source version, with no live
+fallback. Unverified history remains unavailable and has a read-only audit.
+Overwriting collisions would mutate history and is forbidden. Historical
+membership may be unreconstructable; current drafts cannot fabricate it.
 
 These are required write-path and schema changes, not merely a new latest-release
 query. An assembler consumes the recorded dependency graph; it does not infer or
-repair it at read time. This amendment is the target contract; the migration is
-not yet complete.
+repair it at read time. The ownership change is implemented; the bound session,
+complete dependency closure and historical verification remain pending.
 
 ## Original decision (2026-10-23; qualified by the amendment)
 
