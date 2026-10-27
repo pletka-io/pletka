@@ -114,6 +114,7 @@ func (h *Handler) Mount(r chi.Router) {
 }
 
 type AdminHost struct {
+	Editor       *EditorHost
 	Service      *Service
 	Logger       *slog.Logger
 	Templates    *weavetemplates.Renderer
@@ -138,8 +139,13 @@ func MountAdmin(r chi.Router, host AdminHost) {
 		panic(err)
 	}
 	h := NewHandler(host.Service, host.Logger, host.Languages, host.LangResolver)
+	h.editor = host.Editor
 	if host.Templates != nil && host.I18n != nil {
-		NewAdminPages(host.Logger, host.Templates, host.Service, host.I18n, host.Session).Mount(r)
+		pages := NewAdminPages(host.Logger, host.Templates, host.Service, host.I18n, host.Session)
+		pages.Mount(r)
+		if host.Editor != nil {
+			r.Get("/{ontologyID}/draft/page", pages.draftPage)
+		}
 	}
 	h.Mount(r)
 }
@@ -186,6 +192,7 @@ func MountAPI(parent chi.Router, host APIHost) {
 }
 
 type PagesHost struct {
+	Editor    *EditorHost
 	Service   *Service
 	Logger    *slog.Logger
 	Templates *weavetemplates.Renderer
@@ -211,5 +218,6 @@ func MountPages(parent chi.Router, host PagesHost) {
 		return
 	}
 	pages := NewPages(host.Logger, host.Templates, host.Service, host.I18n, host.Session)
+	pages.editor = host.Editor
 	pages.Mount(parent)
 }

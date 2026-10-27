@@ -262,6 +262,7 @@ func Mount(parent chi.Router, projects ProjectMiddlewareHost, errors ErrorPageHo
 	// so the OntologyPathBuilder Svelte widget + ontology-labels client
 	// keep working without frontend changes. Backed by the shared Service.
 	weaveontology.MountAPI(parent, opts.OntologyAPI)
+	weaveontology.MountEditorAPI(parent, opts.OntologyAdmin.Editor)
 
 	// Public ontology browse pages (/ontologies/...) — Phase F2 of
 	// the master ontology slice plan. Read-only views of families /

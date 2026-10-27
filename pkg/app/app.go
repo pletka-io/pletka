@@ -264,6 +264,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	draftsHost := buildDraftsHost(weaveStore, logger)
 	settingsHost := buildSettingsHost(opts.Pool, weaveStore, logger, languages, opts.VocabularyServiceURL)
 	ontologySvc, ontologyAdminHost, ontologyAPIHost, ontologyPagesHost := buildOntologyHosts(
+		opts.Pool,
 		ontologyStore,
 		weaveStore,
 		logger,

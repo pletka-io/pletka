@@ -87,7 +87,8 @@ func TestOntologyDraftQueriesCannotReachVersionTables(t *testing.T) {
 			}
 			sql := string(body)
 			for _, match := range tables.FindAllStringSubmatch(sql, -1) {
-				if match[1] != "weave_ontology_drafts" {
+				isReceipt := dir == "read_ontology_draft" && match[1] == "weave_ontology_draft_publications"
+				if match[1] != "weave_ontology_drafts" && !isReceipt {
 					t.Errorf("draft query reaches non-draft table %s", match[1])
 				}
 			}
@@ -100,5 +101,35 @@ func TestOntologyDraftQueriesCannotReachVersionTables(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// HTTP and schema adapters may coordinate the lifecycle but must not regain
+// writable stores or construct DB capabilities while rendering a form.
+func TestOntologyEditorAdaptersCannotAcquireStores(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join(repoRoot(t), "pkg/weave/ontology/editor_*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, imp := range f.Imports {
+			p, _ := strconv.Unquote(imp.Path.Value)
+			if strings.Contains(p, "/sqlcgen") || strings.Contains(p, "/readsql/") || strings.Contains(p, "/writesql/") || strings.Contains(p, "pgx") || p == "database/sql" {
+				t.Errorf("editor adapter imports DB capability %s", p)
+			}
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && (id.Name == "Store" || id.Name == "postgresStore" || id.Name == "NewPostgresStore" || id.Name == "NewDraftService" || id.Name == "writeImportedVersion" || id.Name == "publishImportedOntology") {
+				t.Errorf("editor adapter accesses unrestricted lifecycle implementation %s", id.Name)
+			}
+			return true
+		})
 	}
 }

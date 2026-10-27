@@ -145,8 +145,11 @@ write. `is_active` is derived live status, not release evidence. Editor drafts u
 revisions. `Read`/`Edit` expose only bound draft capabilities, with separate generated
 SELECT and lock/save packages. `Publish` commits through the shared body writer,
 seal and dependency publisher; never delete/reuse a release ID or write version
-rows from a draft editor. Keep HTTP authorization at the request boundary. Editor
-HTTP/UI integration, unversioned project references and other assembler inputs
+rows from a draft editor. Keep HTTP authorization at the request boundary. The source editor/API now uses `EditorHost` and the existing schema renderer;
+all routes are super-admin-gated and mutations require JSON. Keep schema and form
+decoding on the same binding inventory; preserve unexposed draft settings. Expose
+current-revision receipt status through the draft reader, never live version policy.
+Structured term editing, unversioned project references and other assembler inputs
 remain open. See [draft operations](../../docs-oss/reference/ontology-drafts.md).
 
 ### Whole-project reads belong to the assembler

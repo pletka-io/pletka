@@ -122,3 +122,26 @@ regenerates `frontend/src/lib/types/path-types.ts` from `pkg/domain` (see
 formschema TypeScript types are **hand-maintained mirrors** of the Go structs
 in `pkg/formschema/` — when a Go shape changes, update the mirror by hand. Any
 exception is documented and tested.
+
+## Revision conflicts
+
+`FormSchema.conflict` opts a form into generic three-way reconciliation. It supplies
+`revision_field`, `identity` and a localized message. Emit the current revision as
+a hidden field. Identity must change when field meaning changes (for example when
+indexed source files are reordered or renamed). Server writes must still check
+the expected revision; the schema is not an authorization/concurrency guard.
+
+A canonical 409 conflict preserves local values. Comparing with a fresh schema
+combines non-overlapping changes and requires choices for overlapping ones. The
+renderer verifies target, layout and revision compatibility before updating the
+form, then waits for another explicit save. It never retries writes automatically.
+Unknown-field validation messages appear in a summary so publication errors are
+visible even when the relevant source field belongs to another form.
+
+Shared schema types now include `FieldDef.rows` for textarea height and a registered
+`hidden` widget that retains typed JSON values. Every form must supply a non-null
+language list. Keep the Go/TypeScript mirror, renderer registry and both copies of
+the contribution manifest (`frontend/core.frontend.json` and
+`pkg/assets/frontend/core.frontend.json`) in sync; the build does not copy the
+tracked manifest. Generic conflict behavior is checked by `npm run test:forms`
+in `frontend`.

@@ -14,12 +14,20 @@ export interface SchemaEndpoint {
   confirm?: ConfirmConfig;
 }
 
+/** Opt-in revision reconciliation; mirrors formschema.FormConflictConfig. */
+export interface FormConflictConfig {
+  revision_field: string;
+  identity: string;
+  message: Translations;
+}
+
 export interface FormSchema {
   entity_type: string;
   mode: string;
   theme?: string;
   endpoint?: SchemaEndpoint;
   delete?: DeleteAction;
+  conflict?: FormConflictConfig;
   sections: Section[];
   context?: { source?: string; model_id?: string; mode: string };
   ui: SchemaUI;
@@ -71,6 +79,7 @@ export interface FieldDef {
   name: string;
   widget: string;
   required?: boolean;
+  rows?: number;
   readonly?: boolean;
   immutable_after_create?: boolean;
   derived_from?: string;

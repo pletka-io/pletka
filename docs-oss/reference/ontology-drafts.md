@@ -3,7 +3,68 @@
 Ontology drafts are separate from immutable releases. This backend supports one
 editable source document per ontology, revision-checked saves, and atomic
 publication. The operator CLI uses the normal application database configuration
-and `weave --instance` selection. The HTTP editor and UI are not wired yet.
+and `weave --instance` selection. The same lifecycle now backs the schema-driven
+source editor and HTTP API.
+
+## Browser editor
+
+Super-admins can choose **Edit draft** from an ontology page. Create a blank draft,
+or open a published version and choose **Start draft from this release**. Existing
+drafts are offered as **Open draft** and are never replaced by that operation.
+The editor page is `/admin/ontologies/{ontologyID}/draft/page`.
+
+The existing schema form renderer edits name, prefix, namespace, description,
+homepage/source URL and primary/companion RDF/XML files. Companions can be added,
+removed or edited in the same save. Other descriptor/dependency settings remain
+in the draft unchanged; the full-document API can edit them. This is a source
+editor, not yet a structured class/property editor or graph preview.
+
+**Save draft** preserves incomplete source text. **Publish saved draft** is a
+separate confirmed action with a version label and optional active selection.
+Source and dependency validation failures are shown visibly. After publication,
+the page displays the receipt's version and offers further editing; publication
+is offered again only after a new save. Existing version views and version lists
+omit direct edit/delete controls when the editor is wired. Legacy storage/API
+compatibility remains subject to the immutable-release guards.
+
+A stale save preserves the form's unsaved values. **Compare with latest** prepares
+a three-way comparison: independent changes combine, overlapping changes require
+an explicit choice. **Apply review to form** updates the revision but does not
+save; the user submits again. A later concurrent change produces another conflict.
+If source ordering/filenames, permissions, endpoint or form fields changed, automatic
+reconciliation is refused and the original values remain available for manual
+review. There is no automatic retry that overwrites another edit.
+
+## HTTP API
+
+All editor and schema routes require the existing super-admin permission and
+return canonical API errors. Responses are private and non-cacheable. Mutations
+require `Content-Type: application/json`; request bodies are limited to 64 MiB.
+The shared `/api/` middleware exempts JSON APIs from CSRF tokens, so accepting
+browser-simple form/text content types here would be unsafe.
+
+Relative to `/api/v2/ontologies/{ontologyID}/draft`:
+
+| Method/path | Request or result |
+| --- | --- |
+| `GET /` | Current `DraftSnapshot`; absent drafts return 404 |
+| `POST /` | Exactly one of `{"from_release":"VERSION_ID"}` or `{"document":{...}}` |
+| `GET /{draftID}` | Snapshot bound to that owner and draft |
+| `PUT /{draftID}` | `{"revision":N,"document":{...}}` |
+| `POST /{draftID}/publish` | `{"revision":N,"version":"1.1","set_active":false}` |
+
+Create/publication returns 201; reads/saves and identical publication replay return
+200. Stale revisions and identity collisions return 409; invalid publication inputs
+return 422. Snapshot `publication`, when present, is the immutable receipt for that
+exact current revision; it disappears on the next edit. It is distinct from the
+publication options inside `document`.
+
+The same slice provides `page-schema`, `start-form-schema`, `/{draftID}/form-schema`
+and `/{draftID}/publish-form-schema`. Form submissions use the emitted endpoints;
+clients must not construct them. The form adapter derives its field inventory and
+decoder from the same bindings, preserves unexposed settings, rejects unknown or
+missing fields, and saves only through a bound `DraftEditor`. App wiring supplies
+`EditorHost`; it owns no store or pool and cannot construct database capabilities.
 
 ## Start and edit
 
@@ -105,7 +166,24 @@ The generated reader package has only draft SELECTs; the generated writer packag
 can only lock/save draft rows. Architecture checks forbid wider query capabilities.
 
 Authorization belongs at the request boundary and is independent of selection.
-Future editor handlers must receive the lifecycle service through application
-wiring and use canonical API error adaptation. Migration 028 creates no draft or
+Editor handlers receive the lifecycle service through application wiring and use
+canonical API error adaptation; schema capabilities do not replace authorization. Migration 028 creates no draft or
 publication from historical active/version rows. It refuses downgrade while drafts
 exist; deleting published evidence is not part of this workflow.
+
+## Verification
+
+`npm --prefix frontend run test:forms` runs the generic reconciliation tests. The
+required database tests cover the mounted HTTP API, authorization, source-owner
+checks, revision conflicts, source/companion edits, receipt status and publication.
+For a real browser regression, build assets and opt into Chromium explicitly:
+
+```bash
+npm --prefix frontend run build
+PLETKA_EDITOR_BROWSER=1 make test-integration TEST_PACKAGES='./pkg/weave/ontology -run TestOntologyEditorBrowser -v'
+```
+
+This requires `node` and `chromium` on PATH. Missing prerequisites fail an opted-in
+run. The test uses an isolated database, serves actual editor schemas and built
+assets over loopback, and checks conflict review, validation and publication.
+`PLETKA_EDITOR_SCREENSHOT=/tmp/editor.png` optionally saves the final view.

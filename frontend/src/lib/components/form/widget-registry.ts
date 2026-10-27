@@ -12,6 +12,7 @@ import PillMultiSelect from './widgets/PillMultiSelect.svelte';
 import OntologyPathBuilder from './widgets/OntologyPathBuilder.svelte';
 import SubfieldPathsDisplay from './widgets/SubfieldPathsDisplay.svelte';
 import TextInput from './widgets/TextInput.svelte';
+import Hidden from './widgets/Hidden.svelte';
 import PrefixInput from './widgets/PrefixInput.svelte';
 import RadioGroup from './widgets/RadioGroup.svelte';
 import ReadonlyStat from './widgets/ReadonlyStat.svelte';
@@ -77,6 +78,7 @@ registerWidgets(
     'subfield-paths': SubfieldPathsDisplay,
     'prefix-input': PrefixInput,
     text: TextInput,
+    hidden: Hidden,
     number: TextInput,
     date: TextInput,
     url: TextInput,

@@ -76,6 +76,7 @@ type DraftSnapshot struct {
 	BaseVersionID *string                 `json:"base_version_id,omitempty"`
 	Revision      int64                   `json:"revision"`
 	Document      DraftDocument           `json:"document"`
+	Publication   *DraftPublication       `json:"publication,omitempty"`
 }
 
 // DraftPublishRequest chooses a new release label and optional active selection.
@@ -91,6 +92,7 @@ type DraftPublication struct {
 	DraftID    DraftID                 `json:"draft_id"`
 	Revision   int64                   `json:"revision"`
 	VersionID  string                  `json:"version_id"`
+	Version    string                  `json:"version"`
 	Digest     string                  `json:"artifact_digest"`
 	Created    bool                    `json:"created"`
 }
