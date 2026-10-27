@@ -228,6 +228,21 @@ Receipt replay is idempotent only at the same current revision
 and request. No historical rows are converted to drafts; downgrade refuses stored
 drafts. See [draft operations](../reference/ontology-drafts.md).
 
+## Release output descriptors
+
+Migration 029 stores immutable actor/module documents in
+`weave_release_descriptors`. The cut captures owner, creator, receipt and credit
+actors plus concrete project/ontology module identifiers in the same repeatable
+read transaction as archived bodies, dependencies and outbox. Source modules come
+from their pinned releases. One actor-reference view drives both capture and
+storage validation. Mutable actors have no foreign keys into these snapshots.
+
+`readsession.Session.Descriptors` uses the archive SELECT capability and returns
+detached values; released materialization never consults current actor labels or
+host configuration. Missing historical snapshots return `not_in_release` rather
+than reconstructing history. Storage rejects mutations, incomplete inventories
+and late insertion into verified cuts. See [ADR-0014](../decisions/0014-release-actor-and-module-descriptors.md).
+
 ## Migrations: goose
 
 Schema changes are numbered SQL files in `pkg/database/migrations/`

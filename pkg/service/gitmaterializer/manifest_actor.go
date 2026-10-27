@@ -3,14 +3,11 @@ package gitmaterializer
 import (
 	"context"
 	"strings"
+
+	"github.com/pletka-io/pletka/pkg/database/releasedescriptor"
 )
 
-type manifestActor struct {
-	ActorID     string `json:"actor_id,omitempty"`
-	Type        string `json:"type,omitempty"`
-	Slug        string `json:"slug,omitempty"`
-	DisplayName string `json:"display_name,omitempty"`
-}
+type manifestActor = releasedescriptor.Actor
 
 func (m *Materializer) loadManifestActor(ctx context.Context, actorID *string) *manifestActor {
 	if actorID == nil {

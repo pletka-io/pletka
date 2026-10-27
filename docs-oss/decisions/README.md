@@ -32,3 +32,4 @@ Format: [`TEMPLATE.md`](TEMPLATE.md). Numbering is zero-padded and sequential.
 | [0011](0011-cross-project-reads-resolve-at-the-source-release.md) | Capture source releases and their closure during a cut; released consumers use recorded pins, while draft policy may resolve latest once. |
 | [0012](0012-whole-project-reads-belong-to-an-assembler.md) | Whole-project reads use one assembler receiving the bound session; materializer, generators and publication consume complete values. |
 | [0013](0013-ontology-drafts-and-immutable-releases.md) | Ontology editing uses drafts; project dependencies, materialization and restore use immutable ontology releases with enforced artifact identity. |
+| [0014](0014-release-actor-and-module-descriptors.md) | Capture actor descriptors and module identifiers during release cut; released output uses captured values without live identity or host lookups. |

@@ -1049,6 +1049,12 @@ type WeaveRelease struct {
 	OntologyDependenciesVersion int16              `json:"ontology_dependencies_version"`
 }
 
+type WeaveReleaseActorReference struct {
+	ProjectID     string `json:"project_id"`
+	VersionNumber string `json:"version_number"`
+	ActorID       string `json:"actor_id"`
+}
+
 type WeaveReleaseDependencyEntity struct {
 	ProjectID       string `json:"project_id"`
 	VersionNumber   string `json:"version_number"`
@@ -1056,6 +1062,12 @@ type WeaveReleaseDependencyEntity struct {
 	EntityID        string `json:"entity_id"`
 	SourceProjectID string `json:"source_project_id"`
 	SourceVersion   string `json:"source_version"`
+}
+
+type WeaveReleaseDescriptor struct {
+	ProjectID     string          `json:"project_id"`
+	VersionNumber string          `json:"version_number"`
+	Document      json.RawMessage `json:"document"`
 }
 
 type WeaveReleaseNamespaceBindingsArchive struct {

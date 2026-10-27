@@ -223,13 +223,21 @@ func groupProjectAdoptions(adoptions []domain.Adoption) []groupedAdoptionReceipt
 }
 
 func (m *Materializer) encodeAdoptionReceipt(ctx context.Context, grouped groupedAdoptionReceipt) ([]byte, error) {
+	return encodeAdoptionReceipt(grouped, func(id *string) (*manifestActor, error) { return m.loadManifestActor(ctx, id), nil })
+}
+
+func encodeAdoptionReceipt(grouped groupedAdoptionReceipt, actor func(*string) (*manifestActor, error)) ([]byte, error) {
 	contexts := make([]adoptionReceiptContext, 0, len(grouped.Contexts))
 	for _, adoption := range grouped.Contexts {
+		adoptedBy, err := actor(adoption.CreatedByID)
+		if err != nil {
+			return nil, err
+		}
 		contexts = append(contexts, adoptionReceiptContext{
 			ContextEntityType: adoption.ContextEntityType,
 			ContextEntityID:   adoption.ContextEntityID,
 			AdoptedAt:         formatManifestTime(adoption.AdoptedAt),
-			AdoptedBy:         m.loadManifestActor(ctx, adoption.CreatedByID),
+			AdoptedBy:         adoptedBy,
 		})
 	}
 	payload, err := encodeAdoptionReceiptManifest(adoptionReceiptManifest{

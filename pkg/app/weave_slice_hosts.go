@@ -421,6 +421,7 @@ func buildProjectPageHost(
 	ontologyVersionReader projectontologyversion.OntologyVersionReader,
 	publicationReader *publication.Reader,
 	examplesMaxNestingDepth int,
+	releases projectpage.ReleaseReader,
 ) projectpage.Host {
 	povSvc := projectontologyversion.NewService(
 		projectontologyversion.NewPostgresStore(pool),
@@ -434,7 +435,7 @@ func buildProjectPageHost(
 		Logger:           logger,
 		Weave:            weave,
 		LinkedOntologies: povSvc,
-		Releases:         release.NewService(release.NewPostgresStore(pool), pool, logger),
+		Releases:         releases,
 		Examples:         example.NewService(example.NewPostgresStore(pool), weave, example.WithMaxNestingDepth(examplesMaxNestingDepth)),
 		Attributions:     attribution.NewPostgresStore(pool),
 		ActorLabels:      actorlabels.NewPostgresReader(pool),
@@ -783,9 +784,10 @@ func buildReleaseHost(
 	logger *slog.Logger,
 	languages []formschema.LanguageInfo,
 	langResolver release.LangResolver,
+	moduleHost, ontologyHost string,
 ) release.Host {
 	return release.Host{
-		Service:      release.NewService(release.NewPostgresStore(pool), pool, logger),
+		Service:      release.NewService(release.NewPostgresStore(pool), pool, logger, release.WithModuleHosts(moduleHost, ontologyHost)),
 		Logger:       logger,
 		Languages:    languages,
 		LangResolver: langResolver,

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
+	"github.com/pletka-io/pletka/pkg/database/releasedescriptor"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
 )
@@ -208,18 +209,7 @@ func (m *Materializer) projectModulePath(ctx context.Context, ownerID, projectID
 	if err != nil {
 		return fmt.Sprintf("%s/actors/%s/projects/%s", m.moduleHost, ownerID, projectID), nil
 	}
-	slug := strings.TrimSpace(actor.Slug)
-	if slug == "" {
-		slug = actor.ID
-	}
-	switch actor.Type {
-	case "organization":
-		return fmt.Sprintf("%s/orgs/%s/projects/%s", m.moduleHost, slug, projectID), nil
-	case "person":
-		return fmt.Sprintf("%s/users/%s/projects/%s", m.moduleHost, slug, projectID), nil
-	default:
-		return fmt.Sprintf("%s/actors/%s/projects/%s", m.moduleHost, slug, projectID), nil
-	}
+	return releasedescriptor.ProjectModule(m.moduleHost, manifestActor{ActorID: actor.ID, Type: actor.Type, Slug: actor.Slug}, projectID), nil
 }
 
 // ontologyModulePath builds the module path for a vendored ontology, rooted
@@ -234,20 +224,7 @@ func (m *Materializer) ontologyModulePath(ontologySlug string) string {
 }
 
 func ontologyModuleSlug(prefix, name, fallback string) string {
-	name = strings.TrimSpace(strings.ToLower(name))
-	if name != "" {
-		replacer := strings.NewReplacer(" ", "-", "_", "-", "/", "-", "\\", "-", ".", "-", ":", "-")
-		name = replacer.Replace(name)
-		name = strings.Trim(name, "-")
-		if name != "" {
-			return name
-		}
-	}
-	prefix = strings.TrimSpace(prefix)
-	if prefix != "" {
-		return prefix
-	}
-	return strings.TrimSpace(fallback)
+	return releasedescriptor.OntologySlug(prefix, name, fallback)
 }
 
 func toProjectRowProject(row domain.Project) domain.Project {

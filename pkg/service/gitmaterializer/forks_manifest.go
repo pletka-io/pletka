@@ -158,6 +158,14 @@ func (m *Materializer) loadProjectForks(ctx context.Context, projectID string) (
 }
 
 func (m *Materializer) encodeForkReceipt(ctx context.Context, fork domain.EntityFork) ([]byte, error) {
+	return encodeForkReceipt(fork, func(id *string) (*manifestActor, error) { return m.loadManifestActor(ctx, id), nil })
+}
+
+func encodeForkReceipt(fork domain.EntityFork, actor func(*string) (*manifestActor, error)) ([]byte, error) {
+	createdBy, err := actor(fork.CreatedByID)
+	if err != nil {
+		return nil, err
+	}
 	return encodeForkReceiptManifest(forkReceiptManifest{
 		SchemaVersion: 1,
 		Fork: forkReceiptRecord{
@@ -169,7 +177,7 @@ func (m *Materializer) encodeForkReceipt(ctx context.Context, fork domain.Entity
 				Version:   strings.TrimSpace(fork.SourceVersion),
 			},
 			ForkedAt:  formatManifestTime(fork.ForkedAt),
-			CreatedBy: m.loadManifestActor(ctx, fork.CreatedByID),
+			CreatedBy: createdBy,
 		},
 	})
 }
