@@ -9,23 +9,6 @@ import (
 	"context"
 )
 
-const weaveActivateOntologyVersion = `-- name: WeaveActivateOntologyVersion :execrows
-UPDATE weave_ontology_versions SET is_active = true WHERE ontology_id = $1 AND id = $2
-`
-
-type WeaveActivateOntologyVersionParams struct {
-	OntologyID string `json:"ontology_id"`
-	ID         string `json:"id"`
-}
-
-func (q *Queries) WeaveActivateOntologyVersion(ctx context.Context, arg WeaveActivateOntologyVersionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, weaveActivateOntologyVersion, arg.OntologyID, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const weaveAuditOrphanOntologyRelations = `-- name: WeaveAuditOrphanOntologyRelations :many
 SELECT source_kind, source_id, rel_type, target_qname
 FROM weave_ontology_relations WHERE ontology_version_id IS NULL
@@ -62,15 +45,6 @@ func (q *Queries) WeaveAuditOrphanOntologyRelations(ctx context.Context) ([]Weav
 		return nil, err
 	}
 	return items, nil
-}
-
-const weaveClearActiveOntologyVersions = `-- name: WeaveClearActiveOntologyVersions :exec
-UPDATE weave_ontology_versions SET is_active = false WHERE ontology_id = $1 AND is_active
-`
-
-func (q *Queries) WeaveClearActiveOntologyVersions(ctx context.Context, ontologyID string) error {
-	_, err := q.db.Exec(ctx, weaveClearActiveOntologyVersions, ontologyID)
-	return err
 }
 
 const weaveSealOntologyVersionBody = `-- name: WeaveSealOntologyVersionBody :exec

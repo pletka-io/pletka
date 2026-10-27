@@ -96,7 +96,7 @@ func (p *publisher) choose(owner, version string) (Pin, error) {
 		if c.OntologyID != owner || c.VersionID == nil {
 			continue
 		}
-		if (version != "" && *c.VersionID == version) || (version == "" && c.IsActive != nil && *c.IsActive) {
+		if (version != "" && *c.VersionID == version) || (version == "" && c.IsActive) {
 			if c.PublishedVersionID == nil || c.Digest == nil {
 				return Pin{}, invalid("ontology %s version %s must be published before it can be pinned", owner, *c.VersionID)
 			}

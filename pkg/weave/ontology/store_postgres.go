@@ -773,7 +773,7 @@ func rowToOntology(row sqlcgen.WeaveOntology) *domain.Ontology {
 	}
 }
 
-func rowToVersion(row sqlcgen.WeaveOntologyVersion) *domain.OntologyVersion {
+func rowToVersion(row sqlcgen.WeaveOntologyVersionStatus) *domain.OntologyVersion {
 	return &domain.OntologyVersion{
 		ID:                     row.ID,
 		OntologyID:             row.OntologyID,
@@ -981,15 +981,26 @@ func (s *postgresStore) CountOntologyVersions(ctx context.Context, ontologyID st
 // ---------------------------------------------------------------------------
 
 func (s *postgresStore) CreateVersion(ctx context.Context, in CreateVersionInput) (*domain.OntologyVersion, error) {
-	return s.createVersionWith(ctx, s.queries, in)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin create ontology version: %w", err)
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx)) //nolint:errcheck
+	version, err := s.createVersionWith(ctx, s.queries.WithTx(tx), in)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return version, nil
 }
 
 func (s *postgresStore) createVersionWith(ctx context.Context, q *sqlcgen.Queries, in CreateVersionInput) (*domain.OntologyVersion, error) {
-	row, err := q.WeaveCreateOntologyVersion(ctx, sqlcgen.WeaveCreateOntologyVersionParams{
+	_, err := q.WeaveCreateOntologyVersion(ctx, sqlcgen.WeaveCreateOntologyVersionParams{
 		ID:                     in.ID,
 		OntologyID:             in.OntologyID,
 		VersionString:          in.VersionString,
-		IsActive:               in.IsActive,
 		CompatibleBaseVersions: in.CompatibleBaseVersions,
 		RdfContent:             dbutil.EmptyToNil(in.RDFContent),
 		ParsedAt:               dbutil.TimePtrToTimestamptz(in.ParsedAt),
@@ -1008,6 +1019,15 @@ func (s *postgresStore) createVersionWith(ctx context.Context, q *sqlcgen.Querie
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create version: %w", err)
+	}
+	if in.IsActive {
+		if err := selectActiveOntologyVersion(ctx, q, in.OntologyID, in.ID, false); err != nil {
+			return nil, err
+		}
+	}
+	row, err := q.WeaveGetOntologyVersionByID(ctx, in.ID)
+	if err != nil {
+		return nil, err
 	}
 	return rowToVersion(row), nil
 }
@@ -1029,7 +1049,7 @@ func (s *postgresStore) UpdateVersionMetadata(ctx context.Context, id string, in
 	if err != nil {
 		return nil, fmt.Errorf("update version metadata: %w", err)
 	}
-	return rowToVersion(row), nil
+	return rowToVersion(sqlcgen.WeaveOntologyVersionStatus(row)), nil
 }
 
 func (s *postgresStore) UpdateVersionCounts(ctx context.Context, id string, classCount, propertyCount int64) (err error) {
@@ -1045,30 +1065,19 @@ func (s *postgresStore) UpdateVersionCounts(ctx context.Context, id string, clas
 }
 
 func (s *postgresStore) SetActiveVersion(ctx context.Context, ontologyID, versionID string) error {
-	tx, err := s.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin set active version tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if err := setActiveOntologyVersion(ctx, s.queries.WithTx(tx), ontologyID, versionID); err != nil {
-		return fmt.Errorf("set active version: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit set active version tx: %w", err)
-	}
-	return nil
+	return selectActiveOntologyVersion(ctx, s.queries, ontologyID, versionID, false)
 }
 
-func setActiveOntologyVersion(ctx context.Context, q *sqlcgen.Queries, ontologyID, versionID string) error {
-	if err := q.WeaveClearActiveOntologyVersions(ctx, ontologyID); err != nil {
-		return fmt.Errorf("clear active version: %w", err)
-	}
-	affected, err := q.WeaveActivateOntologyVersion(ctx, sqlcgen.WeaveActivateOntologyVersionParams{OntologyID: ontologyID, ID: versionID})
+func (s *postgresStore) SetActiveVersionIfUnset(ctx context.Context, ontologyID, versionID string) error {
+	return selectActiveOntologyVersion(ctx, s.queries, ontologyID, versionID, true)
+}
+
+func selectActiveOntologyVersion(ctx context.Context, q *sqlcgen.Queries, ontologyID, versionID string, onlyIfUnset bool) error {
+	found, err := q.WeaveSelectActiveOntologyVersion(ctx, sqlcgen.WeaveSelectActiveOntologyVersionParams{OntologyID: ontologyID, VersionID: versionID, OnlyIfUnset: onlyIfUnset})
 	if err != nil {
 		return fmt.Errorf("activate target version: %w", err)
 	}
-	if affected == 0 {
+	if !found {
 		return pgx.ErrNoRows
 	}
 	return nil
@@ -1202,7 +1211,7 @@ func (s *postgresStore) importVersion(ctx context.Context, in ImportVersionInput
 	}
 
 	if in.SetActive {
-		if err := setActiveOntologyVersion(ctx, qtx, version.OntologyID, version.ID); err != nil {
+		if err := selectActiveOntologyVersion(ctx, qtx, version.OntologyID, version.ID, false); err != nil {
 			return nil, fmt.Errorf("set active during import: %w", err)
 		}
 	}

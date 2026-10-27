@@ -287,7 +287,6 @@ func (f *matScopedFixture) ontologyVersion(ontologyID, versionID string) string 
 		ID:                     versionID,
 		OntologyID:             ontologyID,
 		VersionString:          "1.0.0",
-		IsActive:               true,
 		CompatibleBaseVersions: []string{},
 		VersionInfo:            []byte(`{"en":"1.0.0"}`),
 		ImportedOntologies:     []string{},
@@ -298,6 +297,9 @@ func (f *matScopedFixture) ontologyVersion(ontologyID, versionID string) string 
 		PropertyCount:          1,
 	}); err != nil {
 		f.t.Fatalf("create ontology version %s: %v", versionID, err)
+	}
+	if _, err := f.queries.WeaveSelectActiveOntologyVersion(f.ctx, sqlcgen.WeaveSelectActiveOntologyVersionParams{OntologyID: ontologyID, VersionID: versionID}); err != nil {
+		f.t.Fatal(err)
 	}
 	return versionID
 }

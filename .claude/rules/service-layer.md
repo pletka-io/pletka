@@ -137,8 +137,11 @@ certifies historical content. Project cuts capture linked/explicit ontology
 selections and source-project closures centrally; use `Factory.ReadProject` for
 their immutable artifact values. Released materialization has no legacy fallback.
 Vendor schema 2 and restore preserve exact bytes and reject existing-ID conflicts;
-never send schema 2 through the legacy RDF importer. Separate draft/policy storage,
-unversioned project references and other whole-project assembler inputs remain open.
+never send schema 2 through the legacy RDF importer. Active selection lives in
+`weave_ontology_active_versions`, not version content. Use the shared selection
+operation; initialization must call `SetActiveVersionIfUnset`, never read then
+write. `is_active` is derived live status, not release evidence. Separate editor
+draft storage, unversioned project references and other assembler inputs remain open.
 
 ### Whole-project reads belong to the assembler
 

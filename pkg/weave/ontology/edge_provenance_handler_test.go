@@ -351,8 +351,9 @@ func (s *testStoreAdapter) UpdateVersionMetadata(context.Context, string, weaveo
 func (s *testStoreAdapter) UpdateVersionCounts(context.Context, string, int64, int64) error {
 	return nil
 }
-func (s *testStoreAdapter) SetActiveVersion(context.Context, string, string) error { return nil }
-func (s *testStoreAdapter) DeleteVersion(context.Context, string) error            { return nil }
+func (s *testStoreAdapter) SetActiveVersion(context.Context, string, string) error        { return nil }
+func (s *testStoreAdapter) SetActiveVersionIfUnset(context.Context, string, string) error { return nil }
+func (s *testStoreAdapter) DeleteVersion(context.Context, string) error                   { return nil }
 func (s *testStoreAdapter) ImportVersion(context.Context, weaveontology.ImportVersionInput) (*domain.OntologyVersion, error) {
 	return nil, nil
 }

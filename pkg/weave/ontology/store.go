@@ -140,6 +140,8 @@ type Store interface {
 	UpdateVersionMetadata(ctx context.Context, id string, in UpdateVersionMetadataInput) (*domain.OntologyVersion, error)
 	UpdateVersionCounts(ctx context.Context, id string, classCount, propertyCount int64) error
 	SetActiveVersion(ctx context.Context, ontologyID, versionID string) error
+	// SetActiveVersionIfUnset atomically preserves any existing policy choice.
+	SetActiveVersionIfUnset(ctx context.Context, ontologyID, versionID string) error
 	DeleteVersion(ctx context.Context, id string) error
 
 	// ImportVersion atomically imports, seals and publishes the dependency closure.
@@ -250,7 +252,7 @@ type CreateVersionInput struct {
 	ID                     string
 	OntologyID             string
 	VersionString          string
-	IsActive               bool
+	IsActive               bool // Compatibility command: select through policy in the create transaction.
 	CompatibleBaseVersions []string
 	RDFContent             string
 	ParsedAt               *time.Time

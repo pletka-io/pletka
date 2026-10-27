@@ -42,6 +42,11 @@ func TestOntologyPublicationHasOnePolicyBoundary(t *testing.T) {
 					if !ok {
 						return true
 					}
+					if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "WeaveSelectActiveOntologyVersion" {
+						if rel != "pkg/weave/ontology/store_postgres.go" || fn.Name.Name != "selectActiveOntologyVersion" {
+							t.Errorf("%s:%s bypasses centralized ontology selection", rel, fn.Name.Name)
+						}
+					}
 					sel, ok := call.Fun.(*ast.SelectorExpr)
 					if !ok || sel.Sel.Name != "importVersion" {
 						return true

@@ -818,8 +818,9 @@ func (s *routeTestStore) UpdateVersionMetadata(_ context.Context, id string, in 
 func (s *routeTestStore) UpdateVersionCounts(context.Context, string, int64, int64) error {
 	return nil
 }
-func (s *routeTestStore) SetActiveVersion(context.Context, string, string) error { return nil }
-func (s *routeTestStore) DeleteVersion(context.Context, string) error            { return nil }
+func (s *routeTestStore) SetActiveVersion(context.Context, string, string) error        { return nil }
+func (s *routeTestStore) SetActiveVersionIfUnset(context.Context, string, string) error { return nil }
+func (s *routeTestStore) DeleteVersion(context.Context, string) error                   { return nil }
 func (s *routeTestStore) ImportVersion(_ context.Context, in ImportVersionInput) (*domain.OntologyVersion, error) {
 	s.lastImport = &in
 	return &domain.OntologyVersion{
