@@ -72,6 +72,18 @@ func TestOntologyPublicationHasOnePolicyBoundary(t *testing.T) {
 					return true
 				}
 				switch sel.Sel.Name {
+				case "WeaveCreateOntologyDraft", "WeaveCurrentOntologyDraft":
+					if rel != "pkg/weave/ontology/draft_lifecycle.go" {
+						t.Errorf("%s bypasses ontology draft lifecycle", rel)
+					}
+				case "WeaveRecordOntologyDraftPublication", "WeaveOntologyDraftPublication", "WeaveOntologyDraftPublishedDigest":
+					if rel != "pkg/weave/ontology/draft_publish.go" {
+						t.Errorf("%s bypasses ontology draft publication", rel)
+					}
+				case "writeImportedVersion":
+					if rel != "pkg/weave/ontology/store_postgres.go" && rel != "pkg/weave/ontology/draft_publish.go" {
+						t.Errorf("%s bypasses the ontology body writer boundary", rel)
+					}
 				case "WeaveProjectOntologySelections", "WeavePublishedOntologyIdentity", "WeaveProjectOntologySourceInventories", "WeaveProjectOntologySourcePins", "WeaveInsertProjectOntologyPin", "WeaveMarkProjectOntologyInventory":
 					if rel != "pkg/database/ontologyrelease/project_capture.go" {
 						t.Errorf("%s bypasses project ontology capture", rel)

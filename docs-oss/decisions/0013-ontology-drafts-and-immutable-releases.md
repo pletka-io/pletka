@@ -1,7 +1,7 @@
 # ADR-0013: Ontology editing uses drafts; dependencies use immutable releases
 
 Date: 2026-10-26
-Status: Accepted; publication, project consumers, portable restore and separate active policy implemented; editor draft storage pending
+Status: Accepted; publication, project consumers, portable restore, separate active policy and draft backend implemented; editor API/UI pending
 
 ## Context
 
@@ -257,9 +257,8 @@ Unsafe downgrade is refused once transported bodies exist.
 This inventory does **not** yet resolve unversioned QName/URI references in project
 content. Actor/module descriptors and other whole-project assembler inputs also
 remain outside this checkpoint. Tests prove ontology-input stability and exact
-artifact restore, not complete project-output immutability. Separate editor draft
-tables remain the next ontology step. Active policy is now stored separately as
-described below.
+artifact restore, not complete project-output immutability. Separate editor draft storage and active policy are now implemented as
+described below; HTTP editor integration remains pending.
 
 ## Implemented active-selection policy (2026-10-27)
 
@@ -297,6 +296,48 @@ destination restore policy and byte-identical released output/artifacts.
 
 Next, build separate draft storage and draft write capabilities for the editor.
 Publishing those drafts must use the existing immutable publication boundary.
+
+## Implemented draft backend (2026-10-27)
+
+Migration 028 adds one `weave_ontology_drafts` document per ontology, with a
+separate draft identity and storage-managed revision. Format 1 uses editable
+RDF/XML primary/companion sources plus descriptor, namespace interpretation and
+publication inputs. Source files remain authoritative; publication derives fresh
+version-owned term rows using the shared RDF parser and import builder. Logical
+URI identity is stable without sharing mutable storage rows with releases.
+Unfinished sources may be saved, but cannot be published until valid.
+
+`ontology.DraftService.Read` and `Edit` bind an explicit owner/draft reference to a
+bounded repeatable-read callback. `DraftReader` has only draft SELECT capability;
+`DraftEditor` adds only draft lock/save queries and cannot publish or retarget.
+Expected revisions prevent lost updates. Callback errors roll back every save;
+cancellation cleans up the transaction independently of the canceled context.
+Architecture checks constrain imports, retained capabilities and query tables.
+
+`Publish` locks the expected revision and uses the same body writer, seal and
+closure publisher as ordinary imports. It never deletes an existing version ID.
+Descriptor/namespaces, new content, active selection and immutable publication
+receipt commit together. A receipt records the exact draft document, revision,
+request and artifact identity. Repeating an identical request at the same current
+revision returns that receipt without selecting active again or emitting another
+event. A changed request or stale revision conflicts. Edits remain available after
+publication. Imported events are emitted only after a successful new commit.
+
+`StartFromRelease` copies frozen sources, descriptor, namespace provenance,
+compatible-base labels and captured pins/external classifications into a new
+draft; it retains the base artifact. It reparses at publication, unlike exact
+artifact restore. Namespace merging preserves source, weight and ownership;
+global bindings remain global. Ordinary external imports still publish directly
+and do not overwrite a draft. There is no migration backfill from active rows,
+and downgrade refuses existing drafts. Request authorization remains separate.
+
+The public operator surface is `weave ontology-draft start/show/save/publish`;
+see [operations and JSON format](../reference/ontology-drafts.md). This checkpoint
+does not wire the HTTP editor or UI. Integration tests cover save/publication
+rollback, stale edit/publication races, same-revision retries, namespace provenance,
+raw guards and old released Git-tree stability after actual draft edits and newer
+publication. Unversioned project references and the whole-project assembler remain
+separate unfinished work.
 
 ## Alternatives rejected
 

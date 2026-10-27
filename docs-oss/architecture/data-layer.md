@@ -188,7 +188,7 @@ restrict raw publication queries and the explicit legacy restore staging path.
 stored bytes, requiring already-published dependencies; it does not establish
 historical truth. See ADR-0013 for resolution rules, external-reference
 classification and operator options. Active selection is mutable policy outside
-the artifact; separate editor draft storage remains pending.
+the artifact; draft storage is described below.
 
 Migration 025 captures project ontology identities in
 `weave_release_ontology_dependencies`, with a separate provenance marker on the
@@ -215,6 +215,16 @@ Live `weave_ontology_version_status` projects the API's `is_active` flag. Releas
 readers do not read that projection or current policy. Migration preserves legacy
 choices without publishing them and rejects ambiguous evidence. Downgrade copies
 the choices back to flags without changing sealed bytes.
+
+Migration 028 adds separate ontology draft documents and immutable publication
+receipts. Draft revisions are storage-managed; edits use expected-revision checks
+inside a bounded transaction. `readsql/ontologydraft` can only SELECT drafts;
+`writesql/ontologydraft` can only lock/save drafts. `ontology.DraftService.Publish`
+locks one revision and commits descriptor/namespaces, fresh version-owned content,
+seal, dependency closure, active policy and receipt together. It never deletes an
+existing version. Receipt replay is idempotent only at the same current revision
+and request. No historical rows are converted to drafts; downgrade refuses stored
+drafts. See [draft operations](../reference/ontology-drafts.md).
 
 ## Migrations: goose
 

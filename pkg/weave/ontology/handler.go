@@ -1120,11 +1120,11 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 	// bare errors they reached the curator as a 500 with nothing to act on --
 	// 24 of 25 server errors on one instance over ten days were this, and each
 	// curator got through only by renaming prefixes by hand. Name what to fix.
-	var conflict *parsedontology.PrefixConflictError
-	if errors.As(err, &conflict) {
+	var prefixConflict *parsedontology.PrefixConflictError
+	if errors.As(err, &prefixConflict) {
 		writeValidationError(w, fieldError("rdf_file", fmt.Sprintf(
 			"namespace prefix %q in the file maps to %q, but this instance already binds it to %q — rename the prefix in the file, or change the binding first",
-			conflict.Prefix, conflict.Declared, conflict.Existing)))
+			prefixConflict.Prefix, prefixConflict.Declared, prefixConflict.Existing)))
 		return
 	}
 	var syntax *xml.SyntaxError

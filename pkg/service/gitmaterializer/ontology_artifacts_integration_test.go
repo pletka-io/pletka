@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	"github.com/pletka-io/pletka/pkg/database/ontologybody"
 	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/service/gitmaterializer"
@@ -214,6 +215,36 @@ func TestReleasedOntologyTreeUsesCapturedArtifacts(t *testing.T) {
 	// The release index intentionally lists all cuts. Refresh it after the
 	// additional capture tests, before varying ontology serialization inputs.
 	if err := mat.BuildReleaseTree(ctx, first, zmatProjectID, "7.9.0"); err != nil {
+		t.Fatal(err)
+	}
+	// Exercise the actual editor lifecycle after the project release is captured.
+	drafts := ontology.NewDraftService(pool, nil)
+	draft, err := drafts.StartFromRelease(ctx, ontologybody.OntologyID(owner), ontologybody.VersionID(version))
+	if err != nil {
+		t.Fatal(err)
+	}
+	draftRef, err := ontology.NewDraftReference(draft.OntologyID, draft.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft.Document.Ontology.Name = "Editor descriptor"
+	draft.Document.Primary.Content = `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:owl="http://www.w3.org/2002/07/owl#"><owl:Class rdf:about="https://example.org/frozen/A"/></rdf:RDF>`
+	draft.Document.Companions = nil
+	if err := drafts.Edit(ctx, draftRef, draft.Revision, func(e ontology.DraftEditor) error {
+		var err error
+		draft, err = e.Save(ctx, draft.Document)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	afterEdit := t.TempDir()
+	if err := mat.BuildReleaseTree(ctx, afterEdit, zmatProjectID, "7.9.0"); err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(collectTree(t, first), collectTree(t, afterEdit)); diff != "" {
+		t.Fatalf("draft edit changed released tree: %s", diff)
+	}
+	if _, err := drafts.Publish(ctx, draftRef, draft.Revision, ontology.DraftPublishRequest{Version: "editor-3", SetActive: true}); err != nil {
 		t.Fatal(err)
 	}
 	// Change every formerly live ontology serialization input, including active defaults.

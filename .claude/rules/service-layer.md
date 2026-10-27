@@ -140,8 +140,14 @@ Vendor schema 2 and restore preserve exact bytes and reject existing-ID conflict
 never send schema 2 through the legacy RDF importer. Active selection lives in
 `weave_ontology_active_versions`, not version content. Use the shared selection
 operation; initialization must call `SetActiveVersionIfUnset`, never read then
-write. `is_active` is derived live status, not release evidence. Separate editor
-draft storage, unversioned project references and other assembler inputs remain open.
+write. `is_active` is derived live status, not release evidence. Editor drafts use
+`ontology.DraftService` with separate draft IDs, source documents and expected
+revisions. `Read`/`Edit` expose only bound draft capabilities, with separate generated
+SELECT and lock/save packages. `Publish` commits through the shared body writer,
+seal and dependency publisher; never delete/reuse a release ID or write version
+rows from a draft editor. Keep HTTP authorization at the request boundary. Editor
+HTTP/UI integration, unversioned project references and other assembler inputs
+remain open. See [draft operations](../../docs-oss/reference/ontology-drafts.md).
 
 ### Whole-project reads belong to the assembler
 

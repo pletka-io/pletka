@@ -729,6 +729,27 @@ type WeaveOntologyClass struct {
 	SourceModule      *string   `json:"source_module"`
 }
 
+type WeaveOntologyDraft struct {
+	ID            string          `json:"id"`
+	OntologyID    string          `json:"ontology_id"`
+	BaseVersionID *string         `json:"base_version_id"`
+	Revision      int64           `json:"revision"`
+	Document      json.RawMessage `json:"document"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+}
+
+type WeaveOntologyDraftPublication struct {
+	OntologyID  string          `json:"ontology_id"`
+	DraftID     string          `json:"draft_id"`
+	Revision    int64           `json:"revision"`
+	VersionID   string          `json:"version_id"`
+	Digest      string          `json:"digest"`
+	Request     json.RawMessage `json:"request"`
+	Document    json.RawMessage `json:"document"`
+	PublishedAt time.Time       `json:"published_at"`
+}
+
 type WeaveOntologyFamily struct {
 	ID             string    `json:"id"`
 	Slug           string    `json:"slug"`
