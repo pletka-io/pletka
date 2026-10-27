@@ -61,8 +61,8 @@ func (o *Ontology) IsExtension() bool {
 }
 
 // OntologyVersion is one importable snapshot of an Ontology. Multiple
-// versions may exist; at most one is active per ontology (enforced by a
-// partial unique index in migration 029).
+// versions may exist; migration 027 stores active selection separately from
+// version content. IsActive is derived live policy, not release evidence.
 type OntologyVersion struct {
 	ID            string `json:"id"`
 	OntologyID    string `json:"ontology_id"`

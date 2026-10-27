@@ -78,7 +78,7 @@ func activeOntologyVersion(t *testing.T, pool *pgxpool.Pool, prefix string) (ont
 	t.Helper()
 	err := pool.QueryRow(context.Background(), `
 		SELECT o.id, v.id, v.version_string
-		FROM weave_ontology_versions v
+		FROM weave_ontology_version_status v
 		JOIN weave_ontologies o ON o.id = v.ontology_id
 		WHERE o.prefix = $1 AND v.is_active = true
 		LIMIT 1

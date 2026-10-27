@@ -230,8 +230,11 @@ linked/explicit ontology selections and source-project closures. Use
 `ontologyrelease.Factory.ReadProject` to receive immutable artifact values;
 released materializers never use current descriptor/default/alias queries.
 Vendor schema 2 preserves exact artifacts and restore verifies existing IDs.
-Separate draft/policy storage and project references without version selectors
-remain pending, along with the remaining whole-project assembler inputs.
+Migration 027 moves active selection to a separate policy table. Live status
+projects `is_active`; create/import/restore and admin selection share one atomic
+operation, including initialization only when unset. Editor draft storage and
+project references without version selectors remain pending, along with the
+remaining whole-project assembler inputs.
 See [ADR-0013](../decisions/0013-ontology-drafts-and-immutable-releases.md).
 
 ### Whole-project reads belong to an assembler

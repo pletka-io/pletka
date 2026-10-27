@@ -1,7 +1,7 @@
 # ADR-0013: Ontology editing uses drafts; dependencies use immutable releases
 
 Date: 2026-10-26
-Status: Accepted; body sealing and automatic publication implemented, consumer/editor migration pending
+Status: Accepted; publication, project consumers, portable restore and separate active policy implemented; editor draft storage pending
 
 ## Context
 
@@ -130,9 +130,9 @@ final portable vendor/restore format. The ontology-specific bound reader receive
 only generated SELECTs over seals, verifies the digest and fails closed for
 unsealed/missing/wrong-owner bodies. Its callback owns a read-only snapshot.
 
-Active selection remains a legacy mutable `is_active` column, excluded from the
-body; toggling it no longer rewrites body timestamps. Moving selection to a
-separate policy record is still required for the final editor structure.
+At the body-sealing checkpoint, active selection remained a legacy mutable
+`is_active` column excluded from the body. Migration 027 below moves it to a
+separate policy record.
 
 `pletka weave ontology-seal-body <ontologyID> <versionID>` explicitly seals current
 bytes. It does not establish what an older project saw. Body-only sealing remains
@@ -258,8 +258,45 @@ This inventory does **not** yet resolve unversioned QName/URI references in proj
 content. Actor/module descriptors and other whole-project assembler inputs also
 remain outside this checkpoint. Tests prove ontology-input stability and exact
 artifact restore, not complete project-output immutability. Separate editor draft
-tables and active-policy storage remain the next ontology step; `is_active` is
-still a mutable compatibility column excluded from bodies.
+tables remain the next ontology step. Active policy is now stored separately as
+described below.
+
+## Implemented active-selection policy (2026-10-27)
+
+Migration 027 moves active selections to `weave_ontology_active_versions` and
+removes `is_active` from version rows. The policy has at most one selected version
+per ontology; a composite foreign key enforces owner/version identity. Migration
+copies existing choices, including unverified legacy versions, and leaves absent
+selections absent. Ambiguous legacy flags abort migration without choosing a
+winner. No body, artifact, digest or publication evidence is rewritten. Migrated
+policy timestamps record migration time, not a reconstructed selection history.
+Downgrade preserves the choices in the former flags, without policy timestamps
+or changes to artifacts.
+
+`weave_set_ontology_active_version` is the single atomic selection operation.
+Explicit changes replace the selection; restore initializes it only when unset.
+The latter uses the same conflict handling as explicit selection, so a concurrent
+admin choice cannot be overwritten by a read-then-write restore path. Invalid or
+foreign-owner targets leave the current choice intact. Deleting an unsealed
+selected version clears its policy by cascade without choosing a replacement;
+published version retention remains enforced by the existing storage guards.
+
+Create/import activation participates in the content transaction. Failed
+publication rolls policy back with the imported content. Portable artifact
+restore calls the same operation, and legacy restore uses the explicit
+`SetActiveVersionIfUnset` store method. Conformance restricts generated selection
+query calls to the shared store helper.
+
+Live API/UI responses retain their `is_active` field through the read projection
+`weave_ontology_version_status`. This is derived policy, not a second mutable flag
+or release evidence. Current discovery/default resolution can use policy; bound
+released readers cannot. Selecting an unverified version does not publish it.
+Tests cover migration/down/up preservation, ambiguous history, foreign/missing
+targets, raw write attempts, a synchronized initialization race, import rollback,
+destination restore policy and byte-identical released output/artifacts.
+
+Next, build separate draft storage and draft write capabilities for the editor.
+Publishing those drafts must use the existing immutable publication boundary.
 
 ## Alternatives rejected
 

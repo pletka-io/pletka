@@ -303,7 +303,7 @@ type ontologyVendorCompanion struct {
 	Description string `json:"description,omitempty"`
 }
 
-func (m *Materializer) writeVendoredOntology(ctx context.Context, workDir string, ontology sqlcgen.WeaveOntology, version sqlcgen.WeaveOntologyVersion) error {
+func (m *Materializer) writeVendoredOntology(ctx context.Context, workDir string, ontology sqlcgen.WeaveOntology, version sqlcgen.WeaveOntologyVersionStatus) error {
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return fmt.Errorf("create vendored ontology dir: %w", err)
 	}

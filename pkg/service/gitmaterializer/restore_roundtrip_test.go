@@ -142,7 +142,6 @@ func TestServerCreatedProjectRoundTrip(t *testing.T) {
 		ID:                     ontologyVersionID,
 		OntologyID:             ontologyID,
 		VersionString:          "1.0.0",
-		IsActive:               true,
 		CompatibleBaseVersions: []string{},
 		RdfContent:             stringPtrRT("@prefix rt: <https://example.org/round-trip/> .\n"),
 		ParsedAt:               pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
@@ -155,6 +154,9 @@ func TestServerCreatedProjectRoundTrip(t *testing.T) {
 		PropertyCount:          1,
 	}); err != nil {
 		t.Fatalf("create ontology version: %v", err)
+	}
+	if _, err := queries.WeaveSelectActiveOntologyVersion(ctx, sqlcgen.WeaveSelectActiveOntologyVersionParams{OntologyID: ontologyID, VersionID: ontologyVersionID}); err != nil {
+		t.Fatal(err)
 	}
 
 	isPrimary := true

@@ -698,6 +698,12 @@ type WeaveOntology struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
+type WeaveOntologyActiveVersion struct {
+	OntologyID string    `json:"ontology_id"`
+	VersionID  string    `json:"version_id"`
+	SelectedAt time.Time `json:"selected_at"`
+}
+
 type WeaveOntologyBodySeal struct {
 	VersionID     string          `json:"version_id"`
 	OntologyID    string          `json:"ontology_id"`
@@ -790,7 +796,6 @@ type WeaveOntologyVersion struct {
 	ID                     string             `json:"id"`
 	OntologyID             string             `json:"ontology_id"`
 	VersionString          string             `json:"version_string"`
-	IsActive               bool               `json:"is_active"`
 	CompatibleBaseVersions []string           `json:"compatible_base_versions"`
 	RdfContent             *string            `json:"rdf_content"`
 	ParsedAt               pgtype.Timestamptz `json:"parsed_at"`
@@ -818,6 +823,32 @@ type WeaveOntologyVersionCompanion struct {
 	Description       string `json:"description"`
 	Content           string `json:"content"`
 	Position          int32  `json:"position"`
+}
+
+type WeaveOntologyVersionStatus struct {
+	ID                     string             `json:"id"`
+	OntologyID             string             `json:"ontology_id"`
+	VersionString          string             `json:"version_string"`
+	CompatibleBaseVersions []string           `json:"compatible_base_versions"`
+	RdfContent             *string            `json:"rdf_content"`
+	ParsedAt               pgtype.Timestamptz `json:"parsed_at"`
+	OriginalFilename       *string            `json:"original_filename"`
+	FileSize               *int64             `json:"file_size"`
+	FileMd5                *string            `json:"file_md5"`
+	OntologyUri            *string            `json:"ontology_uri"`
+	VersionIri             *string            `json:"version_iri"`
+	VersionInfo            []byte             `json:"version_info"`
+	ImportedOntologies     []string           `json:"imported_ontologies"`
+	OntologyLabel          []byte             `json:"ontology_label"`
+	OntologyComment        []byte             `json:"ontology_comment"`
+	OntologyMetadata       []byte             `json:"ontology_metadata"`
+	ClassCount             int64              `json:"class_count"`
+	PropertyCount          int64              `json:"property_count"`
+	CreatedAt              time.Time          `json:"created_at"`
+	UpdatedAt              time.Time          `json:"updated_at"`
+	BodySealedAt           pgtype.Timestamptz `json:"body_sealed_at"`
+	BodyWriteRevision      int64              `json:"body_write_revision"`
+	IsActive               bool               `json:"is_active"`
 }
 
 type WeaveOverrideRef struct {

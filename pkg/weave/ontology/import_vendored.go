@@ -141,14 +141,7 @@ func (s *Service) ImportVendoredVersion(ctx context.Context, req VendoredOntolog
 // version case only: a repeat/idempotent vendored import must never flip an
 // admin's later choice of active version.
 func (s *Service) activateIfOntologyHasNoActiveVersion(ctx context.Context, ontologyID, versionID string) error {
-	active, err := s.store.GetActiveVersion(ctx, ontologyID)
-	if err != nil {
-		return fmt.Errorf("check active version: %w", err)
-	}
-	if active != nil {
-		return nil
-	}
-	if err := s.store.SetActiveVersion(ctx, ontologyID, versionID); err != nil {
+	if err := s.store.SetActiveVersionIfUnset(ctx, ontologyID, versionID); err != nil {
 		return fmt.Errorf("activate imported version: %w", err)
 	}
 	return nil

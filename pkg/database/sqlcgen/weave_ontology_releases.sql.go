@@ -33,10 +33,11 @@ func (q *Queries) WeaveOntologyPublicationBody(ctx context.Context, arg WeaveOnt
 
 const weaveOntologyPublicationCandidates = `-- name: WeaveOntologyPublicationCandidates :many
 SELECT o.id AS ontology_id, o.prefix, COALESCE(b.body#>>'{ontology,namespace}', o.namespace)::text AS namespace,
-       v.id AS version_id, v.is_active, v.ontology_uri, v.version_iri,
+       v.id AS version_id, (p.version_id IS NOT NULL)::boolean AS is_active, v.ontology_uri, v.version_iri,
        r.version_id AS published_version_id, r.digest
 FROM weave_ontologies o
 LEFT JOIN weave_ontology_versions v ON v.ontology_id = o.id
+LEFT JOIN weave_ontology_active_versions p ON p.ontology_id=o.id AND p.version_id=v.id
 LEFT JOIN weave_ontology_releases r ON r.version_id = v.id
 LEFT JOIN weave_ontology_body_seals b ON b.version_id = v.id
 ORDER BY o.id, v.id
@@ -47,7 +48,7 @@ type WeaveOntologyPublicationCandidatesRow struct {
 	Prefix             string  `json:"prefix"`
 	Namespace          string  `json:"namespace"`
 	VersionID          *string `json:"version_id"`
-	IsActive           *bool   `json:"is_active"`
+	IsActive           bool    `json:"is_active"`
 	OntologyUri        *string `json:"ontology_uri"`
 	VersionIri         *string `json:"version_iri"`
 	PublishedVersionID *string `json:"published_version_id"`

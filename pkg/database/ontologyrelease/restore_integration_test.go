@@ -98,6 +98,15 @@ func TestPortableRestorePreservesExactBytesAndRejectsCollisions(t *testing.T) {
 	}
 	db := stdlib.OpenDB(*target.Config().ConnConfig)
 	defer db.Close()
+	latest, err := database.LatestMigrationVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for version := latest; version > 26; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
+	}
 	requireFailure(t, database.MigrateDown(db), "cannot downgrade restored portable ontology bodies")
 
 	collision := testdb.EmptyPool(t)

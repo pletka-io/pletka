@@ -187,8 +187,8 @@ restrict raw publication queries and the explicit legacy restore staging path.
 `weave ontology-publish <ontologyID> <versionID>` explicitly publishes current
 stored bytes, requiring already-published dependencies; it does not establish
 historical truth. See ADR-0013 for resolution rules, external-reference
-classification and operator options. Current `is_active` stays mutable and outside
-the artifact; separate draft/policy storage remains pending.
+classification and operator options. Active selection is mutable policy outside
+the artifact; separate editor draft storage remains pending.
 
 Migration 025 captures project ontology identities in
 `weave_release_ontology_dependencies`, with a separate provenance marker on the
@@ -205,6 +205,16 @@ rendering, transported seals retain original bytes. Restore verifies hashes,
 ownership and indexed body equality in one transaction without reparsing RDF or
 changing destination namespace policy. Existing IDs require identical published
 bytes; legacy collisions fail. Schema 1 retains its explicit unverified path.
+
+Migration 027 removes `is_active` from version storage. The separate
+`weave_ontology_active_versions` table enforces one owner/version selection per
+ontology with a composite foreign key. `weave_set_ontology_active_version` is the
+atomic operation used by create/import, explicit selection and restore; initialize
+only when unset must use this operation rather than a read followed by a write.
+Live `weave_ontology_version_status` projects the API's `is_active` flag. Released
+readers do not read that projection or current policy. Migration preserves legacy
+choices without publishing them and rejects ambiguous evidence. Downgrade copies
+the choices back to flags without changing sealed bytes.
 
 ## Migrations: goose
 
