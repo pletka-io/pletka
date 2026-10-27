@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
+
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -360,4 +362,8 @@ func (s *testStoreAdapter) ReplaceFieldRefs(context.Context, string, string, []d
 
 func (s *testStoreAdapter) StageLegacyVersion(context.Context, weaveontology.ImportVersionInput) (*domain.OntologyVersion, error) {
 	return nil, nil
+}
+
+func (s *testStoreAdapter) RestoreArtifacts(context.Context, []ontologyrelease.Artifact) error {
+	return nil
 }

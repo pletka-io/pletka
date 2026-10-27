@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pletka-io/pletka/pkg/weave/ontology"
+
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/pletka-io/pletka/pkg/auth"
@@ -124,8 +126,12 @@ func TestChildCutDoesNotPrepopulateParentRelease(t *testing.T) {
 		VALUES ($1, $2, true, 'release', '80.0.0')`, parent, grand); err != nil {
 		t.Fatal(err)
 	}
-	var ontologyVersion string
-	if err := f.pool.QueryRow(ctx, `SELECT id FROM weave_ontology_versions ORDER BY id LIMIT 1`).Scan(&ontologyVersion); err != nil {
+	var defaultsOwner string
+	if err := f.pool.QueryRow(ctx, `SELECT id FROM weave_ontologies WHERE prefix='defaults'`).Scan(&defaultsOwner); err != nil {
+		t.Fatal(err)
+	}
+	ontologyVersion := ontology.GenerateVersionID("ownership-defaults", "1")
+	if _, err := ontology.NewPostgresStore(f.pool).ImportVersion(ctx, ontology.ImportVersionInput{Version: ontology.CreateVersionInput{ID: ontologyVersion, OntologyID: defaultsOwner, VersionString: "ownership-1", RDFContent: "<rdf/>"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `INSERT INTO weave_project_ontology_versions (project_id, ontology_version_id, added_at, usage_notes) VALUES ($1, $2, now(), 'Before')`, parent, ontologyVersion); err != nil {

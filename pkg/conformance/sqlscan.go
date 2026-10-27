@@ -32,7 +32,8 @@ func generatedOrExempt(rel string) bool {
 		strings.HasPrefix(rel, "pkg/database/readsql/draft/"),
 		strings.HasPrefix(rel, "pkg/database/readsql/archive/"),
 		strings.HasPrefix(rel, "pkg/database/readsql/ontologybody/"),
-		strings.HasPrefix(rel, "pkg/database/readsql/ontologyrelease/"):
+		strings.HasPrefix(rel, "pkg/database/readsql/ontologyrelease/"),
+		strings.HasPrefix(rel, "pkg/database/readsql/projectontologies/"):
 		// sqlc output: this is the pipeline's product, not a bypass of it.
 		return true
 	case strings.HasPrefix(rel, "pkg/database/migrations/"):

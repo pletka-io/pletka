@@ -705,6 +705,7 @@ type WeaveOntologyBodySeal struct {
 	Body          json.RawMessage `json:"body"`
 	Digest        string          `json:"digest"`
 	SealedAt      time.Time       `json:"sealed_at"`
+	BodyText      *string         `json:"body_text"`
 }
 
 type WeaveOntologyClass struct {
@@ -983,16 +984,17 @@ type WeaveProjectsArchive struct {
 }
 
 type WeaveRelease struct {
-	ProjectID                  string             `json:"project_id"`
-	Version                    string             `json:"version"`
-	Title                      string             `json:"title"`
-	Description                string             `json:"description"`
-	CreatedAt                  time.Time          `json:"created_at"`
-	CreatedByID                string             `json:"created_by_id"`
-	ArchivedAt                 pgtype.Timestamptz `json:"archived_at"`
-	ArchivedMessage            string             `json:"archived_message"`
-	ArchiveOwnershipVersion    int16              `json:"archive_ownership_version"`
-	ProjectDependenciesVersion int16              `json:"project_dependencies_version"`
+	ProjectID                   string             `json:"project_id"`
+	Version                     string             `json:"version"`
+	Title                       string             `json:"title"`
+	Description                 string             `json:"description"`
+	CreatedAt                   time.Time          `json:"created_at"`
+	CreatedByID                 string             `json:"created_by_id"`
+	ArchivedAt                  pgtype.Timestamptz `json:"archived_at"`
+	ArchivedMessage             string             `json:"archived_message"`
+	ArchiveOwnershipVersion     int16              `json:"archive_ownership_version"`
+	ProjectDependenciesVersion  int16              `json:"project_dependencies_version"`
+	OntologyDependenciesVersion int16              `json:"ontology_dependencies_version"`
 }
 
 type WeaveReleaseDependencyEntity struct {
@@ -1025,6 +1027,14 @@ type WeaveReleaseNamespaceBindingsArchive struct {
 	Weight           int64     `json:"weight"`
 	Source           string    `json:"source"`
 	OntologyID       *string   `json:"ontology_id"`
+}
+
+type WeaveReleaseOntologyDependency struct {
+	ProjectID         string `json:"project_id"`
+	VersionNumber     string `json:"version_number"`
+	OntologyID        string `json:"ontology_id"`
+	OntologyVersionID string `json:"ontology_version_id"`
+	Digest            string `json:"digest"`
 }
 
 type WeaveReleaseProjectDependency struct {

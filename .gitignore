@@ -216,3 +216,5 @@ cmd/internal/importconfig/ontologies/project-specific/_unsupported/
 .wolf/designqc-captures/
 .wolf/hooks/_session.json
 .wolf/hooks/node_modules/
+
+!pkg/database/queries/read_project_ontologies/*.sql

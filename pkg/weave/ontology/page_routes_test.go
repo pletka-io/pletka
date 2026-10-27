@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
+
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/auth"
@@ -894,4 +896,8 @@ func TestImportRejectsUnknownPublicationOptions(t *testing.T) {
 			t.Fatalf("invalid options reached importer: %d %s", response.Code, response.Body.String())
 		}
 	}
+}
+
+func (s *routeTestStore) RestoreArtifacts(context.Context, []ontologyrelease.Artifact) error {
+	return nil
 }

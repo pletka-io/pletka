@@ -150,6 +150,9 @@ type Store interface {
 	// no verifiable artifact or dependency pins. It does NOT publish a release.
 	StageLegacyVersion(ctx context.Context, in ImportVersionInput) (*domain.OntologyVersion, error)
 
+	// RestoreArtifacts installs a verified bundle atomically and rejects identity conflicts.
+	RestoreArtifacts(context.Context, []ontologyrelease.Artifact) error
+
 	// ReplaceFieldRefs bulk-replaces the ontology-ref rows for one field.
 	// Called by pkg/weave/field on save (Phase E).
 	ReplaceFieldRefs(ctx context.Context, fieldID, projectID string, refs []domain.FieldOntologyRef) error

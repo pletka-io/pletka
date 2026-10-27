@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/database/releasearchive"
@@ -166,38 +167,27 @@ func (m *Materializer) loadProjectManifestParentsAtVersion(ctx context.Context, 
 }
 
 func (m *Materializer) loadProjectManifestOntologiesAtVersion(ctx context.Context, projectID, version string) ([]projectManifestLinkedOntology, error) {
-	rows, err := m.pool.Query(ctx, `
-		SELECT ontology_version_id, COALESCE(is_primary, false)
-		FROM weave_project_ontology_versions_archive
-		WHERE project_id = $1 AND version_number = $2
-		ORDER BY COALESCE(is_primary, false) DESC, ontology_version_id ASC
-	`, projectID, version)
+	values, err := m.projectOntologyArtifacts(ctx, projectID, version)
 	if err != nil {
-		return nil, fmt.Errorf("list archived project ontology versions for manifest: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-
 	linked := make([]projectManifestLinkedOntology, 0)
-	for rows.Next() {
-		var ontologyVersionID string
-		var isPrimary bool
-		if err := rows.Scan(&ontologyVersionID, &isPrimary); err != nil {
-			return nil, fmt.Errorf("scan archived project ontology version for manifest: %w", err)
+	for _, v := range values {
+		if !v.Linked {
+			continue
 		}
-		versionRow, err := m.queries.WeaveGetOntologyVersionByID(ctx, ontologyVersionID)
+		c, err := v.Artifact.Content()
 		if err != nil {
-			return nil, fmt.Errorf("get ontology version %s for archived manifest: %w", ontologyVersionID, err)
+			return nil, err
 		}
-		linked = append(linked, projectManifestLinkedOntology{
-			OntologyID:        versionRow.OntologyID,
-			OntologyVersionID: versionRow.ID,
-			Version:           versionRow.VersionString,
-			IsPrimary:         isPrimary,
-		})
+		linked = append(linked, projectManifestLinkedOntology{OntologyID: c.Ontology.ID, OntologyVersionID: c.Version.ID, Version: c.Version.Version, IsPrimary: v.Primary})
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate archived project ontology versions for manifest: %w", err)
-	}
+	sort.Slice(linked, func(i, j int) bool {
+		if linked[i].IsPrimary != linked[j].IsPrimary {
+			return linked[i].IsPrimary
+		}
+		return linked[i].OntologyVersionID < linked[j].OntologyVersionID
+	})
 	return linked, nil
 }
 
@@ -286,40 +276,17 @@ func (m *Materializer) loadPletkaProjectRequirementsAtVersion(ctx context.Contex
 }
 
 func (m *Materializer) loadPletkaOntologyRequirementsAtVersion(ctx context.Context, projectID, version string) ([]pletkaOntologyRequirement, error) {
-	rows, err := m.pool.Query(ctx, `
-		SELECT ontology_version_id
-		FROM weave_project_ontology_versions_archive
-		WHERE project_id = $1 AND version_number = $2
-		ORDER BY ontology_version_id ASC
-	`, projectID, version)
+	values, err := m.projectOntologyArtifacts(ctx, projectID, version)
 	if err != nil {
-		return nil, fmt.Errorf("list archived ontology requirements: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-
-	reqs := make([]pletkaOntologyRequirement, 0)
-	for rows.Next() {
-		var ontologyVersionID string
-		if err := rows.Scan(&ontologyVersionID); err != nil {
-			return nil, fmt.Errorf("scan archived ontology requirement: %w", err)
-		}
-		versionRow, err := m.queries.WeaveGetOntologyVersionByID(ctx, ontologyVersionID)
+	reqs := make([]pletkaOntologyRequirement, 0, len(values))
+	for _, v := range values {
+		req, err := m.artifactRequirement(v.Artifact)
 		if err != nil {
-			return nil, fmt.Errorf("get ontology version %s for archived pletka.mod: %w", ontologyVersionID, err)
+			return nil, err
 		}
-		ontology, err := m.queries.WeaveGetOntologyByID(ctx, versionRow.OntologyID)
-		if err != nil {
-			return nil, fmt.Errorf("get ontology %s for archived pletka.mod: %w", versionRow.OntologyID, err)
-		}
-		reqs = append(reqs, pletkaOntologyRequirement{
-			Module:            m.ontologyModulePath(ontologyModuleSlug(ontology.Prefix, ontology.Name, ontology.ID)),
-			OntologyID:        versionRow.OntologyID,
-			OntologyVersionID: versionRow.ID,
-			Version:           versionRow.VersionString,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate archived ontology requirements: %w", err)
+		reqs = append(reqs, req)
 	}
 	return reqs, nil
 }

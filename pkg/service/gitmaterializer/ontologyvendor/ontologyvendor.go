@@ -9,6 +9,9 @@ package ontologyvendor
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 
 	"github.com/pletka-io/pletka/pkg/service/gitmaterializer"
 	weaveontology "github.com/pletka-io/pletka/pkg/weave/ontology"
@@ -32,6 +35,9 @@ type importer struct{ svc *weaveontology.Service }
 // manifest.Sources.Files carries those same root-relative paths, so
 // BaseDir+Files agree with no further adjustment.
 func (a importer) ImportVendoredOntology(ctx context.Context, imp gitmaterializer.VendoredOntologyImport) error {
+	if imp.Manifest.SchemaVersion != 1 {
+		return fmt.Errorf("published ontologies require verified bundle restore")
+	}
 	root := imp.Manifest.Ontology
 	var files []string
 	var primary string
@@ -66,4 +72,8 @@ func (a importer) ImportVendoredOntology(ctx context.Context, imp gitmaterialize
 		Imports:          imp.Manifest.Imports,
 		ExternalBindings: external,
 	})
+}
+
+func (a importer) RestorePublishedOntologies(ctx context.Context, artifacts []ontologyrelease.Artifact) error {
+	return a.svc.RestoreArtifacts(ctx, artifacts)
 }

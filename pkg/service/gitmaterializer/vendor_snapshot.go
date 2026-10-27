@@ -28,14 +28,16 @@ type InitProjectOptions struct {
 }
 
 type vendorState struct {
-	projects   map[string]bool
-	ontologies map[string]bool
+	projects      map[string]bool
+	ontologies    map[string]bool
+	ontologyPaths map[string]string
 }
 
 func newVendorState() *vendorState {
 	return &vendorState{
-		projects:   make(map[string]bool),
-		ontologies: make(map[string]bool),
+		projects:      make(map[string]bool),
+		ontologies:    make(map[string]bool),
+		ontologyPaths: make(map[string]string),
 	}
 }
 
@@ -144,7 +146,22 @@ func (m *Materializer) vendorDependenciesForProject(ctx context.Context, rootDir
 	if err != nil {
 		return nil, fmt.Errorf("load vendored ontology requirements for %s@%s: %w", projectID, strings.TrimSpace(version), err)
 	}
+	legacyOntologies := false
 	for _, req := range ontologyReqs {
+		if req.Artifact != nil {
+			entry, err := vendorPublishedOntology(rootDir, req.Module, *req.Artifact, state)
+			if err != nil {
+				return nil, err
+			}
+			if entry != nil {
+				entries = append(entries, *entry)
+			}
+			continue
+		}
+		if version != "" && version != parentDependencyVersionDraft {
+			return nil, fmt.Errorf("released ontology requirement lacks an artifact")
+		}
+		legacyOntologies = true
 		entry, err := m.vendorOntologyVersion(ctx, rootDir, req.Module, req.OntologyVersionID, req.Version, state)
 		if err != nil {
 			return nil, err
@@ -159,7 +176,7 @@ func (m *Materializer) vendorDependenciesForProject(ctx context.Context, rootDir
 	// datatypes) are first-class rows a restored database needs for path
 	// audits and qname joins, but no project links the defaults ontology
 	// directly — it is an implicit ontology-level dependency.
-	if len(ontologyReqs) > 0 {
+	if legacyOntologies {
 		defaultsEntry, err := m.vendorDefaultsOntology(ctx, rootDir, state)
 		if err != nil {
 			return nil, err
@@ -243,6 +260,7 @@ func vendoredProjectDir(rootDir string, req pletkaProjectRequirement) string {
 }
 
 type ontologyVendorManifest struct {
+	Artifact      *ontologyVendorArtifact    `json:"artifact,omitempty"`
 	SchemaVersion int                        `json:"schema_version"`
 	Ontology      ontologyVendorManifestRoot `json:"ontology"`
 	Sources       *ontologyVendorSources     `json:"sources,omitempty"`

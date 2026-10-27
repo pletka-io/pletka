@@ -11,7 +11,7 @@ import (
 )
 
 const ontologyBody = `-- name: OntologyBody :one
-SELECT ontology_id, version_id, format_version, body::text AS canonical_body, digest, sealed_at
+SELECT ontology_id, version_id, format_version, COALESCE(body_text,body::text)::text AS canonical_body, digest, sealed_at
 FROM weave_ontology_body_seals
 WHERE ontology_id = $1::text AND version_id = $2::text
 `

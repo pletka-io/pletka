@@ -1,0 +1,114 @@
+package ontologyrelease
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+)
+
+// Restore installs an exact artifact bundle, dependencies first, in one snapshot
+// transaction. Existing IDs must have the same published bytes; an unpublished
+// collision is never overwritten or implicitly certified. No RDF is reparsed.
+func Restore(ctx context.Context, pool *pgxpool.Pool, artifacts []Artifact) (err error) {
+	ordered, err := orderArtifacts(artifacts)
+	if err != nil {
+		return err
+	}
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = tx.Rollback(cleanup)
+	}()
+	defer func() {
+		var pgerr *pgconn.PgError
+		if errors.As(err, &pgerr) && pgerr.ConstraintName == "ontology_artifact_conflict" {
+			err = &restoreConflict{cause: err}
+		}
+	}()
+	q := sqlcgen.New(tx)
+	for _, a := range ordered {
+		if err := q.WeaveRestoreOntologyArtifact(ctx, sqlcgen.WeaveRestoreOntologyArtifactParams{Artifact: a.JSON, Digest: a.Digest}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+type restoreConflict struct{ cause error }
+
+func (e *restoreConflict) Error() string {
+	return "ontology artifact conflicts with existing or invalid content: " + e.cause.Error()
+}
+func (e *restoreConflict) Unwrap() error           { return e.cause }
+func (e *restoreConflict) ConflictMessage() string { return e.Error() }
+
+func orderArtifacts(artifacts []Artifact) ([]Artifact, error) {
+	values := map[string]Artifact{}
+	docs := map[string]Document{}
+	owners := map[string]string{}
+	for _, a := range artifacts {
+		d, err := a.Decode()
+		if err != nil {
+			return nil, err
+		}
+		if old, ok := values[d.VersionID]; ok && old != a {
+			return nil, invalid("conflicting artifact bytes for %s", d.VersionID)
+		}
+		if old, ok := owners[d.OntologyID]; ok && old != d.VersionID {
+			return nil, invalid("conflicting artifact versions for %s", d.OntologyID)
+		}
+		values[d.VersionID] = a
+		docs[d.VersionID] = d
+		owners[d.OntologyID] = d.VersionID
+	}
+	ids := make([]string, 0, len(values))
+	for id := range values {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	visiting := map[string]bool{}
+	done := map[string]bool{}
+	out := make([]Artifact, 0, len(values))
+	var visit func(string) error
+	visit = func(id string) error {
+		if visiting[id] {
+			return fmt.Errorf("cyclic ontology artifact bundle")
+		}
+		if done[id] {
+			return nil
+		}
+		visiting[id] = true
+		for _, pin := range docs[id].Pins {
+			if source, ok := values[pin.VersionID]; ok {
+				if source.Digest != pin.Digest || docs[pin.VersionID].OntologyID != pin.OntologyID {
+					return invalid("artifact dependency identity mismatch")
+				}
+				if err := visit(pin.VersionID); err != nil {
+					return err
+				}
+			}
+		}
+		visiting[id] = false
+		done[id] = true
+		out = append(out, values[id])
+		return nil
+	}
+	for _, id := range ids {
+		if err := visit(id); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}

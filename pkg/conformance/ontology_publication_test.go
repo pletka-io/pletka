@@ -67,13 +67,21 @@ func TestOntologyPublicationHasOnePolicyBoundary(t *testing.T) {
 					return true
 				}
 				switch sel.Sel.Name {
+				case "WeaveProjectOntologySelections", "WeavePublishedOntologyIdentity", "WeaveProjectOntologySourceInventories", "WeaveProjectOntologySourcePins", "WeaveInsertProjectOntologyPin", "WeaveMarkProjectOntologyInventory":
+					if rel != "pkg/database/ontologyrelease/project_capture.go" {
+						t.Errorf("%s bypasses project ontology capture", rel)
+					}
 				case "StageLegacyVersion":
 					if rel != "pkg/weave/ontology/import_vendored.go" {
 						t.Errorf("%s bypasses automatic publication via legacy staging", rel)
 					}
 				case "WeaveOntologyPublicationSource", "WeaveOntologyPublicationBody", "WeaveOntologyPublicationCandidates":
-					if rel != "pkg/database/ontologyrelease/publish.go" && rel != "pkg/database/ontologyrelease/publish_current.go" {
+					if rel != "pkg/database/ontologyrelease/publish.go" && rel != "pkg/database/ontologyrelease/publish_current.go" && rel != "pkg/database/ontologyrelease/project_capture.go" {
 						t.Errorf("%s reads raw ontology publications; use a bound release reader", rel)
+					}
+				case "WeaveRestoreOntologyArtifact":
+					if rel != "pkg/database/ontologyrelease/restore.go" {
+						t.Errorf("%s bypasses the artifact restore boundary", rel)
 					}
 				case "WeavePublishOntology":
 					if rel != "pkg/database/ontologyrelease/publish.go" {

@@ -24,10 +24,11 @@ const (
 // buildReleaseTree writes the full release snapshot for version plus the live
 // releases/index.yaml into dstDir. It is the deterministic unit both the fresh
 // commit path and the determinism test build against: the same (projectID,
-// version) always yields a byte-identical directory.
+// version) uses the captured snapshot plus the current releases index. Existing
+// tag verification supplies that tag's frozen index instead.
 func (m *Materializer) buildReleaseTree(ctx context.Context, dstDir, projectID, version string) error {
-	if err := m.writeProjectTreeVersion(ctx, dstDir, projectID, version); err != nil {
-		return fmt.Errorf("write release snapshot %s@%s: %w", projectID, version, err)
+	if err := m.writeReleaseSnapshot(ctx, dstDir, projectID, version); err != nil {
+		return err
 	}
 	idx, err := m.loadReleasesIndex(ctx, projectID)
 	if err != nil {
@@ -38,6 +39,20 @@ func (m *Materializer) buildReleaseTree(ctx context.Context, dstDir, projectID, 
 		return fmt.Errorf("encode releases index %s: %w", projectID, err)
 	}
 	return writeEntityFile(dstDir, releasesIndexPath, data)
+}
+
+func (m *Materializer) writeReleaseSnapshot(ctx context.Context, dstDir, projectID, version string) error {
+	if err := m.writeProjectTreeVersion(ctx, dstDir, projectID, version); err != nil {
+		return fmt.Errorf("write release snapshot %s@%s: %w", projectID, version, err)
+	}
+	entries, err := m.vendorDependenciesForProject(ctx, dstDir, projectID, version, newVendorState())
+	if err != nil {
+		return err
+	}
+	if err := writePletkaSum(dstDir, entries); err != nil {
+		return err
+	}
+	return nil
 }
 
 // processReleaseChangeSet materializes a release change set onto
@@ -96,7 +111,7 @@ func (m *Materializer) verifyExistingReleaseTag(ctx context.Context, git *gitRun
 	// Build the snapshot only; the live index may have moved on (archives
 	// append entries), so inject the tag's OWN frozen index — the tree the tag
 	// actually froze — rather than the current index.
-	if err := m.writeProjectTreeVersion(ctx, tmp, cs.ProjectID, cs.ReleaseVersion); err != nil {
+	if err := m.writeReleaseSnapshot(ctx, tmp, cs.ProjectID, cs.ReleaseVersion); err != nil {
 		m.recordReleaseFailure(ctx, cs.ID, fmt.Errorf("write verify snapshot %s@%s: %w", cs.ProjectID, cs.ReleaseVersion, err), start)
 		return
 	}

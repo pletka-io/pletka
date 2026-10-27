@@ -133,8 +133,12 @@ their concrete base/import/default closure and term-reference inventory. Use
 publisher. `StageLegacyVersion` is confined to old Git restore; it cannot mint a
 published identity. Exact external-reference classification is explicit. Operators
 may publish current stored bytes with `weave ontology-publish`; neither operation
-certifies historical content. Separate draft/policy storage, project ontology
-pins and materializer/vendor/restore migration remain open.
+certifies historical content. Project cuts capture linked/explicit ontology
+selections and source-project closures centrally; use `Factory.ReadProject` for
+their immutable artifact values. Released materialization has no legacy fallback.
+Vendor schema 2 and restore preserve exact bytes and reject existing-ID conflicts;
+never send schema 2 through the legacy RDF importer. Separate draft/policy storage,
+unversioned project references and other whole-project assembler inputs remain open.
 
 ### Whole-project reads belong to the assembler
 
