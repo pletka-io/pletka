@@ -225,8 +225,13 @@ publication on ordinary import: the same transaction captures concrete dependenc
 closure, validates referenced terms and freezes a portable artifact identity.
 The bound release reader has only publication SELECTs, and `Dependency(owner)`
 can only follow recorded pins. Conformance limits legacy staging to old Git
-restore and raw publication queries to the publisher. Draft/policy separation,
-project ontology pins and materializer/vendor/restore integration remain pending.
+restore and raw publication queries to the publisher. Project cuts now capture
+linked/explicit ontology selections and source-project closures. Use
+`ontologyrelease.Factory.ReadProject` to receive immutable artifact values;
+released materializers never use current descriptor/default/alias queries.
+Vendor schema 2 preserves exact artifacts and restore verifies existing IDs.
+Separate draft/policy storage and project references without version selectors
+remain pending, along with the remaining whole-project assembler inputs.
 See [ADR-0013](../decisions/0013-ontology-drafts-and-immutable-releases.md).
 
 ### Whole-project reads belong to an assembler

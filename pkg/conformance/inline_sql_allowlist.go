@@ -77,7 +77,7 @@ var InlineSQLAllowlist = map[string]InlineSQLExemption{
 	"pkg/service/gitmaterializer/restore_hydrator.go":    {Statements: 5, Reason: materializer, Permanent: false},
 	"pkg/service/gitmaterializer/restore_overrides.go":   {Statements: 6, Reason: materializer, Permanent: false},
 	"pkg/service/gitmaterializer/versioned_loaders.go":   {Statements: 12, Reason: materializer, Permanent: false},
-	"pkg/service/gitmaterializer/versioned_tree.go":      {Statements: 3, Reason: materializer, Permanent: false},
+	"pkg/service/gitmaterializer/versioned_tree.go":      {Statements: 1, Reason: materializer, Permanent: false},
 	"pkg/weave/adoption_store.go":                        {Statements: 4, Reason: aggregateStore, Permanent: false},
 	"pkg/weave/category/scoped_reader.go":                {Statements: 4, Reason: otherHandWritten, Permanent: false},
 	"pkg/weave/category/store_postgres.go":               {Statements: 4, Reason: storeLayerWrongForm, Permanent: false},

@@ -7,22 +7,29 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestOntologyBodyReaderHasOnlySealedCapability(t *testing.T) {
-	checkOntologyCapability(t, "ontologybody", "read_ontology_body", "weave_ontology_body_seals")
+	checkOntologyCapability(t, "ontologybody/reader.go", "read_ontology_body", []string{"weave_ontology_body_seals"}, []string{"ontology_id = @ontology_id", "version_id = @version_id"})
 }
 
 func TestOntologyReleaseReaderHasOnlyPublishedCapability(t *testing.T) {
-	checkOntologyCapability(t, "ontologyrelease", "read_ontology_release", "weave_ontology_releases")
+	checkOntologyCapability(t, "ontologyrelease/reader.go", "read_ontology_release", []string{"weave_ontology_releases"}, []string{"ontology_id = @ontology_id", "version_id = @version_id"})
 }
 
-func checkOntologyCapability(t *testing.T, pkg, queries, table string) {
+func TestProjectOntologyReaderHasOnlyCapturedCapability(t *testing.T) {
+	checkOntologyCapability(t, "ontologyrelease/project_reader.go", "read_project_ontologies",
+		[]string{"weave_releases", "weave_release_ontology_dependencies", "weave_ontology_releases", "weave_project_ontology_versions_archive"},
+		[]string{"project_id = @project_id", "version_number = @version"})
+}
+
+func checkOntologyCapability(t *testing.T, reader, queries string, tablesAllowed, bindings []string) {
 	t.Helper()
 	root := repoRoot(t)
-	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(root, "pkg/database/"+pkg+"/reader.go"), nil, 0)
+	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(root, "pkg/database/"+reader), nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +39,7 @@ func checkOntologyCapability(t *testing.T, pkg, queries, table string) {
 			for _, field := range node.Fields.List {
 				switch ty := field.Type.(type) {
 				case *ast.Ident:
-					if ty.Name != "Reference" && ty.Name != "bool" {
+					if ty.Name != "Reference" && ty.Name != "bool" && (reader != "ontologyrelease/project_reader.go" || ty.Name != "string") {
 						t.Errorf("reader retains %s", ty.Name)
 					}
 				case *ast.SelectorExpr:
@@ -67,12 +74,14 @@ func checkOntologyCapability(t *testing.T, pkg, queries, table string) {
 			t.Errorf("%s contains a write", path)
 		}
 		for _, match := range tables.FindAllStringSubmatch(sql, -1) {
-			if match[1] != table {
+			if !slices.Contains(tablesAllowed, match[1]) {
 				t.Errorf("%s reads mutable table %s", path, match[1])
 			}
 		}
-		if !strings.Contains(sql, "ontology_id = @ontology_id") || !strings.Contains(sql, "version_id = @version_id") {
-			t.Errorf("%s is not bound to owner and version", path)
+		for _, binding := range bindings {
+			if !strings.Contains(sql, binding) {
+				t.Errorf("%s is missing scope binding %s", path, binding)
+			}
 		}
 	}
 }

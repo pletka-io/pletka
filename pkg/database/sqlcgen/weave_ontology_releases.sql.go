@@ -10,7 +10,7 @@ import (
 )
 
 const weaveOntologyPublicationBody = `-- name: WeaveOntologyPublicationBody :one
-SELECT body::text AS body_json, digest FROM weave_ontology_body_seals
+SELECT COALESCE(body_text,body::text)::text AS body_json, digest FROM weave_ontology_body_seals
 WHERE ontology_id = $1::text AND version_id = $2::text
 `
 

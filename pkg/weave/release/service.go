@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/database/releasedeps"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
@@ -153,6 +154,13 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 			return nil, &ErrValidation{Fields: map[string][]string{"dependencies": {unavailable.Error()}}}
 		}
 		return nil, fmt.Errorf("capture release project dependencies: %w", err)
+	}
+	if err := ontologyrelease.CaptureProject(ctx, sqlcgen.New(tx), projectID, in.Version); err != nil {
+		var invalid interface{ ValidationFields() map[string][]string }
+		if errors.As(err, &invalid) {
+			return nil, &ErrValidation{Fields: map[string][]string{"ontologies": {err.Error()}}}
+		}
+		return nil, fmt.Errorf("capture release ontology dependencies: %w", err)
 	}
 	if err := sqlcgen.New(tx).WeaveSnapshotPinnedAdoptions(ctx, sqlcgen.WeaveSnapshotPinnedAdoptionsParams{ProjectID: projectID, Version: in.Version}); err != nil {
 		return nil, fmt.Errorf("capture pinned adoption receipts: %w", err)

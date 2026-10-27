@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -94,6 +96,7 @@ type VendorSnapshotSet struct {
 }
 
 type OntologySnapshot struct {
+	Artifact *ontologyrelease.Artifact
 	RootDir  string
 	Manifest OntologyVendorManifest
 	Sources  map[string][]byte
@@ -163,6 +166,9 @@ func loadProjectSnapshot(rootDir string, includeVendor bool) (*ProjectSnapshot, 
 			return nil, err
 		}
 		snapshot.Vendor = vendor
+		if err := validateOntologyRequirements(snapshot); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := validateParentDependencySelectors(snapshot.Manifest, snapshot.Mod); err != nil {
@@ -349,7 +355,30 @@ func loadOntologySnapshot(rootDir string) (*OntologySnapshot, error) {
 			sources[filepath.ToSlash(rel)] = payload
 		}
 	}
+	var artifact *ontologyrelease.Artifact
+	switch manifest.SchemaVersion {
+	case 1:
+		if manifest.Artifact != nil {
+			return nil, fmt.Errorf("legacy ontology manifest cannot carry a published artifact")
+		}
+	case 2:
+		if manifest.Artifact == nil || manifest.Artifact.File != ontologyArtifactFile {
+			return nil, fmt.Errorf("published ontology manifest requires artifact.json and digest")
+		}
+		data, err := os.ReadFile(filepath.Join(rootDir, ontologyArtifactFile)) //nolint:gosec // Selected snapshot root and a fixed filename; no manifest path is used.
+		if err != nil {
+			return nil, err
+		}
+		a := ontologyrelease.Artifact{JSON: string(data), Digest: manifest.Artifact.Digest}
+		if err := validatePublishedOntologyFiles(manifest, sources, a); err != nil {
+			return nil, err
+		}
+		artifact = &a
+	default:
+		return nil, fmt.Errorf("unsupported ontology vendor schema %d", manifest.SchemaVersion)
+	}
 	return &OntologySnapshot{
+		Artifact: artifact,
 		RootDir:  rootDir,
 		Manifest: manifest,
 		Sources:  sources,

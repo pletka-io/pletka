@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
 )
@@ -38,10 +39,12 @@ type pletkaProjectRequirement struct {
 const parentDependencyVersionDraft = "draft"
 
 type pletkaOntologyRequirement struct {
-	Module            string `json:"module"`
-	OntologyID        string `json:"ontology_id"`
-	OntologyVersionID string `json:"ontology_version_id,omitempty"`
-	Version           string `json:"version"`
+	Artifact          *ontologyrelease.Artifact `json:"-"`
+	Digest            string                    `json:"artifact_digest,omitempty"`
+	Module            string                    `json:"module"`
+	OntologyID        string                    `json:"ontology_id"`
+	OntologyVersionID string                    `json:"ontology_version_id,omitempty"`
+	Version           string                    `json:"version"`
 }
 
 func encodePletkaModManifest(manifest pletkaModManifest) ([]byte, error) {
@@ -154,6 +157,20 @@ func (m *Materializer) loadPletkaOntologyRequirements(ctx context.Context, proje
 		if err != nil {
 			return nil, fmt.Errorf("get ontology version %s for pletka.mod: %w", row.OntologyVersionID, err)
 		}
+		published, err := m.publishedOntologyClosure(ctx, version.OntologyID, version.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(published) > 0 {
+			for _, a := range published {
+				req, err := m.artifactRequirement(a)
+				if err != nil {
+					return nil, err
+				}
+				reqs = append(reqs, req)
+			}
+			continue
+		}
 		ontology, err := m.queries.WeaveGetOntologyByID(ctx, version.OntologyID)
 		if err != nil {
 			return nil, fmt.Errorf("get ontology %s for pletka.mod: %w", version.OntologyID, err)
@@ -164,6 +181,10 @@ func (m *Materializer) loadPletkaOntologyRequirements(ctx context.Context, proje
 			OntologyVersionID: version.ID,
 			Version:           version.VersionString,
 		})
+	}
+	reqs, err = uniqueOntologyRequirements(reqs)
+	if err != nil {
+		return nil, err
 	}
 	sort.Slice(reqs, func(i, j int) bool {
 		if reqs[i].Module != reqs[j].Module {

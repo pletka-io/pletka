@@ -352,6 +352,22 @@ func TestExplicitPublicationRollbackAndSnapshot(t *testing.T) {
 
 	db := stdlib.OpenDB(*legacy.pool.Config().ConnConfig)
 	defer db.Close()
+	t.Cleanup(func() {
+		db := stdlib.OpenDB(*legacy.pool.Config().ConnConfig)
+		defer db.Close()
+		if err := database.Migrate(db); err != nil {
+			t.Error(err)
+		}
+	})
+	latest, err := database.LatestMigrationVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for version := latest; version > 24; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade published ontology artifacts") {
 		t.Fatalf("unsafe downgrade: %v", err)
 	}
@@ -359,7 +375,10 @@ func TestExplicitPublicationRollbackAndSnapshot(t *testing.T) {
 
 func TestRawPublicationCannotOmitRequirementsOrClosure(t *testing.T) {
 	defaults(t)
+	grand := candidate(t, "publication_raw_grand")
+	grand.publish(t)
 	base := candidate(t, "publication_raw_base")
+	base.extend(t, grand)
 	base.publish(t)
 	child := candidate(t, "publication_raw_child")
 	child.extend(t, base)
@@ -426,8 +445,21 @@ func TestRawPublicationCannotOmitRequirementsOrClosure(t *testing.T) {
 	bad.Requirements = []ontologyrelease.Requirement{}
 	requireFailure(t, insert(bad), "base requirement")
 	bad = doc
-	bad.Pins = pins[:1]
+	bad.Pins = nil
+	for _, pin := range pins {
+		if pin.OntologyID != grand.input.Version.OntologyID {
+			bad.Pins = append(bad.Pins, pin)
+		}
+	}
 	requireFailure(t, insert(bad), "source closure")
+	bad = doc
+	bad.Requirements = append([]ontologyrelease.Requirement{}, requirements...)
+	for i, r := range bad.Requirements {
+		if r.Kind == "defaults" {
+			bad.Requirements[i] = ontologyrelease.Requirement{Kind: "defaults", Name: "defaults", Disposition: "absent"}
+		}
+	}
+	requireFailure(t, insert(bad), "defaults decision")
 	bad = doc
 	bad.Pins = append(append([]ontologyrelease.Pin{}, pins...), pins[0])
 	if err := insert(bad); err == nil {

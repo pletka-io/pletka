@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 )
 
 // VendoredOntologyImport carries everything an ontology importer needs to
@@ -37,6 +39,8 @@ type VendoredOntologyExternalBinding struct {
 type VendoredOntologyImporter interface {
 	// ImportVendoredOntology must be idempotent per manifest.Ontology.VersionID.
 	ImportVendoredOntology(ctx context.Context, imp VendoredOntologyImport) error
+	// RestorePublishedOntologies verifies existing identities and installs a complete bundle atomically.
+	RestorePublishedOntologies(context.Context, []ontologyrelease.Artifact) error
 }
 
 // hydrateVendoredOntologies imports every ontology vendored by plan's
@@ -49,6 +53,9 @@ func (m *Materializer) hydrateVendoredOntologies(ctx context.Context, plan *Rest
 		return nil
 	}
 	snapshot := plan.Snapshot
+	if err := validateOntologyRequirements(snapshot); err != nil {
+		return err
+	}
 
 	if err := verifyVendorChecksums(snapshot); err != nil {
 		return err
@@ -84,6 +91,38 @@ func (m *Materializer) hydrateVendoredOntologies(ctx context.Context, plan *Rest
 
 	for _, dep := range ontologies {
 		if dep.Snapshot == nil {
+			return fmt.Errorf("restore ontology snapshot is missing")
+		}
+		s := dep.Snapshot
+		switch s.Manifest.SchemaVersion {
+		case 1:
+			if s.Artifact != nil {
+				return fmt.Errorf("legacy ontology cannot carry a published artifact")
+			}
+		case 2:
+			if s.Artifact == nil {
+				return fmt.Errorf("published ontology artifact is missing")
+			}
+			if err := validatePublishedOntologyFiles(s.Manifest, s.Sources, *s.Artifact); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unsupported ontology schema %d", s.Manifest.SchemaVersion)
+		}
+	}
+	published := make([]ontologyrelease.Artifact, 0)
+	for _, dep := range ontologies {
+		if dep.Snapshot != nil && dep.Snapshot.Artifact != nil {
+			published = append(published, *dep.Snapshot.Artifact)
+		}
+	}
+	if len(published) > 0 {
+		if err := m.ontologyImporter.RestorePublishedOntologies(ctx, published); err != nil {
+			return fmt.Errorf("restore published ontologies: %w", err)
+		}
+	}
+	for _, dep := range ontologies {
+		if dep.Snapshot == nil || dep.Snapshot.Artifact != nil {
 			continue
 		}
 		versionID := strings.TrimSpace(dep.Snapshot.Manifest.Ontology.VersionID)

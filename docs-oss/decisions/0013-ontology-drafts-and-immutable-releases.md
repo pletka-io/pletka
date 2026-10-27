@@ -206,13 +206,60 @@ HTTP multipart import accepts a `publication` JSON object with `pins`,
 publication will succeed. This operator action establishes a guarantee from now
 onward and never reconstructs historical content automatically.
 
-The remaining work is consumer integration: project cuts must retain these
-ontology artifacts, materializers must serialize their immutable values, and a
-new vendor/restore format must compare complete identities instead of accepting
-an existing ID. Current materialization still reads live descriptor/alias/default
-queries. Separate editor draft tables and a separate mutable policy record are
-also pending; `is_active` remains a compatibility column excluded from bodies.
-This checkpoint does not certify complete project output immutability.
+## Implemented project capture and portable restore (2026-10-27)
+
+Migration 025 adds a separate `ontology_dependencies_version` marker to project
+releases and retained `(ontology_id, ontology_version_id, digest)` pins. Existing
+cuts remain unverified. In the release transaction, `CaptureProject` inventories
+archived ontology links, explicit `ontology_version_id` selections in archived
+fields/models/collections, and every captured source project's ontology inventory.
+It merges each publication's transitive closure and resolves defaults once for
+direct selections. An explicit defaults link overrides active policy. Conflicting
+versions, unpublished selections and unverified source inventories abort the
+entire cut, including metadata, archives and outbox. Publish the intended current
+ontology versions explicitly before cutting a new project release; this does not
+repair an old release's missing evidence.
+
+Storage checks links, explicit selections, source closures and inherited pins
+before setting the marker. It rejects later pin changes and marker downgrades;
+foreign keys retain the publications. `Factory.ReadProject` binds a concrete
+project cut and exposes only captured artifacts through a dedicated SELECT
+package. Missing/unverified selections fail before callback entry. Conformance
+checks exclude live ontology tables and unrestricted database capabilities from
+this reader and restrict raw capture queries to the capture boundary.
+
+Released project manifests and ontology requirements now use frozen artifact
+descriptors. The vendor writer receives artifact values and serializes captured
+sources, companions and namespace aliases. New release commits and existing-tag
+verification share the same snapshot writer, including vendored closure and
+checksums. Draft materialization can still use the explicit legacy path for
+unpublished rows; released materialization cannot.
+
+Ontology vendor schema 2 includes exact `artifact.json` bytes and their digest.
+`pletka.mod` records the digest alongside owner/version identity; `pletka.sum`
+covers the vendor tree. Loading/restoring checks that requirements, vendor
+manifests and source files agree with those artifacts. An existing published ID
+is a no-op only for identical bytes and digest. An existing unverified ID is a
+conflict, not permission to overwrite or certify it. Schema 1 remains an explicit
+unverified legacy restore path.
+
+Migration 026 restores the complete published bundle in one repeatable-read
+transaction, dependencies first. It rebuilds indexed terms/relations/companions
+from the frozen derived content, without reparsing RDF. The seal verifies indexed
+content against the transported body and stores its exact text, retaining the
+original descriptor and namespace context even when destination policy differs.
+It does not rewrite destination global namespaces or an existing catalog entry.
+Catalog family membership is restored only when the referenced family exists;
+the artifact always retains the original descriptor. Original defaults decisions
+survive transport; ordinary publication still checks current defaults policy.
+Unsafe downgrade is refused once transported bodies exist.
+
+This inventory does **not** yet resolve unversioned QName/URI references in project
+content. Actor/module descriptors and other whole-project assembler inputs also
+remain outside this checkpoint. Tests prove ontology-input stability and exact
+artifact restore, not complete project-output immutability. Separate editor draft
+tables and active-policy storage remain the next ontology step; `is_active` is
+still a mutable compatibility column excluded from bodies.
 
 ## Alternatives rejected
 

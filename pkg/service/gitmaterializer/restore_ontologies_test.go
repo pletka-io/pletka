@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
+
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
@@ -320,4 +322,8 @@ func TestHydrateRestorePlan(t *testing.T) {
 			t.Fatalf("error %q does not contain 'no ontology importer is wired'", err.Error())
 		}
 	})
+}
+
+func (f *fakeImporter) RestorePublishedOntologies(context.Context, []ontologyrelease.Artifact) error {
+	return nil
 }

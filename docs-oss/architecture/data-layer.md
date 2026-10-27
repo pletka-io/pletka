@@ -186,10 +186,25 @@ restrict raw publication queries and the explicit legacy restore staging path.
 
 `weave ontology-publish <ontologyID> <versionID>` explicitly publishes current
 stored bytes, requiring already-published dependencies; it does not establish
-historical truth. Physical draft/policy separation, project ontology pinning,
-materializer/vendor/restore integration and the complete project assembler remain
-pending. See ADR-0013 for resolution rules, external-reference classification and
-operator options. Current `is_active` stays mutable and outside the artifact.
+historical truth. See ADR-0013 for resolution rules, external-reference
+classification and operator options. Current `is_active` stays mutable and outside
+the artifact; separate draft/policy storage remains pending.
+
+Migration 025 captures project ontology identities in
+`weave_release_ontology_dependencies`, with a separate provenance marker on the
+release. Archived links, explicit version selectors and captured source-project
+inventories contribute their full ontology closures. Storage validates coverage,
+retains source artifacts and prevents later pin changes. `Factory.ReadProject`
+uses only `queries/read_project_ontologies/`; released materialization serializes
+returned values. Historical inventories stay unverified. Unversioned project
+QName/URI resolution and other assembler inputs still need capture.
+
+Vendor schema 2 transports exact artifact bytes plus frozen source files.
+Migration 026 adds optional exact `body_text` to seals: local seals retain JSONB
+rendering, transported seals retain original bytes. Restore verifies hashes,
+ownership and indexed body equality in one transaction without reparsing RDF or
+changing destination namespace policy. Existing IDs require identical published
+bytes; legacy collisions fail. Schema 1 retains its explicit unverified path.
 
 ## Migrations: goose
 
