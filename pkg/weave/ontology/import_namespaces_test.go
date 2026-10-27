@@ -96,3 +96,12 @@ func TestStandardNamespaceBindingsIncludesRDFCore(t *testing.T) {
 		}
 	}
 }
+
+func TestMergeNamespaceBindingsPreservesWinningProvenance(t *testing.T) {
+	owner := "ONTOLOGY"
+	winner := NamespaceBinding{Prefix: "alias", Namespace: "https://alias/", Weight: 80, Source: "manifest", OntologyID: &owner}
+	got := MergeNamespaceBindings([]NamespaceBinding{winner}, []NamespaceBinding{{Prefix: "rdf", Namespace: winner.Namespace, Weight: 20, Source: "rdf-declared"}})
+	if len(got) != 1 || got[0] != winner {
+		t.Fatalf("lost winning provenance: %+v", got)
+	}
+}

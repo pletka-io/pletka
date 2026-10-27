@@ -227,9 +227,16 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 		for _, imp := range f.Imports {
 			p, _ := strconv.Unquote(imp.Path.Value)
 			if !strings.Contains(p, "/database/readsql/") {
+				allowedWrite := p == "github.com/pletka-io/pletka/pkg/database/writesql/ontologydraft" && (rel == "pkg/weave/ontology/draft_session.go" || rel == "pkg/weave/ontology/draft_editor.go" || rel == "pkg/weave/ontology/draft_publish.go")
+				if strings.Contains(p, "/database/writesql/") && !allowedWrite {
+					t.Errorf("%s imports unrestricted draft writes", rel)
+				}
 				continue
 			}
 			allowed := rel == "pkg/weave/collection/reader_draft.go" || rel == "pkg/weave/collection/reader_archive.go" || rel == "pkg/weave/override/reader_draft.go" || rel == "pkg/weave/override/reader_archive.go"
+			if p == "github.com/pletka-io/pletka/pkg/database/readsql/ontologydraft" && (rel == "pkg/weave/ontology/draft_reader.go" || rel == "pkg/weave/ontology/draft_session.go" || rel == "pkg/weave/ontology/draft_publish.go") {
+				allowed = true
+			}
 			if p == "github.com/pletka-io/pletka/pkg/database/readsql/ontologybody" && (rel == "pkg/database/ontologybody/session.go" || rel == "pkg/database/ontologybody/reader.go") {
 				allowed = true
 			}

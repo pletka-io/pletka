@@ -1119,16 +1119,44 @@ func (s *postgresStore) importVersion(ctx context.Context, in ImportVersionInput
 	if err := qtx.WeaveDeleteOntologyVersion(ctx, in.Version.ID); err != nil {
 		return nil, fmt.Errorf("clear existing version: %w", err)
 	}
+	version, err := s.writeImportedVersion(ctx, tx, in, in.Version.OntologyID)
+	if err != nil {
+		return nil, err
+	}
+
+	if publish {
+		if err := publishImportedOntology(ctx, qtx, version, in.Publication); err != nil {
+			return nil, fmt.Errorf("publish ontology: %w", err)
+		}
+	}
+
+	// Read the result in this transaction; a later policy change cannot alter
+	// the response between commit and a second pool read.
+	row, err := qtx.WeaveGetOntologyVersionByID(ctx, version.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit import-version tx: %w", err)
+	}
+	return rowToVersion(row), nil
+}
+
+// writeImportedVersion creates new version-owned rows. Callers own replacement
+// policy and the transaction; editor publication never deletes an existing ID.
+// Imports default unowned bindings to the imported ontology; drafts provide
+// explicit provenance and pass an empty default so global bindings stay global.
+func (s *postgresStore) writeImportedVersion(ctx context.Context, tx pgx.Tx, in ImportVersionInput, namespaceDefaultOwner string) (*domain.OntologyVersion, error) {
+	qtx := s.queries.WithTx(tx)
 	version, err := s.createVersionWith(ctx, qtx, in.Version)
 	if err != nil {
 		return nil, err
 	}
-	if err := upsertNamespaceBindings(ctx, tx, in.Version.OntologyID, in.NamespaceBindings); err != nil {
+	if err := upsertNamespaceBindings(ctx, tx, namespaceDefaultOwner, in.NamespaceBindings); err != nil {
 		return nil, err
 	}
 
-	// Persist companion sources verbatim (the delete above cascaded any
-	// previous rows) so self-contained snapshots can vendor them.
+	// Persist companion sources verbatim so snapshots can vendor them.
 	for i, companion := range in.CompanionFiles {
 		if err := qtx.WeaveUpsertOntologyVersionCompanion(ctx, sqlcgen.WeaveUpsertOntologyVersionCompanionParams{
 			OntologyVersionID: version.ID,
@@ -1216,22 +1244,7 @@ func (s *postgresStore) importVersion(ctx context.Context, in ImportVersionInput
 		}
 	}
 
-	if publish {
-		if err := publishImportedOntology(ctx, qtx, version, in.Publication); err != nil {
-			return nil, fmt.Errorf("publish ontology: %w", err)
-		}
-	}
-
-	// Read the result in this transaction; a later policy change cannot alter
-	// the response between commit and a second pool read.
-	row, err := qtx.WeaveGetOntologyVersionByID(ctx, version.ID)
-	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit import-version tx: %w", err)
-	}
-	return rowToVersion(row), nil
+	return version, nil
 }
 
 func publishImportedOntology(ctx context.Context, q *sqlcgen.Queries, version *domain.OntologyVersion, options ontologyrelease.Options) error {

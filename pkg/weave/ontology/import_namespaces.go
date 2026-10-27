@@ -62,29 +62,24 @@ func BuildImportNamespaceBindings(plan ImportNamespacePlan) []NamespaceBinding {
 // namespace-prefix URI matching. Earlier entries win when multiple prefixes
 // point to the same namespace.
 func MergeNamespaceBindings(sets ...[]NamespaceBinding) []NamespaceBinding {
-	seen := map[string]string{}
-	weights := map[string]int64{}
+	seen := map[string]NamespaceBinding{}
 	for _, set := range sets {
 		for _, binding := range set {
-			prefix := strings.TrimSpace(binding.Prefix)
-			namespace := strings.TrimSpace(binding.Namespace)
-			if prefix == "" || namespace == "" {
+			binding.Prefix = strings.TrimSpace(binding.Prefix)
+			binding.Namespace = strings.TrimSpace(binding.Namespace)
+			if binding.Prefix == "" || binding.Namespace == "" {
 				continue
 			}
-			if _, ok := seen[namespace]; !ok {
-				seen[namespace] = prefix
-				weights[namespace] = binding.Weight
+			if _, ok := seen[binding.Namespace]; !ok {
+				seen[binding.Namespace] = binding
 			}
 		}
 	}
 	bindings := make([]NamespaceBinding, 0, len(seen))
-	for namespace, prefix := range seen {
-		bindings = append(bindings, NamespaceBinding{
-			Prefix:    prefix,
-			Namespace: namespace,
-			Weight:    weights[namespace],
-		})
+	for _, binding := range seen {
+		bindings = append(bindings, binding)
 	}
+
 	sort.Slice(bindings, func(i, j int) bool {
 		if len(bindings[i].Namespace) != len(bindings[j].Namespace) {
 			return len(bindings[i].Namespace) > len(bindings[j].Namespace)
