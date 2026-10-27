@@ -37,6 +37,7 @@
     { "name": "subfield-paths", "source": "./src/lib/components/form/widgets/SubfieldPathsDisplay.svelte" },
     { "name": "prefix-input", "source": "./src/lib/components/form/widgets/PrefixInput.svelte" },
     { "name": "text", "source": "./src/lib/components/form/widgets/TextInput.svelte" },
+    { "name": "hidden", "source": "./src/lib/components/form/widgets/Hidden.svelte" },
     { "name": "number", "source": "./src/lib/components/form/widgets/TextInput.svelte" },
     { "name": "date", "source": "./src/lib/components/form/widgets/TextInput.svelte" },
     { "name": "url", "source": "./src/lib/components/form/widgets/TextInput.svelte" },

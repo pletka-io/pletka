@@ -4,6 +4,7 @@
   import { addToast } from '$lib/stores/toast';
   import { confirmAction } from '$lib/stores/confirm';
   import FormSection from './FormSection.svelte';
+  import { planFormConflict, resolveFormConflict, displayConflictValue, type ConflictPlan } from './form-conflict';
   import { initialValueForWidget } from './widget-registry';
 
   let {
@@ -35,6 +36,12 @@
   let revealCopied = $state(false);
   let pendingAfterReveal: (() => void) | null = null;
   let showConfirm = $state(false);
+  let baselineValues: Record<string, any> = {};
+  let conflictDetected = $state(false);
+  let conflictBusy = $state(false);
+  let conflictPlan = $state<ConflictPlan | null>(null);
+  let conflictChoices = $state<Record<string, 'mine' | 'latest'>>({});
+
 
   // Dynamic options fetched from options_url per field; overlays field.options when present.
   let dynamicOptions = $state<Record<string, { value: string; label: string }[]>>({});
@@ -198,6 +205,9 @@
   });
 
   async function fetchSchema() {
+    conflictDetected = false;
+    conflictPlan = null;
+    conflictChoices = {};
     loading = true;
     try {
       const res = await fetch(schemaUrl);
@@ -205,7 +215,7 @@
       const data = await res.json();
       // Defensive: a 200 response that doesn't shape like a FormSchema must
       // not be assigned — initFormValues iterates `sections` and would crash.
-      if (!data || !Array.isArray(data.sections) || !data.ui) {
+      if (!data || !Array.isArray(data.sections) || !data.ui || !Array.isArray(data.ui.languages)) {
         throw new Error('Server returned an unexpected form schema shape.');
       }
       schema = data;
@@ -228,10 +238,47 @@
       }
     }
     formValues = values;
+    baselineValues = JSON.parse(JSON.stringify(values));
+  }
+
+  async function compareLatest() {
+    if (!schema || conflictBusy) return;
+    conflictBusy = true;
+    try {
+      const response = await fetch(schemaUrl, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+      const latest = await response.json();
+      if (!response.ok) throw new Error(latest?.message || 'Could not load the current form.');
+      if (!Array.isArray(latest?.sections) || !latest.ui) throw new Error('The current form is unavailable.');
+      // Svelte state proxies cannot be structuredClone'd. Copy the plain wire
+      // values first; this leaves the current editor untouched while comparing.
+      conflictPlan = planFormConflict(JSON.parse(JSON.stringify(schema)), baselineValues, JSON.parse(JSON.stringify(formValues)), latest, initialValueForWidget);
+      conflictChoices = {};
+    } catch (error: any) {
+      errorMessage = error.message;
+    } finally {
+      conflictBusy = false;
+    }
+  }
+
+  function applyConflictReview() {
+    if (!conflictPlan) return;
+    try {
+      const plain = JSON.parse(JSON.stringify(conflictPlan)) as ConflictPlan;
+      formValues = resolveFormConflict(plain, conflictChoices);
+      schema = plain.schema;
+      baselineValues = structuredClone(plain.latest);
+      conflictDetected = false;
+      conflictPlan = null;
+      errors = {};
+      errorMessage = '';
+      lastSubmittedValues = {};
+    } catch (error: any) {
+      errorMessage = error.message;
+    }
   }
 
   function requestSubmit() {
-    if (!schema?.endpoint || submitting) return;
+    if (!schema?.endpoint || submitting || conflictDetected) return;
     if (schema.endpoint.confirm) {
       showConfirm = true;
       return;
@@ -291,7 +338,7 @@
   }
 
   async function handleSubmit() {
-    if (!schema?.endpoint || submitting) return;
+    if (!schema?.endpoint || submitting || conflictDetected) return;
     submitting = true;
     errors = {};
     errorMessage = '';
@@ -333,10 +380,20 @@
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        if (data?.errors) {
+        if (res.status === 409 && data?.code === 'conflict' && schema.conflict) {
+          conflictDetected = true;
+          conflictPlan = null;
+          conflictChoices = {};
+          errorMessage = tr(schema.conflict.message, lang);
+        } else if (data?.errors) {
           errors = data.errors;
+          const fieldNames = new Set(schema.sections.flatMap(section => section.fields.map(field => field.name)));
+          errorMessage = Object.entries(data.errors)
+            .filter(([name]) => !fieldNames.has(name))
+            .flatMap(([, messages]) => Array.isArray(messages) ? messages : [String(messages)])
+            .join(' ');
         } else {
-          errorMessage = data?.message || `Error: ${res.status}`;
+          errorMessage = data?.message || data?.error || `Error: ${res.status}`;
         }
         return;
       }
@@ -442,6 +499,35 @@
       </div>
     {/if}
 
+    {#if conflictDetected}
+      <section class="mb-4 rounded border border-amber-300 bg-amber-50 p-4" aria-label="Resolve concurrent changes">
+        <p class="text-sm text-amber-900">Your unsaved values are still in the form below. Reviewing changes does not save them.</p>
+        <button type="button" onclick={compareLatest} disabled={conflictBusy} class="mt-3 rounded border border-amber-400 bg-white px-3 py-2 text-sm disabled:opacity-50">
+          {conflictBusy ? 'Loading latest…' : 'Compare with latest'}
+        </button>
+        {#if conflictPlan}
+          {#if !conflictPlan.conflicts.length}<p class="mt-3 text-sm">These changes can be combined without overwriting another edit.</p>{/if}
+          {#each conflictPlan.conflicts as conflict (conflict.field.name)}
+            <fieldset class="mt-4 border-t border-amber-200 pt-3">
+              <legend class="font-medium">{tr(conflict.field.label, lang)}</legend>
+              <div class="grid gap-3 md:grid-cols-2">
+                <label class="block rounded bg-white p-3 text-sm">
+                  <input type="radio" name={'conflict-' + conflict.field.name} value="mine" bind:group={conflictChoices[conflict.field.name]} /> Keep my value
+                  <pre class="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words">{displayConflictValue(conflict.mine)}</pre>
+                </label>
+                <label class="block rounded bg-white p-3 text-sm">
+                  <input type="radio" name={'conflict-' + conflict.field.name} value="latest" bind:group={conflictChoices[conflict.field.name]} /> Use latest value
+                  <pre class="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words">{displayConflictValue(conflict.latest)}</pre>
+                </label>
+              </div>
+            </fieldset>
+          {/each}
+          <button type="button" onclick={applyConflictReview} disabled={conflictPlan.conflicts.some(c => !conflictChoices[c.field.name])} class="mt-4 rounded bg-pletka-primary px-3 py-2 text-sm text-white disabled:opacity-50">Apply review to form</button>
+        {/if}
+        <button type="button" onclick={() => { conflictDetected = false; conflictPlan = null; errorMessage = ''; }} class="ml-3 mt-3 text-sm underline">Keep editing my values</button>
+      </section>
+    {/if}
+    <fieldset disabled={conflictDetected}>
     {#each schema.sections as section (section.id)}
       {#if !section.visible_when || formValues[section.visible_when.field] === section.visible_when.equals}
       <FormSection
@@ -456,12 +542,13 @@
       {/if}
     {/each}
 
+    </fieldset>
     {#if schema.endpoint}
       <div class="flex justify-between gap-3 mt-4">
         <div>
           {#if schema.delete}
             <button type="button"
-              disabled={submitting || deleting}
+              disabled={submitting || deleting || conflictDetected}
               onclick={handleDelete}
               class="px-4 py-2 text-sm font-medium text-red-700 bg-white border border-red-300 rounded-md hover:bg-red-50 disabled:opacity-50">
               {#if deleting}
@@ -481,11 +568,11 @@
                 }
               }}
               class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
-              {tr(schema.ui.cancel_label, lang)}
+              {tr(schema.ui.cancel_label, lang) || 'Cancel'}
             </button>
           {/if}
           <button type="submit"
-            disabled={submitting || deleting}
+            disabled={submitting || deleting || conflictDetected}
             class="px-4 py-2 text-sm font-medium text-white border border-transparent rounded-md disabled:opacity-50
               {isDanger ? 'bg-red-600 hover:bg-red-700' : 'bg-pletka-primary hover:bg-pletka-secondary'}">
             {#if submitting}
@@ -501,7 +588,7 @@
 
   <!-- Confirmation dialog -->
   {#if showConfirm && schema?.endpoint?.confirm}
-    <div class="fixed inset-0 z-50 flex items-center justify-center">
+    <div class="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true" aria-label={tr(schema.endpoint.confirm.title, lang)}>
       <button
         type="button"
         class="absolute inset-0 bg-black/50"

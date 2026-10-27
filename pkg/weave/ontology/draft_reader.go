@@ -41,5 +41,18 @@ func (r *draftReader) Snapshot(ctx context.Context) (DraftSnapshot, error) {
 	if err := document.validate(); err != nil {
 		return DraftSnapshot{}, err
 	}
-	return DraftSnapshot{OntologyID: r.ref.owner, ID: r.ref.id, BaseVersionID: row.BaseVersionID, Revision: row.Revision, Document: document}, nil
+	snapshot := DraftSnapshot{OntologyID: r.ref.owner, ID: r.ref.id, BaseVersionID: row.BaseVersionID, Revision: row.Revision, Document: document}
+	receipt, err := r.queries.OntologyDraftReceipt(ctx, readsql.OntologyDraftReceiptParams{OntologyID: string(r.ref.owner), DraftID: string(r.ref.id), Revision: row.Revision})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return snapshot, nil
+	}
+	if err != nil {
+		return DraftSnapshot{}, err
+	}
+	var request DraftPublishRequest
+	if err := json.Unmarshal(receipt.Request, &request); err != nil {
+		return DraftSnapshot{}, err
+	}
+	snapshot.Publication = &DraftPublication{OntologyID: r.ref.owner, DraftID: r.ref.id, Revision: row.Revision, VersionID: receipt.VersionID, Version: request.Version, Digest: receipt.Digest}
+	return snapshot, nil
 }

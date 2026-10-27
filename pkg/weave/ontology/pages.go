@@ -24,6 +24,7 @@ import (
 // /ontologies/list-schema endpoints have edit caps stripped so the
 // island renders read-only.
 type Pages struct {
+	editor    *EditorHost
 	logger    *slog.Logger
 	renderer  *weavetemplates.Renderer
 	svc       *Service
@@ -283,7 +284,11 @@ func (p *Pages) ontologyDetailPageSchema(w http.ResponseWriter, r *http.Request)
 		p.renderer.RespondNotFound(w, r, p.renderer.ErrorContext(r, lang))
 		return
 	}
-	writeJSON(w, http.StatusOK, BuildOntologyDetailPageSchema(model, lang, p.schemaLanguages(), p.viewerIsAdmin(r)))
+	schema := BuildOntologyDetailPageSchema(model, lang, p.schemaLanguages(), p.viewerIsAdmin(r))
+	if p.editor != nil && p.viewerIsAdmin(r) {
+		addOntologyEditorAction(schema, model.Ontology.ID, lang)
+	}
+	writeJSON(w, http.StatusOK, schema)
 }
 
 func (p *Pages) versionDetailPageSchema(w http.ResponseWriter, r *http.Request) {
@@ -293,7 +298,14 @@ func (p *Pages) versionDetailPageSchema(w http.ResponseWriter, r *http.Request) 
 		p.renderer.RespondNotFound(w, r, p.renderer.ErrorContext(r, lang))
 		return
 	}
-	writeJSON(w, http.StatusOK, BuildVersionDetailPageSchema(model, lang, p.schemaLanguages(), p.viewerIsAdmin(r)))
+	schema := BuildVersionDetailPageSchema(model, lang, p.schemaLanguages(), p.viewerIsAdmin(r))
+	if p.editor != nil && p.viewerIsAdmin(r) {
+		if err := p.editor.versionActions(r.Context(), schema, model.Version.OntologyID, model.Version.ID, lang); err != nil {
+			editorError(w, r, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, schema)
 }
 
 func (p *Pages) classDetailPageSchema(w http.ResponseWriter, r *http.Request) {

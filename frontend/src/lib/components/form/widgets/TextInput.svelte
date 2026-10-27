@@ -41,7 +41,7 @@
       id={field.name}
       bind:value
       readonly={field.readonly}
-      rows={4}
+      rows={Math.max(2, Math.min(60, field.rows ?? 4))}
       class="shadow-sm focus:ring-pletka-primary focus:border-pletka-primary block w-full sm:text-sm border-gray-300 rounded-md
         {field.readonly ? 'bg-gray-50 text-gray-500' : ''} {errors.length ? 'border-red-300' : ''}"
     ></textarea>

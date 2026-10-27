@@ -7,14 +7,24 @@ import (
 
 // FormSchema is the top-level response from the form schema API.
 type FormSchema struct {
-	EntityType string          `json:"entity_type"`
-	Mode       string          `json:"mode"`            // create, edit, view, override
-	Theme      string          `json:"theme,omitempty"` // "default", "danger"
-	Endpoint   *SchemaEndpoint `json:"endpoint,omitempty"`
-	Delete     *DeleteAction   `json:"delete,omitempty"`
-	Sections   []Section       `json:"sections"`
-	Context    *SchemaContext  `json:"context,omitempty"`
-	UI         SchemaUI        `json:"ui"`
+	EntityType string              `json:"entity_type"`
+	Mode       string              `json:"mode"`            // create, edit, view, override
+	Theme      string              `json:"theme,omitempty"` // "default", "danger"
+	Endpoint   *SchemaEndpoint     `json:"endpoint,omitempty"`
+	Delete     *DeleteAction       `json:"delete,omitempty"`
+	Conflict   *FormConflictConfig `json:"conflict,omitempty"`
+	Sections   []Section           `json:"sections"`
+	Context    *SchemaContext      `json:"context,omitempty"`
+	UI         SchemaUI            `json:"ui"`
+}
+
+// FormConflictConfig enables generic three-way reconciliation after a 409.
+// Identity changes when the meaning of indexed fields changes; a client must
+// refuse automatic reconciliation across that change.
+type FormConflictConfig struct {
+	RevisionField string             `json:"revision_field"`
+	Identity      string             `json:"identity"`
+	Message       domain.Localizable `json:"message"`
 }
 
 // DeleteAction declares a destructive button that lives inside an edit
@@ -106,7 +116,8 @@ type Section struct {
 // FieldDef describes a single form field: its widget, validation, value, and options.
 type FieldDef struct {
 	Name                 string             `json:"name"`
-	Widget               string             `json:"widget"` // multilingual-text, select, system-name-preview, etc.
+	Widget               string             `json:"widget"`         // multilingual-text, select, system-name-preview, etc.
+	Rows                 int                `json:"rows,omitempty"` // Optional textarea height.
 	Required             bool               `json:"required,omitempty"`
 	Readonly             bool               `json:"readonly,omitempty"`
 	ImmutableAfterCreate bool               `json:"immutable_after_create,omitempty"`
@@ -265,6 +276,7 @@ var _ = []string{
 	frontendrefs.FormWidget("subfield-paths"),
 	frontendrefs.FormWidget("checkbox"),
 	frontendrefs.FormWidget("text"),
+	frontendrefs.FormWidget("hidden"),
 	frontendrefs.FormWidget("textarea"),
 	frontendrefs.FormWidget("number"),
 	frontendrefs.FormWidget("radio-group"),

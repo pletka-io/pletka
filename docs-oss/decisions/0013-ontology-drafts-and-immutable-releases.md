@@ -1,7 +1,7 @@
 # ADR-0013: Ontology editing uses drafts; dependencies use immutable releases
 
 Date: 2026-10-26
-Status: Accepted; publication, project consumers, portable restore, separate active policy and draft backend implemented; editor API/UI pending
+Status: Accepted; publication, project consumers, portable restore, separate active policy and draft backend and schema-driven source editor/API implemented; structured term editing pending
 
 ## Context
 
@@ -258,7 +258,7 @@ This inventory does **not** yet resolve unversioned QName/URI references in proj
 content. Actor/module descriptors and other whole-project assembler inputs also
 remain outside this checkpoint. Tests prove ontology-input stability and exact
 artifact restore, not complete project-output immutability. Separate editor draft storage and active policy are now implemented as
-described below; HTTP editor integration remains pending.
+described below; source-editor integration is also implemented below.
 
 ## Implemented active-selection policy (2026-10-27)
 
@@ -332,12 +332,51 @@ and do not overwrite a draft. There is no migration backfill from active rows,
 and downgrade refuses existing drafts. Request authorization remains separate.
 
 The public operator surface is `weave ontology-draft start/show/save/publish`;
-see [operations and JSON format](../reference/ontology-drafts.md). This checkpoint
-does not wire the HTTP editor or UI. Integration tests cover save/publication
+see [operations and JSON format](../reference/ontology-drafts.md). That backend checkpoint
+was followed by the source-editor integration below. Integration tests cover save/publication
 rollback, stale edit/publication races, same-revision retries, namespace provenance,
 raw guards and old released Git-tree stability after actual draft edits and newer
 publication. Unversioned project references and the whole-project assembler remain
 separate unfinished work.
+
+## Implemented editor API and schema UI (2026-10-27)
+
+`EditorHost` receives the transaction-owning `DraftLifecycle`, a catalog lookup
+for new blank drafts, and immutable source-release sessions through app wiring.
+The `/api/v2/ontologies/{ontologyID}/draft` routes authorize every operation and
+schema read with the existing super-admin policy. They require explicit JSON
+mutation bodies and use canonical errors. Adapters cannot retain or construct
+store/query capabilities; conformance checks enforce that restriction.
+
+The existing ontology page and generic form renderer provide source/metadata
+editing, companion addition/removal and separate confirmed publication. One field
+binding inventory produces both form schemas and submission decoding; other draft
+settings are preserved. Catalog edit links lead to draft forms, and version views,
+cards and lists omit direct content edit/delete controls. Active selection and
+external-import workflows remain separate. No legacy version is silently converted
+or certified. Existing browse read models have not all been converted to artifact
+readers by this UI checkpoint.
+
+A narrow draft SELECT exposes the immutable publication receipt for the current
+revision. The UI can therefore distinguish unpublished edits from an already
+published revision without choosing current active/latest policy. The draft reader
+still has no version-content queries or writes.
+
+Generic form reconciliation is opt-in schema capability: a hidden revision,
+form/source-layout identity and message. A 409 preserves local values; comparison
+against the original and current values merges independent changes and requires
+explicit choices for overlaps. Applying a comparison advances the revision only
+in the form; saving remains explicit. Changed layouts/targets/permissions refuse
+automatic reconciliation. Unmapped validation errors are shown as a summary.
+All editor forms share language/cancel defaults and render as full-page form
+transitions. The renderer has no ontology-specific branches or mutation URLs.
+
+HTTP/database tests and an opted-in real Chromium regression exercise these
+boundaries, including source validation during publication and old-release
+immutability. See [operations/API](../reference/ontology-drafts.md). Structured
+term editing, richer preview and dependency-option editing UI remain separate
+work. Unversioned project references and the whole-project assembler are still
+unfinished; this checkpoint does not establish full project-output immutability.
 
 ## Alternatives rejected
 

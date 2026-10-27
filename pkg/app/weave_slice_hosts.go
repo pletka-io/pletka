@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
@@ -475,6 +476,7 @@ func buildProjectOntologyVersionHost(
 }
 
 func buildOntologyHosts(
+	pool *pgxpool.Pool,
 	store weaveontology.Store,
 	weave domain.WeaveStore,
 	logger *slog.Logger,
@@ -495,7 +497,9 @@ func buildOntologyHosts(
 		})
 	}
 	svc.WireEventBus(eventBus)
+	editor := &weaveontology.EditorHost{Drafts: weaveontology.NewDraftService(pool, eventBus), Catalog: svc, Releases: ontologyrelease.NewFactory(pool), Languages: languages, LangResolver: langResolver}
 	return svc, weaveontology.AdminHost{
+		Editor:       editor,
 		Service:      svc,
 		Logger:       logger,
 		Templates:    templates,
@@ -510,6 +514,7 @@ func buildOntologyHosts(
 		LangResolver: langResolver,
 		Projects:     weave.Projects(),
 	}, weaveontology.PagesHost{
+		Editor:    editor,
 		Service:   svc,
 		Logger:    logger,
 		Templates: templates,

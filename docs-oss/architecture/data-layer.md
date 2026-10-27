@@ -222,7 +222,9 @@ inside a bounded transaction. `readsql/ontologydraft` can only SELECT drafts;
 `writesql/ontologydraft` can only lock/save drafts. `ontology.DraftService.Publish`
 locks one revision and commits descriptor/namespaces, fresh version-owned content,
 seal, dependency closure, active policy and receipt together. It never deletes an
-existing version. Receipt replay is idempotent only at the same current revision
+existing version. The draft SELECT capability may read its own immutable receipt
+for the current revision; it cannot query released bodies or active policy.
+Receipt replay is idempotent only at the same current revision
 and request. No historical rows are converted to drafts; downgrade refuses stored
 drafts. See [draft operations](../reference/ontology-drafts.md).
 

@@ -45,7 +45,7 @@ func (s *DraftService) Publish(ctx context.Context, ref DraftReference, revision
 		if previous != request {
 			return out, apierror.Conflict("draft revision already published with a different request; edit the draft or change active policy separately")
 		}
-		out = DraftPublication{OntologyID: ref.owner, DraftID: ref.id, Revision: revision, VersionID: existing.VersionID, Digest: existing.Digest}
+		out = DraftPublication{OntologyID: ref.owner, DraftID: ref.id, Revision: revision, VersionID: existing.VersionID, Version: previous.Version, Digest: existing.Digest}
 		return out, tx.Commit(ctx)
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -88,7 +88,7 @@ func (s *DraftService) Publish(ctx context.Context, ref DraftReference, revision
 	if s.bus != nil {
 		s.bus.Publish(ctx, domain.Event{Type: domain.EventOntologyVersionImported, EntityID: version.ID})
 	}
-	return DraftPublication{OntologyID: ref.owner, DraftID: ref.id, Revision: revision, VersionID: version.ID, Digest: digest, Created: true}, nil
+	return DraftPublication{OntologyID: ref.owner, DraftID: ref.id, Revision: revision, VersionID: version.ID, Version: request.Version, Digest: digest, Created: true}, nil
 }
 func nullableDraftString(value string) *string {
 	if value == "" {

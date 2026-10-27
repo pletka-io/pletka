@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/ontologybody"
 	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
@@ -26,6 +27,7 @@ import (
 // Handler exposes the slice's HTTP surface. Read-only at this stage
 // (Phase A step 3c) — admin CRUD endpoints land in Phase B.
 type Handler struct {
+	editor       *EditorHost
 	svc          *Service
 	log          *slog.Logger
 	languages    []formschema.LanguageInfo
@@ -388,7 +390,12 @@ func (h *Handler) VersionListSchema(w http.ResponseWriter, r *http.Request) {
 		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "ontology id required")
 		return
 	}
-	writeJSON(w, http.StatusOK, BuildVersionListSchema(ontologyID, h.lang(r), h.languages))
+	schema := BuildVersionListSchema(ontologyID, h.lang(r), h.languages)
+	if h.editor != nil {
+		schema.Caps.Edit = nil
+		schema.Caps.Delete = nil
+	}
+	writeJSON(w, http.StatusOK, schema)
 }
 
 func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
@@ -399,9 +406,27 @@ func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
 	var existing *domain.Ontology
 	if (mode == formschema.ModeEdit || mode == formschema.ModeView) && r.URL.Query().Get("entity_id") != "" {
 		o, err := h.svc.GetOntology(r.Context(), r.URL.Query().Get("entity_id"))
-		if err == nil {
-			existing = o
+		if err != nil {
+			h.writeServiceError(w, r, err, "ontology")
+			return
 		}
+		existing = o
+	}
+	if h.editor != nil && mode == formschema.ModeEdit {
+		if existing == nil {
+			editorError(w, r, apierror.NotFound("ontology not found"))
+			return
+		}
+		snapshot, err := h.editor.Drafts.Current(r.Context(), ontologybody.OntologyID(existing.ID))
+		if err != nil && apierror.FromError(err).Code != apierror.CodeNotFound {
+			editorError(w, r, err)
+			return
+		}
+		if err != nil {
+			snapshot = DraftSnapshot{OntologyID: ontologybody.OntologyID(existing.ID), Document: blankOntologyDocument(existing)}
+		}
+		writeJSON(w, http.StatusOK, buildDraftForm(snapshot, h.lang(r), h.languages))
+		return
 	}
 	writeJSON(w, http.StatusOK, BuildOntologyFormSchema(mode, existing, h.lang(r), h.languages))
 }
@@ -433,11 +458,17 @@ func (h *Handler) VersionFormSchema(w http.ResponseWriter, r *http.Request) {
 	var existing *domain.OntologyVersion
 	if r.URL.Query().Get("entity_id") != "" {
 		v, err := h.svc.GetVersion(r.Context(), r.URL.Query().Get("entity_id"))
-		if err == nil {
-			existing = v
+		if err != nil {
+			h.writeServiceError(w, r, err, "version")
+			return
 		}
+		existing = v
 	}
-	writeJSON(w, http.StatusOK, BuildVersionFormSchema(existing, h.lang(r), h.languages))
+	schema := BuildVersionFormSchema(existing, h.lang(r), h.languages)
+	if h.editor != nil {
+		schema.MakeReadOnly()
+	}
+	writeJSON(w, http.StatusOK, schema)
 }
 
 func (h *Handler) AdminLandingPageSchema(w http.ResponseWriter, r *http.Request) {
@@ -474,7 +505,11 @@ func (h *Handler) AdminOntologyPageSchema(w http.ResponseWriter, r *http.Request
 		h.writeServiceError(w, r, err, "ontology")
 		return
 	}
-	writeJSON(w, http.StatusOK, BuildOntologyDetailPageSchema(model, lang, h.languages, true))
+	schema := BuildOntologyDetailPageSchema(model, lang, h.languages, true)
+	if h.editor != nil {
+		addOntologyEditorAction(schema, model.Ontology.ID, lang)
+	}
+	writeJSON(w, http.StatusOK, schema)
 }
 
 func (h *Handler) AdminVersionPageSchema(w http.ResponseWriter, r *http.Request) {
@@ -484,7 +519,14 @@ func (h *Handler) AdminVersionPageSchema(w http.ResponseWriter, r *http.Request)
 		h.writeServiceError(w, r, err, "version")
 		return
 	}
-	writeJSON(w, http.StatusOK, BuildVersionDetailPageSchema(model, lang, h.languages, true))
+	schema := BuildVersionDetailPageSchema(model, lang, h.languages, true)
+	if h.editor != nil {
+		if err := h.editor.versionActions(r.Context(), schema, model.Version.OntologyID, model.Version.ID, lang); err != nil {
+			editorError(w, r, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, schema)
 }
 
 func (h *Handler) AdminImportVersionPageSchema(w http.ResponseWriter, r *http.Request) {

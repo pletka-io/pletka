@@ -177,7 +177,7 @@
     {errorMessage}
     <button class="ml-3 font-medium underline" onclick={() => loadSchema(schemaUrl)}>Retry</button>
   </div>
-{:else if schema}
+{:else if schema && !formAction}
   <div class="space-y-6">
     <section class="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200">
       <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -333,31 +333,11 @@
 {/if}
 
 {#if formAction?.form_schema_url}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-    <button
-      type="button"
-      aria-label="Close"
-      class="absolute inset-0 bg-black/50"
-      onclick={() => (formAction = null)}
-    ></button>
-    <div class="relative max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-white p-6 shadow-xl ring-1 ring-gray-200">
-      <div class="mb-4 flex items-start justify-between gap-4">
-        <h2 class="text-lg font-semibold text-gray-900">{tr(formAction.label, lang)}</h2>
-        <button
-          type="button"
-          class="rounded-md px-2 py-1 text-sm text-gray-500 hover:bg-gray-100 hover:text-gray-700"
-          onclick={() => (formAction = null)}
-        >
-          Close
-        </button>
-      </div>
-      <FormRenderer
-        schemaUrl={formAction.form_schema_url}
-        {lang}
-        onSuccessAction="none"
-        onsuccess={handleFormSuccess}
-        oncancel={() => (formAction = null)}
-      />
+  <section class="rounded-lg bg-white p-6 shadow-sm ring-1 ring-gray-200" aria-label={tr(formAction.label, lang)}>
+    <div class="mb-4 flex items-start justify-between gap-4">
+      <h2 class="text-lg font-semibold text-gray-900">{tr(formAction.label, lang)}</h2>
+      <button type="button" class="rounded-md px-2 py-1 text-sm text-gray-600 hover:bg-gray-100" onclick={() => (formAction = null)}>Back</button>
     </div>
-  </div>
+    <FormRenderer schemaUrl={formAction.form_schema_url} {lang} onSuccessAction="none" onsuccess={handleFormSuccess} oncancel={() => (formAction = null)} />
+  </section>
 {/if}

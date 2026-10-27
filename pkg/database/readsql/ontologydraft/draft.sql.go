@@ -40,3 +40,27 @@ func (q *Queries) OntologyDraft(ctx context.Context, arg OntologyDraftParams) (O
 	)
 	return i, err
 }
+
+const ontologyDraftReceipt = `-- name: OntologyDraftReceipt :one
+SELECT version_id,digest,request FROM weave_ontology_draft_publications
+WHERE ontology_id = $1::text AND draft_id = $2::text AND revision = $3::bigint
+`
+
+type OntologyDraftReceiptParams struct {
+	OntologyID string `json:"ontology_id"`
+	DraftID    string `json:"draft_id"`
+	Revision   int64  `json:"revision"`
+}
+
+type OntologyDraftReceiptRow struct {
+	VersionID string          `json:"version_id"`
+	Digest    string          `json:"digest"`
+	Request   json.RawMessage `json:"request"`
+}
+
+func (q *Queries) OntologyDraftReceipt(ctx context.Context, arg OntologyDraftReceiptParams) (OntologyDraftReceiptRow, error) {
+	row := q.db.QueryRow(ctx, ontologyDraftReceipt, arg.OntologyID, arg.DraftID, arg.Revision)
+	var i OntologyDraftReceiptRow
+	err := row.Scan(&i.VersionID, &i.Digest, &i.Request)
+	return i, err
+}

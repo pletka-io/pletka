@@ -237,9 +237,12 @@ operation, including initialization only when unset. Migration 028 and
 bound `DraftReader`; `Edit` exposes a revision-checked `DraftEditor` with only
 lock/save queries. Neither capability can publish, retarget or retain unrestricted
 queries. `Publish` owns the transaction and reuses the body writer/seal/closure
-pipeline, with an immutable receipt for retry identity. Operator commands are
-available; HTTP editor integration, project references without version selectors
-and the remaining whole-project assembler inputs remain pending.
+pipeline, with an immutable receipt for retry identity. Operator commands and the schema-driven source editor/API are available.
+`EditorHost` receives the lifecycle and narrow discovery/release readers from app
+wiring; HTTP adapters have no store/pool/query capability. New editor routes authorize
+all reads, schemas and mutations, bind explicit draft identity/revision, and return
+canonical errors. Structured term editing, project references without version
+selectors and the remaining whole-project assembler inputs remain pending.
 See [ADR-0013](../decisions/0013-ontology-drafts-and-immutable-releases.md).
 
 ### Whole-project reads belong to an assembler

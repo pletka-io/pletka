@@ -10,6 +10,7 @@ import (
 
 type Querier interface {
 	OntologyDraft(ctx context.Context, arg OntologyDraftParams) (OntologyDraftRow, error)
+	OntologyDraftReceipt(ctx context.Context, arg OntologyDraftReceiptParams) (OntologyDraftReceiptRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

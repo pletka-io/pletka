@@ -19,6 +19,8 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      - run: npm run test:forms
+        working-directory: frontend
       - uses: actions/setup-go@v7
         with: { go-version: '1.27.3' }
       - run: go build ./...
