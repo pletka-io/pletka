@@ -260,7 +260,8 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	searchHost := buildSearchHost(weaveStore, logger, publicationReader)
 	vocabularyHost := buildVocabularyHost(opts.Pool, weaveStore, logger, languages, langResolver, opts.VocabularyServiceURL)
 	entitySchemaHost := buildEntitySchemaHost(weaveStore, logger, languages, langResolver, i18nManager, organizationHost, publicationReader)
-	projectPageHost := buildProjectPageHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver, i18nManager, ontologyReader, ontologyVersionReader, publicationReader, opts.ExamplesMaxNestingDepth)
+	releaseHost := buildReleaseHost(opts.Pool, logger, languages, langResolver, opts.ModuleHost, opts.OntologyHost)
+	projectPageHost := buildProjectPageHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver, i18nManager, ontologyReader, ontologyVersionReader, publicationReader, opts.ExamplesMaxNestingDepth, releaseHost.Service)
 	draftsHost := buildDraftsHost(weaveStore, logger)
 	settingsHost := buildSettingsHost(opts.Pool, weaveStore, logger, languages, opts.VocabularyServiceURL)
 	ontologySvc, ontologyAdminHost, ontologyAPIHost, ontologyPagesHost := buildOntologyHosts(
@@ -282,7 +283,6 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		logger.Warn("git materializer failed to start", "err", err)
 	}
 	membersHost := buildMembersHost(opts.Pool, logger, languages, langResolver)
-	releaseHost := buildReleaseHost(opts.Pool, logger, languages, langResolver)
 	exampleHost := buildExampleHost(opts.Pool, weaveStore, logger, languages, langResolver, opts.ExamplesMaxNestingDepth)
 	namespaceBindingHost, namespaceSvc := buildNamespaceBindingHost(opts.Pool, logger, changeLog, languages, langResolver)
 	projectOntologyVersionHost := buildProjectOntologyVersionHost(

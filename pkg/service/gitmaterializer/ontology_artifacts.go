@@ -63,7 +63,15 @@ func (m *Materializer) artifactRequirement(a ontologyrelease.Artifact) (pletkaOn
 	if err != nil {
 		return pletkaOntologyRequirement{}, err
 	}
-	return pletkaOntologyRequirement{Module: m.ontologyModulePath(ontologyModuleSlug(c.Ontology.Prefix, c.Ontology.Name, c.Ontology.ID)), OntologyID: c.Ontology.ID, OntologyVersionID: c.Version.ID, Version: c.Version.Version, Digest: a.Digest, Artifact: &a}, nil
+	return ontologyRequirement(a, m.ontologyModulePath(ontologyModuleSlug(c.Ontology.Prefix, c.Ontology.Name, c.Ontology.ID)))
+}
+
+func ontologyRequirement(a ontologyrelease.Artifact, module string) (pletkaOntologyRequirement, error) {
+	c, err := a.Content()
+	if err != nil {
+		return pletkaOntologyRequirement{}, err
+	}
+	return pletkaOntologyRequirement{Module: module, OntologyID: c.Ontology.ID, OntologyVersionID: c.Version.ID, Version: c.Version.Version, Digest: a.Digest, Artifact: &a}, nil
 }
 func uniqueOntologyRequirements(in []pletkaOntologyRequirement) ([]pletkaOntologyRequirement, error) {
 	byOwner := map[string]pletkaOntologyRequirement{}

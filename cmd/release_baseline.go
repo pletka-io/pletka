@@ -95,7 +95,7 @@ func runReleaseBaseline(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	svc := release.NewService(release.NewPostgresStore(pool), pool, log)
+	svc := release.NewService(release.NewPostgresStore(pool), pool, log, release.WithModuleHosts(cliruntime.ModuleHostFromViper(), cliruntime.OntologyHostFromViper()))
 	released := 0
 	for _, projectID := range order {
 		// Re-pin any draft parent links onto the baseline version. Every parent

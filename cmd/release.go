@@ -82,7 +82,7 @@ func runReleaseArchive(cmd *cobra.Command, args []string) error {
 	ctx = auth.WithSnapshot(ctx, &auth.AuthSnapshot{ActorID: actorID, IsSuperAdmin: true})
 	ctx = auth.WithPrincipal(ctx, &auth.Principal{ActorID: actorID, Role: "super_admin", IsActive: true})
 
-	svc := release.NewService(release.NewPostgresStore(pool), pool, log)
+	svc := release.NewService(release.NewPostgresStore(pool), pool, log, release.WithModuleHosts(cliruntime.ModuleHostFromViper(), cliruntime.OntologyHostFromViper()))
 	archived, err := svc.Archive(ctx, projectID, version, release.ArchiveInput{Message: releaseArchiveMessage})
 	if err != nil {
 		var verr *release.ErrValidation

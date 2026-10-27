@@ -205,7 +205,8 @@ func TestPilotQueriesCannotCrossStateOrWrite(t *testing.T) {
 				t.Errorf("%s contains a write", path)
 			}
 			for _, match := range tables.FindAllStringSubmatch(sql.String(), -1) {
-				if strings.HasSuffix(match[1], "_archive") != (state == "archive") {
+				isArchive := strings.HasSuffix(match[1], "_archive") || match[1] == "weave_release_descriptors"
+				if isArchive != (state == "archive") {
 					t.Errorf("%s accesses other state table %s", path, match[1])
 				}
 			}
@@ -217,7 +218,7 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 	root := repoRoot(t)
 	for _, path := range goFilesUnder(t, root) {
 		rel := mustRel(t, root, path)
-		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || rel == "pkg/database/readsession/session.go" {
+		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go") {
 			continue
 		}
 		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)

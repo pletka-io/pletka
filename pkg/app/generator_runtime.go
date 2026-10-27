@@ -60,7 +60,7 @@ func NewGeneratorRuntime(opts Options) (*GeneratorRuntime, error) {
 	// after buildProjectHost, so they are assigned here.
 	projectHost.Models = modelHost.Service
 	projectHost.Collections = collectionHost.Service
-	projectHost.Releases = release.NewService(release.NewPostgresStore(opts.Pool), opts.Pool, opts.Logger)
+	projectHost.Releases = release.NewService(release.NewPostgresStore(opts.Pool), opts.Pool, opts.Logger, release.WithModuleHosts(opts.ModuleHost, opts.OntologyHost))
 
 	renderers := opts.GeneratorRenderers
 	if len(renderers) == 0 {

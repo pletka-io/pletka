@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/database/releasedescriptor"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
@@ -21,8 +22,8 @@ import (
 // WithModuleHosts so materialized repos stay consistent with its existing
 // history (e.g. git.example.org).
 const (
-	defaultModuleHost   = "pletka.io"
-	defaultOntologyHost = "ontology.pletka.io"
+	defaultModuleHost   = releasedescriptor.DefaultModuleHost
+	defaultOntologyHost = releasedescriptor.DefaultOntologyHost
 )
 
 // Materializer drains weave_change_set/weave_change_log and commits

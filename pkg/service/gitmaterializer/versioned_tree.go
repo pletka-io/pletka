@@ -89,10 +89,18 @@ func (m *Materializer) loadProjectManifestAtVersion(ctx context.Context, project
 		},
 	}
 
-	if owner := m.loadManifestActor(ctx, &row.OwnerID); owner != nil {
-		manifest.Project.Owner = owner
+	descriptors, err := m.releaseDescriptors(ctx, projectID, version)
+	if err != nil {
+		return projectManifest{}, err
 	}
-	manifest.Project.CreatedBy = m.loadManifestActor(ctx, row.CreatedByID)
+	manifest.Project.Owner, err = descriptors.Actor(&row.OwnerID)
+	if err != nil {
+		return projectManifest{}, err
+	}
+	manifest.Project.CreatedBy, err = descriptors.Actor(row.CreatedByID)
+	if err != nil {
+		return projectManifest{}, err
+	}
 
 	if parents, err := m.loadProjectManifestParentsAtVersion(ctx, projectID, version); err != nil {
 		return projectManifest{}, err
@@ -219,14 +227,11 @@ func (m *Materializer) writePletkaModVersion(ctx context.Context, workDir, proje
 }
 
 func (m *Materializer) loadPletkaModManifestAtVersion(ctx context.Context, projectID, version string) (pletkaModManifest, error) {
-	projectRow, err := m.loadArchivedProject(ctx, projectID, version)
+	descriptors, err := m.releaseDescriptors(ctx, projectID, version)
 	if err != nil {
 		return pletkaModManifest{}, err
 	}
-	modulePath, err := m.projectModulePath(ctx, projectRow.OwnerID, projectID)
-	if err != nil {
-		return pletkaModManifest{}, err
-	}
+	modulePath := descriptors.Module()
 	projectReqs, err := m.loadPletkaProjectRequirementsAtVersion(ctx, projectID, version)
 	if err != nil {
 		return pletkaModManifest{}, err
@@ -251,20 +256,20 @@ func (m *Materializer) loadPletkaProjectRequirementsAtVersion(ctx context.Contex
 	if err != nil {
 		return nil, fmt.Errorf("load archived parent requirements: %w", err)
 	}
+	descriptors, err := m.releaseDescriptors(ctx, projectID, version)
+	if err != nil {
+		return nil, err
+	}
 	reqs := make([]pletkaProjectRequirement, 0, len(parents))
 	for _, parent := range parents {
-		parentProject, err := m.loadArchivedProject(ctx, parent.ProjectID, parent.SourceVersion)
-		if err != nil {
+		if _, err := m.loadArchivedProject(ctx, parent.ProjectID, parent.SourceVersion); err != nil {
 			return nil, fmt.Errorf("get pinned parent for archived pletka.mod: %w", err)
 		}
-		modulePath, err := m.projectModulePath(ctx, parentProject.OwnerID, parent.ProjectID)
+		modulePath, err := descriptors.ProjectModule(parent.ProjectID)
 		if err != nil {
 			return nil, err
 		}
-		reqVersion := parentDependencyVersionDraft
-		if strings.TrimSpace(parent.SourceMode) == "release" && strings.TrimSpace(parent.SourceVersion) != "" {
-			reqVersion = strings.TrimSpace(parent.SourceVersion)
-		}
+		reqVersion := strings.TrimSpace(parent.SourceVersion)
 		reqs = append(reqs, pletkaProjectRequirement{
 			Module:    modulePath,
 			ProjectID: parent.ProjectID,
@@ -280,9 +285,21 @@ func (m *Materializer) loadPletkaOntologyRequirementsAtVersion(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
+	descriptors, err := m.releaseDescriptors(ctx, projectID, version)
+	if err != nil {
+		return nil, err
+	}
 	reqs := make([]pletkaOntologyRequirement, 0, len(values))
 	for _, v := range values {
-		req, err := m.artifactRequirement(v.Artifact)
+		doc, err := v.Artifact.Decode()
+		if err != nil {
+			return nil, err
+		}
+		module, err := descriptors.OntologyModule(doc.VersionID)
+		if err != nil {
+			return nil, err
+		}
+		req, err := ontologyRequirement(v.Artifact, module)
 		if err != nil {
 			return nil, err
 		}
@@ -408,6 +425,10 @@ func (m *Materializer) writeArchivedOverride(ctx context.Context, workDir string
 }
 
 func (m *Materializer) writeAdoptionManifestsVersion(ctx context.Context, workDir, projectID, version string) error {
+	descriptors, err := m.releaseDescriptors(ctx, projectID, version)
+	if err != nil {
+		return err
+	}
 	adoptions, err := m.loadProjectAdoptionsAtVersion(ctx, projectID, version)
 	if err != nil {
 		return err
@@ -417,7 +438,7 @@ func (m *Materializer) writeAdoptionManifestsVersion(ctx context.Context, workDi
 	for _, receipt := range grouped {
 		file := adoptionReceiptFileName(receipt.EntityType, receipt.EntityID)
 		index.Receipts = append(index.Receipts, adoptionsIndexReceiptEntry{EntityType: receipt.EntityType, EntityID: receipt.EntityID, File: file})
-		payload, err := m.encodeAdoptionReceipt(ctx, receipt)
+		payload, err := encodeAdoptionReceipt(receipt, descriptors.Actor)
 		if err != nil {
 			return err
 		}
@@ -433,6 +454,10 @@ func (m *Materializer) writeAdoptionManifestsVersion(ctx context.Context, workDi
 }
 
 func (m *Materializer) writeForkManifestsVersion(ctx context.Context, workDir, projectID, version string) error {
+	descriptors, err := m.releaseDescriptors(ctx, projectID, version)
+	if err != nil {
+		return err
+	}
 	forks, err := m.loadProjectForksAtVersion(ctx, projectID, version)
 	if err != nil {
 		return err
@@ -441,7 +466,7 @@ func (m *Materializer) writeForkManifestsVersion(ctx context.Context, workDir, p
 	for _, fork := range forks {
 		file := forkReceiptFileName(fork.EntityType, fork.ForkEntityID)
 		index.Receipts = append(index.Receipts, forksIndexReceiptEntry{EntityType: fork.EntityType, EntityID: fork.ForkEntityID, File: file})
-		payload, err := m.encodeForkReceipt(ctx, fork)
+		payload, err := encodeForkReceipt(fork, descriptors.Actor)
 		if err != nil {
 			return err
 		}

@@ -15,6 +15,7 @@ import (
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/database/releasedeps"
+	"github.com/pletka-io/pletka/pkg/database/releasedescriptor"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
@@ -54,17 +55,23 @@ func (e *permissionDenied) Error() string {
 }
 
 type Service struct {
+	hosts releasedescriptor.Hosts
 	store Store
 	// sanctioned pool holder: tx-owning service — see docs-oss/architecture/slices.md
 	pool *pgxpool.Pool
 	log  *slog.Logger
 }
 
-func NewService(store Store, pool *pgxpool.Pool, log *slog.Logger) *Service {
+// NewService wires release storage, the transaction owner and capture configuration.
+func NewService(store Store, pool *pgxpool.Pool, log *slog.Logger, options ...Option) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{store: store, pool: pool, log: log}
+	s := &Service{store: store, pool: pool, log: log}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 func (s *Service) ListByProject(ctx context.Context, projectID string) ([]Release, error) {
@@ -164,6 +171,15 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 	}
 	if err := sqlcgen.New(tx).WeaveSnapshotPinnedAdoptions(ctx, sqlcgen.WeaveSnapshotPinnedAdoptionsParams{ProjectID: projectID, Version: in.Version}); err != nil {
 		return nil, fmt.Errorf("capture pinned adoption receipts: %w", err)
+	}
+
+	if err := releasedescriptor.Capture(ctx, sqlcgen.New(tx), projectID, in.Version, s.hosts); err != nil {
+		var missing *releasedescriptor.UnavailableError
+		var invalid *releasedescriptor.InvalidError
+		if errors.As(err, &missing) || errors.As(err, &invalid) {
+			return nil, &ErrValidation{Fields: map[string][]string{"descriptors": {err.Error()}}}
+		}
+		return nil, fmt.Errorf("capture release descriptors: %w", err)
 	}
 
 	if _, err := tx.Exec(ctx, `

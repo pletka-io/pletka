@@ -183,4 +183,5 @@ yet implemented. Consumers serialize these values without database access.
 - A foreign read bypassing dependency resolution, or `ScopeForResolvedVersion` used to turn an absent foreign pin into draft
 - A whole-project or export-shaped read on a slice — that belongs to the assembler
 - A whole-project consumer reading an `_archive` table directly instead of taking a snapshot
+- Released output resolving actor labels or module hosts from current state; use `readsession.Session.Descriptors` (ADR-0014)
 - A new `_archive` table whose slice is not registered in `pkg/conformance/slices.go`

@@ -6,6 +6,7 @@ package archive
 
 import (
 	"context"
+	"encoding/json"
 )
 
 type Querier interface {
@@ -24,6 +25,7 @@ type Querier interface {
 	ListTypeOverrides(ctx context.Context, arg ListTypeOverridesParams) ([]WeaveFieldOverridesArchive, error)
 	ModelPlacements(ctx context.Context, arg ModelPlacementsParams) ([]WeaveCollectionPlacementsArchive, error)
 	OverrideRefs(ctx context.Context, arg OverrideRefsParams) ([]WeaveOverrideRefsArchive, error)
+	ReleaseDescriptors(ctx context.Context, arg ReleaseDescriptorsParams) (json.RawMessage, error)
 }
 
 var _ Querier = (*Queries)(nil)

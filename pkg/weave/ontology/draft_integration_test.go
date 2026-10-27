@@ -164,6 +164,15 @@ func TestOntologyDraftPublicationUsesFreshRowsAndStableArtifacts(t *testing.T) {
 	}
 	db := stdlib.OpenDB(*pool.Config().ConnConfig)
 	defer db.Close()
+	latest, err := database.LatestMigrationVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for version := latest; version > 28; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade stored ontology drafts") {
 		t.Fatalf("downgrade discarded draft: %v", err)
 	}
@@ -341,8 +350,14 @@ func TestOntologyDraftStartsFromRetainedReleaseWithoutBackfill(t *testing.T) {
 	before := draftArtifact(t, pool, version.ID)
 	db := stdlib.OpenDB(*pool.Config().ConnConfig)
 	defer db.Close()
-	if err := database.MigrateDown(db); err != nil {
+	latest, err := database.LatestMigrationVersion()
+	if err != nil {
 		t.Fatal(err)
+	}
+	for version := latest; version >= 28; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := database.Migrate(db); err != nil {
 		t.Fatal(err)
