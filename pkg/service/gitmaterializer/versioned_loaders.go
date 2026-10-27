@@ -2,6 +2,7 @@ package gitmaterializer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -48,7 +49,7 @@ func (m *Materializer) loadArchivedCategories(ctx context.Context, projectID, ve
 func (m *Materializer) loadArchivedFields(ctx context.Context, projectID, version string) ([]*domain.Field, error) {
 	rows, err := m.pool.Query(ctx, `
 		SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id,
-		       ontology_scope, path_elements, expected_value_type, examples, deprecated
+		       ontology_scope, path_elements, expected_value_type, examples, deprecated, subfield_paths
 		FROM weave_fields_archive
 		WHERE project_id = $1 AND version_number = $2
 		ORDER BY id ASC
@@ -62,10 +63,10 @@ func (m *Materializer) loadArchivedFields(ctx context.Context, projectID, versio
 	for rows.Next() {
 		var field domain.Field
 		var semanticID, systemName, expectedValueType *string
-		var uiName, description, ontologyScope, pathElements, examples []byte
+		var uiName, description, ontologyScope, pathElements, examples, subfieldPaths []byte
 		if err := rows.Scan(
 			&field.ID, &field.CreatedAt, &field.UpdatedAt, &semanticID, &systemName, &uiName, &description, &field.Status, &field.ProjectID,
-			&ontologyScope, &pathElements, &expectedValueType, &examples, &field.Deprecated,
+			&ontologyScope, &pathElements, &expectedValueType, &examples, &field.Deprecated, &subfieldPaths,
 		); err != nil {
 			return nil, fmt.Errorf("scan archived field: %w", err)
 		}
@@ -77,6 +78,11 @@ func (m *Materializer) loadArchivedFields(ctx context.Context, projectID, versio
 		field.PathElements = unmarshalPathElements(pathElements)
 		field.ExpectedValueType = derefStr(expectedValueType)
 		field.Examples = parseExamples(examples)
+		if len(subfieldPaths) > 0 {
+			if err := json.Unmarshal(subfieldPaths, &field.SubfieldPaths); err != nil {
+				return nil, fmt.Errorf("decode archived subfield paths: %w", err)
+			}
+		}
 		out = append(out, &field)
 	}
 	return out, rows.Err()
@@ -302,14 +308,14 @@ func (m *Materializer) loadAdoptedFieldAtSource(ctx context.Context, sourceProje
 	}
 	row := m.pool.QueryRow(ctx, `
 		SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id,
-		       ontology_scope, path_elements, expected_value_type, examples, deprecated
+		       ontology_scope, path_elements, expected_value_type, examples, deprecated, subfield_paths
 		FROM weave_fields_archive
 		WHERE id = $1 AND project_id = $2 AND version_number = $3
 	`, fieldID, sourceProjectID, sourceVersion)
 	var field domain.Field
 	var semanticID, systemName, expectedValueType *string
-	var uiName, description, ontologyScope, pathElements, examples []byte
-	if err := row.Scan(&field.ID, &field.CreatedAt, &field.UpdatedAt, &semanticID, &systemName, &uiName, &description, &field.Status, &field.ProjectID, &ontologyScope, &pathElements, &expectedValueType, &examples, &field.Deprecated); err != nil {
+	var uiName, description, ontologyScope, pathElements, examples, subfieldPaths []byte
+	if err := row.Scan(&field.ID, &field.CreatedAt, &field.UpdatedAt, &semanticID, &systemName, &uiName, &description, &field.Status, &field.ProjectID, &ontologyScope, &pathElements, &expectedValueType, &examples, &field.Deprecated, &subfieldPaths); err != nil {
 		return nil, fmt.Errorf("get adopted archived field %s@%s: %w", fieldID, sourceVersion, err)
 	}
 	field.SemanticID = derefStr(semanticID)
@@ -320,6 +326,11 @@ func (m *Materializer) loadAdoptedFieldAtSource(ctx context.Context, sourceProje
 	field.PathElements = unmarshalPathElements(pathElements)
 	field.ExpectedValueType = derefStr(expectedValueType)
 	field.Examples = parseExamples(examples)
+	if len(subfieldPaths) > 0 {
+		if err := json.Unmarshal(subfieldPaths, &field.SubfieldPaths); err != nil {
+			return nil, fmt.Errorf("decode archived subfield paths: %w", err)
+		}
+	}
 	return &field, nil
 }
 

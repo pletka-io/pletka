@@ -24,6 +24,7 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/database/releasedescriptor"
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -175,12 +176,12 @@ func TestReleaseDescriptorsFreezeActorAndModuleOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for version := latest; version > 29; version-- {
+	for version := latest; version > 30; version-- {
 		if err := database.MigrateDown(db); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade captured release descriptors") {
+	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade captured semantic references") {
 		t.Fatalf("downgrade discarded descriptors: %v", err)
 	}
 	descriptorExec(t, pool, `DELETE FROM weave_releases WHERE project_id='descriptor-child'`)
@@ -212,7 +213,7 @@ func descriptorFinish(t *testing.T, tx pgx.Tx, q *sqlcgen.Queries, project, vers
 	if err := q.WeaveMarkReleaseProjectDependencies(t.Context(), sqlcgen.WeaveMarkReleaseProjectDependenciesParams{ProjectID: project, Version: version}); err != nil {
 		t.Fatal(err)
 	}
-	if err := q.WeaveMarkProjectOntologyInventory(t.Context(), sqlcgen.WeaveMarkProjectOntologyInventoryParams{ProjectID: project, Version: version}); err != nil {
+	if err := ontologyrelease.CaptureProject(t.Context(), q, project, version); err != nil {
 		t.Fatal(err)
 	}
 	if err := q.WeaveMarkReleaseArchiveOwnership(t.Context(), sqlcgen.WeaveMarkReleaseArchiveOwnershipParams{ProjectID: project, Version: version}); err != nil {

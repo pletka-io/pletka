@@ -22,7 +22,7 @@ func TestOntologyReleaseReaderHasOnlyPublishedCapability(t *testing.T) {
 
 func TestProjectOntologyReaderHasOnlyCapturedCapability(t *testing.T) {
 	checkOntologyCapability(t, "ontologyrelease/project_reader.go", "read_project_ontologies",
-		[]string{"weave_releases", "weave_release_ontology_dependencies", "weave_ontology_releases", "weave_project_ontology_versions_archive"},
+		[]string{"weave_releases", "weave_release_ontology_dependencies", "weave_ontology_releases", "weave_project_ontology_versions_archive", "weave_release_ontology_references"},
 		[]string{"project_id = @project_id", "version_number = @version"})
 }
 

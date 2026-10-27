@@ -191,7 +191,7 @@ func (s *postgresStore) GetByIDVersion(ctx context.Context, projectID, id, versi
 		SELECT
 			id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 			status, project_id, ontology_scope, ontology_path, path_elements,
-			expected_value_type, examples, staging_id, deprecated, version_number
+			expected_value_type, examples, staging_id, deprecated, version_number, subfield_paths
 		FROM weave_fields_archive
 		WHERE id = $1 AND project_id = $2 AND version_number = $3
 	`, id, projectID, version)
@@ -223,7 +223,7 @@ func (s *postgresStore) GetByIdentifierVersion(ctx context.Context, projectID, i
 		SELECT
 			id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 			status, project_id, ontology_scope, ontology_path, path_elements,
-			expected_value_type, examples, staging_id, deprecated, version_number
+			expected_value_type, examples, staging_id, deprecated, version_number, subfield_paths
 		FROM weave_fields_archive
 		WHERE (semantic_id = $1 OR system_name = $1 OR id = $1)
 		  AND project_id = $2 AND version_number = $3
@@ -313,7 +313,7 @@ func (s *postgresStore) ListVersion(ctx context.Context, projectID, version stri
 		SELECT
 			id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 			status, project_id, ontology_scope, ontology_path, path_elements,
-			expected_value_type, examples, staging_id, deprecated, version_number
+			expected_value_type, examples, staging_id, deprecated, version_number, subfield_paths
 		FROM weave_fields_archive
 		WHERE project_id = $1
 		  AND version_number = $2
@@ -629,20 +629,20 @@ type archivedFieldScanner interface {
 
 func scanArchivedField(row archivedFieldScanner) (*domain.Field, error) {
 	var (
-		id, projectID, status, version string
-		createdAt, updatedAt           time.Time
-		semanticID, systemName         *string
-		uiName, description            []byte
-		ontologyScope, pathElements    []byte
-		ontologyPath, expectedValue    *string
-		examples                       []byte
-		stagingID                      *int64
-		deprecated                     bool
+		id, projectID, status, version             string
+		createdAt, updatedAt                       time.Time
+		semanticID, systemName                     *string
+		uiName, description                        []byte
+		ontologyScope, pathElements, subfieldPaths []byte
+		ontologyPath, expectedValue                *string
+		examples                                   []byte
+		stagingID                                  *int64
+		deprecated                                 bool
 	)
 	if err := row.Scan(
 		&id, &createdAt, &updatedAt, &semanticID, &systemName, &uiName, &description,
 		&status, &projectID, &ontologyScope, &ontologyPath, &pathElements,
-		&expectedValue, &examples, &stagingID, &deprecated, &version,
+		&expectedValue, &examples, &stagingID, &deprecated, &version, &subfieldPaths,
 	); err != nil {
 		return nil, err
 	}
@@ -670,6 +670,11 @@ func scanArchivedField(row archivedFieldScanner) (*domain.Field, error) {
 	}
 	if len(examples) > 0 {
 		_ = json.Unmarshal(examples, &f.Examples)
+	}
+	if len(subfieldPaths) > 0 {
+		if err := json.Unmarshal(subfieldPaths, &f.SubfieldPaths); err != nil {
+			return nil, fmt.Errorf("decode archived subfield paths: %w", err)
+		}
 	}
 	return f, nil
 }

@@ -7,7 +7,24 @@ package sqlcgen
 
 import (
 	"context"
+	"encoding/json"
 )
+
+const weaveCaptureProjectSemanticReferences = `-- name: WeaveCaptureProjectSemanticReferences :exec
+INSERT INTO weave_release_ontology_references(project_id,version_number,resolutions)
+VALUES($1,$2,$3)
+`
+
+type WeaveCaptureProjectSemanticReferencesParams struct {
+	ProjectID   string          `json:"project_id"`
+	Version     string          `json:"version"`
+	Resolutions json.RawMessage `json:"resolutions"`
+}
+
+func (q *Queries) WeaveCaptureProjectSemanticReferences(ctx context.Context, arg WeaveCaptureProjectSemanticReferencesParams) error {
+	_, err := q.db.Exec(ctx, weaveCaptureProjectSemanticReferences, arg.ProjectID, arg.Version, arg.Resolutions)
+	return err
+}
 
 const weaveInsertProjectOntologyPin = `-- name: WeaveInsertProjectOntologyPin :exec
 INSERT INTO weave_release_ontology_dependencies(project_id,version_number,ontology_id,ontology_version_id,digest)
@@ -85,7 +102,8 @@ func (q *Queries) WeaveProjectOntologySelections(ctx context.Context, arg WeaveP
 }
 
 const weaveProjectOntologySourceInventories = `-- name: WeaveProjectOntologySourceInventories :many
-SELECT d.source_project_id,d.source_version,r.ontology_dependencies_version
+SELECT d.source_project_id,d.source_version,r.ontology_dependencies_version,
+    EXISTS(SELECT 1 FROM weave_release_ontology_references s WHERE s.project_id=d.source_project_id AND s.version_number=d.source_version)::boolean AS semantic_verified
 FROM weave_release_project_dependencies d JOIN weave_releases r ON r.project_id=d.source_project_id AND r.version=d.source_version
 WHERE d.project_id= $1::text AND d.version_number= $2::text
 `
@@ -99,6 +117,7 @@ type WeaveProjectOntologySourceInventoriesRow struct {
 	SourceProjectID             string `json:"source_project_id"`
 	SourceVersion               string `json:"source_version"`
 	OntologyDependenciesVersion int16  `json:"ontology_dependencies_version"`
+	SemanticVerified            bool   `json:"semantic_verified"`
 }
 
 func (q *Queries) WeaveProjectOntologySourceInventories(ctx context.Context, arg WeaveProjectOntologySourceInventoriesParams) ([]WeaveProjectOntologySourceInventoriesRow, error) {
@@ -110,7 +129,12 @@ func (q *Queries) WeaveProjectOntologySourceInventories(ctx context.Context, arg
 	items := []WeaveProjectOntologySourceInventoriesRow{}
 	for rows.Next() {
 		var i WeaveProjectOntologySourceInventoriesRow
-		if err := rows.Scan(&i.SourceProjectID, &i.SourceVersion, &i.OntologyDependenciesVersion); err != nil {
+		if err := rows.Scan(
+			&i.SourceProjectID,
+			&i.SourceVersion,
+			&i.OntologyDependenciesVersion,
+			&i.SemanticVerified,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -148,6 +172,50 @@ func (q *Queries) WeaveProjectOntologySourcePins(ctx context.Context, arg WeaveP
 	for rows.Next() {
 		var i WeaveProjectOntologySourcePinsRow
 		if err := rows.Scan(&i.OntologyID, &i.OntologyVersionID, &i.Digest); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveProjectSemanticReferences = `-- name: WeaveProjectSemanticReferences :many
+SELECT entity_kind::text,entity_id::text,location::text,reference::jsonb
+FROM weave_project_semantic_references
+WHERE project_id = $1::text AND version_number = $2::text
+ORDER BY entity_kind,entity_id,location
+`
+
+type WeaveProjectSemanticReferencesParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+type WeaveProjectSemanticReferencesRow struct {
+	EntityKind string          `json:"entity_kind"`
+	EntityID   string          `json:"entity_id"`
+	Location   string          `json:"location"`
+	Reference  json.RawMessage `json:"reference"`
+}
+
+func (q *Queries) WeaveProjectSemanticReferences(ctx context.Context, arg WeaveProjectSemanticReferencesParams) ([]WeaveProjectSemanticReferencesRow, error) {
+	rows, err := q.db.Query(ctx, weaveProjectSemanticReferences, arg.ProjectID, arg.Version)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveProjectSemanticReferencesRow{}
+	for rows.Next() {
+		var i WeaveProjectSemanticReferencesRow
+		if err := rows.Scan(
+			&i.EntityKind,
+			&i.EntityID,
+			&i.Location,
+			&i.Reference,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

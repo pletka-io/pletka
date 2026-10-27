@@ -259,12 +259,12 @@ var snapshotStatements = []string{
 	`INSERT INTO weave_fields_archive (
 		id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 		status, project_id, ontology_scope, ontology_path, path_elements,
-		expected_value_type, examples, staging_id, deprecated, version_number
+		expected_value_type, examples, staging_id, deprecated, version_number, subfield_paths
 	)
 	SELECT
 		id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 		CASE WHEN status = 'deprecated' THEN status ELSE 'published' END, project_id, ontology_scope, ontology_path, path_elements,
-		expected_value_type, examples, staging_id, deprecated, $2
+		expected_value_type, examples, staging_id, deprecated, $2, subfield_paths
 	FROM weave_fields
 	WHERE project_id = $1
 	ON CONFLICT (id, version_number) DO NOTHING`,

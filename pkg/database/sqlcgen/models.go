@@ -577,6 +577,7 @@ type WeaveFieldsArchive struct {
 	StagingID         *int64    `json:"staging_id"`
 	Deprecated        bool      `json:"deprecated"`
 	VersionNumber     string    `json:"version_number"`
+	SubfieldPaths     []byte    `json:"subfield_paths"`
 }
 
 type WeaveImportStaging struct {
@@ -1013,6 +1014,37 @@ type WeaveProjectOntologyVersionsArchive struct {
 	VersionNumber     string    `json:"version_number"`
 }
 
+type WeaveProjectSemanticCandidate struct {
+	ProjectID         string      `json:"project_id"`
+	VersionNumber     string      `json:"version_number"`
+	EntityKind        string      `json:"entity_kind"`
+	EntityID          string      `json:"entity_id"`
+	Location          string      `json:"location"`
+	OntologyID        string      `json:"ontology_id"`
+	OntologyVersionID string      `json:"ontology_version_id"`
+	Digest            string      `json:"digest"`
+	Uri               interface{} `json:"uri"`
+}
+
+type WeaveProjectSemanticElement struct {
+	ProjectID     string `json:"project_id"`
+	VersionNumber string `json:"version_number"`
+	EntityKind    string `json:"entity_kind"`
+	EntityID      string `json:"entity_id"`
+	Location      string `json:"location"`
+	Element       []byte `json:"element"`
+	DefaultKind   string `json:"default_kind"`
+}
+
+type WeaveProjectSemanticReference struct {
+	ProjectID     string          `json:"project_id"`
+	VersionNumber string          `json:"version_number"`
+	EntityKind    string          `json:"entity_kind"`
+	EntityID      string          `json:"entity_id"`
+	Location      string          `json:"location"`
+	Reference     json.RawMessage `json:"reference"`
+}
+
 type WeaveProjectsArchive struct {
 	ID              string          `json:"id"`
 	CreatedAt       time.Time       `json:"created_at"`
@@ -1099,6 +1131,12 @@ type WeaveReleaseOntologyDependency struct {
 	OntologyID        string `json:"ontology_id"`
 	OntologyVersionID string `json:"ontology_version_id"`
 	Digest            string `json:"digest"`
+}
+
+type WeaveReleaseOntologyReference struct {
+	ProjectID     string          `json:"project_id"`
+	VersionNumber string          `json:"version_number"`
+	Resolutions   json.RawMessage `json:"resolutions"`
 }
 
 type WeaveReleaseProjectDependency struct {
