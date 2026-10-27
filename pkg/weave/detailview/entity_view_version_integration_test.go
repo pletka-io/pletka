@@ -108,6 +108,8 @@ func TestEntityViewVersion_ServesResolvedRelease(t *testing.T) {
 		t.Fatalf("seed field: %v", err)
 	}
 
+	// This version-routing fixture has no ontology selection; semantic scope
+	// capture is covered by the published-ontology release regressions.
 	seedModel := &domain.Model{
 		Entity: domain.Entity{
 			ID:         modelID,
@@ -117,8 +119,8 @@ func TestEntityViewVersion_ServesResolvedRelease(t *testing.T) {
 			UIName:     domain.Translations{"en": "Original Model"},
 			Status:     domain.StatusPublished,
 		},
-		OntologyScope: domain.PathElement{Type: "class", Prefix: "crm", LocalName: "E21_Person"},
-		ModelType:     domain.ModelTypeAuxiliary,
+
+		ModelType: domain.ModelTypeAuxiliary,
 	}
 	if err := modelStore.Create(ctx, seedModel); err != nil {
 		t.Fatalf("seed model: %v", err)
@@ -133,7 +135,6 @@ func TestEntityViewVersion_ServesResolvedRelease(t *testing.T) {
 			UIName:     domain.Translations{"en": "Original Collection"},
 			Status:     domain.StatusPublished,
 		},
-		OntologyScope: domain.PathElement{Type: "class", Prefix: "crm", LocalName: "E67_Birth"},
 	}
 	if err := collectionStore.Create(ctx, seedCollection); err != nil {
 		t.Fatalf("seed collection: %v", err)
@@ -194,8 +195,8 @@ func TestEntityViewVersion_ServesResolvedRelease(t *testing.T) {
 			UIName:     domain.Translations{"en": "Unreleased Model"},
 			Status:     domain.StatusDraft,
 		},
-		OntologyScope: domain.PathElement{Type: "class", Prefix: "crm", LocalName: "E21_Person"},
-		ModelType:     domain.ModelTypeAuxiliary,
+
+		ModelType: domain.ModelTypeAuxiliary,
 	}
 	if err := modelStore.Create(ctx, unreleasedModel); err != nil {
 		t.Fatalf("seed unreleased model: %v", err)
@@ -209,7 +210,6 @@ func TestEntityViewVersion_ServesResolvedRelease(t *testing.T) {
 			UIName:     domain.Translations{"en": "Unreleased Collection"},
 			Status:     domain.StatusDraft,
 		},
-		OntologyScope: domain.PathElement{Type: "class", Prefix: "crm", LocalName: "E67_Birth"},
 	}
 	if err := collectionStore.Create(ctx, unreleasedCollection); err != nil {
 		t.Fatalf("seed unreleased collection: %v", err)

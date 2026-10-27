@@ -10,10 +10,14 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
-// CaptureProject freezes linked/explicit ontology selections and the ontology
-// closures of captured source projects. Call after project dependency capture,
+// CaptureProject freezes linked/explicit ontology selections, resolves all
+// project semantic references and retains captured source closures. Call after project dependency capture,
 // inside the same release transaction. Historical inventories are never inferred.
 func CaptureProject(ctx context.Context, q *sqlcgen.Queries, project, version string) error {
+	refs, err := q.WeaveProjectSemanticReferences(ctx, sqlcgen.WeaveProjectSemanticReferencesParams{ProjectID: project, Version: version})
+	if err != nil {
+		return err
+	}
 	selected, err := q.WeaveProjectOntologySelections(ctx, sqlcgen.WeaveProjectOntologySelectionsParams{ProjectID: project, Version: version})
 	if err != nil {
 		return err
@@ -23,7 +27,7 @@ func CaptureProject(ctx context.Context, q *sqlcgen.Queries, project, version st
 		return err
 	}
 	for _, source := range sources {
-		if source.OntologyDependenciesVersion != 1 {
+		if source.OntologyDependenciesVersion != 1 || !source.SemanticVerified {
 			return invalid("source project %s@%s has no verified ontology inventory", source.SourceProjectID, source.SourceVersion)
 		}
 	}
@@ -42,7 +46,7 @@ func CaptureProject(ctx context.Context, q *sqlcgen.Queries, project, version st
 	}
 	// A declared defaults link overrides active policy. Resolve it before any
 	// source closure can influence the choice; conflicts must be explicit.
-	if len(selected) > 0 {
+	if len(selected) > 0 || len(refs) > 0 {
 		for _, c := range candidates {
 			if c.Prefix == defaultsPrefix {
 				pin, err := p.choose(c.OntologyID, "")
@@ -75,7 +79,10 @@ func CaptureProject(ctx context.Context, q *sqlcgen.Queries, project, version st
 			return err
 		}
 	}
-	return q.WeaveMarkProjectOntologyInventory(ctx, sqlcgen.WeaveMarkProjectOntologyInventoryParams{ProjectID: project, Version: version})
+	if err := q.WeaveMarkProjectOntologyInventory(ctx, sqlcgen.WeaveMarkProjectOntologyInventoryParams{ProjectID: project, Version: version}); err != nil {
+		return err
+	}
+	return captureProjectReferences(ctx, q, &p, project, version, refs)
 }
 
 func projectDirectPins(ctx context.Context, q *sqlcgen.Queries, p *publisher, selected []string) ([]Pin, error) {

@@ -7,6 +7,7 @@ package projectontologies
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const projectOntologyArtifacts = `-- name: ProjectOntologyArtifacts :many
@@ -61,8 +62,10 @@ func (q *Queries) ProjectOntologyArtifacts(ctx context.Context, arg ProjectOntol
 }
 
 const projectOntologyInventory = `-- name: ProjectOntologyInventory :one
-SELECT ontology_dependencies_version=1 AS verified FROM weave_releases
-WHERE project_id = $1::text AND version = $2::text
+SELECT (ontology_dependencies_version=1 AND EXISTS (
+    SELECT 1 FROM weave_release_ontology_references s WHERE s.project_id=r.project_id AND s.version_number=r.version
+))::boolean AS verified FROM weave_releases r
+WHERE r.project_id = $1::text AND r.version = $2::text
 `
 
 type ProjectOntologyInventoryParams struct {
@@ -75,4 +78,21 @@ func (q *Queries) ProjectOntologyInventory(ctx context.Context, arg ProjectOntol
 	var verified bool
 	err := row.Scan(&verified)
 	return verified, err
+}
+
+const projectOntologyReferences = `-- name: ProjectOntologyReferences :one
+SELECT resolutions FROM weave_release_ontology_references
+WHERE project_id = $1::text AND version_number = $2::text
+`
+
+type ProjectOntologyReferencesParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+func (q *Queries) ProjectOntologyReferences(ctx context.Context, arg ProjectOntologyReferencesParams) (json.RawMessage, error) {
+	row := q.db.QueryRow(ctx, projectOntologyReferences, arg.ProjectID, arg.Version)
+	var resolutions json.RawMessage
+	err := row.Scan(&resolutions)
+	return resolutions, err
 }

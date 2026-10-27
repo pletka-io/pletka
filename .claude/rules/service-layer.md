@@ -184,4 +184,5 @@ yet implemented. Consumers serialize these values without database access.
 - A whole-project or export-shaped read on a slice — that belongs to the assembler
 - A whole-project consumer reading an `_archive` table directly instead of taking a snapshot
 - Released output resolving actor labels or module hosts from current state; use `readsession.Session.Descriptors` (ADR-0014)
+- Released semantic references resolved through current ontology policy or prefix guesses; capture at the cut and read `ontologyrelease.ProjectReader.References` (ADR-0015)
 - A new `_archive` table whose slice is not registered in `pkg/conformance/slices.go`

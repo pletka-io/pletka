@@ -275,3 +275,14 @@ Rules:
 Local development expects PostgreSQL on port **5433**, database `pletka_weave`.
 Per-worktree clones override it via
 `PLETKA_DB_NAME` — see [`../contributing/worktree-setup.md`](../contributing/worktree-setup.md).
+
+## Captured project semantic references
+
+Migration030 records a complete per-release ontology-reference inventory, including
+empty inventories, separately from migration025's link/version pins. A shared SQL
+view covers scopes, paths, additional types, datatypes and archived subfields. The
+cut resolves against selected publications; storage checks unique term matches and
+exact coverage. `ontologyrelease.ProjectReader.References` returns detached
+owner/version/digest/URI evidence without current-policy access. Missing historical
+evidence is `not_in_release`. Source entities retain their source inventories.
+See [ADR-0015](../decisions/0015-project-semantic-references-at-release-cut.md).

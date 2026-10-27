@@ -84,9 +84,13 @@ func TestOntologyPublicationHasOnePolicyBoundary(t *testing.T) {
 					if rel != "pkg/weave/ontology/store_postgres.go" && rel != "pkg/weave/ontology/draft_publish.go" {
 						t.Errorf("%s bypasses the ontology body writer boundary", rel)
 					}
-				case "WeaveProjectOntologySelections", "WeavePublishedOntologyIdentity", "WeaveProjectOntologySourceInventories", "WeaveProjectOntologySourcePins", "WeaveInsertProjectOntologyPin", "WeaveMarkProjectOntologyInventory":
+				case "WeaveProjectSemanticReferences", "WeaveProjectOntologySelections", "WeavePublishedOntologyIdentity", "WeaveProjectOntologySourceInventories", "WeaveProjectOntologySourcePins", "WeaveInsertProjectOntologyPin", "WeaveMarkProjectOntologyInventory":
 					if rel != "pkg/database/ontologyrelease/project_capture.go" {
 						t.Errorf("%s bypasses project ontology capture", rel)
+					}
+				case "WeaveCaptureProjectSemanticReferences":
+					if rel != "pkg/database/ontologyrelease/project_references.go" {
+						t.Errorf("%s bypasses project semantic capture", rel)
 					}
 				case "StageLegacyVersion":
 					if rel != "pkg/weave/ontology/import_vendored.go" {

@@ -375,8 +375,9 @@ HTTP/database tests and an opted-in real Chromium regression exercise these
 boundaries, including source validation during publication and old-release
 immutability. See [operations/API](../reference/ontology-drafts.md). Structured
 term editing, richer preview and dependency-option editing UI remain separate
-work. Unversioned project references and the whole-project assembler are still
-unfinished; this checkpoint does not establish full project-output immutability.
+work. [ADR-0015](0015-project-semantic-references-at-release-cut.md) now covers
+unversioned project reference capture. The whole-project assembler and consumer
+coverage remain unfinished; this does not establish full project-output immutability.
 
 ## Alternatives rejected
 

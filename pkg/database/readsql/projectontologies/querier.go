@@ -6,11 +6,13 @@ package projectontologies
 
 import (
 	"context"
+	"encoding/json"
 )
 
 type Querier interface {
 	ProjectOntologyArtifacts(ctx context.Context, arg ProjectOntologyArtifactsParams) ([]ProjectOntologyArtifactsRow, error)
 	ProjectOntologyInventory(ctx context.Context, arg ProjectOntologyInventoryParams) (bool, error)
+	ProjectOntologyReferences(ctx context.Context, arg ProjectOntologyReferencesParams) (json.RawMessage, error)
 }
 
 var _ Querier = (*Queries)(nil)

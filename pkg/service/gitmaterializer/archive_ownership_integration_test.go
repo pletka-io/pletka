@@ -27,6 +27,11 @@ func ownershipFixture(t *testing.T) (*matScopedFixture, context.Context, string)
 	f.category("MATSCOPED_OWNCAT")
 	f.sourceProject(source)
 	f.sourceModel(source, "MATSCOPED_SOURCE_OWNMODEL")
+	// Namespace ownership fixtures have no ontology links; omit the unrelated
+	// synthetic CRM scope supplied by the shared draft fixture.
+	if _, err := f.pool.Exec(f.ctx, `UPDATE weave_models SET ontology_scope=NULL WHERE project_id=$1`, source); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		for _, stmt := range []string{
 			// Remove these fixture consumers before their retained sources.
@@ -121,6 +126,9 @@ func TestChildCutDoesNotPrepopulateParentRelease(t *testing.T) {
 	const grand = "MATSCOPED_SOURCE_OWNGRAND"
 	f.sourceProject(grand)
 	f.sourceModel(grand, "MATSCOPED_SOURCE_OWNGRANDMODEL")
+	if _, err := f.pool.Exec(f.ctx, `UPDATE weave_models SET ontology_scope=NULL WHERE project_id=$1`, grand); err != nil {
+		t.Fatal(err)
+	}
 	cutOwnedRelease(ctx, t, f, grand, "80.0.0")
 	if _, err := f.pool.Exec(ctx, `INSERT INTO weave_project_inheritance (project_id, parent_project_id, is_primary, source_mode, source_version)
 		VALUES ($1, $2, true, 'release', '80.0.0')`, parent, grand); err != nil {

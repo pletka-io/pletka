@@ -333,3 +333,9 @@ The interface remains a removal candidate.
 - **Business logic inside a store method** — move it to the service.
 - **An API URL constructed in frontend code** — URLs come from the schema (see
   [`schema-driven-ui.md`](schema-driven-ui.md)).
+
+Project semantic references are captured centrally at release creation, not by
+individual slice readers. The bound ontology inventory exposes exact resolved
+identities for the planned assembler; source references remain source-owned. New
+semantic fields must extend the shared inventory and its storage checks. See
+[ADR-0015](../decisions/0015-project-semantic-references-at-release-cut.md).

@@ -14,6 +14,7 @@ package gitmaterializer
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -36,6 +37,15 @@ func TestDraftTreeVersusVersionTreeAfterARealCut(t *testing.T) {
 	f.sourceProject("MATSCOPED_SOURCE_DV")
 	f.sourceModel("MATSCOPED_SOURCE_DV", "MATSCOPED_SOURCE_DV_MODEL")
 	f.adoptSource("model", "MATSCOPED_SOURCE_DV", "MATSCOPED_SOURCE_DV_MODEL")
+
+	// This structural parity fixture has no ontology selection. Semantic scope,
+	// alias and subfield fidelity are exercised with published ontologies in
+	// TestProjectSemanticReferencesCaptureAndIsolation.
+	for _, table := range []string{"weave_fields", "weave_models", "weave_collections"} {
+		if _, err := f.pool.Exec(f.ctx, fmt.Sprintf("UPDATE %s SET ontology_scope=NULL WHERE project_id IN ($1,$2)", table), f.projectID, "MATSCOPED_SOURCE_DV"); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	const version = "1.0.0"
 	t.Cleanup(func() {
