@@ -191,7 +191,11 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 		return nil, fmt.Errorf("enqueue release change set: %w", err)
 	}
 
-	if err := sqlcgen.New(tx).WeaveMarkReleaseArchiveOwnership(ctx, sqlcgen.WeaveMarkReleaseArchiveOwnershipParams{ProjectID: projectID, Version: in.Version}); err != nil {
+	if err := sqlcgen.New(tx).WeaveFinalizeReleaseCapture(ctx, sqlcgen.WeaveFinalizeReleaseCaptureParams{ProjectID: projectID, Version: in.Version}); err != nil {
+		var pgerr *pgconn.PgError
+		if errors.As(err, &pgerr) && pgerr.ConstraintName == "release_content_source_unverified" {
+			return nil, &ErrValidation{Fields: map[string][]string{"dependencies": {"source release has no verified content capture; cut a new source release"}}}
+		}
 		return nil, fmt.Errorf("mark release archive ownership: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

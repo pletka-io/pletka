@@ -76,11 +76,14 @@ found `model_type` in both model tables but omitted by the release cut, and
 `concept_namespace` only on the live project. Migration 031 now captures both,
 with narrow metadata evidence. Migration 032 closes enforcement, fixed-entry and
 hierarchy timestamp gaps; the capture ledger covers all 22 owned archive sections
-and explicitly records remaining domain/portable gaps;
-see [capture coverage](../reference/release-capture-coverage.md). Complete released
-content still requires auditing the remaining fields. Strengthened capture
-evidence is versioned and established in the cut transaction. Historical defaults
-and current live values cannot certify older releases.
+and explicitly records remaining domain/portable gaps. Migration 033 validates
+every owned section against the cut snapshot and stores a complete owned-content
+receipt. Storage guards include parent-owned child rows, key moves and stale
+snapshots. The assembler requires this receipt through its bound session;
+see [capture coverage](../reference/release-capture-coverage.md). This evidence is
+distinct from complete consumer/portable coverage. Historical defaults and current
+live values cannot certify older releases; a deliberate rebuild/repoint operation
+can replace a controlled legacy snapshot set with newly captured releases.
 
 The assembler's value contract is distinct from the materializer's existing Git
 filesystem `ProjectSnapshot`. That restore DTO omits examples, vocabularies,

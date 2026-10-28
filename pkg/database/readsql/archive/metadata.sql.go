@@ -34,6 +34,24 @@ func (q *Queries) ReleaseConceptNamespace(ctx context.Context, arg ReleaseConcep
 	return i, err
 }
 
+const releaseContentReceipt = `-- name: ReleaseContentReceipt :one
+SELECT content_capture_receipt FROM weave_releases
+WHERE project_id=$1::text AND version=$2::text
+  AND content_capture_version=1 AND content_capture_receipt IS NOT NULL
+`
+
+type ReleaseContentReceiptParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+func (q *Queries) ReleaseContentReceipt(ctx context.Context, arg ReleaseContentReceiptParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, releaseContentReceipt, arg.ProjectID, arg.Version)
+	var content_capture_receipt []byte
+	err := row.Scan(&content_capture_receipt)
+	return content_capture_receipt, err
+}
+
 const releaseModelTypes = `-- name: ReleaseModelTypes :many
 SELECT a.id, a.model_type FROM weave_models_archive a
 JOIN weave_releases r ON r.project_id=a.project_id AND r.version=a.version_number

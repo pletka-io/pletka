@@ -68,7 +68,7 @@ func TestMetadataMigrationPreservesUnknownHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The newer content-field boundary now protects this fresh cut first.
-	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade captured release content fields") {
+	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade captured release content") {
 		t.Fatalf("certified metadata lost on downgrade: %v", err)
 	}
 }

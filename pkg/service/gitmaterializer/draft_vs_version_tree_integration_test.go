@@ -50,9 +50,12 @@ func TestDraftTreeVersusVersionTreeAfterARealCut(t *testing.T) {
 	const version = "1.0.0"
 	t.Cleanup(func() {
 		bg := context.Background()
+		for _, project := range []string{f.projectID, "MATSCOPED_SOURCE_DV"} {
+			if _, err := f.pool.Exec(bg, `DELETE FROM weave_releases WHERE project_id=$1`, project); err != nil {
+				t.Error(err)
+			}
+		}
 		for _, stmt := range []string{
-			`DELETE FROM weave_release_project_dependencies WHERE project_id = $1`,
-			`DELETE FROM weave_releases WHERE project_id = $1`,
 			`DELETE FROM weave_adoptions_archive WHERE project_id = $1`,
 			`DELETE FROM weave_override_refs_archive WHERE project_id = $1`,
 			`DELETE FROM weave_field_overrides_archive WHERE project_id = $1`,

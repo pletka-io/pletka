@@ -242,8 +242,64 @@ func TestDependencyCaptureRejectsCyclesConflictingPinsAndUnverifiedHistory(t *te
 		t.Fatal(err)
 	}
 	referTo(t, c, d)
-	if _, err := d.pool.Exec(d.ctx, `UPDATE weave_releases SET project_dependencies_version=0 WHERE project_id=$1 AND version='2.0.0'`, d.project); err != nil {
+	if _, err := d.pool.Exec(d.ctx, `INSERT INTO weave_releases(project_id,version,created_by_id) SELECT project_id,'3.0.0',created_by_id FROM weave_releases WHERE project_id=$1 AND version='2.0.0'`, d.project); err != nil {
 		t.Fatal(err)
 	}
 	expectDependencyFailure(t, c, "1.0.0", "no verified project dependency inventory")
+}
+
+func TestCompleteContentProtectsDependenciesAndSameVersionProjects(t *testing.T) {
+	source, consumer := newFixture(t, "CONTENT_SOURCE"), newFixture(t, "CONTENT_CONSUMER")
+	source.cut(t)
+	referTo(t, consumer, source)
+	consumer.cut(t)
+	for _, statement := range []string{
+		`DELETE FROM weave_release_dependency_entities WHERE project_id=$1`,
+		`DELETE FROM weave_release_project_dependencies WHERE project_id=$1`,
+		`UPDATE weave_release_dependency_entities SET source_version='9.0.0' WHERE project_id=$1`,
+		`INSERT INTO weave_release_dependency_entities(project_id,version_number,entity_type,entity_id,source_project_id,source_version) VALUES ($1,'1.0.0','collection','extra',$2,'1.0.0')`,
+		`UPDATE weave_releases SET project_dependencies_version=0 WHERE project_id=$1`,
+	} {
+		args := []any{consumer.project}
+		if strings.Contains(statement, "$2") {
+			args = append(args, source.project)
+		}
+		_, err := consumer.pool.Exec(consumer.ctx, statement, args...)
+		var pgerr *pgconn.PgError
+		if !errors.As(err, &pgerr) || pgerr.Code != "23514" {
+			t.Fatalf("captured dependency changed: %v", err)
+		}
+	}
+	// Same textual version does not confer ownership of another project's rows.
+	other := newFixture(t, "CONTENT_OTHER")
+	if _, err := other.pool.Exec(other.ctx, `INSERT INTO weave_collections_archive(id,project_id,version_number) VALUES ($1,$2,'1.0.0')`, other.collection, other.project); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.pool.Exec(other.ctx, `UPDATE weave_collections_archive SET system_name='legacy' WHERE id=$1`, other.collection); err != nil {
+		t.Fatal(err)
+	}
+	// A key move into a retained release must check NEW ownership too.
+	if _, err := other.pool.Exec(other.ctx, `UPDATE weave_collections_archive SET project_id=$1 WHERE id=$2`, source.project, other.collection); err == nil {
+		t.Fatal("foreign key move entered complete content")
+	}
+}
+
+func TestCompleteContentRejectsUnverifiedSource(t *testing.T) {
+	source, consumer := newFixture(t, "CONTENT_LEGACY"), newFixture(t, "CONTENT_NEW")
+	// Reproduce the previous cut contract without resetting a real certificate.
+	// The production finalizer has no legacy mode.
+	for _, sql := range []string{
+		`CREATE FUNCTION test_legacy_cut() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.content_capture_version:=0; RETURN NEW; END $$`,
+		`CREATE TRIGGER a_test_legacy_cut BEFORE UPDATE ON weave_releases FOR EACH ROW WHEN (NEW.project_id='CONTENT_LEGACY') EXECUTE FUNCTION test_legacy_cut()`,
+	} {
+		if _, err := source.pool.Exec(source.ctx, sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	source.cut(t)
+	if _, err := source.pool.Exec(source.ctx, `DROP TRIGGER a_test_legacy_cut ON weave_releases; DROP FUNCTION test_legacy_cut()`); err != nil {
+		t.Fatal(err)
+	}
+	referTo(t, consumer, source)
+	expectDependencyFailure(t, consumer, "1.0.0", "source release has no verified content capture")
 }

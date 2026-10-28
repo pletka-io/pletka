@@ -224,7 +224,7 @@ func TestMetadataCaptureRequiresSnapshotIsolation(t *testing.T) {
 	if err := snapshotOwnedState(ctx, tx, project, "9.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	err = sqlcgen.New(tx).WeaveMarkReleaseArchiveOwnership(ctx, sqlcgen.WeaveMarkReleaseArchiveOwnershipParams{ProjectID: project, Version: "9.0.1"})
+	err = sqlcgen.New(tx).WeaveFinalizeReleaseCapture(ctx, sqlcgen.WeaveFinalizeReleaseCaptureParams{ProjectID: project, Version: "9.0.1"})
 	if err == nil || !strings.Contains(err.Error(), "repeatable-read") {
 		t.Fatalf("read-committed capture = %v", err)
 	}

@@ -37,7 +37,7 @@ The certificate cannot be reset or
 retargeted, and downgrade cannot discard it. Normal release deletion permits
 subsequent archive cleanup. Coordination keys remain after cleanup to protect
 reuse of the same project/version; they are operational state, not content.
-Other archive tables are not protected by these guards.
+Migration 033 adds the broader content guards described below.
 
 `readsession.Session.Metadata` returns detached values through archive SELECTs on
 the existing session. Its model lookup is restricted to captured own membership;
@@ -82,9 +82,9 @@ an absent fixed entry, or an edge creation time. Downgrade refuses to discard
 captured values. The removed `weave_project_vocabularies` table is not a gap:
 migration 013 replaced shared membership with direct vocabulary ownership.
 
-This ledger proves classification and capture projections, not complete immutable
-snapshots. Most content archives still need finalized write guards and a complete
-content receipt. Metadata contract 1 remains narrow. The domain DTOs and current
+The ledger proves classification and capture projections. The storage contract
+below separately proves complete immutable owned rows. Metadata contract 1 remains
+narrow. The domain DTOs and current
 Git format also omit values: override supplements, concept/vocabulary sections,
 explicit placements, credits, model type and project settings need assembler and
 portable-format support. Section dispositions record these gaps; exact assembler
@@ -100,3 +100,48 @@ Additional real-cut tests cover true/false enforcement, fixed-entry and hierarch
 timestamp preservation across a second cut, foreign entries after live deletion
 and a newer source release, unavailable dependencies rolling back the cut, and
 unknown historical fields surviving migration round trips.
+
+## Owned-content contract 1
+
+Migration 033 adds `content_capture_version` and a storage-owned JSON receipt on
+the release. `WeaveFinalizeReleaseCapture` requests all final markers together,
+after content, dependency evidence and the outbox have been written. The database
+compares the full expected and archived row multisets for all 22 sections against
+the same repeatable-read snapshot. Missing, extra or altered values abort the cut.
+The versioned storage projection is checked against the reviewed capture ledger.
+Adding a field requires updating capture, validation and its inventory decision.
+
+The receipt records a count and SHA-256 for every section, including empty ones.
+Hashes use sorted PostgreSQL JSON row values in UTC; they are storage evidence,
+not the canonical Git/portable encoding. Only a release inserted in this same
+transaction can receive a receipt. Its capture transaction, receipt, identity and
+author/time cannot subsequently change. Title, retirement and materialization
+policy remain separate catalog state. Source project releases must themselves
+have complete owned-content evidence before a new consumer can finalize.
+
+All 22 owned archives and the five project dependency/evidence tables reject
+ordinary inserts, updates, deletes and key moves after finalization. Project pins
+also freeze as soon as their prerequisite marker is set. Truncation is rejected
+unconditionally, including on empty tables: stale snapshots cannot determine
+whether a newer release exists. Deleting an unreferenced release permits its
+archive cleanup; delete consumers before their retained sources.
+
+Rows without project ownership columns resolve through their archived parent at
+the same textual version. Persistent parent-identity coordination keys serialize
+both parent and child writers, even when a stale snapshot cannot see the parent.
+Both old and new ownership are checked on key moves; override refs also check the
+actual parent so a forged project ID cannot bypass protection. Parent and
+project/version keys survive cleanup to protect later reuse. Other projects may
+use the same version string without sharing ownership or being blocked as sealed.
+
+`readsession.Session.Content` reads detached receipt values on the existing bound
+session. Draft, zero and closed sessions fail; an unverified release returns
+`not_in_release`. This is the assembler's owned-content prerequisite. It does not
+prove that existing consumers serialize every section, or replace the separate
+ontology, descriptor and source-resolution contracts.
+
+Legacy releases receive no automatic receipt. An explicit rebuild/repoint tool
+may replace a controlled legacy snapshot set and recapture dependency pins in
+source-first order. Normal readers and cuts have no compatibility switch that
+turns current data into proof of an old snapshot. Portable restore will need its
+own validated receipt path once the complete portable contract exists.
