@@ -16,6 +16,9 @@ func snapshotOwnedState(ctx context.Context, db sqlcgen.DBTX, projectID, version
 	if count != 1 {
 		return fmt.Errorf("capture project: expected one project, captured %d", count)
 	}
+	if err := q.WeaveSnapshotOwnedModels(ctx, sqlcgen.WeaveSnapshotOwnedModelsParams{ProjectID: projectID, Version: version}); err != nil {
+		return fmt.Errorf("capture models: %w", err)
+	}
 	if err := q.WeaveSnapshotOwnedInheritance(ctx, sqlcgen.WeaveSnapshotOwnedInheritanceParams{ProjectID: projectID, Version: version}); err != nil {
 		return fmt.Errorf("capture inheritance: %w", err)
 	}

@@ -172,16 +172,8 @@ func TestReleaseDescriptorsFreezeActorAndModuleOutput(t *testing.T) {
 	}
 	db := stdlib.OpenDB(*pool.Config().ConnConfig)
 	defer db.Close()
-	latest, err := database.LatestMigrationVersion()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for version := latest; version > 30; version-- {
-		if err := database.MigrateDown(db); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade captured semantic references") {
+	// A newer retained boundary may block downgrade before descriptors/semantics.
+	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade captured release metadata") {
 		t.Fatalf("downgrade discarded descriptors: %v", err)
 	}
 	descriptorExec(t, pool, `DELETE FROM weave_releases WHERE project_id='descriptor-child'`)
@@ -214,6 +206,9 @@ func descriptorFinish(t *testing.T, tx pgx.Tx, q *sqlcgen.Queries, project, vers
 		t.Fatal(err)
 	}
 	if err := ontologyrelease.CaptureProject(t.Context(), q, project, version); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.WeaveSnapshotOwnedModels(t.Context(), sqlcgen.WeaveSnapshotOwnedModelsParams{ProjectID: project, Version: version}); err != nil {
 		t.Fatal(err)
 	}
 	if err := q.WeaveMarkReleaseArchiveOwnership(t.Context(), sqlcgen.WeaveMarkReleaseArchiveOwnershipParams{ProjectID: project, Version: version}); err != nil {

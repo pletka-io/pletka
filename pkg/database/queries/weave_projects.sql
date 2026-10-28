@@ -45,6 +45,10 @@ SELECT concept_namespace
 FROM weave_projects
 WHERE id = $1;
 
+-- name: WeaveGetProjectEffectiveConceptNamespace :one
+SELECT weave_effective_concept_namespace_v1(concept_namespace)::text AS namespace
+FROM weave_projects WHERE id = $1;
+
 -- name: WeaveListProjectReleaseVersions :many
 SELECT version
 FROM weave_releases

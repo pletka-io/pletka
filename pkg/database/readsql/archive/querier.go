@@ -25,7 +25,9 @@ type Querier interface {
 	ListTypeOverrides(ctx context.Context, arg ListTypeOverridesParams) ([]WeaveFieldOverridesArchive, error)
 	ModelPlacements(ctx context.Context, arg ModelPlacementsParams) ([]WeaveCollectionPlacementsArchive, error)
 	OverrideRefs(ctx context.Context, arg OverrideRefsParams) ([]WeaveOverrideRefsArchive, error)
+	ReleaseConceptNamespace(ctx context.Context, arg ReleaseConceptNamespaceParams) (ReleaseConceptNamespaceRow, error)
 	ReleaseDescriptors(ctx context.Context, arg ReleaseDescriptorsParams) (json.RawMessage, error)
+	ReleaseModelTypes(ctx context.Context, arg ReleaseModelTypesParams) ([]ReleaseModelTypesRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

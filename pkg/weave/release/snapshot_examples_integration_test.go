@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
 // TestSnapshotIncludesExamples pins that a release carries the examples a
@@ -164,6 +165,9 @@ func seedExampleField(t *testing.T, pool *pgxpool.Pool, fieldID, entityType, ent
 // runSnapshotStatements exercises entity snapshots only. Owned project metadata
 // and namespace capture are covered by tests that call Service.Create.
 func runSnapshotStatements(ctx context.Context, pool *pgxpool.Pool, projectID, version string) error {
+	if err := sqlcgen.New(pool).WeaveSnapshotOwnedModels(ctx, sqlcgen.WeaveSnapshotOwnedModelsParams{ProjectID: projectID, Version: version}); err != nil {
+		return err
+	}
 	for _, stmt := range snapshotStatements {
 		if _, err := pool.Exec(ctx, stmt, projectID, version); err != nil {
 			return err

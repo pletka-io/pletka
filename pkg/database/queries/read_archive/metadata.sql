@@ -1,0 +1,12 @@
+-- name: ReleaseConceptNamespace :one
+SELECT a.concept_namespace, a.effective_concept_namespace::text AS effective_namespace
+FROM weave_projects_archive a
+JOIN weave_releases r ON r.project_id=a.id AND r.version=a.version_number
+WHERE a.id=sqlc.arg(project_id)::text AND a.version_number=sqlc.arg(version)::text
+  AND r.metadata_capture_version=1 AND a.effective_concept_namespace IS NOT NULL;
+
+-- name: ReleaseModelTypes :many
+SELECT a.id, a.model_type FROM weave_models_archive a
+JOIN weave_releases r ON r.project_id=a.project_id AND r.version=a.version_number
+WHERE a.project_id=sqlc.arg(project_id)::text AND a.version_number=sqlc.arg(version)::text
+  AND r.metadata_capture_version=1 ORDER BY a.id;

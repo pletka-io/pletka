@@ -160,7 +160,7 @@ func (q *Queries) WeaveListReleaseParentTargets(ctx context.Context, arg WeaveLi
 }
 
 const weaveMarkReleaseArchiveOwnership = `-- name: WeaveMarkReleaseArchiveOwnership :exec
-UPDATE weave_releases SET archive_ownership_version = 1
+UPDATE weave_releases SET archive_ownership_version = 1, metadata_capture_version = 1
 WHERE project_id = $1::text AND version = $2::text
 `
 
@@ -213,6 +213,28 @@ func (q *Queries) WeaveSnapshotOwnedInheritance(ctx context.Context, arg WeaveSn
 	return err
 }
 
+const weaveSnapshotOwnedModels = `-- name: WeaveSnapshotOwnedModels :exec
+INSERT INTO weave_models_archive (
+    id, created_at, updated_at, system_name, ui_name, description, status,
+    project_id, ontology_scope, staging_id, deprecated, version_number, model_type
+)
+SELECT id, created_at, updated_at, system_name, ui_name, description,
+    CASE WHEN status = 'deprecated' THEN status ELSE 'published' END,
+    project_id, ontology_scope, staging_id, deprecated, $1::text, model_type
+FROM weave_models WHERE project_id = $2::text
+ON CONFLICT (id, version_number) DO NOTHING
+`
+
+type WeaveSnapshotOwnedModelsParams struct {
+	Version   string `json:"version"`
+	ProjectID string `json:"project_id"`
+}
+
+func (q *Queries) WeaveSnapshotOwnedModels(ctx context.Context, arg WeaveSnapshotOwnedModelsParams) error {
+	_, err := q.db.Exec(ctx, weaveSnapshotOwnedModels, arg.Version, arg.ProjectID)
+	return err
+}
+
 const weaveSnapshotOwnedOntologyLinks = `-- name: WeaveSnapshotOwnedOntologyLinks :exec
 INSERT INTO weave_project_ontology_versions_archive (
     project_id, ontology_version_id, added_at, added_by_id, is_primary, usage_notes, version_number
@@ -235,12 +257,14 @@ const weaveSnapshotOwnedProject = `-- name: WeaveSnapshotOwnedProject :execrows
 INSERT INTO weave_projects_archive (
     id, created_at, updated_at, system_name, ui_name, description, status,
     namespace, parent_project_id, staging_id, owner_id, visibility,
-    deprecated, license, readme, topics, base_url, created_by_id, version_number
+    deprecated, license, readme, topics, base_url, created_by_id, version_number,
+    concept_namespace, effective_concept_namespace
 )
 SELECT id, created_at, updated_at, system_name, ui_name, description,
     CASE WHEN status = 'deprecated' THEN status ELSE 'published' END,
     namespace, parent_project_id, staging_id, owner_id, visibility,
-    deprecated, license, readme, topics, base_url, created_by_id, $1::text
+    deprecated, license, readme, topics, base_url, created_by_id, $1::text,
+    concept_namespace, weave_effective_concept_namespace_v1(concept_namespace)
 FROM weave_projects p WHERE p.id = $2::text
 `
 

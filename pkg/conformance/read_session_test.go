@@ -206,6 +206,9 @@ func TestPilotQueriesCannotCrossStateOrWrite(t *testing.T) {
 			}
 			for _, match := range tables.FindAllStringSubmatch(sql.String(), -1) {
 				isArchive := strings.HasSuffix(match[1], "_archive") || match[1] == "weave_release_descriptors"
+				// This session facet reads only the release's capture certificate,
+				// never mutable project content from the release catalog.
+				isArchive = isArchive || (match[1] == "weave_releases" && filepath.Base(path) == "metadata.sql")
 				if isArchive != (state == "archive") {
 					t.Errorf("%s accesses other state table %s", path, match[1])
 				}
@@ -218,7 +221,7 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 	root := repoRoot(t)
 	for _, path := range goFilesUnder(t, root) {
 		rel := mustRel(t, root, path)
-		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go") {
+		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go" || rel == "pkg/database/readsession/metadata.go") {
 			continue
 		}
 		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
