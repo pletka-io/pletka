@@ -181,6 +181,18 @@ func (q *Queries) WeaveGetProjectConceptNamespace(ctx context.Context, id string
 	return concept_namespace, err
 }
 
+const weaveGetProjectEffectiveConceptNamespace = `-- name: WeaveGetProjectEffectiveConceptNamespace :one
+SELECT weave_effective_concept_namespace_v1(concept_namespace)::text AS namespace
+FROM weave_projects WHERE id = $1
+`
+
+func (q *Queries) WeaveGetProjectEffectiveConceptNamespace(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRow(ctx, weaveGetProjectEffectiveConceptNamespace, id)
+	var namespace string
+	err := row.Scan(&namespace)
+	return namespace, err
+}
+
 const weaveGetProjectParentID = `-- name: WeaveGetProjectParentID :one
 SELECT parent_project_id FROM weave_projects WHERE id = $1
 `

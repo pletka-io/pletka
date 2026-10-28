@@ -71,10 +71,12 @@ This is the intended architecture, not a claim that the assembler already exists
 
 ## Amendment: completeness and consumer migration (2026-10-28)
 
-Capture coverage must be checked by field, not just by table. At this checkpoint,
-`model_type` exists in both model tables but is omitted by the release cut;
-`concept_namespace` exists only on the live project. Complete released content
-requires capturing these and auditing the remaining fields. Strengthened capture
+Capture coverage must be checked by field, not just by table. The initial audit
+found `model_type` in both model tables but omitted by the release cut, and
+`concept_namespace` only on the live project. Migration 031 now captures both,
+with narrow metadata evidence and an initial project/model column inventory;
+see [capture coverage](../reference/release-capture-coverage.md). Complete released
+content still requires auditing the remaining fields. Strengthened capture
 evidence is versioned and established in the cut transaction. Historical defaults
 and current live values cannot certify older releases.
 

@@ -36,6 +36,7 @@ func ownershipFixture(t *testing.T) (*matScopedFixture, context.Context, string)
 		for _, stmt := range []string{
 			// Remove these fixture consumers before their retained sources.
 			`DELETE FROM weave_release_project_dependencies WHERE project_id = ANY($1)`,
+			`DELETE FROM weave_releases WHERE project_id = ANY($1)`,
 			`DELETE FROM weave_project_inheritance WHERE project_id = ANY($1)`,
 			`DELETE FROM weave_project_inheritance_archive WHERE project_id = ANY($1)`,
 			`DELETE FROM weave_project_ontology_versions_archive WHERE project_id = ANY($1)`,
@@ -43,7 +44,6 @@ func ownershipFixture(t *testing.T) (*matScopedFixture, context.Context, string)
 			`DELETE FROM weave_categories_archive WHERE project_id = ANY($1)`,
 			`DELETE FROM weave_models_archive WHERE project_id = ANY($1)`,
 			`DELETE FROM weave_change_set WHERE project_id = ANY($1)`,
-			`DELETE FROM weave_releases WHERE project_id = ANY($1)`,
 		} {
 			if _, err := f.pool.Exec(context.Background(), stmt, []string{f.projectID, source, "MATSCOPED_SOURCE_OWNGRAND"}); err != nil {
 				t.Error(err)
@@ -208,11 +208,13 @@ func TestChildCutDoesNotPrepopulateParentRelease(t *testing.T) {
 	if len(reqs) != 1 || reqs[0].Version != "81.0.0" {
 		t.Fatalf("requirements: %+v", reqs)
 	}
-	if _, err := f.pool.Exec(f.ctx, `DELETE FROM weave_projects_archive WHERE id=$1 AND version_number='81.0.0'`, parent); err != nil {
-		t.Fatal(err)
+	// New cuts protect the captured parent body itself; ordinary writers can
+	// no longer manufacture this missing-body condition behind a retained pin.
+	if _, err := f.pool.Exec(f.ctx, `DELETE FROM weave_projects_archive WHERE id=$1 AND version_number='81.0.0'`, parent); err == nil {
+		t.Fatal("captured pinned parent archive could be deleted")
 	}
-	if _, err := f.mat.loadPletkaProjectRequirementsAtVersion(ctx, f.projectID, "82.0.0"); err == nil {
-		t.Fatal("missing pinned parent archive fell back to live metadata")
+	if _, err := f.mat.loadPletkaProjectRequirementsAtVersion(ctx, f.projectID, "82.0.0"); err != nil {
+		t.Fatalf("retained parent became unreadable: %v", err)
 	}
 }
 

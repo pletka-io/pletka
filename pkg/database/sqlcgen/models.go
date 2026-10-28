@@ -1046,25 +1046,27 @@ type WeaveProjectSemanticReference struct {
 }
 
 type WeaveProjectsArchive struct {
-	ID              string          `json:"id"`
-	CreatedAt       time.Time       `json:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at"`
-	SystemName      *string         `json:"system_name"`
-	UiName          []byte          `json:"ui_name"`
-	Description     []byte          `json:"description"`
-	Status          string          `json:"status"`
-	Namespace       *string         `json:"namespace"`
-	ParentProjectID *string         `json:"parent_project_id"`
-	StagingID       *int64          `json:"staging_id"`
-	OwnerID         string          `json:"owner_id"`
-	Visibility      string          `json:"visibility"`
-	Deprecated      bool            `json:"deprecated"`
-	License         string          `json:"license"`
-	Readme          json.RawMessage `json:"readme"`
-	Topics          []string        `json:"topics"`
-	BaseUrl         string          `json:"base_url"`
-	CreatedByID     *string         `json:"created_by_id"`
-	VersionNumber   string          `json:"version_number"`
+	ID                        string          `json:"id"`
+	CreatedAt                 time.Time       `json:"created_at"`
+	UpdatedAt                 time.Time       `json:"updated_at"`
+	SystemName                *string         `json:"system_name"`
+	UiName                    []byte          `json:"ui_name"`
+	Description               []byte          `json:"description"`
+	Status                    string          `json:"status"`
+	Namespace                 *string         `json:"namespace"`
+	ParentProjectID           *string         `json:"parent_project_id"`
+	StagingID                 *int64          `json:"staging_id"`
+	OwnerID                   string          `json:"owner_id"`
+	Visibility                string          `json:"visibility"`
+	Deprecated                bool            `json:"deprecated"`
+	License                   string          `json:"license"`
+	Readme                    json.RawMessage `json:"readme"`
+	Topics                    []string        `json:"topics"`
+	BaseUrl                   string          `json:"base_url"`
+	CreatedByID               *string         `json:"created_by_id"`
+	VersionNumber             string          `json:"version_number"`
+	ConceptNamespace          *string         `json:"concept_namespace"`
+	EffectiveConceptNamespace *string         `json:"effective_concept_namespace"`
 }
 
 type WeaveRelease struct {
@@ -1079,6 +1081,7 @@ type WeaveRelease struct {
 	ArchiveOwnershipVersion     int16              `json:"archive_ownership_version"`
 	ProjectDependenciesVersion  int16              `json:"project_dependencies_version"`
 	OntologyDependenciesVersion int16              `json:"ontology_dependencies_version"`
+	MetadataCaptureVersion      int16              `json:"metadata_capture_version"`
 }
 
 type WeaveReleaseActorReference struct {
@@ -1100,6 +1103,11 @@ type WeaveReleaseDescriptor struct {
 	ProjectID     string          `json:"project_id"`
 	VersionNumber string          `json:"version_number"`
 	Document      json.RawMessage `json:"document"`
+}
+
+type WeaveReleaseMetadataFence struct {
+	ProjectID     string `json:"project_id"`
+	VersionNumber string `json:"version_number"`
 }
 
 type WeaveReleaseNamespaceBindingsArchive struct {

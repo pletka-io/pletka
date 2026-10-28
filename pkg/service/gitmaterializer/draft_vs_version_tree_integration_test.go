@@ -52,6 +52,7 @@ func TestDraftTreeVersusVersionTreeAfterARealCut(t *testing.T) {
 		bg := context.Background()
 		for _, stmt := range []string{
 			`DELETE FROM weave_release_project_dependencies WHERE project_id = $1`,
+			`DELETE FROM weave_releases WHERE project_id = $1`,
 			`DELETE FROM weave_adoptions_archive WHERE project_id = $1`,
 			`DELETE FROM weave_override_refs_archive WHERE project_id = $1`,
 			`DELETE FROM weave_field_overrides_archive WHERE project_id = $1`,
@@ -65,7 +66,6 @@ func TestDraftTreeVersusVersionTreeAfterARealCut(t *testing.T) {
 			`DELETE FROM weave_namespace_bindings_archive WHERE project_id = $1`,
 			`DELETE FROM weave_projects_archive WHERE id = $1`,
 			`DELETE FROM weave_change_set WHERE project_id = $1`,
-			`DELETE FROM weave_releases WHERE project_id = $1`,
 		} {
 			if _, err := f.pool.Exec(bg, strings.ReplaceAll(stmt, " = $1", " = ANY($1)"), []string{f.projectID, "MATSCOPED_SOURCE_DV"}); err != nil {
 				t.Errorf("cleanup %q: %v", stmt, err)

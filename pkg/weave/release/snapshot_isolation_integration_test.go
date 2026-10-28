@@ -13,6 +13,8 @@ func TestCreateUsesOneDatabaseSnapshot(t *testing.T) {
 	base, ownerID, projectID := seedZREL(t, pool)
 	ctx, cancel := context.WithTimeout(base, 20*time.Second)
 	defer cancel()
+	mustExec(t, pool, `UPDATE weave_models SET model_type='auxiliary' WHERE project_id='ZREL'`)
+	mustExec(t, pool, `UPDATE weave_projects SET concept_namespace='https://before.example/' WHERE id='ZREL'`)
 	mustExec(t, pool, `CREATE FUNCTION pause_release_cut() RETURNS trigger LANGUAGE plpgsql AS $$
 		BEGIN
 		IF NEW.project_id = 'ZREL' THEN PERFORM pg_advisory_xact_lock(719823); END IF;
@@ -78,6 +80,12 @@ func TestCreateUsesOneDatabaseSnapshot(t *testing.T) {
 	if _, err := edit.Exec(ctx, `UPDATE weave_fields SET ui_name='{"en":"After"}' WHERE id='ZRELF1'`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := edit.Exec(ctx, `UPDATE weave_projects SET concept_namespace='https://after.example/' WHERE id='ZREL'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := edit.Exec(ctx, `UPDATE weave_models SET model_type='example' WHERE project_id='ZREL'`); err != nil {
+		t.Fatal(err)
+	}
 	if err := edit.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -94,5 +102,11 @@ func TestCreateUsesOneDatabaseSnapshot(t *testing.T) {
 	mustScan(t, pool, `SELECT ui_name->>'en' FROM weave_fields WHERE id='ZRELF1'`, nil, &liveFieldTitle)
 	if projectTitle != "Release Probe" || fieldTitle != "Release Probe" || liveProjectTitle != "After" || liveFieldTitle != "After" {
 		t.Fatalf("archive=(%q, %q), live=(%q, %q); want consistent pre-edit archive and committed edit", projectTitle, fieldTitle, liveProjectTitle, liveFieldTitle)
+	}
+	var namespace, modelType string
+	mustScan(t, pool, `SELECT effective_concept_namespace FROM weave_projects_archive WHERE id='ZREL' AND version_number='9.0.1'`, nil, &namespace)
+	mustScan(t, pool, `SELECT model_type FROM weave_models_archive WHERE project_id='ZREL' AND version_number='9.0.1'`, nil, &modelType)
+	if namespace != "https://before.example/" || modelType != "auxiliary" {
+		t.Fatalf("metadata mixed committed states: namespace=%q model_type=%q", namespace, modelType)
 	}
 }

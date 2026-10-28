@@ -288,3 +288,18 @@ exact coverage. `ontologyrelease.ProjectReader.References` returns detached
 owner/version/digest/URI evidence without current-policy access. Missing historical
 evidence is `not_in_release`. Source entities retain their source inventories.
 See [ADR-0015](../decisions/0015-project-semantic-references-at-release-cut.md).
+
+## Captured project/model metadata
+
+Migration 031 preserves model types and raw/effective concept namespace at the
+release cut. `metadata_capture_version=1` certifies only this defined metadata
+contract. Storage validates coverage before finalization, protects its archive
+rows afterward and refuses destructive downgrade; historical releases remain
+unverified. `readsession.Session.Metadata` reads detached values on the existing
+session and reports missing evidence as `not_in_release`.
+
+The initial column inventory checks project/model schema and named capture
+projections. It records `enforce_concept_lists` as a remaining gap and
+`is_core_weave` as live administrative policy. The broader capture audit and
+assembler/serializer migration remain pending. See
+[capture coverage](../reference/release-capture-coverage.md).

@@ -5,20 +5,33 @@ SELECT EXISTS (
 );
 
 -- name: WeaveMarkReleaseArchiveOwnership :exec
-UPDATE weave_releases SET archive_ownership_version = 1
+UPDATE weave_releases SET archive_ownership_version = 1, metadata_capture_version = 1
 WHERE project_id = sqlc.arg(project_id)::text AND version = sqlc.arg(version)::text;
 
 -- name: WeaveSnapshotOwnedProject :execrows
 INSERT INTO weave_projects_archive (
     id, created_at, updated_at, system_name, ui_name, description, status,
     namespace, parent_project_id, staging_id, owner_id, visibility,
-    deprecated, license, readme, topics, base_url, created_by_id, version_number
+    deprecated, license, readme, topics, base_url, created_by_id, version_number,
+    concept_namespace, effective_concept_namespace
 )
 SELECT id, created_at, updated_at, system_name, ui_name, description,
     CASE WHEN status = 'deprecated' THEN status ELSE 'published' END,
     namespace, parent_project_id, staging_id, owner_id, visibility,
-    deprecated, license, readme, topics, base_url, created_by_id, sqlc.arg(version)::text
+    deprecated, license, readme, topics, base_url, created_by_id, sqlc.arg(version)::text,
+    concept_namespace, weave_effective_concept_namespace_v1(concept_namespace)
 FROM weave_projects p WHERE p.id = sqlc.arg(project_id)::text;
+
+-- name: WeaveSnapshotOwnedModels :exec
+INSERT INTO weave_models_archive (
+    id, created_at, updated_at, system_name, ui_name, description, status,
+    project_id, ontology_scope, staging_id, deprecated, version_number, model_type
+)
+SELECT id, created_at, updated_at, system_name, ui_name, description,
+    CASE WHEN status = 'deprecated' THEN status ELSE 'published' END,
+    project_id, ontology_scope, staging_id, deprecated, sqlc.arg(version)::text, model_type
+FROM weave_models WHERE project_id = sqlc.arg(project_id)::text
+ON CONFLICT (id, version_number) DO NOTHING;
 
 -- name: WeaveSnapshotOwnedInheritance :exec
 INSERT INTO weave_project_inheritance_archive (

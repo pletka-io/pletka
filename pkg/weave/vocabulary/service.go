@@ -27,11 +27,6 @@ import (
 
 const defaultSearchLimit = 50
 
-// defaultConceptNamespace expands the pletka: curie prefix when emitting SKOS.
-// Phase 1.5 (#3599) will make this configurable per project/weave (F4); until
-// then local concept URIs (pletka:concept/{ULID}) resolve under this base.
-const defaultConceptNamespace = "https://vocab.pletka.io/"
-
 // conceptBroaderField is the validation-error field key for broader/narrower edits.
 const conceptBroaderField = "broader"
 
@@ -2029,18 +2024,22 @@ func (s *Service) RenderConceptListSKOS(ctx context.Context, projectID, listID s
 		})
 	}
 
-	return skos.Render(w, scheme, concepts, edges, map[string]string{"pletka": s.conceptNamespace(ctx, projectID)})
+	namespace, err := s.conceptNamespace(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	return skos.Render(w, scheme, concepts, edges, map[string]string{"pletka": namespace})
 }
 
 // conceptNamespace returns the IRI the project's pletka: curies expand to on
 // export — the project's configured namespace (F4, #3599), else the platform
 // default.
-func (s *Service) conceptNamespace(ctx context.Context, projectID string) string {
-	ns, err := s.queries.WeaveGetProjectConceptNamespace(ctx, projectID)
-	if err != nil || ns == nil || strings.TrimSpace(*ns) == "" {
-		return defaultConceptNamespace
+func (s *Service) conceptNamespace(ctx context.Context, projectID string) (string, error) {
+	ns, err := s.queries.WeaveGetProjectEffectiveConceptNamespace(ctx, projectID)
+	if err != nil {
+		return "", fmt.Errorf("read project concept namespace: %w", err)
 	}
-	return strings.TrimSpace(*ns)
+	return ns, nil
 }
 
 // ConceptListMemberURIs returns the distinct member concept URIs across the
@@ -2056,7 +2055,10 @@ func (s *Service) ConceptListMemberURIs(ctx context.Context, projectID string, l
 	if err != nil {
 		return nil, fmt.Errorf("list concept list member URIs: %w", err)
 	}
-	ns := s.conceptNamespace(ctx, projectID)
+	ns, err := s.conceptNamespace(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]string, 0, len(uris))
 	for _, uri := range uris {
 		if rest, ok := strings.CutPrefix(uri, "pletka:"); ok {

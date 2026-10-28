@@ -172,6 +172,13 @@ yet implemented. Consumers serialize these values without database access.
 - Writer parity is insufficient: inventory coverage and test immutability after
   live edits, deletions and new source releases.
 
+The first capture prerequisite is implemented: `Session.Metadata` reads certified
+model types and raw/effective concept namespace on the existing release session.
+Require this evidence when consuming those fields; do not infer historical model
+types from archive defaults. This contract is not a complete-project certificate.
+Update the [column inventory](../../docs-oss/reference/release-capture-coverage.md)
+when changing project/model schema or capture projections.
+
 ## Red Flags
 
 - A full slice importing another full slice directly, other than the `override` exception
