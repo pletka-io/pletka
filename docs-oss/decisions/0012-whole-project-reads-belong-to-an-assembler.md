@@ -1,7 +1,7 @@
 # ADR-0012: Whole-project reads belong to an assembler, not a slice
 
 Date: 2026-10-23  
-Status: Accepted; amended 2026-10-26, implementation incomplete
+Status: Accepted; amended 2026-10-26 and 2026-10-28, implementation incomplete
 
 ---
 
@@ -55,10 +55,11 @@ foreign read can occur (interactive reads and refs also cross projects).
 Define coverage against the domain and restore contract before replacing writers:
 project metadata, inheritance, fields, models, collections, categories, overrides
 and refs, examples, vocabularies/concepts, placements, credits, ontology artifacts,
-namespace bindings and aliases. Existing tree parity excludes adopted bodies and
-omits domain data; its immutability subtest is skipped. It proves only the covered
-subset. Retain per-slice tests and add complete snapshot equivalence plus edits,
-deletes and new source releases after a cut.
+namespace bindings and aliases. Existing tree parity excludes adopted bodies from
+its broad comparison and omits domain data. The separate source-mutation subtest
+now runs, including a new source release and live deletion; it proves isolation
+for that covered subset. Retain per-slice tests and add complete snapshot
+equivalence plus edits, deletes and new source releases after a cut.
 
 Whole-project materialization and exports share this assembler. Entity exports
 may assemble a smaller dependency graph through the same session. Publication's
@@ -67,7 +68,47 @@ snapshot diff is a separate behavior and performance decision, not an automatic
 consequence of this ADR. Search remains a separate read shape.
 
 This is the intended architecture, not a claim that the assembler already exists.
-The original rationale follows, with the qualifications above taking precedence.
+
+## Amendment: completeness and consumer migration (2026-10-28)
+
+Capture coverage must be checked by field, not just by table. At this checkpoint,
+`model_type` exists in both model tables but is omitted by the release cut;
+`concept_namespace` exists only on the live project. Complete released content
+requires capturing these and auditing the remaining fields. Strengthened capture
+evidence is versioned and established in the cut transaction. Historical defaults
+and current live values cannot certify older releases.
+
+The assembler's value contract is distinct from the materializer's existing Git
+filesystem `ProjectSnapshot`. That restore DTO omits examples, vocabularies,
+concepts, placements and credits. Complete-project values and entity fragments
+must be distinguishable, own their buffers, and reject missing required sections;
+an unloaded section cannot mean an empty section. A coverage registry associates
+persisted fields with capture, assembly and serialization/restore dispositions.
+
+Ontology artifacts, descriptors and dependency readers must bind to the same
+project session. Opening a separate read factory inside assembly defeats snapshot
+consistency. Extract pure artifact/descriptor values where needed to avoid package
+cycles; do not expose a general transaction executor as a workaround. All identifier
+resolution and reads finish before rendering or streaming response headers.
+
+Authored semantic paths remain available for portable round-tripping. Rendering
+uses captured exact term identities: a QName is valid only if the output binding
+expands to that identity. Released collection composition is restricted to captured
+entity dependencies; global anchor discovery cannot introduce a live collection.
+Required closed-list enumeration failures are errors, not empty constraints.
+
+Consumer migration includes whole-project CSV/ZIP, entity generators, ontology
+companions and host/CLI wiring, as well as Git. Portable additions require a
+versioned file contract and corresponding restore support; old documents remain
+readable without being presented as complete. Existing tags are not rewritten.
+The mutable release catalog remains an explicit overlay outside frozen content.
+Interactive pages use bounded projections through the session and existing UI
+renderers; publication dirty-state semantics remain unchanged.
+
+These are implementation gates, not completed capabilities. Conformance must cover
+consumer packages and their helpers, so pure serializers cannot acquire database
+access and transitional adapters cannot become permanent hidden fallback paths.
+The original rationale follows, qualified by both amendments.
 
 ## Original decision (2026-10-23; qualified by the amendment)
 
