@@ -67,6 +67,21 @@ func (q *Queries) WeaveAuditReleaseArchiveOwnership(ctx context.Context) ([]Weav
 	return items, nil
 }
 
+const weaveFinalizeReleaseCapture = `-- name: WeaveFinalizeReleaseCapture :exec
+UPDATE weave_releases SET archive_ownership_version = 1, metadata_capture_version = 1, content_capture_version = 1
+WHERE project_id = $1::text AND version = $2::text
+`
+
+type WeaveFinalizeReleaseCaptureParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+func (q *Queries) WeaveFinalizeReleaseCapture(ctx context.Context, arg WeaveFinalizeReleaseCaptureParams) error {
+	_, err := q.db.Exec(ctx, weaveFinalizeReleaseCapture, arg.ProjectID, arg.Version)
+	return err
+}
+
 const weaveListReleaseNamespaceBindings = `-- name: WeaveListReleaseNamespaceBindings :many
 SELECT release_project_id, version_number, id, created_at, updated_at, airtable_raw, airtable_context, airtable_ref, semantic_id, long_semantic_id, system_name, ui_name, description, uri, project_id, prefix, namespace, weight, source, ontology_id FROM weave_release_namespace_bindings_archive
 WHERE release_project_id = $1::text AND version_number = $2::text
@@ -157,21 +172,6 @@ func (q *Queries) WeaveListReleaseParentTargets(ctx context.Context, arg WeaveLi
 		return nil, err
 	}
 	return items, nil
-}
-
-const weaveMarkReleaseArchiveOwnership = `-- name: WeaveMarkReleaseArchiveOwnership :exec
-UPDATE weave_releases SET archive_ownership_version = 1, metadata_capture_version = 1
-WHERE project_id = $1::text AND version = $2::text
-`
-
-type WeaveMarkReleaseArchiveOwnershipParams struct {
-	ProjectID string `json:"project_id"`
-	Version   string `json:"version"`
-}
-
-func (q *Queries) WeaveMarkReleaseArchiveOwnership(ctx context.Context, arg WeaveMarkReleaseArchiveOwnershipParams) error {
-	_, err := q.db.Exec(ctx, weaveMarkReleaseArchiveOwnership, arg.ProjectID, arg.Version)
-	return err
 }
 
 const weaveReleaseHasArchiveOwnership = `-- name: WeaveReleaseHasArchiveOwnership :one

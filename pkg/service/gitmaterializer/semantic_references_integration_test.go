@@ -32,6 +32,7 @@ func TestProjectSemanticReferencesCaptureAndIsolation(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		for _, sql := range []string{
+			`DELETE FROM weave_releases WHERE project_id='ZMAT'`,
 			`DELETE FROM weave_project_ontology_versions WHERE project_id='ZMAT'`,
 			`DELETE FROM weave_project_ontology_versions_archive WHERE project_id='ZMAT'`,
 			`DELETE FROM weave_collections WHERE project_id='ZMAT'`,
@@ -223,9 +224,9 @@ func TestProjectSemanticReferencesCaptureAndIsolation(t *testing.T) {
 	exec(`INSERT INTO weave_projects(id,owner_id) VALUES ('SEM-CHILD','ZMAT_OWNER')`)
 	t.Cleanup(func() {
 		for _, sql := range []string{
+			`DELETE FROM weave_releases WHERE project_id='SEM-CHILD'`,
 			`DELETE FROM weave_adoptions WHERE project_id='SEM-CHILD'`,
 			`DELETE FROM weave_adoptions_archive WHERE project_id='SEM-CHILD'`,
-			`DELETE FROM weave_releases WHERE project_id='SEM-CHILD'`,
 			`DELETE FROM weave_namespace_bindings WHERE project_id='SEM-CHILD'`,
 			`DELETE FROM weave_change_set WHERE project_id='SEM-CHILD'`,
 			`DELETE FROM weave_projects_archive WHERE id='SEM-CHILD'`,

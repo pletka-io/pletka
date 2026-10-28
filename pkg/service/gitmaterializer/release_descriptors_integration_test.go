@@ -173,7 +173,7 @@ func TestReleaseDescriptorsFreezeActorAndModuleOutput(t *testing.T) {
 	db := stdlib.OpenDB(*pool.Config().ConnConfig)
 	defer db.Close()
 	// A newer retained boundary may block downgrade before descriptors/semantics.
-	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade captured release content fields") {
+	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade captured release content") {
 		t.Fatalf("downgrade discarded descriptors: %v", err)
 	}
 	descriptorExec(t, pool, `DELETE FROM weave_releases WHERE project_id='descriptor-child'`)
@@ -211,7 +211,8 @@ func descriptorFinish(t *testing.T, tx pgx.Tx, q *sqlcgen.Queries, project, vers
 	if err := q.WeaveSnapshotOwnedModels(t.Context(), sqlcgen.WeaveSnapshotOwnedModelsParams{ProjectID: project, Version: version}); err != nil {
 		t.Fatal(err)
 	}
-	if err := q.WeaveMarkReleaseArchiveOwnership(t.Context(), sqlcgen.WeaveMarkReleaseArchiveOwnershipParams{ProjectID: project, Version: version}); err != nil {
+	// This deliberately partial historical fixture has no complete-content receipt.
+	if _, err := tx.Exec(t.Context(), `UPDATE weave_releases SET archive_ownership_version=1,metadata_capture_version=1 WHERE project_id=$1 AND version=$2`, project, version); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(t.Context()); err != nil {

@@ -4,8 +4,8 @@ SELECT EXISTS (
     WHERE project_id = sqlc.arg(project_id)::text AND version = sqlc.arg(version)::text AND archive_ownership_version = 1
 );
 
--- name: WeaveMarkReleaseArchiveOwnership :exec
-UPDATE weave_releases SET archive_ownership_version = 1, metadata_capture_version = 1
+-- name: WeaveFinalizeReleaseCapture :exec
+UPDATE weave_releases SET archive_ownership_version = 1, metadata_capture_version = 1, content_capture_version = 1
 WHERE project_id = sqlc.arg(project_id)::text AND version = sqlc.arg(version)::text;
 
 -- name: WeaveSnapshotOwnedProject :execrows

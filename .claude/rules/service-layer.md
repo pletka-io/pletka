@@ -183,6 +183,14 @@ classifies every other table. Domain/portable gaps recorded there still need
 explicit assembler values and restore support; do not drop them through a partial
 domain DTO or infer whole-project completeness from metadata contract 1.
 
+`Session.Content` requires migration 033's complete owned-content receipt. The
+database compares all 22 sections against the cut snapshot and freezes content
+and dependency evidence; raw writers cannot bypass this through child ownership
+or an old snapshot. Update the versioned storage validator with the reviewed
+ledger when changing capture. Legacy releases require an explicit rebuild/repoint
+operation, never a reader fallback or fabricated receipt. Portable restore needs
+its own complete validation contract before it may produce this evidence.
+
 ## Red Flags
 
 - A full slice importing another full slice directly, other than the `override` exception

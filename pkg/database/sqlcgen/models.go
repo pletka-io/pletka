@@ -1085,12 +1085,21 @@ type WeaveRelease struct {
 	ProjectDependenciesVersion  int16              `json:"project_dependencies_version"`
 	OntologyDependenciesVersion int16              `json:"ontology_dependencies_version"`
 	MetadataCaptureVersion      int16              `json:"metadata_capture_version"`
+	ContentCaptureVersion       int16              `json:"content_capture_version"`
+	ContentCaptureReceipt       []byte             `json:"content_capture_receipt"`
+	ContentCaptureXid           interface{}        `json:"content_capture_xid"`
 }
 
 type WeaveReleaseActorReference struct {
 	ProjectID     string `json:"project_id"`
 	VersionNumber string `json:"version_number"`
 	ActorID       string `json:"actor_id"`
+}
+
+type WeaveReleaseContentFence struct {
+	ArchiveTable  string `json:"archive_table"`
+	EntityID      string `json:"entity_id"`
+	VersionNumber string `json:"version_number"`
 }
 
 type WeaveReleaseDependencyEntity struct {

@@ -26,6 +26,9 @@ func TestReleasedOntologyTreeUsesCapturedArtifacts(t *testing.T) {
 	pool := testPool(t)
 	ctx := seedZMAT(t, pool)
 	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM weave_releases WHERE project_id=$1`, zmatProjectID); err != nil {
+			t.Error(err)
+		}
 		// Legacy link tables have no project FK/cascade. Remove this test's
 		// links before seedZMAT's project cleanup so later fixtures start clean.
 		for _, table := range []string{"weave_project_ontology_versions", "weave_project_ontology_versions_archive"} {
@@ -159,7 +162,7 @@ func TestReleasedOntologyTreeUsesCapturedArtifacts(t *testing.T) {
 		}
 	}
 	for _, sql := range []string{`INSERT INTO weave_release_ontology_dependencies SELECT * FROM weave_release_ontology_dependencies LIMIT 1`, `TRUNCATE weave_release_ontology_dependencies`} {
-		if _, err := pool.Exec(ctx, sql); err == nil || !strings.Contains(err.Error(), "captured ontology pins") {
+		if _, err := pool.Exec(ctx, sql); err == nil || !strings.Contains(err.Error(), "release content") {
 			t.Fatalf("captured inventory accepted late write: %v", err)
 		}
 	}

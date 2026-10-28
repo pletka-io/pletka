@@ -303,7 +303,10 @@ capture projections, ownership predicates and unique keys against generated code
 and the PostgreSQL catalog. Every other application table has an explicit
 classification. Migration 032 closes enforcement-setting, fixed-entry and hierarchy
 timestamp capture gaps without inventing historical values. `is_core_weave`
-remains live administrative policy; connector secrets are excluded. Full archive
-mutation guards, a complete content receipt and assembler/serializer migration
-remain pending. See
+remains live administrative policy; connector secrets are excluded. Migration 033
+validates all 22 owned sections before issuing a content receipt, guards archived
+rows and dependency evidence, and coordinates child writes through retained parent
+identities. `Session.Content` requires this evidence on its existing transaction.
+Assembler/serializer migration and an explicit legacy rebuild/repoint tool remain
+pending. See
 [capture coverage](../reference/release-capture-coverage.md).

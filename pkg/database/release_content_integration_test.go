@@ -58,6 +58,12 @@ func TestContentMigrationDoesNotInventHistoricalValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	verifyUnknown()
+	// Exercise migration 032 itself; no later receipt has been captured.
+	for version := latest; version > 32; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, statement := range []string{
 		`UPDATE weave_projects_archive SET enforce_concept_lists=false`,
 		`UPDATE weave_field_overrides_archive SET set_value_entry_id='captured-entry'`,

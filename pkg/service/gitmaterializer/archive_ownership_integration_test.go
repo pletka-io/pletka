@@ -33,10 +33,14 @@ func ownershipFixture(t *testing.T) (*matScopedFixture, context.Context, string)
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		// Delete consumers in dependency order; their evidence cascades only
+		// after the owning release is gone.
+		for _, project := range []string{f.projectID, source, "MATSCOPED_SOURCE_OWNGRAND"} {
+			if _, err := f.pool.Exec(context.Background(), `DELETE FROM weave_releases WHERE project_id=$1`, project); err != nil {
+				t.Error(err)
+			}
+		}
 		for _, stmt := range []string{
-			// Remove these fixture consumers before their retained sources.
-			`DELETE FROM weave_release_project_dependencies WHERE project_id = ANY($1)`,
-			`DELETE FROM weave_releases WHERE project_id = ANY($1)`,
 			`DELETE FROM weave_project_inheritance WHERE project_id = ANY($1)`,
 			`DELETE FROM weave_project_inheritance_archive WHERE project_id = ANY($1)`,
 			`DELETE FROM weave_project_ontology_versions_archive WHERE project_id = ANY($1)`,
