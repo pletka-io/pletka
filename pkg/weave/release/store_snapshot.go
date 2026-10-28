@@ -19,6 +19,9 @@ func snapshotOwnedState(ctx context.Context, db sqlcgen.DBTX, projectID, version
 	if err := q.WeaveSnapshotOwnedModels(ctx, sqlcgen.WeaveSnapshotOwnedModelsParams{ProjectID: projectID, Version: version}); err != nil {
 		return fmt.Errorf("capture models: %w", err)
 	}
+	if err := snapshotSupplementaryFields(ctx, db, projectID, version); err != nil {
+		return err
+	}
 	if err := q.WeaveSnapshotOwnedInheritance(ctx, sqlcgen.WeaveSnapshotOwnedInheritanceParams{ProjectID: projectID, Version: version}); err != nil {
 		return fmt.Errorf("capture inheritance: %w", err)
 	}
@@ -27,6 +30,17 @@ func snapshotOwnedState(ctx context.Context, db sqlcgen.DBTX, projectID, version
 	}
 	if err := q.WeaveSnapshotReleaseNamespaces(ctx, sqlcgen.WeaveSnapshotReleaseNamespacesParams{ProjectID: projectID, Version: version}); err != nil {
 		return fmt.Errorf("capture namespaces: %w", err)
+	}
+	return nil
+}
+
+func snapshotSupplementaryFields(ctx context.Context, db sqlcgen.DBTX, projectID, version string) error {
+	q := sqlcgen.New(db)
+	if err := q.WeaveSnapshotOwnedOverrides(ctx, sqlcgen.WeaveSnapshotOwnedOverridesParams{ProjectID: projectID, Version: version}); err != nil {
+		return fmt.Errorf("capture overrides: %w", err)
+	}
+	if err := q.WeaveSnapshotOwnedConceptBroader(ctx, sqlcgen.WeaveSnapshotOwnedConceptBroaderParams{ProjectID: projectID, Version: version}); err != nil {
+		return fmt.Errorf("capture concept hierarchy: %w", err)
 	}
 	return nil
 }

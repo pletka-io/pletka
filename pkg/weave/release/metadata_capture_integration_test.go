@@ -6,11 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/pletka-io/pletka/pkg/auth"
@@ -198,27 +196,8 @@ func TestReleaseMetadataValidationRollsBackTheCut(t *testing.T) {
 	}
 }
 
-func TestMetadataInventoryMatchesMigratedSchema(t *testing.T) {
+func TestReleaseMetadataAcceptsEmptyModelMembership(t *testing.T) {
 	pool := releaseTestPool(t)
-	for _, inventory := range metadataCaptureInventory {
-		for _, archived := range []bool{false, true} {
-			table := inventory.table
-			if archived {
-				table += "_archive"
-			}
-			rows, err := pool.Query(t.Context(), `SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 ORDER BY column_name`, table)
-			if err != nil {
-				t.Fatal(err)
-			}
-			actual, err := pgx.CollectRows(rows, pgx.RowTo[string])
-			if err != nil {
-				t.Fatal(err)
-			}
-			if want := inventoryColumns(inventory, archived); !slices.Equal(want, actual) {
-				t.Fatalf("%s changed without capture classification or sqlc regeneration: got %v, want %v", table, actual, want)
-			}
-		}
-	}
 	// Empty model membership is valid evidence, not an absent section.
 	ctx, owner, project := seedZREL(t, pool)
 	mustExec(t, pool, `DELETE FROM weave_field_overrides WHERE project_id='ZREL'`)

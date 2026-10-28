@@ -298,8 +298,12 @@ rows afterward and refuses destructive downgrade; historical releases remain
 unverified. `readsession.Session.Metadata` reads detached values on the existing
 session and reports missing evidence as `not_in_release`.
 
-The initial column inventory checks project/model schema and named capture
-projections. It records `enforce_concept_lists` as a remaining gap and
-`is_core_weave` as live administrative policy. The broader capture audit and
-assembler/serializer migration remain pending. See
+The owned-content inventory checks all 22 archive sections, their source columns,
+capture projections, ownership predicates and unique keys against generated code
+and the PostgreSQL catalog. Every other application table has an explicit
+classification. Migration 032 closes enforcement-setting, fixed-entry and hierarchy
+timestamp capture gaps without inventing historical values. `is_core_weave`
+remains live administrative policy; connector secrets are excluded. Full archive
+mutation guards, a complete content receipt and assembler/serializer migration
+remain pending. See
 [capture coverage](../reference/release-capture-coverage.md).

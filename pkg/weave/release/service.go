@@ -301,32 +301,6 @@ var snapshotStatements = []string{
 	JOIN weave_concept_lists cl ON cl.id = e.concept_list_id
 	WHERE cl.project_id = $1
 	ON CONFLICT (id, version_number) DO NOTHING`,
-	// Scheme-scoped hierarchy edges snapshot alongside their list. Global
-	// (scheme_id NULL) edges are cross-scheme and not owned by any one
-	// project release, so the archive column is NOT NULL and they are excluded.
-	`INSERT INTO weave_concept_broader_archive (
-		id, concept_id, broader_id, scheme_id, position, version_number
-	)
-	SELECT
-		b.id, b.concept_id, b.broader_id, b.scheme_id, b.position, $2
-	FROM weave_concept_broader b
-	JOIN weave_concept_lists cl ON cl.id = b.scheme_id
-	WHERE cl.project_id = $1
-	ON CONFLICT (id, version_number) DO NOTHING`,
-	`INSERT INTO weave_field_overrides_archive (
-		id, field_id, project_id, entity_type, entity_id, position, collection_order,
-		display_name, description, collection_name, category_id, part_of_collection_id,
-		expected_value_type, set_value, is_required, min_occurs, max_occurs,
-		is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number
-	)
-	SELECT
-		id, field_id, project_id, entity_type, entity_id, position, collection_order,
-		display_name, description, collection_name, category_id, part_of_collection_id,
-		expected_value_type, set_value, is_required, min_occurs, max_occurs,
-		is_hidden, visibility, staging_id, created_at, updated_at, content_hash, $2
-	FROM weave_field_overrides
-	WHERE project_id = $1
-	ON CONFLICT (id, version_number) DO NOTHING`,
 	`INSERT INTO weave_override_refs_archive (
 		override_id, ref_type, target_id, semantic_id, position, project_id, version_number
 	)

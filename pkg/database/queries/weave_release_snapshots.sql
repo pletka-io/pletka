@@ -13,13 +13,13 @@ INSERT INTO weave_projects_archive (
     id, created_at, updated_at, system_name, ui_name, description, status,
     namespace, parent_project_id, staging_id, owner_id, visibility,
     deprecated, license, readme, topics, base_url, created_by_id, version_number,
-    concept_namespace, effective_concept_namespace
+    concept_namespace, effective_concept_namespace, enforce_concept_lists
 )
 SELECT id, created_at, updated_at, system_name, ui_name, description,
     CASE WHEN status = 'deprecated' THEN status ELSE 'published' END,
     namespace, parent_project_id, staging_id, owner_id, visibility,
     deprecated, license, readme, topics, base_url, created_by_id, sqlc.arg(version)::text,
-    concept_namespace, weave_effective_concept_namespace_v1(concept_namespace)
+    concept_namespace, weave_effective_concept_namespace_v1(concept_namespace), enforce_concept_lists
 FROM weave_projects p WHERE p.id = sqlc.arg(project_id)::text;
 
 -- name: WeaveSnapshotOwnedModels :exec
@@ -31,6 +31,34 @@ SELECT id, created_at, updated_at, system_name, ui_name, description,
     CASE WHEN status = 'deprecated' THEN status ELSE 'published' END,
     project_id, ontology_scope, staging_id, deprecated, sqlc.arg(version)::text, model_type
 FROM weave_models WHERE project_id = sqlc.arg(project_id)::text
+ON CONFLICT (id, version_number) DO NOTHING;
+
+-- name: WeaveSnapshotOwnedOverrides :exec
+INSERT INTO weave_field_overrides_archive (
+    id, field_id, project_id, entity_type, entity_id, position, collection_order,
+    display_name, description, collection_name, category_id, part_of_collection_id,
+    expected_value_type, set_value, is_required, min_occurs, max_occurs,
+    is_hidden, visibility, staging_id, created_at, updated_at, content_hash,
+    version_number, set_value_entry_id
+)
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order,
+    display_name, description, collection_name, category_id, part_of_collection_id,
+    expected_value_type, set_value, is_required, min_occurs, max_occurs,
+    is_hidden, visibility, staging_id, created_at, updated_at, content_hash,
+    sqlc.arg(version)::text, set_value_entry_id
+FROM weave_field_overrides WHERE project_id = sqlc.arg(project_id)::text
+ON CONFLICT (id, version_number) DO NOTHING;
+
+-- name: WeaveSnapshotOwnedConceptBroader :exec
+-- Global edges have no project/scheme ownership. They remain outside the
+-- scheme export contract; cached vocabulary ancestry is captured separately.
+INSERT INTO weave_concept_broader_archive (
+    id, concept_id, broader_id, scheme_id, position, version_number, created_at
+)
+SELECT b.id, b.concept_id, b.broader_id, b.scheme_id, b.position, sqlc.arg(version)::text, b.created_at
+FROM weave_concept_broader b
+JOIN weave_concept_lists cl ON cl.id = b.scheme_id
+WHERE cl.project_id = sqlc.arg(project_id)::text
 ON CONFLICT (id, version_number) DO NOTHING;
 
 -- name: WeaveSnapshotOwnedInheritance :exec

@@ -73,6 +73,8 @@ WITH refs AS (
     UNION ALL
     SELECT 'collection', o.part_of_collection_id, '', '' FROM weave_field_overrides o WHERE o.project_id = @project_id::text
     UNION ALL
+    SELECT 'vocabulary_entry', o.set_value_entry_id, '', '' FROM weave_field_overrides o WHERE o.project_id = @project_id::text
+    UNION ALL
     SELECT CASE r.ref_type WHEN 'resource_model' THEN 'model' WHEN 'collection_model' THEN 'collection' WHEN 'concept_list' THEN 'concept_list' ELSE r.ref_type END,
            COALESCE(NULLIF(r.target_id, ''), r.semantic_id), '', ''
     FROM weave_override_refs r JOIN weave_field_overrides o ON o.id = r.override_id WHERE o.project_id = @project_id::text

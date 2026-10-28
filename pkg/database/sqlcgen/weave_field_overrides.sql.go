@@ -342,7 +342,7 @@ func (q *Queries) WeaveGetBaseOverride(ctx context.Context, arg WeaveGetBaseOver
 }
 
 const weaveGetBaseOverrideVersion = `-- name: WeaveGetBaseOverrideVersion :one
-SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number FROM weave_field_overrides_archive
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides_archive
 WHERE field_id = $1 AND project_id = $2 AND entity_type = '' AND version_number = $3
 LIMIT 1
 `
@@ -385,6 +385,7 @@ func (q *Queries) WeaveGetBaseOverrideVersion(ctx context.Context, arg WeaveGetB
 		&i.UpdatedAt,
 		&i.ContentHash,
 		&i.VersionNumber,
+		&i.SetValueEntryID,
 	)
 	return i, err
 }
@@ -427,7 +428,7 @@ func (q *Queries) WeaveGetOverrideByID(ctx context.Context, id int64) (WeaveFiel
 }
 
 const weaveGetOverrideByIDVersion = `-- name: WeaveGetOverrideByIDVersion :one
-SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number FROM weave_field_overrides_archive
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides_archive
 WHERE id = $1 AND version_number = $2
 `
 
@@ -466,6 +467,7 @@ func (q *Queries) WeaveGetOverrideByIDVersion(ctx context.Context, arg WeaveGetO
 		&i.UpdatedAt,
 		&i.ContentHash,
 		&i.VersionNumber,
+		&i.SetValueEntryID,
 	)
 	return i, err
 }
@@ -736,7 +738,7 @@ func (q *Queries) WeaveListOverridesByProjectAndType(ctx context.Context, arg We
 }
 
 const weaveListOverridesByProjectAndTypeVersion = `-- name: WeaveListOverridesByProjectAndTypeVersion :many
-SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number FROM weave_field_overrides_archive
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides_archive
 WHERE project_id = $1 AND entity_type = $2 AND version_number = $3
 ORDER BY entity_id, position
 `
@@ -782,6 +784,7 @@ func (q *Queries) WeaveListOverridesByProjectAndTypeVersion(ctx context.Context,
 			&i.UpdatedAt,
 			&i.ContentHash,
 			&i.VersionNumber,
+			&i.SetValueEntryID,
 		); err != nil {
 			return nil, err
 		}
@@ -851,7 +854,7 @@ func (q *Queries) WeaveListOverridesForEntity(ctx context.Context, arg WeaveList
 }
 
 const weaveListOverridesForEntityVersion = `-- name: WeaveListOverridesForEntityVersion :many
-SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number FROM weave_field_overrides_archive
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides_archive
 WHERE entity_type = $1 AND entity_id = $2 AND version_number = $3
 ORDER BY position
 `
@@ -899,6 +902,7 @@ func (q *Queries) WeaveListOverridesForEntityVersion(ctx context.Context, arg We
 			&i.UpdatedAt,
 			&i.ContentHash,
 			&i.VersionNumber,
+			&i.SetValueEntryID,
 		); err != nil {
 			return nil, err
 		}
@@ -962,7 +966,7 @@ func (q *Queries) WeaveListOverridesForField(ctx context.Context, fieldID string
 }
 
 const weaveListOverridesForFieldVersion = `-- name: WeaveListOverridesForFieldVersion :many
-SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number FROM weave_field_overrides_archive
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides_archive
 WHERE field_id = $1 AND version_number = $2
 ORDER BY CASE entity_type WHEN 'model' THEN 0 WHEN 'collection' THEN 1 ELSE 2 END, position
 `
@@ -1007,6 +1011,7 @@ func (q *Queries) WeaveListOverridesForFieldVersion(ctx context.Context, arg Wea
 			&i.UpdatedAt,
 			&i.ContentHash,
 			&i.VersionNumber,
+			&i.SetValueEntryID,
 		); err != nil {
 			return nil, err
 		}

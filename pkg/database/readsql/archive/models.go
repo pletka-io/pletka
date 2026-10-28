@@ -66,6 +66,7 @@ type WeaveFieldOverridesArchive struct {
 	UpdatedAt          time.Time `json:"updated_at"`
 	ContentHash        *string   `json:"content_hash"`
 	VersionNumber      string    `json:"version_number"`
+	SetValueEntryID    *string   `json:"set_value_entry_id"`
 }
 
 type WeaveOverrideRefsArchive struct {
