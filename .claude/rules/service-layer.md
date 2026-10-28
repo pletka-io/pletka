@@ -149,8 +149,9 @@ rows from a draft editor. Keep HTTP authorization at the request boundary. The s
 all routes are super-admin-gated and mutations require JSON. Keep schema and form
 decoding on the same binding inventory; preserve unexposed draft settings. Expose
 current-revision receipt status through the draft reader, never live version policy.
-Structured term editing, unversioned project references and other assembler inputs
-remain open. See [draft operations](../../docs-oss/reference/ontology-drafts.md).
+Structured term editing and complete assembler/consumer migration remain open.
+Project semantic references are captured at cut time under ADR-0015. See
+[draft operations](../../docs-oss/reference/ontology-drafts.md).
 
 ### Whole-project reads belong to the assembler
 
@@ -161,8 +162,12 @@ yet implemented. Consumers serialize these values without database access.
 
 - A slice never grows whole-project assembly or its own export-shaped data model.
 - Transitional adapters must share the transaction and be registered for removal.
+- Bind ontology/dependency readers to that session; do not nest read factories.
+- Complete values require every registered section; fragments have a separate shape.
 - Foreign content retains its source's status and provenance.
 - Entity exports may assemble a smaller graph through the same session.
+- Render captured term identities; use a QName only when its binding matches the
+  exact URI. Released composition cannot introduce globally discovered live content.
 - Publication dirty-state semantics and search remain explicit separate concerns.
 - Writer parity is insufficient: inventory coverage and test immutability after
   live edits, deletions and new source releases.

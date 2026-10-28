@@ -241,8 +241,9 @@ pipeline, with an immutable receipt for retry identity. Operator commands and th
 `EditorHost` receives the lifecycle and narrow discovery/release readers from app
 wiring; HTTP adapters have no store/pool/query capability. New editor routes authorize
 all reads, schemas and mutations, bind explicit draft identity/revision, and return
-canonical errors. Structured term editing, project references without version
-selectors and the remaining whole-project assembler inputs remain pending.
+canonical errors. Structured term editing and complete assembler/consumer migration
+remain pending. Project semantic references are now captured at the release cut
+under [ADR-0015](../decisions/0015-project-semantic-references-at-release-cut.md).
 See [ADR-0013](../decisions/0013-ontology-drafts-and-immutable-releases.md).
 
 ### Whole-project reads belong to an assembler
@@ -255,9 +256,12 @@ recorded dependency graph; it does not repair missing historical pins.
 
 This assembler is not implemented yet. Its acceptance requires an explicit domain
 coverage inventory, actual-cut parity and isolation after edits, deletions and
-source publications. Existing writer parity covers only a subset. Entity exports
-may assemble a smaller graph through the same session. Publication's timestamp
-based dirty-state queries require a separate semantic/performance decision;
+source publications. Existing writer parity covers only a subset. Coverage must
+include fields omitted by capture even when their archive column exists, and
+portable additions need matching restore support. Entity exports may assemble a
+smaller graph through the same session; an incomplete fragment cannot be returned
+as a complete project. Publication's timestamp-based dirty-state queries require
+a separate semantic/performance decision;
 search retains its separate read shape. See
 [ADR-0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).
 

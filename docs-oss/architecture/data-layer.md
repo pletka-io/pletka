@@ -196,8 +196,10 @@ release. Archived links, explicit version selectors and captured source-project
 inventories contribute their full ontology closures. Storage validates coverage,
 retains source artifacts and prevents later pin changes. `Factory.ReadProject`
 uses only `queries/read_project_ontologies/`; released materialization serializes
-returned values. Historical inventories stay unverified. Unversioned project
-QName/URI resolution and other assembler inputs still need capture.
+returned values. Historical inventories stay unverified. Migration 030 adds
+project QName/URI resolution evidence under ADR-0015. Complete content coverage
+and binding these readers to the assembler's existing transaction remain pending;
+the standalone `ReadProject` factory currently opens its own transaction.
 
 Vendor schema 2 transports exact artifact bytes plus frozen source files.
 Migration 026 adds optional exact `body_text` to seals: local seals retain JSONB
