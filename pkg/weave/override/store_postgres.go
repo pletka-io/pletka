@@ -635,8 +635,8 @@ func rowToOverride(row sqlcgen.WeaveFieldOverride) *domain.FieldOverride {
 }
 
 // rowToArchivedOverride converts an archived (weave_field_overrides_archive)
-// sqlc row to a domain.FieldOverride. Mirrors rowToOverride; the archive
-// table lacks set_value_entry_id, otherwise same columns.
+// sqlc row to a domain.FieldOverride. Mirrors rowToOverride. The domain view
+// omits supplemental capture fields; the complete assembler must retain them.
 func rowToArchivedOverride(row sqlcgen.WeaveFieldOverridesArchive) *domain.FieldOverride {
 	o := &domain.FieldOverride{
 		ID:                 row.ID,

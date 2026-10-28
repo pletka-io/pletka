@@ -193,6 +193,29 @@ func (q *Queries) WeaveReleaseHasArchiveOwnership(ctx context.Context, arg Weave
 	return exists, err
 }
 
+const weaveSnapshotOwnedConceptBroader = `-- name: WeaveSnapshotOwnedConceptBroader :exec
+INSERT INTO weave_concept_broader_archive (
+    id, concept_id, broader_id, scheme_id, position, version_number, created_at
+)
+SELECT b.id, b.concept_id, b.broader_id, b.scheme_id, b.position, $1::text, b.created_at
+FROM weave_concept_broader b
+JOIN weave_concept_lists cl ON cl.id = b.scheme_id
+WHERE cl.project_id = $2::text
+ON CONFLICT (id, version_number) DO NOTHING
+`
+
+type WeaveSnapshotOwnedConceptBroaderParams struct {
+	Version   string `json:"version"`
+	ProjectID string `json:"project_id"`
+}
+
+// Global edges have no project/scheme ownership. They remain outside the
+// scheme export contract; cached vocabulary ancestry is captured separately.
+func (q *Queries) WeaveSnapshotOwnedConceptBroader(ctx context.Context, arg WeaveSnapshotOwnedConceptBroaderParams) error {
+	_, err := q.db.Exec(ctx, weaveSnapshotOwnedConceptBroader, arg.Version, arg.ProjectID)
+	return err
+}
+
 const weaveSnapshotOwnedInheritance = `-- name: WeaveSnapshotOwnedInheritance :exec
 INSERT INTO weave_project_inheritance_archive (
     project_id, parent_project_id, is_primary, canonical_order, adopted_at,
@@ -253,18 +276,45 @@ func (q *Queries) WeaveSnapshotOwnedOntologyLinks(ctx context.Context, arg Weave
 	return err
 }
 
+const weaveSnapshotOwnedOverrides = `-- name: WeaveSnapshotOwnedOverrides :exec
+INSERT INTO weave_field_overrides_archive (
+    id, field_id, project_id, entity_type, entity_id, position, collection_order,
+    display_name, description, collection_name, category_id, part_of_collection_id,
+    expected_value_type, set_value, is_required, min_occurs, max_occurs,
+    is_hidden, visibility, staging_id, created_at, updated_at, content_hash,
+    version_number, set_value_entry_id
+)
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order,
+    display_name, description, collection_name, category_id, part_of_collection_id,
+    expected_value_type, set_value, is_required, min_occurs, max_occurs,
+    is_hidden, visibility, staging_id, created_at, updated_at, content_hash,
+    $1::text, set_value_entry_id
+FROM weave_field_overrides WHERE project_id = $2::text
+ON CONFLICT (id, version_number) DO NOTHING
+`
+
+type WeaveSnapshotOwnedOverridesParams struct {
+	Version   string `json:"version"`
+	ProjectID string `json:"project_id"`
+}
+
+func (q *Queries) WeaveSnapshotOwnedOverrides(ctx context.Context, arg WeaveSnapshotOwnedOverridesParams) error {
+	_, err := q.db.Exec(ctx, weaveSnapshotOwnedOverrides, arg.Version, arg.ProjectID)
+	return err
+}
+
 const weaveSnapshotOwnedProject = `-- name: WeaveSnapshotOwnedProject :execrows
 INSERT INTO weave_projects_archive (
     id, created_at, updated_at, system_name, ui_name, description, status,
     namespace, parent_project_id, staging_id, owner_id, visibility,
     deprecated, license, readme, topics, base_url, created_by_id, version_number,
-    concept_namespace, effective_concept_namespace
+    concept_namespace, effective_concept_namespace, enforce_concept_lists
 )
 SELECT id, created_at, updated_at, system_name, ui_name, description,
     CASE WHEN status = 'deprecated' THEN status ELSE 'published' END,
     namespace, parent_project_id, staging_id, owner_id, visibility,
     deprecated, license, readme, topics, base_url, created_by_id, $1::text,
-    concept_namespace, weave_effective_concept_namespace_v1(concept_namespace)
+    concept_namespace, weave_effective_concept_namespace_v1(concept_namespace), enforce_concept_lists
 FROM weave_projects p WHERE p.id = $2::text
 `
 

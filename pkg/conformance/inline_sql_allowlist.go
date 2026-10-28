@@ -105,7 +105,7 @@ var InlineSQLAllowlist = map[string]InlineSQLExemption{
 	"pkg/weave/projectontologyversion/store_postgres.go": {Statements: 8, Reason: storeLayerWrongForm, Permanent: false},
 	"pkg/weave/publication/publication.go":               {Statements: 6, Reason: otherHandWritten, Permanent: false},
 	"pkg/weave/release/reconstruct.go":                   {Statements: 17, Reason: otherHandWritten, Permanent: false},
-	"pkg/weave/release/service.go":                       {Statements: 19, Reason: sqlInAService, Permanent: false},
+	"pkg/weave/release/service.go":                       {Statements: 17, Reason: sqlInAService, Permanent: false},
 	"pkg/weave/release/service_archive.go":               {Statements: 3, Reason: otherHandWritten, Permanent: false},
 	"pkg/weave/release/store_postgres.go":                {Statements: 2, Reason: storeLayerWrongForm, Permanent: false},
 	"pkg/weave/resolve.go":                               {Statements: 9, Reason: aggregateStore, Permanent: false},

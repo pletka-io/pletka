@@ -67,7 +67,8 @@ func TestMetadataMigrationPreservesUnknownHistory(t *testing.T) {
 	if _, err := release.NewService(release.NewPostgresStore(pool), pool, nil).Create(authorized, "history", release.CreateInput{Version: "2.0.0"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade captured release metadata") {
+	// The newer content-field boundary now protects this fresh cut first.
+	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade captured release content fields") {
 		t.Fatalf("certified metadata lost on downgrade: %v", err)
 	}
 }

@@ -297,12 +297,13 @@ type WeaveConceptBroader struct {
 }
 
 type WeaveConceptBroaderArchive struct {
-	ID            string `json:"id"`
-	ConceptID     string `json:"concept_id"`
-	BroaderID     string `json:"broader_id"`
-	SchemeID      string `json:"scheme_id"`
-	Position      int32  `json:"position"`
-	VersionNumber string `json:"version_number"`
+	ID            string             `json:"id"`
+	ConceptID     string             `json:"concept_id"`
+	BroaderID     string             `json:"broader_id"`
+	SchemeID      string             `json:"scheme_id"`
+	Position      int32              `json:"position"`
+	VersionNumber string             `json:"version_number"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
 
 type WeaveConceptList struct {
@@ -557,6 +558,7 @@ type WeaveFieldOverridesArchive struct {
 	UpdatedAt          time.Time `json:"updated_at"`
 	ContentHash        *string   `json:"content_hash"`
 	VersionNumber      string    `json:"version_number"`
+	SetValueEntryID    *string   `json:"set_value_entry_id"`
 }
 
 type WeaveFieldsArchive struct {
@@ -1067,6 +1069,7 @@ type WeaveProjectsArchive struct {
 	VersionNumber             string          `json:"version_number"`
 	ConceptNamespace          *string         `json:"concept_namespace"`
 	EffectiveConceptNamespace *string         `json:"effective_concept_namespace"`
+	EnforceConceptLists       *bool           `json:"enforce_concept_lists"`
 }
 
 type WeaveRelease struct {

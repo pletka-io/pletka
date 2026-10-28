@@ -177,7 +177,11 @@ model types and raw/effective concept namespace on the existing release session.
 Require this evidence when consuming those fields; do not infer historical model
 types from archive defaults. This contract is not a complete-project certificate.
 Update the [column inventory](../../docs-oss/reference/release-capture-coverage.md)
-when changing project/model schema or capture projections.
+when changing any table, owned-content column, capture projection, ownership
+predicate or archive key. The ledger covers all 22 owned archive sections and
+classifies every other table. Domain/portable gaps recorded there still need
+explicit assembler values and restore support; do not drop them through a partial
+domain DTO or infer whole-project completeness from metadata contract 1.
 
 ## Red Flags
 

@@ -213,7 +213,7 @@ func (q *Queries) CountCollections(ctx context.Context, arg CountCollectionsPara
 }
 
 const getBaseOverride = `-- name: GetBaseOverride :one
-SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number FROM weave_field_overrides_archive WHERE project_id = $1::text AND version_number = $2::text AND field_id = $3::text AND entity_type = '' LIMIT 1
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides_archive WHERE project_id = $1::text AND version_number = $2::text AND field_id = $3::text AND entity_type = '' LIMIT 1
 `
 
 type GetBaseOverrideParams struct {
@@ -250,6 +250,7 @@ func (q *Queries) GetBaseOverride(ctx context.Context, arg GetBaseOverrideParams
 		&i.UpdatedAt,
 		&i.ContentHash,
 		&i.VersionNumber,
+		&i.SetValueEntryID,
 	)
 	return i, err
 }
@@ -288,7 +289,7 @@ func (q *Queries) GetCollection(ctx context.Context, arg GetCollectionParams) (W
 }
 
 const getOverride = `-- name: GetOverride :one
-SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number FROM weave_field_overrides_archive WHERE project_id = $1::text AND id = $2::bigint AND version_number = $3::text
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides_archive WHERE project_id = $1::text AND id = $2::bigint AND version_number = $3::text
 `
 
 type GetOverrideParams struct {
@@ -325,6 +326,7 @@ func (q *Queries) GetOverride(ctx context.Context, arg GetOverrideParams) (Weave
 		&i.UpdatedAt,
 		&i.ContentHash,
 		&i.VersionNumber,
+		&i.SetValueEntryID,
 	)
 	return i, err
 }
@@ -416,7 +418,7 @@ func (q *Queries) ListCollections(ctx context.Context, arg ListCollectionsParams
 }
 
 const listEntityOverrides = `-- name: ListEntityOverrides :many
-SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number FROM weave_field_overrides_archive WHERE project_id = $1::text AND version_number = $2::text AND entity_type = $3::text AND entity_id = $4::text ORDER BY position, id
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides_archive WHERE project_id = $1::text AND version_number = $2::text AND entity_type = $3::text AND entity_id = $4::text ORDER BY position, id
 `
 
 type ListEntityOverridesParams struct {
@@ -465,6 +467,7 @@ func (q *Queries) ListEntityOverrides(ctx context.Context, arg ListEntityOverrid
 			&i.UpdatedAt,
 			&i.ContentHash,
 			&i.VersionNumber,
+			&i.SetValueEntryID,
 		); err != nil {
 			return nil, err
 		}
@@ -477,7 +480,7 @@ func (q *Queries) ListEntityOverrides(ctx context.Context, arg ListEntityOverrid
 }
 
 const listFieldOverrides = `-- name: ListFieldOverrides :many
-SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number FROM weave_field_overrides_archive WHERE project_id = $1::text AND version_number = $2::text AND field_id = $3::text ORDER BY CASE entity_type WHEN 'model' THEN 0 WHEN 'collection' THEN 1 ELSE 2 END, position, id
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides_archive WHERE project_id = $1::text AND version_number = $2::text AND field_id = $3::text ORDER BY CASE entity_type WHEN 'model' THEN 0 WHEN 'collection' THEN 1 ELSE 2 END, position, id
 `
 
 type ListFieldOverridesParams struct {
@@ -520,6 +523,7 @@ func (q *Queries) ListFieldOverrides(ctx context.Context, arg ListFieldOverrides
 			&i.UpdatedAt,
 			&i.ContentHash,
 			&i.VersionNumber,
+			&i.SetValueEntryID,
 		); err != nil {
 			return nil, err
 		}
@@ -532,7 +536,7 @@ func (q *Queries) ListFieldOverrides(ctx context.Context, arg ListFieldOverrides
 }
 
 const listTypeOverrides = `-- name: ListTypeOverrides :many
-SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number FROM weave_field_overrides_archive WHERE project_id = $1::text AND version_number = $2::text AND entity_type = $3::text ORDER BY entity_id, position, id
+SELECT id, field_id, project_id, entity_type, entity_id, position, collection_order, display_name, description, collection_name, category_id, part_of_collection_id, expected_value_type, set_value, is_required, min_occurs, max_occurs, is_hidden, visibility, staging_id, created_at, updated_at, content_hash, version_number, set_value_entry_id FROM weave_field_overrides_archive WHERE project_id = $1::text AND version_number = $2::text AND entity_type = $3::text ORDER BY entity_id, position, id
 `
 
 type ListTypeOverridesParams struct {
@@ -575,6 +579,7 @@ func (q *Queries) ListTypeOverrides(ctx context.Context, arg ListTypeOverridesPa
 			&i.UpdatedAt,
 			&i.ContentHash,
 			&i.VersionNumber,
+			&i.SetValueEntryID,
 		); err != nil {
 			return nil, err
 		}
