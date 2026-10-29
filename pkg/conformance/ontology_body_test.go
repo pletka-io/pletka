@@ -85,3 +85,7 @@ func checkOntologyCapability(t *testing.T, reader, queries string, tablesAllowed
 		}
 	}
 }
+
+func TestLegacyOntologySnapshotReaderHasOnlyRetainedCapability(t *testing.T) {
+	checkOntologyCapability(t, "ontologysnapshot/reader.go", "read_ontology_snapshot", []string{"weave_legacy_ontology_snapshots"}, []string{"project_id = @project_id", "version_number = @version", "digest = @digest"})
+}

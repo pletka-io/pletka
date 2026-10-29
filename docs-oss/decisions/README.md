@@ -33,3 +33,5 @@ Format: [`TEMPLATE.md`](TEMPLATE.md). Numbering is zero-padded and sequential.
 | [0012](0012-whole-project-reads-belong-to-an-assembler.md) | Whole-project reads use one assembler receiving the bound session; materializer, generators and publication consume complete values. |
 | [0013](0013-ontology-drafts-and-immutable-releases.md) | Ontology editing uses drafts; project dependencies, materialization and restore use immutable ontology releases with enforced artifact identity. |
 | [0014](0014-release-actor-and-module-descriptors.md) | Capture actor descriptors and module identifiers during release cut; released output uses captured values without live identity or host lookups. |
+| [0015](0015-project-semantic-references-at-release-cut.md) | Capture exact project semantic references against retained ontology publications. |
+| [0016](0016-legacy-ontology-snapshots-preserve-evidence.md) | Preserve immutable legacy ontology evidence separately from verified semantic meaning. |
