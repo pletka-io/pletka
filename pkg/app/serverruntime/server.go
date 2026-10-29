@@ -22,6 +22,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/app/cliruntime"
 	"github.com/pletka-io/pletka/pkg/buildinfo"
 	"github.com/pletka-io/pletka/pkg/database"
+	"github.com/pletka-io/pletka/pkg/database/rebuildlease"
 	"github.com/pletka-io/pletka/pkg/integrations"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
 )
@@ -78,9 +79,10 @@ type Config struct {
 
 // Runtime owns resources created during server startup.
 type Runtime struct {
-	App   *app.App
-	Pool  *pgxpool.Pool
-	SQLDB *sql.DB
+	App          *app.App
+	Pool         *pgxpool.Pool
+	SQLDB        *sql.DB
+	releaseLease func()
 }
 
 // parseAllowedOrigins normalizes cors.allowed_origins regardless of whether
@@ -377,6 +379,10 @@ func Start(ctx context.Context, cfg Config, logger *slog.Logger) (*Runtime, erro
 		return nil, fmt.Errorf("create pgx pool: %w", err)
 	}
 	runtime.Pool = pgxPool
+	runtime.releaseLease, err = rebuildlease.Runtime(ctx, pgxPool)
+	if err != nil {
+		return nil, err
+	}
 
 	pletkaApp, err := buildApp(ctx, cfg, logger, pgxPool)
 	if err != nil {
@@ -399,6 +405,10 @@ func (r *Runtime) Close(ctx context.Context) error {
 		if closeErr := r.App.Close(closeCtx); closeErr != nil {
 			err = closeErr
 		}
+	}
+	if r.releaseLease != nil {
+		r.releaseLease()
+		r.releaseLease = nil
 	}
 	if r.Pool != nil {
 		r.Pool.Close()
