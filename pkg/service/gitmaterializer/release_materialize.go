@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pletka-io/pletka/pkg/database/rebuildlease"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
@@ -379,6 +380,11 @@ func (m *Materializer) recordReleaseFailure(ctx context.Context, csID int64, err
 // a version already tagged, or one with an unprocessed 'release' change set
 // still pending, is skipped rather than re-enqueued.
 func (m *Materializer) EnqueueMissingReleases(ctx context.Context) (enqueued, skipped int, err error) {
+	releaseLease, err := rebuildlease.Runtime(ctx, m.pool)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer releaseLease()
 	rows, err := m.pool.Query(ctx, `
 		SELECT project_id, version FROM weave_releases
 		ORDER BY project_id, created_at, version`)

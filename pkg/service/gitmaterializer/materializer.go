@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/database/rebuildlease"
 	"github.com/pletka-io/pletka/pkg/database/releasedescriptor"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
@@ -76,6 +77,11 @@ func (m *Materializer) WithModuleHosts(moduleHost, ontologyHost string) *Materia
 
 // ProcessPending drains up to limit unprocessed change sets.
 func (m *Materializer) ProcessPending(ctx context.Context, limit int32) (int, error) {
+	unlock, err := rebuildlease.Runtime(ctx, m.pool)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
 	changeSets, err := m.queries.WeaveListUnprocessedChangeSets(ctx, limit)
 	if err != nil {
 		return 0, fmt.Errorf("list unprocessed change sets: %w", err)
@@ -223,6 +229,11 @@ func (m *Materializer) processChangeSet(ctx context.Context, cs sqlcgen.WeaveCha
 // closure gap (logged as a warning) that this call has just healed. Runs off
 // the hot path (CLI + nightly sweep).
 func (m *Materializer) Reconcile(ctx context.Context, projectID string) (int, error) {
+	releaseLease, err := rebuildlease.Runtime(ctx, m.pool)
+	if err != nil {
+		return 0, err
+	}
+	defer releaseLease()
 	unlock, err := acquireProjectLock(m.baseDir, projectID)
 	if err != nil {
 		return 0, fmt.Errorf("acquire project lock %s: %w", projectID, err)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pletka-io/pletka/pkg/database/rebuildlease"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
@@ -27,6 +28,11 @@ func (m *Materializer) InitProject(ctx context.Context, projectID string) error 
 }
 
 func (m *Materializer) InitProjectWithOptions(ctx context.Context, projectID string, opts InitProjectOptions) error {
+	releaseLease, err := rebuildlease.Runtime(ctx, m.pool)
+	if err != nil {
+		return err
+	}
+	defer releaseLease()
 	workDir := filepath.Join(m.baseDir, projectID)
 	if m.baseDir != "" {
 		unlock, err := acquireProjectLock(m.baseDir, projectID)

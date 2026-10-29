@@ -40,6 +40,8 @@ type ErrConflict struct {
 
 func (e *ErrConflict) Error() string { return e.Message }
 
+const releaseVersionField = "version"
+
 type CreateInput struct {
 	Version     string `json:"version"`
 	Title       string `json:"title"`
@@ -107,44 +109,24 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var draftCount int64
-	if err := tx.QueryRow(ctx, countDraftSnapshotCandidatesSQL, projectID).Scan(&draftCount); err != nil {
-		return nil, fmt.Errorf("count release snapshot candidates: %w", err)
-	}
-	if draftCount == 0 {
-		return nil, &ErrValidation{Fields: map[string][]string{
-			"version": {"cannot create a release for an empty project"},
-		}}
-	}
-	blockingParents, err := findDraftParentDependencies(ctx, tx, projectID)
+	created, err := s.createInTx(ctx, tx, projectID, in, principal.ActorID)
 	if err != nil {
-		return nil, fmt.Errorf("check draft parent dependencies: %w", err)
+		return nil, err
 	}
-	if len(blockingParents) > 0 {
-		return nil, &ErrValidation{Fields: map[string][]string{
-			"parent_dependencies": {fmt.Sprintf("cannot create a release while parent dependencies still follow draft or lack verified release archives: %s", strings.Join(blockingParents, ", "))},
-		}}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit release tx: %w", err)
 	}
+	return created, nil
+}
 
-	var created Release
-	err = tx.QueryRow(ctx, `
-		INSERT INTO weave_releases (project_id, version, title, description, created_by_id)
-		VALUES ($1, $2, $3, $4, $5)
-		RETURNING project_id, version, title, description, created_at, created_by_id
-	`, projectID, in.Version, strings.TrimSpace(in.Title), strings.TrimSpace(in.Description), principal.ActorID).Scan(
-		&created.ProjectID,
-		&created.Version,
-		&created.Title,
-		&created.Description,
-		&created.CreatedAt,
-		&created.CreatedByID,
-	)
+// createInTx is the single capture pipeline for normal cuts and explicit rebuilds.
+func (s *Service) createInTx(ctx context.Context, tx pgx.Tx, projectID string, in CreateInput, actorID string) (*Release, error) {
+	if err := validateReleaseCandidates(ctx, tx, projectID); err != nil {
+		return nil, err
+	}
+	created, err := insertReleaseInTx(ctx, tx, projectID, in, actorID)
 	if err != nil {
-		var pgerr *pgconn.PgError
-		if errors.As(err, &pgerr) && pgerr.ConstraintName == "weave_releases_pkey" {
-			return nil, &ErrConflict{Message: "release version already exists"}
-		}
-		return nil, fmt.Errorf("insert release metadata: %w", err)
+		return nil, err
 	}
 
 	if err := snapshotOwnedState(ctx, tx, projectID, in.Version); err != nil {
@@ -186,7 +168,7 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 		INSERT INTO weave_change_set (project_id, actor_id, actor_name, actor_email,
 			commit_message, started_at, closed_at, kind, release_version)
 		VALUES ($1, $2, 'pletka-system', 'system@pletka.local', $3, NOW(), NOW(), 'release', $4)
-	`, projectID, principal.ActorID,
+	`, projectID, actorID,
 		fmt.Sprintf("Release v%s", in.Version), in.Version); err != nil {
 		return nil, fmt.Errorf("enqueue release change set: %w", err)
 	}
@@ -198,9 +180,55 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 		}
 		return nil, fmt.Errorf("mark release archive ownership: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit release tx: %w", err)
+	return created, nil
+}
+
+func validateReleaseCandidates(ctx context.Context, tx pgx.Tx, projectID string) error {
+	var draftCount int64
+	if err := tx.QueryRow(ctx, countDraftSnapshotCandidatesSQL, projectID).Scan(&draftCount); err != nil {
+		return fmt.Errorf("count release snapshot candidates: %w", err)
 	}
+	if draftCount == 0 {
+		return &ErrValidation{Fields: map[string][]string{
+			releaseVersionField: {"cannot create a release for an empty project"},
+		}}
+	}
+	blockingParents, err := findDraftParentDependencies(ctx, tx, projectID)
+	if err != nil {
+		return fmt.Errorf("check draft parent dependencies: %w", err)
+	}
+	if len(blockingParents) > 0 {
+		return &ErrValidation{Fields: map[string][]string{
+			"parent_dependencies": {fmt.Sprintf("cannot create a release while parent dependencies still follow draft or lack verified release archives: %s", strings.Join(blockingParents, ", "))},
+		}}
+	}
+
+	return nil
+}
+
+func insertReleaseInTx(ctx context.Context, tx pgx.Tx, projectID string, in CreateInput, actorID string) (*Release, error) {
+
+	var created Release
+	err := tx.QueryRow(ctx, `
+		INSERT INTO weave_releases (project_id, version, title, description, created_by_id)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING project_id, version, title, description, created_at, created_by_id
+	`, projectID, in.Version, strings.TrimSpace(in.Title), strings.TrimSpace(in.Description), actorID).Scan(
+		&created.ProjectID,
+		&created.Version,
+		&created.Title,
+		&created.Description,
+		&created.CreatedAt,
+		&created.CreatedByID,
+	)
+	if err != nil {
+		var pgerr *pgconn.PgError
+		if errors.As(err, &pgerr) && pgerr.ConstraintName == "weave_releases_pkey" {
+			return nil, &ErrConflict{Message: "release version already exists"}
+		}
+		return nil, fmt.Errorf("insert release metadata: %w", err)
+	}
+
 	return &created, nil
 }
 
@@ -227,9 +255,9 @@ func validateCreate(in CreateInput) map[string][]string {
 	version := strings.TrimSpace(in.Version)
 	switch {
 	case version == "":
-		errs["version"] = append(errs["version"], "version is required")
+		errs[releaseVersionField] = append(errs[releaseVersionField], "version is required")
 	case !semverRE.MatchString(version):
-		errs["version"] = append(errs["version"], "version must be in MAJOR.MINOR.PATCH form (for example 1.0.0)")
+		errs[releaseVersionField] = append(errs[releaseVersionField], "version must be in MAJOR.MINOR.PATCH form (for example 1.0.0)")
 	}
 	return errs
 }

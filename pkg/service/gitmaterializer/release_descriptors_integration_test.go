@@ -173,6 +173,15 @@ func TestReleaseDescriptorsFreezeActorAndModuleOutput(t *testing.T) {
 	db := stdlib.OpenDB(*pool.Config().ConnConfig)
 	defer db.Close()
 	// A newer retained boundary may block downgrade before descriptors/semantics.
+	latest, err := database.LatestMigrationVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for version := latest; version > 33; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade captured release content") {
 		t.Fatalf("downgrade discarded descriptors: %v", err)
 	}

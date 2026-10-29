@@ -673,6 +673,7 @@
     "weave_release_project_dependencies": "Captured retained source project/version closure (ADR-0011); assembler must validate separately from owned rows.",
     "weave_releases": "Release catalog and capture markers; title/retirement/materialization policy is separate from owned content.",
     "goose_db_version": "Migration tool schema bookkeeping.",
-    "weave_release_content_fences": "Retained operational parent-identity coordination keys for archive child writes/cuts; never serialized as content."
+    "weave_release_content_fences": "Retained operational parent-identity coordination keys for archive child writes/cuts; never serialized as content.",
+    "weave_release_rebuild_operations": "Durable explicit maintenance/repoint journal; blocks runtimes until publication completes. Not released project content."
   }
 }

@@ -145,3 +145,38 @@ may replace a controlled legacy snapshot set and recapture dependency pins in
 source-first order. Normal readers and cuts have no compatibility switch that
 turns current data into proof of an old snapshot. Portable restore will need its
 own validated receipt path once the complete portable contract exists.
+
+## Explicit legacy rebuild boundary
+
+Migration 034 adds a durable operation journal for replacing a controlled legacy
+set. `release.Service.PlanRebuild` accepts exactly one active, unverified release
+per selected project, checks source/retention graphs and fingerprints current draft
+inputs. `RunRebuild` requires a super-admin principal and owns an exclusive
+maintenance lease across database capture and the supplied publication callback.
+Normal runtimes and materializer entry points hold the corresponding shared lease.
+An unfinished journal keeps them offline until the operation resumes successfully.
+Older binaries and independent SQL/Git writers must be stopped operationally.
+
+Rebuilding is an actual new capture under the existing version name. One locked,
+repeatable-read transaction deletes consumers before retained sources, clears
+owned archive rows, pins declared inheritance and runs the same capture pipeline
+as normal release creation in source-first order. It preserves version/title/text,
+records the rebuild actor/time, and creates fresh receipts and outbox rows. A
+stale plan or any capture failure rolls the transaction back. Receipt/outbox
+identity is checked again before publication, including recovery.
+
+The materializer's explicit `PrepareReleaseRepoint` / `PublishReleaseRepoint` APIs
+prepare immutable objects, retain previous branch/tag objects under operation refs,
+and compare-and-swap a repository's release branch and annotated tag together.
+Call them inside `RunRebuild`'s publication lifecycle, preparing all projects before
+publishing any. This is the only intentional retag path; normal materialization
+continues to reject conflicting existing tags. Publication is resumable, not an
+atomic transaction across Git repositories and PostgreSQL, and needs an offline
+window. The command host must persist its exact publication inventory in the
+request. It must not restart writers or discard the operation record after a
+partial publication.
+
+The current Git format remains incomplete for portable whole-project restore.
+A successful rebuild proves the database capture contract; it does not certify
+that the current Git DTO serializes all 22 sections. Operational tooling and
+rollout policy belong to the host application.

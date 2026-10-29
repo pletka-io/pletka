@@ -1166,6 +1166,14 @@ type WeaveReleaseProjectDependency struct {
 	SourceVersion   string `json:"source_version"`
 }
 
+type WeaveReleaseRebuildOperation struct {
+	ID          string             `json:"id"`
+	Document    string             `json:"document"`
+	Result      json.RawMessage    `json:"result"`
+	CreatedAt   time.Time          `json:"created_at"`
+	CompletedAt pgtype.Timestamptz `json:"completed_at"`
+}
+
 type WeaveVocabulariesArchive struct {
 	ID            string    `json:"id"`
 	ProjectID     string    `json:"project_id"`
