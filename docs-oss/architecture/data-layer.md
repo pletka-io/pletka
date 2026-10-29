@@ -123,6 +123,19 @@ Conflicting versions of one source project, cycles and unverified sources fail.
 Source foreign keys prevent deleting a retained release or its project; retirement
 does not break existing pins. Draft rows remain editable.
 
+Ontology evidence has three distinct contracts. `ontologybody` seals exact local
+bytes and derived rows. `ontologyrelease` publishes a verified dependency closure
+and uniquely resolved project references. `ontologysnapshot` preserves legacy
+selections and raw references with resolved, ambiguous, missing or invalid
+assessments; it never creates either of the stronger publication/content receipts.
+Its capture operation derives evidence from archives in the cut transaction,
+using the existing per-release write fence. Storage retains concrete body IDs and
+digests, original primary flags, aliases and source contexts. The context closure
+is flat and deduplicated; semantic lookup follows imported entities' recorded
+sources automatically. Its generated SELECT-only reader binds project, release
+and exact snapshot digest, with no mutable ontology capability. See
+[ADR-0016](../decisions/0016-legacy-ontology-snapshots-preserve-evidence.md).
+
 `project_dependencies_version = 1` certifies this project inventory only. It does
 not certify ontology artifacts, frozen actor/module descriptors or complete
 serialized output. Old releases stay at zero; `pletka release audit-dependencies`
