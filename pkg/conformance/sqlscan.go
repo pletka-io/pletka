@@ -30,6 +30,7 @@ func generatedOrExempt(rel string) bool {
 	switch {
 	case strings.HasPrefix(rel, "pkg/database/sqlcgen/"),
 		strings.HasPrefix(rel, "pkg/database/readsql/ontologysnapshot/"),
+		strings.HasPrefix(rel, "pkg/database/readsql/importedontologysnapshot/"),
 		strings.HasPrefix(rel, "pkg/database/readsql/draft/"),
 		strings.HasPrefix(rel, "pkg/database/readsql/archive/"),
 		strings.HasPrefix(rel, "pkg/database/readsql/ontologybody/"),

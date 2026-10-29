@@ -223,7 +223,13 @@ func (m *Materializer) hydrateProjectOntologiesTx(ctx context.Context, tx pgx.Tx
 	return nil
 }
 
+// hydrateProjectNamespacesTx restores mutable namespace policy for schema 1.
+// Schema 2 is ontology evidence transport for a partial project restore: its
+// preserved alias registry neither replaces nor populates current policy.
 func (m *Materializer) hydrateProjectNamespacesTx(ctx context.Context, tx pgx.Tx, q *sqlcgen.Queries, manifest ProjectManifestFile) error {
+	if manifest.SchemaVersion == 2 {
+		return nil
+	}
 	projectID := strings.TrimSpace(manifest.Project.ID)
 	if _, err := tx.Exec(ctx, `DELETE FROM weave_namespace_bindings WHERE project_id = $1 AND source = 'user'`, projectID); err != nil {
 		return fmt.Errorf("hydrate project namespaces: clear user bindings: %w", err)

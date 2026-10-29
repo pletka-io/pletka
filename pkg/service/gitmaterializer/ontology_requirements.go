@@ -5,6 +5,10 @@ import "fmt"
 // Verify the consumer's identities as well as each vendor's internal integrity.
 // Legacy requirements have no digest; they must never select a published vendor.
 func validateOntologyRequirements(snapshot *ProjectSnapshot) error {
+	legacy, err := legacyOntologyBundle(snapshot)
+	if err != nil {
+		return err
+	}
 	byVersion := map[string]VendoredOntologySnapshot{}
 	for _, dep := range snapshot.Vendor.Ontologies {
 		if dep.Snapshot == nil {
@@ -15,6 +19,26 @@ func validateOntologyRequirements(snapshot *ProjectSnapshot) error {
 			return fmt.Errorf("duplicate ontology vendor version %s", id)
 		}
 		byVersion[id] = dep
+	}
+	for _, a := range legacy {
+		bodies, err := legacySnapshotBodies(a)
+		if err != nil {
+			return err
+		}
+		for id, b := range bodies {
+			if dep, ok := byVersion[id]; ok {
+				if dep.Snapshot.Artifact == nil {
+					return fmt.Errorf("legacy captured body %s collides with an unverified vendor", id)
+				}
+				doc, err := dep.Snapshot.Artifact.Decode()
+				if err != nil {
+					return err
+				}
+				if doc.OntologyID != b.OntologyID || doc.BodyDigest != b.Digest || doc.BodyJSON != b.BodyJSON {
+					return fmt.Errorf("legacy and published body identity conflicts for %s", id)
+				}
+			}
+		}
 	}
 	projects := []*ProjectSnapshot{snapshot}
 	for _, dep := range snapshot.Vendor.Projects {
@@ -29,6 +53,9 @@ func validateOntologyRequirements(snapshot *ProjectSnapshot) error {
 			continue
 		}
 		for _, req := range project.Mod.Require.Ontologies {
+			if req.BodyDigest != "" {
+				continue
+			} // Already bound to exact inline legacy evidence above.
 			dep, exists := byVersion[req.OntologyVersionID]
 			if err := validateOntologyRequirement(req, dep, exists); err != nil {
 				return err

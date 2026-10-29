@@ -223,3 +223,5 @@ cmd/internal/importconfig/ontologies/project-specific/_unsupported/
 !pkg/database/queries/write_ontology_draft/*.sql
 
 !pkg/database/queries/read_ontology_snapshot/*.sql
+
+!pkg/database/queries/read_imported_ontology_snapshot/*.sql

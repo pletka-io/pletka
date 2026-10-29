@@ -178,3 +178,23 @@ sql:
             go_type: "time.Time"
           - db_type: "pg_catalog.timestamptz"
             go_type: "time.Time"
+  - engine: "postgresql"
+    queries: "pkg/database/queries/read_imported_ontology_snapshot/"
+    schema: "pkg/database/migrations/"
+    gen:
+      go:
+        package: "importedontologysnapshot"
+        out: "pkg/database/readsql/importedontologysnapshot"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        emit_interface: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: "jsonb"
+            go_type: "encoding/json.RawMessage"
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "pg_catalog.timestamptz"
+            go_type: "time.Time"

@@ -141,6 +141,16 @@ func (m *Materializer) CheckReleaseRepoint(ctx context.Context, operation string
 // All projects should be prepared before any public ref is moved. This uses the
 // current materializer format; it does not claim complete portable serialization.
 func (m *Materializer) PrepareReleaseRepoint(ctx context.Context, operation string, expected ReleaseRefState) (PreparedRelease, error) {
+	return m.prepareReleaseRepoint(ctx, operation, expected, 1)
+}
+
+// PrepareLegacyReleaseRepoint prepares a contract-2 cut with exact legacy
+// ontology evidence. It shares ref checks and recovery with verified repoints.
+func (m *Materializer) PrepareLegacyReleaseRepoint(ctx context.Context, operation string, expected ReleaseRefState) (PreparedRelease, error) {
+	return m.prepareReleaseRepoint(ctx, operation, expected, 2)
+}
+
+func (m *Materializer) prepareReleaseRepoint(ctx context.Context, operation string, expected ReleaseRefState, contract int16) (PreparedRelease, error) {
 	prepared := PreparedRelease{Expected: expected}
 	prefix, err := rebuildPrefix(operation)
 	if err != nil {
@@ -158,7 +168,9 @@ func (m *Materializer) PrepareReleaseRepoint(ctx context.Context, operation stri
 	if err := m.CheckReleaseRepoint(ctx, operation, expected, true); err != nil {
 		return prepared, err
 	}
-	if err := readsession.NewFactory(m.pool).Read(ctx, auth.Release(expected.Version), expected.ProjectID, func(s *readsession.Session) error { _, err := s.Content(ctx); return err }); err != nil {
+	if err := readsession.NewFactory(m.pool).Read(ctx, auth.Release(expected.Version), expected.ProjectID, func(s *readsession.Session) error {
+		return requireRepointContent(ctx, s, contract)
+	}); err != nil {
 		return prepared, err
 	}
 	git := newGitRunner(path, m.logger)
@@ -283,5 +295,14 @@ func (m *Materializer) PublishReleaseRepoint(ctx context.Context, operation stri
 	}
 	commands := fmt.Sprintf("start\nupdate %s %s %s\nupdate refs/tags/v%s %s %s\nprepare\ncommit\n", releasesBranchRef, prepared.Commit, branch, expected.Version, prepared.Tag, tag)
 	_, err = git.runOutStdin(ctx, nil, []byte(commands), "update-ref", "--stdin")
+	return err
+}
+
+func requireRepointContent(ctx context.Context, s *readsession.Session, contract int16) error {
+	if contract == 2 {
+		_, err := s.LegacyContent(ctx)
+		return err
+	}
+	_, err := s.Content(ctx)
 	return err
 }

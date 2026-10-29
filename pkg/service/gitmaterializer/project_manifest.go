@@ -14,12 +14,13 @@ import (
 )
 
 type projectManifest struct {
-	SchemaVersion int                         `json:"schema_version"`
-	Project       projectManifestProject      `json:"project"`
-	Inheritance   *projectManifestInheritance `json:"inheritance,omitempty"`
-	Ontologies    *projectManifestOntologies  `json:"ontologies,omitempty"`
-	Namespaces    *projectManifestNamespaces  `json:"namespaces,omitempty"`
-	Manifests     *projectManifestManifests   `json:"manifests,omitempty"`
+	LegacyOntology *legacyOntologyManifest     `json:"legacy_ontology_snapshot,omitempty"`
+	SchemaVersion  int                         `json:"schema_version"`
+	Project        projectManifestProject      `json:"project"`
+	Inheritance    *projectManifestInheritance `json:"inheritance,omitempty"`
+	Ontologies     *projectManifestOntologies  `json:"ontologies,omitempty"`
+	Namespaces     *projectManifestNamespaces  `json:"namespaces,omitempty"`
+	Manifests      *projectManifestManifests   `json:"manifests,omitempty"`
 }
 
 type projectManifestProject struct {

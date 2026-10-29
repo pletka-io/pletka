@@ -128,8 +128,13 @@ func (m *Materializer) hydrateVendoredProjectsAtDepth(ctx context.Context, plan 
 		if err := m.hydrateVendoredProjectsAtDepth(ctx, subPlan, depth+1, lockedProjectID); err != nil {
 			return err
 		}
-		if err := m.hydrateVendoredOntologies(ctx, subPlan); err != nil {
-			return fmt.Errorf("hydrate vendored projects: hydrate ontologies for %s: %w", projectID, err)
+		// Flat vendor trees have already had their complete ontology evidence
+		// validated and restored at the root. A child has no local vendor tree
+		// against which its pinned requirements could be validated again.
+		if len(dep.Snapshot.Vendor.Ontologies) > 0 || len(dep.Snapshot.Vendor.Projects) > 0 {
+			if err := m.hydrateVendoredOntologies(ctx, subPlan); err != nil {
+				return fmt.Errorf("hydrate vendored projects: hydrate ontologies for %s: %w", projectID, err)
+			}
 		}
 		if err := m.HydrateProjectShell(ctx, subPlan); err != nil {
 			return fmt.Errorf("hydrate vendored projects: hydrate shell for %s: %w", projectID, err)

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
+	"github.com/pletka-io/pletka/pkg/database/ontologysnapshot"
 
 	"gopkg.in/yaml.v3"
 )
@@ -103,14 +104,15 @@ type OntologySnapshot struct {
 }
 
 type ProjectSnapshot struct {
-	RootDir   string
-	Manifest  ProjectManifestFile
-	Mod       *PletkaModFile
-	Sum       []PletkaSumEntry
-	Adoptions *AdoptionManifestSet
-	Forks     *ForkManifestSet
-	Entities  SnapshotEntityTree
-	Vendor    VendorSnapshotSet
+	LegacyOntology *ontologysnapshot.Artifact
+	RootDir        string
+	Manifest       ProjectManifestFile
+	Mod            *PletkaModFile
+	Sum            []PletkaSumEntry
+	Adoptions      *AdoptionManifestSet
+	Forks          *ForkManifestSet
+	Entities       SnapshotEntityTree
+	Vendor         VendorSnapshotSet
 }
 
 func LoadProjectSnapshot(rootDir string) (*ProjectSnapshot, error) {
@@ -166,6 +168,11 @@ func loadProjectSnapshot(rootDir string, includeVendor bool) (*ProjectSnapshot, 
 			return nil, err
 		}
 		snapshot.Vendor = vendor
+	}
+	if err := loadLegacyOntology(snapshot); err != nil {
+		return nil, err
+	}
+	if includeVendor {
 		if err := validateOntologyRequirements(snapshot); err != nil {
 			return nil, err
 		}

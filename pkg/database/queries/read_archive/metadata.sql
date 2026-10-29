@@ -20,3 +20,14 @@ WHERE project_id=sqlc.arg(project_id)::text AND version=sqlc.arg(version)::text
 SELECT content_capture_receipt FROM weave_releases
 WHERE project_id=sqlc.arg(project_id)::text AND version=sqlc.arg(version)::text
   AND content_capture_version=2 AND content_capture_receipt IS NOT NULL;
+
+-- name: ReleaseContentContract :one
+SELECT content_capture_version FROM weave_releases
+WHERE project_id=sqlc.arg(project_id)::text AND version=sqlc.arg(version)::text;
+
+-- name: ReleaseLegacyOntologySnapshot :one
+SELECT s.document, s.digest FROM weave_legacy_ontology_snapshots s
+JOIN weave_releases r ON r.project_id=s.project_id AND r.version=s.version_number
+WHERE s.project_id=sqlc.arg(project_id)::text AND s.version_number=sqlc.arg(version)::text
+  AND r.content_capture_version=2
+  AND s.digest=r.content_capture_receipt->>'ontology_snapshot_digest';

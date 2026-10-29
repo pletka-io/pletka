@@ -34,6 +34,23 @@ func (q *Queries) ReleaseConceptNamespace(ctx context.Context, arg ReleaseConcep
 	return i, err
 }
 
+const releaseContentContract = `-- name: ReleaseContentContract :one
+SELECT content_capture_version FROM weave_releases
+WHERE project_id=$1::text AND version=$2::text
+`
+
+type ReleaseContentContractParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+func (q *Queries) ReleaseContentContract(ctx context.Context, arg ReleaseContentContractParams) (int16, error) {
+	row := q.db.QueryRow(ctx, releaseContentContract, arg.ProjectID, arg.Version)
+	var content_capture_version int16
+	err := row.Scan(&content_capture_version)
+	return content_capture_version, err
+}
+
 const releaseContentReceipt = `-- name: ReleaseContentReceipt :one
 SELECT content_capture_receipt FROM weave_releases
 WHERE project_id=$1::text AND version=$2::text
@@ -68,6 +85,31 @@ func (q *Queries) ReleaseLegacyContentReceipt(ctx context.Context, arg ReleaseLe
 	var content_capture_receipt []byte
 	err := row.Scan(&content_capture_receipt)
 	return content_capture_receipt, err
+}
+
+const releaseLegacyOntologySnapshot = `-- name: ReleaseLegacyOntologySnapshot :one
+SELECT s.document, s.digest FROM weave_legacy_ontology_snapshots s
+JOIN weave_releases r ON r.project_id=s.project_id AND r.version=s.version_number
+WHERE s.project_id=$1::text AND s.version_number=$2::text
+  AND r.content_capture_version=2
+  AND s.digest=r.content_capture_receipt->>'ontology_snapshot_digest'
+`
+
+type ReleaseLegacyOntologySnapshotParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+type ReleaseLegacyOntologySnapshotRow struct {
+	Document string `json:"document"`
+	Digest   string `json:"digest"`
+}
+
+func (q *Queries) ReleaseLegacyOntologySnapshot(ctx context.Context, arg ReleaseLegacyOntologySnapshotParams) (ReleaseLegacyOntologySnapshotRow, error) {
+	row := q.db.QueryRow(ctx, releaseLegacyOntologySnapshot, arg.ProjectID, arg.Version)
+	var i ReleaseLegacyOntologySnapshotRow
+	err := row.Scan(&i.Document, &i.Digest)
+	return i, err
 }
 
 const releaseModelTypes = `-- name: ReleaseModelTypes :many

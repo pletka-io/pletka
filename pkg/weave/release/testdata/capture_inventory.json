@@ -652,6 +652,8 @@
     "weave_namespace_bindings_archive": "Legacy globally colliding namespace archive; new cuts/readers use weave_release_namespace_bindings_archive.",
     "weave_ontologies": "Separate sealed/published ontology content contract (ADR-0013); project captures concrete retained artifacts, never these live rows.",
     "weave_ontology_active_versions": "Ontology lifecycle, discovery policy or immutable artifact/dependency evidence under ADR-0013; not project-owned archive data.",
+    "weave_imported_legacy_ontology_snapshots": "Immutable transported ontology evidence; retains original origin and bytes, not a locally captured project release or completion receipt.",
+    "weave_imported_legacy_ontology_contexts": "Immutable per-origin imported context ledger; validates shared evidence across imports without certifying a local release.",
     "weave_legacy_ontology_snapshots": "Immutable legacy ontology evidence from archives; separate capture boundary, not a v1 content/publication receipt (ADR-0016).",
     "weave_ontology_body_seals": "Ontology lifecycle, discovery policy or immutable artifact/dependency evidence under ADR-0013; not project-owned archive data.",
     "weave_ontology_classes": "Separate sealed/published ontology content contract (ADR-0013); project captures concrete retained artifacts, never these live rows.",

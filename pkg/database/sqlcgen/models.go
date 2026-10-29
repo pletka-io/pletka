@@ -601,6 +601,21 @@ type WeaveImportStaging struct {
 	SubfieldPaths []byte          `json:"subfield_paths"`
 }
 
+type WeaveImportedLegacyOntologyContext struct {
+	ProjectID         string          `json:"project_id"`
+	VersionNumber     string          `json:"version_number"`
+	ContextDocument   json.RawMessage `json:"context_document"`
+	RetainedProjectID string          `json:"retained_project_id"`
+	RetainedVersion   string          `json:"retained_version"`
+}
+
+type WeaveImportedLegacyOntologySnapshot struct {
+	ProjectID     string `json:"project_id"`
+	VersionNumber string `json:"version_number"`
+	Document      string `json:"document"`
+	Digest        string `json:"digest"`
+}
+
 type WeaveLegacyOntologySnapshot struct {
 	ProjectID       string `json:"project_id"`
 	VersionNumber   string `json:"version_number"`

@@ -14,10 +14,11 @@ import (
 )
 
 type pletkaModManifest struct {
-	SchemaVersion int              `json:"schema_version"`
-	Module        pletkaModModule  `json:"module"`
-	Require       pletkaModRequire `json:"require"`
-	Replace       []map[string]any `json:"replace"`
+	LegacyOntology *legacyOntologyManifest `json:"legacy_ontology_snapshot,omitempty"`
+	SchemaVersion  int                     `json:"schema_version"`
+	Module         pletkaModModule         `json:"module"`
+	Require        pletkaModRequire        `json:"require"`
+	Replace        []map[string]any        `json:"replace"`
 }
 
 type pletkaModModule struct {
@@ -40,6 +41,7 @@ type pletkaProjectRequirement struct {
 const parentDependencyVersionDraft = "draft"
 
 type pletkaOntologyRequirement struct {
+	BodyDigest        string                    `json:"body_digest,omitempty"`
 	Artifact          *ontologyrelease.Artifact `json:"-"`
 	Digest            string                    `json:"artifact_digest,omitempty"`
 	Module            string                    `json:"module"`

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
+	"github.com/pletka-io/pletka/pkg/database/ontologysnapshot"
 )
 
 // VendoredOntologyImport carries everything an ontology importer needs to
@@ -61,9 +62,14 @@ func (m *Materializer) hydrateVendoredOntologies(ctx context.Context, plan *Rest
 		return err
 	}
 
+	legacy, err := legacyOntologyBundle(snapshot)
+	if err != nil {
+		return err
+	}
+
 	ontologies := snapshot.Vendor.Ontologies
 	if len(ontologies) == 0 {
-		return nil
+		return ontologysnapshot.Restore(ctx, m.pool, legacy)
 	}
 	if m.ontologyImporter == nil {
 		return fmt.Errorf("restore: snapshot vendors ontologies but no ontology importer is wired")
@@ -120,6 +126,9 @@ func (m *Materializer) hydrateVendoredOntologies(ctx context.Context, plan *Rest
 		if err := m.ontologyImporter.RestorePublishedOntologies(ctx, published); err != nil {
 			return fmt.Errorf("restore published ontologies: %w", err)
 		}
+	}
+	if err := ontologysnapshot.Restore(ctx, m.pool, legacy); err != nil {
+		return fmt.Errorf("restore legacy ontology evidence: %w", err)
 	}
 	for _, dep := range ontologies {
 		if dep.Snapshot == nil || dep.Snapshot.Artifact != nil {

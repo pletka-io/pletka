@@ -148,6 +148,14 @@ func (m *Materializer) vendorDependenciesForProject(ctx context.Context, rootDir
 	}
 	legacyOntologies := false
 	for _, req := range ontologyReqs {
+		if req.BodyDigest != "" {
+			// Immutable legacy bodies travel inside the exact snapshot document,
+			// keyed by concrete identity rather than a human version directory.
+			if req.Artifact != nil || req.Digest != "" {
+				return nil, fmt.Errorf("mixed ontology evidence kinds")
+			}
+			continue
+		}
 		if req.Artifact != nil {
 			entry, err := vendorPublishedOntology(rootDir, req.Module, *req.Artifact, state)
 			if err != nil {
