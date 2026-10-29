@@ -8,6 +8,11 @@ SELECT EXISTS (
 UPDATE weave_releases SET archive_ownership_version = 1, metadata_capture_version = 1, content_capture_version = 1
 WHERE project_id = sqlc.arg(project_id)::text AND version = sqlc.arg(version)::text;
 
+-- name: WeaveFinalizeLegacyReleaseCapture :exec
+-- A distinct receipt; verified ontology markers remain zero.
+UPDATE weave_releases SET archive_ownership_version = 1, metadata_capture_version = 1, content_capture_version = 2
+WHERE project_id = sqlc.arg(project_id)::text AND version = sqlc.arg(version)::text;
+
 -- name: WeaveSnapshotOwnedProject :execrows
 INSERT INTO weave_projects_archive (
     id, created_at, updated_at, system_name, ui_name, description, status,

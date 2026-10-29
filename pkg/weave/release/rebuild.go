@@ -16,6 +16,46 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
+// LegacyRebuildPlan names the explicit preservation contract, not ordinary publication.
+type LegacyRebuildPlan RebuildPlan
+
+// LegacyRebuildRequest cannot be passed to the ordinary rebuild entry point.
+type LegacyRebuildRequest struct {
+	Plan        LegacyRebuildPlan `json:"plan"`
+	Publication json.RawMessage   `json:"publication"`
+}
+
+type rebuildContract struct {
+	format         int
+	contentVersion int16
+	create         func(context.Context, pgx.Tx, string, CreateInput, string) (*Release, error)
+}
+
+func (s *Service) verifiedRebuild() rebuildContract { return rebuildContract{1, 1, s.createInTx} }
+func (s *Service) legacyRebuild() rebuildContract   { return rebuildContract{2, 2, s.createLegacyInTx} }
+
+// PlanLegacyRebuild reviews current drafts for immutable legacy preservation.
+// This does not enable an ordinary release request to bypass semantic validation.
+func (s *Service) PlanLegacyRebuild(ctx context.Context, projectIDs []string) (LegacyRebuildPlan, error) {
+	plan, err := s.planRebuildSession(ctx, projectIDs, s.legacyRebuild())
+	return LegacyRebuildPlan(plan), err
+}
+
+// LegacyRebuildID hashes the exact legacy plan and publication inventory.
+func LegacyRebuildID(request LegacyRebuildRequest) (string, error) {
+	return RebuildID(legacyRequest(request))
+}
+func legacyRequest(request LegacyRebuildRequest) RebuildRequest {
+	return RebuildRequest{Plan: RebuildPlan(request.Plan), Publication: request.Publication}
+}
+
+// RunLegacyRebuild requires a publisher that preserves legacy snapshot evidence.
+// The existing Git serializer is not such a publisher; host wiring must provide
+// the new portable contract before using this entry point operationally.
+func (s *Service) RunLegacyRebuild(ctx context.Context, request LegacyRebuildRequest, check func(context.Context, string, bool) error, publish func(context.Context, RebuildOperation) (map[string]string, error)) (RebuildOperation, error) {
+	return s.runRebuild(ctx, legacyRequest(request), check, publish, s.legacyRebuild())
+}
+
 // RebuildProject preserves a legacy release name while replacing its content.
 type RebuildProject struct {
 	ProjectID   string `json:"project_id"`
@@ -77,6 +117,10 @@ func (s *Service) requireRebuild(ctx context.Context) (string, error) {
 // PlanRebuild is read-only. Empty projectIDs selects all legacy releases; every
 // selected project must have exactly one active, unverified release.
 func (s *Service) PlanRebuild(ctx context.Context, projectIDs []string) (RebuildPlan, error) {
+	return s.planRebuildSession(ctx, projectIDs, s.verifiedRebuild())
+}
+
+func (s *Service) planRebuildSession(ctx context.Context, projectIDs []string, contract rebuildContract) (RebuildPlan, error) {
 	actor, err := s.requireRebuild(ctx)
 	if err != nil {
 		return RebuildPlan{}, err
@@ -86,11 +130,11 @@ func (s *Service) PlanRebuild(ctx context.Context, projectIDs []string) (Rebuild
 		return RebuildPlan{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	return s.planRebuild(ctx, sqlcgen.New(tx), projectIDs, actor)
+	return s.planRebuild(ctx, sqlcgen.New(tx), projectIDs, actor, contract)
 }
 
-func (s *Service) planRebuild(ctx context.Context, q *sqlcgen.Queries, projectIDs []string, actor string) (RebuildPlan, error) {
-	plan := RebuildPlan{Format: 1, Source: "current-drafts", ActorID: actor, ModuleHost: s.hosts.Project, OntologyHost: s.hosts.Ontology, Pins: []RebuildPin{}}
+func (s *Service) planRebuild(ctx context.Context, q *sqlcgen.Queries, projectIDs []string, actor string, contract rebuildContract) (RebuildPlan, error) {
+	plan := RebuildPlan{Format: contract.format, Source: "current-drafts", ActorID: actor, ModuleHost: s.hosts.Project, OntologyHost: s.hosts.Ontology, Pins: []RebuildPin{}}
 	catalog, err := q.WeaveRebuildCatalog(ctx)
 	if err != nil {
 		return plan, err
@@ -127,7 +171,7 @@ func (s *Service) planRebuild(ctx context.Context, q *sqlcgen.Queries, projectID
 		}
 		plan.Pins = append(plan.Pins, RebuildPin{r.ProjectID, r.ParentProjectID, rows[0].Version})
 	}
-	edges, err := rebuildSourceEdges(ctx, q, ids, byProject, selected, inheritance)
+	edges, err := rebuildSourceEdges(ctx, q, ids, byProject, selected, inheritance, contract.contentVersion)
 	if err != nil {
 		return plan, err
 	}
@@ -173,8 +217,8 @@ func selectRebuildProjects(byProject map[string][]sqlcgen.WeaveRebuildCatalogRow
 			return nil, nil, nil, fmt.Errorf("project %s has %d releases; expected exactly one", id, len(rows))
 		}
 		r := rows[0]
-		if r.ContentCaptureVersion != 0 || r.ArchivedAt.Valid {
-			return nil, nil, nil, fmt.Errorf("project %s release must be active and unverified", id)
+		if r.ContentCaptureVersion != 0 || r.ArchivedAt.Valid || r.OntologySnapshotCaptured {
+			return nil, nil, nil, fmt.Errorf("project %s release must be active, unverified and have no retained ontology snapshot", id)
 		}
 		if errs := validateCreate(CreateInput{Version: r.Version}); len(errs) > 0 {
 			return nil, nil, nil, fmt.Errorf("project %s has unsupported release version %q", id, r.Version)
@@ -185,7 +229,7 @@ func selectRebuildProjects(byProject map[string][]sqlcgen.WeaveRebuildCatalogRow
 	return ids, selected, projects, nil
 }
 
-func rebuildSourceEdges(ctx context.Context, q *sqlcgen.Queries, ids []string, byProject map[string][]sqlcgen.WeaveRebuildCatalogRow, selected map[string]bool, inheritance []sqlcgen.WeaveRebuildInheritanceRow) (map[string][]string, error) {
+func rebuildSourceEdges(ctx context.Context, q *sqlcgen.Queries, ids []string, byProject map[string][]sqlcgen.WeaveRebuildCatalogRow, selected map[string]bool, inheritance []sqlcgen.WeaveRebuildInheritanceRow, contentVersion int16) (map[string][]string, error) {
 	edges := map[string][]string{}
 	for _, id := range ids {
 		if parent := byProject[id][0].LegacyParent; parent != "" && !slices.ContainsFunc(inheritance, func(r sqlcgen.WeaveRebuildInheritanceRow) bool {
@@ -216,8 +260,8 @@ func rebuildSourceEdges(ctx context.Context, q *sqlcgen.Queries, ids []string, b
 			if ref.SourceVersion != "" && ref.SourceVersion != r.Version {
 				return nil, fmt.Errorf("project %s pins %s@%s, but its sole release is %s", id, source, ref.SourceVersion, r.Version)
 			}
-			if !selected[source] && r.ContentCaptureVersion != 1 {
-				return nil, fmt.Errorf("include unverified source project %s required by %s", source, id)
+			if !selected[source] && r.ContentCaptureVersion != contentVersion {
+				return nil, fmt.Errorf("include source project %s required by %s with matching capture evidence", source, id)
 			}
 			if r.ArchivedAt.Valid {
 				return nil, fmt.Errorf("source %s is retired", source)
@@ -295,11 +339,15 @@ func (s *Service) GetRebuild(ctx context.Context, id string) (RebuildOperation, 
 // closed for resume. Only this path may replace legacy cuts; normal Create has
 // no compatibility bypass. check must compare the reviewed Git refs before SQL.
 func (s *Service) RunRebuild(ctx context.Context, request RebuildRequest, check func(context.Context, string, bool) error, publish func(context.Context, RebuildOperation) (map[string]string, error)) (RebuildOperation, error) {
+	return s.runRebuild(ctx, request, check, publish, s.verifiedRebuild())
+}
+
+func (s *Service) runRebuild(ctx context.Context, request RebuildRequest, check func(context.Context, string, bool) error, publish func(context.Context, RebuildOperation) (map[string]string, error), contract rebuildContract) (RebuildOperation, error) {
 	actor, err := s.requireRebuild(ctx)
 	if err != nil {
 		return RebuildOperation{}, err
 	}
-	if actor != request.Plan.ActorID || request.Plan.Format != 1 || request.Plan.Source != "current-drafts" || check == nil || publish == nil {
+	if actor != request.Plan.ActorID || request.Plan.Format != contract.format || request.Plan.Source != "current-drafts" || check == nil || publish == nil {
 		return RebuildOperation{}, errors.New("invalid rebuild request, principal or publisher")
 	}
 	id, err := RebuildID(request)
@@ -323,7 +371,7 @@ func (s *Service) RunRebuild(ctx context.Context, request RebuildRequest, check 
 		return op, err
 	}
 	if !resume {
-		op, err = s.captureRebuild(ctx, request, id)
+		op, err = s.captureRebuild(ctx, request, id, contract)
 		if err != nil {
 			return op, err
 		}
@@ -376,7 +424,7 @@ func (s *Service) completeRebuild(ctx context.Context, op RebuildOperation, comm
 	return op, nil
 }
 
-func (s *Service) captureRebuild(ctx context.Context, request RebuildRequest, id string) (RebuildOperation, error) {
+func (s *Service) captureRebuild(ctx context.Context, request RebuildRequest, id string, contract rebuildContract) (RebuildOperation, error) {
 	op := RebuildOperation{ID: id, Request: request}
 	// LOCK TABLE is the first command and does not take an MVCC snapshot.
 	// Validation therefore sees writers that committed while locks waited;
@@ -396,7 +444,7 @@ func (s *Service) captureRebuild(ctx context.Context, request RebuildRequest, id
 		ids = append(ids, p.ProjectID)
 		byID[p.ProjectID] = p
 	}
-	current, err := s.planRebuild(ctx, q, ids, request.Plan.ActorID)
+	current, err := s.planRebuild(ctx, q, ids, request.Plan.ActorID, contract)
 	if err != nil {
 		return op, err
 	}
@@ -429,7 +477,7 @@ func (s *Service) captureRebuild(ctx context.Context, request RebuildRequest, id
 		return op, err
 	}
 	for _, p := range request.Plan.Projects {
-		if _, err := s.createInTx(ctx, tx, p.ProjectID, CreateInput{Version: p.Version, Title: p.Title, Description: p.Description}, request.Plan.ActorID); err != nil {
+		if _, err := contract.create(ctx, tx, p.ProjectID, CreateInput{Version: p.Version, Title: p.Title, Description: p.Description}, request.Plan.ActorID); err != nil {
 			return op, fmt.Errorf("rebuild %s@%s: %w", p.ProjectID, p.Version, err)
 		}
 		captured, err := q.WeaveRebuildCapturedResult(ctx, sqlcgen.WeaveRebuildCapturedResultParams{ProjectID: p.ProjectID, Version: p.Version})

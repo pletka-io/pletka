@@ -15,3 +15,8 @@ WHERE a.project_id=sqlc.arg(project_id)::text AND a.version_number=sqlc.arg(vers
 SELECT content_capture_receipt FROM weave_releases
 WHERE project_id=sqlc.arg(project_id)::text AND version=sqlc.arg(version)::text
   AND content_capture_version=1 AND content_capture_receipt IS NOT NULL;
+
+-- name: ReleaseLegacyContentReceipt :one
+SELECT content_capture_receipt FROM weave_releases
+WHERE project_id=sqlc.arg(project_id)::text AND version=sqlc.arg(version)::text
+  AND content_capture_version=2 AND content_capture_receipt IS NOT NULL;

@@ -320,6 +320,21 @@ remains live administrative policy; connector secrets are excluded. Migration 03
 validates all 22 owned sections before issuing a content receipt, guards archived
 rows and dependency evidence, and coordinates child writes through retained parent
 identities. `Session.Content` requires this evidence on its existing transaction.
-Assembler/serializer migration and an explicit legacy rebuild/repoint tool remain
-pending. See
+Assembler/serializer migration remains pending. The explicit rebuild lifecycle
+shares structural capture with normal release creation. See
 [capture coverage](../reference/release-capture-coverage.md).
+
+Migration 036 adds content contract 2 for legacy preservation. It validates the
+same 22 sections, dependencies and descriptors, recomputes the legacy ontology
+context against the final archived cut, and binds the exact snapshot digest in
+the receipt. Both completion contracts protect captured rows and require sources
+with the same contract. Contract 2 leaves verified ontology markers unset;
+`Session.LegacyContent` exposes its distinct evidence while `Session.Content`
+continues to require contract 1.
+
+`PlanLegacyRebuild` / `RunLegacyRebuild` share the maintenance lease, atomic cut,
+stale-input checks and durable journal with ordinary rebuilds, using plan format
+2 and a separate request type. The fingerprint includes unpublished ontology
+inputs. The existing Git publisher and ordinary release creation do not select
+this contract; portable legacy export/restore and operator wiring remain pending.
+See [ADR-0017](../decisions/0017-legacy-release-completeness-is-a-separate-contract.md).

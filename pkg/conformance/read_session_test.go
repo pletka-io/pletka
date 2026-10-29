@@ -221,7 +221,7 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 	root := repoRoot(t)
 	for _, path := range goFilesUnder(t, root) {
 		rel := mustRel(t, root, path)
-		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go" || rel == "pkg/database/readsession/metadata.go") {
+		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go" || rel == "pkg/database/readsession/metadata.go" || rel == "pkg/database/readsession/legacy_content.go") {
 			continue
 		}
 		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)

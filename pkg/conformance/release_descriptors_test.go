@@ -89,7 +89,7 @@ func TestReleaseDescriptorsHaveOneCaptureDoor(t *testing.T) {
 			if sel.Sel.Name == "WeaveInsertReleaseDescriptors" && rel != "pkg/database/releasedescriptor/capture.go" {
 				t.Errorf("%s bypasses descriptor capture", rel)
 			}
-			if id, ok := sel.X.(*ast.Ident); ok && aliases[id.Name] && sel.Sel.Name == "Capture" && rel != "pkg/weave/release/service.go" {
+			if id, ok := sel.X.(*ast.Ident); ok && aliases[id.Name] && (sel.Sel.Name == "Capture" || sel.Sel.Name == "CaptureLegacy") && rel != "pkg/weave/release/capture_evidence.go" {
 				t.Errorf("%s captures descriptors outside release creation", rel)
 			}
 			return true

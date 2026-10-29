@@ -231,6 +231,15 @@ func TestRawWritersCannotForgeOrRemoveSnapshot(t *testing.T) {
 	}
 	db := stdlib.OpenDB(*p.Config().ConnConfig)
 	defer db.Close()
+	latest, err := database.LatestMigrationVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for version := latest; version > 35; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot discard retained legacy") {
 		t.Fatalf("downgrade: %v", err)
 	}
