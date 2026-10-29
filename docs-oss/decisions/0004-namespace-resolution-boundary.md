@@ -39,6 +39,10 @@ stored namespace bindings derived from it.
   source ordering for stable provenance. Lower-weight aliases remain valid and
   travel separately in vendor manifests; the effective map is not an alias
   registry. This reduction rule was made explicit on 2026-10-26.
+- Ontology and project publication resolve term references against retained
+  bodies with `namespace.MatchesTerm` and the complete alias registry. They must
+  reject multiple matching term identities, rather than reduce aliases to an
+  effective map or rewrite an absolute term URI.
 - If a path element, ontology term, or generator target needs a prefix and no
   prefix can be resolved for the base URI, fail with a validation error at the
   import/read boundary.
