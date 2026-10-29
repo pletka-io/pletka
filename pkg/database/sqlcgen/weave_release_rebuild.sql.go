@@ -164,7 +164,7 @@ func (q *Queries) WeaveLockRebuildInputs(ctx context.Context) error {
 const weaveRebuildCapturedResult = `-- name: WeaveRebuildCapturedResult :one
 SELECT r.content_capture_receipt,c.id AS change_set_id FROM weave_releases r
 JOIN weave_change_set c ON c.project_id=r.project_id AND c.release_version=r.version AND c.kind='release' AND c.processed_at IS NULL
-WHERE r.project_id=$1::text AND r.version=$2::text AND r.content_capture_version=1
+WHERE r.project_id=$1::text AND r.version=$2::text AND r.content_capture_version IN (1,2)
 `
 
 type WeaveRebuildCapturedResultParams struct {
@@ -186,20 +186,22 @@ func (q *Queries) WeaveRebuildCapturedResult(ctx context.Context, arg WeaveRebui
 
 const weaveRebuildCatalog = `-- name: WeaveRebuildCatalog :many
 SELECT r.project_id,r.version,r.title,r.description,r.created_by_id,r.created_at,r.content_capture_version,r.archived_at,
-       COALESCE(p.parent_project_id,'')::text AS legacy_parent
+       COALESCE(p.parent_project_id,'')::text AS legacy_parent,
+       EXISTS(SELECT 1 FROM weave_legacy_ontology_snapshots s WHERE s.project_id=r.project_id AND s.version_number=r.version)::boolean AS ontology_snapshot_captured
 FROM weave_releases r JOIN weave_projects p ON p.id=r.project_id ORDER BY r.project_id,r.version
 `
 
 type WeaveRebuildCatalogRow struct {
-	ProjectID             string             `json:"project_id"`
-	Version               string             `json:"version"`
-	Title                 string             `json:"title"`
-	Description           string             `json:"description"`
-	CreatedByID           string             `json:"created_by_id"`
-	CreatedAt             time.Time          `json:"created_at"`
-	ContentCaptureVersion int16              `json:"content_capture_version"`
-	ArchivedAt            pgtype.Timestamptz `json:"archived_at"`
-	LegacyParent          string             `json:"legacy_parent"`
+	ProjectID                string             `json:"project_id"`
+	Version                  string             `json:"version"`
+	Title                    string             `json:"title"`
+	Description              string             `json:"description"`
+	CreatedByID              string             `json:"created_by_id"`
+	CreatedAt                time.Time          `json:"created_at"`
+	ContentCaptureVersion    int16              `json:"content_capture_version"`
+	ArchivedAt               pgtype.Timestamptz `json:"archived_at"`
+	LegacyParent             string             `json:"legacy_parent"`
+	OntologySnapshotCaptured bool               `json:"ontology_snapshot_captured"`
 }
 
 func (q *Queries) WeaveRebuildCatalog(ctx context.Context) ([]WeaveRebuildCatalogRow, error) {
@@ -221,6 +223,7 @@ func (q *Queries) WeaveRebuildCatalog(ctx context.Context) ([]WeaveRebuildCatalo
 			&i.ContentCaptureVersion,
 			&i.ArchivedAt,
 			&i.LegacyParent,
+			&i.OntologySnapshotCaptured,
 		); err != nil {
 			return nil, err
 		}
@@ -417,7 +420,7 @@ const weaveVerifyRebuiltRelease = `-- name: WeaveVerifyRebuiltRelease :one
 SELECT EXISTS(
  SELECT 1 FROM weave_releases r JOIN weave_change_set c ON c.project_id=r.project_id AND c.release_version=r.version
  WHERE r.project_id=$1::text AND r.version=$2::text
- AND r.content_capture_version=1 AND r.content_capture_receipt=$3::jsonb
+ AND r.content_capture_version IN (1,2) AND r.content_capture_receipt=$3::jsonb
  AND c.id=$4::bigint AND c.kind='release' AND c.processed_at IS NULL
 )
 `

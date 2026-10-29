@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
-	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/database/releasedeps"
 	"github.com/pletka-io/pletka/pkg/database/releasedescriptor"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
@@ -119,8 +118,18 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 	return created, nil
 }
 
-// createInTx is the single capture pipeline for normal cuts and explicit rebuilds.
+// createInTx selects verified publication for normal cuts and ordinary rebuilds.
 func (s *Service) createInTx(ctx context.Context, tx pgx.Tx, projectID string, in CreateInput, actorID string) (*Release, error) {
+	return s.createWithEvidence(ctx, tx, projectID, in, actorID, publishedEvidence{})
+}
+
+// createLegacyInTx is reachable only from the explicit legacy rebuild lifecycle.
+func (s *Service) createLegacyInTx(ctx context.Context, tx pgx.Tx, projectID string, in CreateInput, actorID string) (*Release, error) {
+	return s.createWithEvidence(ctx, tx, projectID, in, actorID, legacyEvidence{})
+}
+
+// createWithEvidence shares structural capture, ordering, outbox and rollback.
+func (s *Service) createWithEvidence(ctx context.Context, tx pgx.Tx, projectID string, in CreateInput, actorID string, evidence cutEvidence) (*Release, error) {
 	if err := validateReleaseCandidates(ctx, tx, projectID); err != nil {
 		return nil, err
 	}
@@ -144,18 +153,15 @@ func (s *Service) createInTx(ctx context.Context, tx pgx.Tx, projectID string, i
 		}
 		return nil, fmt.Errorf("capture release project dependencies: %w", err)
 	}
-	if err := ontologyrelease.CaptureProject(ctx, sqlcgen.New(tx), projectID, in.Version); err != nil {
-		var invalid interface{ ValidationFields() map[string][]string }
-		if errors.As(err, &invalid) {
-			return nil, &ErrValidation{Fields: map[string][]string{"ontologies": {err.Error()}}}
-		}
-		return nil, fmt.Errorf("capture release ontology dependencies: %w", err)
-	}
 	if err := sqlcgen.New(tx).WeaveSnapshotPinnedAdoptions(ctx, sqlcgen.WeaveSnapshotPinnedAdoptionsParams{ProjectID: projectID, Version: in.Version}); err != nil {
 		return nil, fmt.Errorf("capture pinned adoption receipts: %w", err)
 	}
 
-	if err := releasedescriptor.Capture(ctx, sqlcgen.New(tx), projectID, in.Version, s.hosts); err != nil {
+	if err := evidence.capture(ctx, sqlcgen.New(tx), projectID, in.Version, s.hosts); err != nil {
+		var validation interface{ ValidationFields() map[string][]string }
+		if errors.As(err, &validation) {
+			return nil, &ErrValidation{Fields: validation.ValidationFields()}
+		}
 		var missing *releasedescriptor.UnavailableError
 		var invalid *releasedescriptor.InvalidError
 		if errors.As(err, &missing) || errors.As(err, &invalid) {
@@ -173,7 +179,7 @@ func (s *Service) createInTx(ctx context.Context, tx pgx.Tx, projectID string, i
 		return nil, fmt.Errorf("enqueue release change set: %w", err)
 	}
 
-	if err := sqlcgen.New(tx).WeaveFinalizeReleaseCapture(ctx, sqlcgen.WeaveFinalizeReleaseCaptureParams{ProjectID: projectID, Version: in.Version}); err != nil {
+	if err := evidence.finalize(ctx, sqlcgen.New(tx), projectID, in.Version); err != nil {
 		var pgerr *pgconn.PgError
 		if errors.As(err, &pgerr) && pgerr.ConstraintName == "release_content_source_unverified" {
 			return nil, &ErrValidation{Fields: map[string][]string{"dependencies": {"source release has no verified content capture; cut a new source release"}}}

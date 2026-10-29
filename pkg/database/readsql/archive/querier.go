@@ -28,6 +28,7 @@ type Querier interface {
 	ReleaseConceptNamespace(ctx context.Context, arg ReleaseConceptNamespaceParams) (ReleaseConceptNamespaceRow, error)
 	ReleaseContentReceipt(ctx context.Context, arg ReleaseContentReceiptParams) ([]byte, error)
 	ReleaseDescriptors(ctx context.Context, arg ReleaseDescriptorsParams) (json.RawMessage, error)
+	ReleaseLegacyContentReceipt(ctx context.Context, arg ReleaseLegacyContentReceiptParams) ([]byte, error)
 	ReleaseModelTypes(ctx context.Context, arg ReleaseModelTypesParams) ([]ReleaseModelTypesRow, error)
 }
 

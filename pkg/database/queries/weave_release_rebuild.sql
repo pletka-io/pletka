@@ -97,7 +97,8 @@ LOCK TABLE weave_actors,
 SELECT weave_release_rebuild_fingerprint(sqlc.arg(project_ids)::text[])::text;
 -- name: WeaveRebuildCatalog :many
 SELECT r.project_id,r.version,r.title,r.description,r.created_by_id,r.created_at,r.content_capture_version,r.archived_at,
-       COALESCE(p.parent_project_id,'')::text AS legacy_parent
+       COALESCE(p.parent_project_id,'')::text AS legacy_parent,
+       EXISTS(SELECT 1 FROM weave_legacy_ontology_snapshots s WHERE s.project_id=r.project_id AND s.version_number=r.version)::boolean AS ontology_snapshot_captured
 FROM weave_releases r JOIN weave_projects p ON p.id=r.project_id ORDER BY r.project_id,r.version;
 -- name: WeaveRebuildRetainedSources :many
 SELECT project_id,source_project_id FROM weave_release_project_dependencies ORDER BY project_id,source_project_id;
@@ -116,7 +117,7 @@ WHERE project_id=ANY(sqlc.arg(project_ids)::text[]) AND kind='release' AND proce
 -- name: WeaveRebuildCapturedResult :one
 SELECT r.content_capture_receipt,c.id AS change_set_id FROM weave_releases r
 JOIN weave_change_set c ON c.project_id=r.project_id AND c.release_version=r.version AND c.kind='release' AND c.processed_at IS NULL
-WHERE r.project_id=sqlc.arg(project_id)::text AND r.version=sqlc.arg(version)::text AND r.content_capture_version=1;
+WHERE r.project_id=sqlc.arg(project_id)::text AND r.version=sqlc.arg(version)::text AND r.content_capture_version IN (1,2);
 -- name: WeaveInsertRebuildOperation :exec
 INSERT INTO weave_release_rebuild_operations(id,document,result) VALUES (sqlc.arg(id)::text,sqlc.arg(document)::text,sqlc.arg(result)::jsonb);
 -- name: WeaveGetRebuildOperation :one
@@ -130,6 +131,6 @@ UPDATE weave_release_rebuild_operations SET completed_at=COALESCE(completed_at,n
 SELECT EXISTS(
  SELECT 1 FROM weave_releases r JOIN weave_change_set c ON c.project_id=r.project_id AND c.release_version=r.version
  WHERE r.project_id=sqlc.arg(project_id)::text AND r.version=sqlc.arg(version)::text
- AND r.content_capture_version=1 AND r.content_capture_receipt=sqlc.arg(receipt)::jsonb
+ AND r.content_capture_version IN (1,2) AND r.content_capture_receipt=sqlc.arg(receipt)::jsonb
  AND c.id=sqlc.arg(change_set_id)::bigint AND c.kind='release' AND c.processed_at IS NULL
 );

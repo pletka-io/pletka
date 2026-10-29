@@ -35,3 +35,4 @@ Format: [`TEMPLATE.md`](TEMPLATE.md). Numbering is zero-padded and sequential.
 | [0014](0014-release-actor-and-module-descriptors.md) | Capture actor descriptors and module identifiers during release cut; released output uses captured values without live identity or host lookups. |
 | [0015](0015-project-semantic-references-at-release-cut.md) | Capture exact project semantic references against retained ontology publications. |
 | [0016](0016-legacy-ontology-snapshots-preserve-evidence.md) | Preserve immutable legacy ontology evidence separately from verified semantic meaning. |
+| [0017](0017-legacy-release-completeness-is-a-separate-contract.md) | Finalize legacy structural content with an exact snapshot digest, separately from verified semantic publication. |

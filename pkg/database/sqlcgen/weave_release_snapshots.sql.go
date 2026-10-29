@@ -67,6 +67,22 @@ func (q *Queries) WeaveAuditReleaseArchiveOwnership(ctx context.Context) ([]Weav
 	return items, nil
 }
 
+const weaveFinalizeLegacyReleaseCapture = `-- name: WeaveFinalizeLegacyReleaseCapture :exec
+UPDATE weave_releases SET archive_ownership_version = 1, metadata_capture_version = 1, content_capture_version = 2
+WHERE project_id = $1::text AND version = $2::text
+`
+
+type WeaveFinalizeLegacyReleaseCaptureParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+// A distinct receipt; verified ontology markers remain zero.
+func (q *Queries) WeaveFinalizeLegacyReleaseCapture(ctx context.Context, arg WeaveFinalizeLegacyReleaseCaptureParams) error {
+	_, err := q.db.Exec(ctx, weaveFinalizeLegacyReleaseCapture, arg.ProjectID, arg.Version)
+	return err
+}
+
 const weaveFinalizeReleaseCapture = `-- name: WeaveFinalizeReleaseCapture :exec
 UPDATE weave_releases SET archive_ownership_version = 1, metadata_capture_version = 1, content_capture_version = 1
 WHERE project_id = $1::text AND version = $2::text
