@@ -60,6 +60,11 @@ func (m *Materializer) writeProjectManifestVersion(ctx context.Context, workDir,
 	if err != nil {
 		return err
 	}
+	if manifest.LegacyOntology != nil {
+		if err := writeEntityFile(workDir, legacyOntologyFile, []byte(manifest.LegacyOntology.value.JSON)); err != nil {
+			return err
+		}
+	}
 	return writeEntityFile(workDir, domain.FilePath(domain.PathSpec{EntityType: "project"}), payload)
 }
 
@@ -108,10 +113,21 @@ func (m *Materializer) loadProjectManifestAtVersion(ctx context.Context, project
 		manifest.Inheritance = &projectManifestInheritance{Parents: parents}
 	}
 
-	if linked, err := m.loadProjectManifestOntologiesAtVersion(ctx, projectID, version); err != nil {
+	evidence, err := m.releaseOntologies(ctx, projectID, version)
+	if err != nil {
 		return projectManifest{}, err
-	} else if len(linked) > 0 {
-		manifest.Ontologies = &projectManifestOntologies{LinkedVersions: linked}
+	}
+	if len(evidence.linked) > 0 {
+		sortLinkedOntologies(evidence.linked)
+		manifest.Ontologies = &projectManifestOntologies{LinkedVersions: evidence.linked}
+	}
+	if evidence.legacy != nil {
+		manifest.SchemaVersion = 2
+		manifest.LegacyOntology = legacyOntologyRef(version, *evidence.legacy)
+		// Schema 2 transports ontology evidence for a partial project restore.
+		// Its exact snapshot retains the full alias registry; deriving an
+		// effective namespace map would impose policy on preserved evidence.
+		return manifest, nil
 	}
 
 	project := domain.Project{
@@ -175,28 +191,21 @@ func (m *Materializer) loadProjectManifestParentsAtVersion(ctx context.Context, 
 }
 
 func (m *Materializer) loadProjectManifestOntologiesAtVersion(ctx context.Context, projectID, version string) ([]projectManifestLinkedOntology, error) {
-	values, err := m.projectOntologyArtifacts(ctx, projectID, version)
+	evidence, err := m.releaseOntologies(ctx, projectID, version)
 	if err != nil {
 		return nil, err
 	}
-	linked := make([]projectManifestLinkedOntology, 0)
-	for _, v := range values {
-		if !v.Linked {
-			continue
-		}
-		c, err := v.Artifact.Content()
-		if err != nil {
-			return nil, err
-		}
-		linked = append(linked, projectManifestLinkedOntology{OntologyID: c.Ontology.ID, OntologyVersionID: c.Version.ID, Version: c.Version.Version, IsPrimary: v.Primary})
-	}
+	sortLinkedOntologies(evidence.linked)
+	return evidence.linked, nil
+}
+
+func sortLinkedOntologies(linked []projectManifestLinkedOntology) {
 	sort.Slice(linked, func(i, j int) bool {
 		if linked[i].IsPrimary != linked[j].IsPrimary {
 			return linked[i].IsPrimary
 		}
 		return linked[i].OntologyVersionID < linked[j].OntologyVersionID
 	})
-	return linked, nil
 }
 
 func (m *Materializer) loadProjectManifestNamespacesAtVersion(ctx context.Context, project domain.Project, version string) ([]projectManifestNamespaceBinding, error) {
@@ -236,19 +245,20 @@ func (m *Materializer) loadPletkaModManifestAtVersion(ctx context.Context, proje
 	if err != nil {
 		return pletkaModManifest{}, err
 	}
-	ontologyReqs, err := m.loadPletkaOntologyRequirementsAtVersion(ctx, projectID, version)
+	evidence, err := m.releaseOntologies(ctx, projectID, version)
 	if err != nil {
 		return pletkaModManifest{}, err
 	}
-	return pletkaModManifest{
-		SchemaVersion: 1,
-		Module:        pletkaModModule{Path: modulePath, ProjectID: projectID},
-		Require: pletkaModRequire{
-			Projects:   projectReqs,
-			Ontologies: ontologyReqs,
-		},
+	manifest := pletkaModManifest{
+		SchemaVersion: 1, Module: pletkaModModule{Path: modulePath, ProjectID: projectID},
+		Require: pletkaModRequire{Projects: projectReqs, Ontologies: evidence.requirements},
 		Replace: []map[string]any{},
-	}, nil
+	}
+	if evidence.legacy != nil {
+		manifest.SchemaVersion = 2
+		manifest.LegacyOntology = legacyOntologyRef(version, *evidence.legacy)
+	}
+	return manifest, nil
 }
 
 func (m *Materializer) loadPletkaProjectRequirementsAtVersion(ctx context.Context, projectID, version string) ([]pletkaProjectRequirement, error) {
@@ -281,31 +291,8 @@ func (m *Materializer) loadPletkaProjectRequirementsAtVersion(ctx context.Contex
 }
 
 func (m *Materializer) loadPletkaOntologyRequirementsAtVersion(ctx context.Context, projectID, version string) ([]pletkaOntologyRequirement, error) {
-	values, err := m.projectOntologyArtifacts(ctx, projectID, version)
-	if err != nil {
-		return nil, err
-	}
-	descriptors, err := m.releaseDescriptors(ctx, projectID, version)
-	if err != nil {
-		return nil, err
-	}
-	reqs := make([]pletkaOntologyRequirement, 0, len(values))
-	for _, v := range values {
-		doc, err := v.Artifact.Decode()
-		if err != nil {
-			return nil, err
-		}
-		module, err := descriptors.OntologyModule(doc.VersionID)
-		if err != nil {
-			return nil, err
-		}
-		req, err := ontologyRequirement(v.Artifact, module)
-		if err != nil {
-			return nil, err
-		}
-		reqs = append(reqs, req)
-	}
-	return reqs, nil
+	evidence, err := m.releaseOntologies(ctx, projectID, version)
+	return evidence.requirements, err
 }
 
 func (m *Materializer) writeCategoriesVersion(ctx context.Context, workDir, projectID, version string) error {

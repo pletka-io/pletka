@@ -42,9 +42,10 @@ cannot select it through a permissive boolean or a failed-publication fallback.
   format 2. They share source ordering, the maintenance lease, input checks,
   atomic capture and durable publication recovery with ordinary rebuilds.
   Plan fingerprints include unpublished ontology bodies as well as publications.
-- The existing Git publisher does not implement the legacy evidence contract.
-  Operator wiring must wait for portable serialization and exact restore; the
-  core lifecycle alone does not make a legacy rebuild operationally complete.
+- Git publication must implement the legacy evidence contract before operator
+  wiring can use this lifecycle. This is now provided by the explicit transport
+  and restore boundary in [ADR-0018](0018-transported-ontology-evidence-keeps-its-origin.md).
+  The core capture lifecycle alone does not establish portable completeness.
 - The assembler must carry this distinction into detached values. Semantic
   generators require checked definitions and report unresolved inputs;
   preservation exports can retain those inputs and their assessments. This

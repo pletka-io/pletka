@@ -72,6 +72,10 @@ func TestOntologyPublicationHasOnePolicyBoundary(t *testing.T) {
 					return true
 				}
 				switch sel.Sel.Name {
+				case "WeaveRestoreOntologyBody", "WeaveRetainImportedLegacyOntologySnapshot", "WeaveLockImportedLegacyOntologyContexts":
+					if rel != "pkg/database/ontologysnapshot/restore.go" {
+						t.Errorf("%s bypasses exact legacy restore", rel)
+					}
 				case "WeaveCaptureLegacyOntologySnapshot":
 					if rel != "pkg/database/ontologysnapshot/capture.go" {
 						t.Errorf("%s bypasses explicit legacy ontology capture", rel)

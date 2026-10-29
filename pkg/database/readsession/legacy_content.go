@@ -58,3 +58,37 @@ func (s *Session) LegacyContent(ctx context.Context) (LegacyContentReceipt, erro
 	}
 	return LegacyContentReceipt{content: ContentReceipt{sections: d.Sections}, ontology: ref}, nil
 }
+
+// ContentContract reports the captured contract, never inferring it from a failed
+// reader lookup. Zero denotes an unfinished historical cut, not legacy evidence.
+func (s *Session) ContentContract(ctx context.Context) (int16, error) {
+	q, err := s.ArchiveQueries()
+	if err != nil {
+		return 0, err
+	}
+	return q.ReleaseContentContract(ctx, archive.ReleaseContentContractParams{ProjectID: s.projectID, Version: s.scope.Version()})
+}
+
+// LegacyOntology returns detached evidence bound to this session's completed cut.
+func (s *Session) LegacyOntology(ctx context.Context) (ontologysnapshot.Artifact, error) {
+	if _, err := s.LegacyContent(ctx); err != nil {
+		return ontologysnapshot.Artifact{}, err
+	}
+	q, err := s.ArchiveQueries()
+	if err != nil {
+		return ontologysnapshot.Artifact{}, err
+	}
+	r, err := q.ReleaseLegacyOntologySnapshot(ctx, archive.ReleaseLegacyOntologySnapshotParams{ProjectID: s.projectID, Version: s.scope.Version()})
+	if err != nil {
+		return ontologysnapshot.Artifact{}, err
+	}
+	a := ontologysnapshot.Artifact{JSON: r.Document, Digest: r.Digest}
+	d, err := a.Decode()
+	if err != nil {
+		return ontologysnapshot.Artifact{}, err
+	}
+	if d.ProjectID != s.projectID || d.Version != s.scope.Version() {
+		return ontologysnapshot.Artifact{}, fmt.Errorf("legacy ontology evidence differs from bound release")
+	}
+	return a, nil
+}

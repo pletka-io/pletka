@@ -54,6 +54,11 @@ stored namespace bindings derived from it.
   confusing downstream failures.
 - Generator snapshots and renderers consume effective namespace state. They do
   not reconstruct prefixes from compact strings or private static lists.
+- Preserved legacy project schema 2 carries the full registry in its exact
+  ontology snapshot and omits the flattened effective map. This permits faithful
+  transport of tied aliases without claiming they resolve to one namespace.
+  Deriving an effective map remains strict; imported evidence does not rewrite
+  mutable namespace policy. See [ADR-0018](0018-transported-ontology-evidence-keeps-its-origin.md).
 - Backfill/import compatibility paths may handle old data, but they must record
   or report that compatibility mode was used.
 

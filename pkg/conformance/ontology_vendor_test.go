@@ -9,15 +9,25 @@ import (
 	"testing"
 )
 
-func TestPublishedOntologyVendorHasNoDatabaseCapability(t *testing.T) {
-	path := filepath.Join(repoRoot(t), "pkg/service/gitmaterializer/ontology_vendor_values.go")
+func TestOntologyValueWritersHaveNoDatabaseCapability(t *testing.T) {
+	for _, source := range []struct{ file, valuePackage string }{
+		{"ontology_vendor_values.go", "ontologyrelease"},
+		{"legacy_ontology_values.go", "ontologysnapshot"},
+	} {
+		t.Run(source.file, func(t *testing.T) { checkOntologyValueWriter(t, source.file, source.valuePackage) })
+	}
+}
+
+func checkOntologyValueWriter(t *testing.T, file, valuePackage string) {
+	t.Helper()
+	path := filepath.Join(repoRoot(t), "pkg/service/gitmaterializer", file)
 	f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, imp := range f.Imports {
 		name := strings.Trim(imp.Path.Value, `"`)
-		if strings.Contains(strings.Split(name, "/")[0], ".") && name != "github.com/pletka-io/pletka/pkg/database/ontologyrelease" {
+		if strings.Contains(strings.Split(name, "/")[0], ".") && name != "github.com/pletka-io/pletka/pkg/database/"+valuePackage {
 			t.Errorf("published value writer imports capability %s", name)
 		}
 	}

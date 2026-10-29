@@ -36,3 +36,4 @@ Format: [`TEMPLATE.md`](TEMPLATE.md). Numbering is zero-padded and sequential.
 | [0015](0015-project-semantic-references-at-release-cut.md) | Capture exact project semantic references against retained ontology publications. |
 | [0016](0016-legacy-ontology-snapshots-preserve-evidence.md) | Preserve immutable legacy ontology evidence separately from verified semantic meaning. |
 | [0017](0017-legacy-release-completeness-is-a-separate-contract.md) | Finalize legacy structural content with an exact snapshot digest, separately from verified semantic publication. |
+| [0018](0018-transported-ontology-evidence-keeps-its-origin.md) | Transport exact legacy ontology evidence and retain its original scope separately from locally captured releases. |

@@ -50,8 +50,8 @@ func legacyRequest(request LegacyRebuildRequest) RebuildRequest {
 }
 
 // RunLegacyRebuild requires a publisher that preserves legacy snapshot evidence.
-// The existing Git serializer is not such a publisher; host wiring must provide
-// the new portable contract before using this entry point operationally.
+// Git hosts use PrepareLegacyReleaseRepoint, which checks contract 2 and writes
+// the exact captured ontology evidence through the portable schema 2 format.
 func (s *Service) RunLegacyRebuild(ctx context.Context, request LegacyRebuildRequest, check func(context.Context, string, bool) error, publish func(context.Context, RebuildOperation) (map[string]string, error)) (RebuildOperation, error) {
 	return s.runRebuild(ctx, legacyRequest(request), check, publish, s.legacyRebuild())
 }

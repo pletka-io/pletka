@@ -141,6 +141,9 @@ func retargetProjectSnapshot(snapshot *ProjectSnapshot, targetProjectID string) 
 	if snapshot.Manifest.Project.ID == targetProjectID {
 		return snapshot, nil
 	}
+	if snapshot.LegacyOntology != nil {
+		return nil, fmt.Errorf("legacy evidence retains its original project identity; retargeting requires an explicit provenance mapping")
+	}
 
 	raw, err := json.Marshal(snapshot)
 	if err != nil {

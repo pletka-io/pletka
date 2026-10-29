@@ -205,7 +205,7 @@ func TestPilotQueriesCannotCrossStateOrWrite(t *testing.T) {
 				t.Errorf("%s contains a write", path)
 			}
 			for _, match := range tables.FindAllStringSubmatch(sql.String(), -1) {
-				isArchive := strings.HasSuffix(match[1], "_archive") || match[1] == "weave_release_descriptors"
+				isArchive := strings.HasSuffix(match[1], "_archive") || match[1] == "weave_release_descriptors" || match[1] == "weave_legacy_ontology_snapshots"
 				// This session facet reads only the release's capture certificate,
 				// never mutable project content from the release catalog.
 				isArchive = isArchive || (match[1] == "weave_releases" && filepath.Base(path) == "metadata.sql")
@@ -249,6 +249,9 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 			}
 			if p == "github.com/pletka-io/pletka/pkg/database/readsql/projectontologies" && (rel == "pkg/database/ontologyrelease/project_reader.go" || rel == "pkg/database/ontologyrelease/project_session.go") {
 				allowed = true
+			}
+			if p == "github.com/pletka-io/pletka/pkg/database/readsql/importedontologysnapshot" && (rel == "pkg/database/ontologysnapshot/imported_reader.go" || rel == "pkg/database/ontologysnapshot/imported_session.go") {
+				continue
 			}
 			if p == "github.com/pletka-io/pletka/pkg/database/readsql/ontologysnapshot" && (rel == "pkg/database/ontologysnapshot/reader.go" || rel == "pkg/database/ontologysnapshot/session.go") {
 				allowed = true

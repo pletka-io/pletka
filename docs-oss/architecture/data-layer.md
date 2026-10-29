@@ -335,6 +335,30 @@ continues to require contract 1.
 `PlanLegacyRebuild` / `RunLegacyRebuild` share the maintenance lease, atomic cut,
 stale-input checks and durable journal with ordinary rebuilds, using plan format
 2 and a separate request type. The fingerprint includes unpublished ontology
-inputs. The existing Git publisher and ordinary release creation do not select
-this contract; portable legacy export/restore and operator wiring remain pending.
+inputs. Ordinary release creation does not select this contract; Git preparation
+uses the explicit `PrepareLegacyReleaseRepoint` boundary for preserved evidence.
 See [ADR-0017](../decisions/0017-legacy-release-completeness-is-a-separate-contract.md).
+
+Migration 037 provides exact sealed-body restore and immutable imported ontology
+snapshots. `ontologysnapshot.Restore` validates the entire evidence bundle before
+an atomic body/import transaction. It preserves original bytes, source contexts
+and unresolved assessments without reparsing RDF, changing active policy or
+issuing publication/completion markers. `Factory.ReadImported` reads only this
+retained imported evidence by exact origin and digest; local release readers
+remain separate. Project/module schema 2 transports the snapshot in a fixed file.
+This is an ontology transport guarantee; complete structural project restore
+remains pending. See [ADR-0018](../decisions/0018-transported-ontology-evidence-keeps-its-origin.md).
+
+Migration 038 avoids reparsing full ontology bodies for each term and repeated
+reference. Capture builds a compact matching inventory once and assesses each
+distinct normalized reference once, while retaining every original location and
+the full exact body inventory. The assessment contract and captured bytes are
+unchanged; PostgreSQL regression tests compare against the previous functions.
+
+Migration 039 validates imported source graphs and assessment coverage in storage.
+An immutable context ledger binds original project/version identities across
+separate restores, with shared locks and uniqueness constraints for concurrent
+imports. Invalid evidence rolls back before an import key is retained. Capture
+and import reuse the same reference normalization and matching projection. The
+downgrade guard also protects exact transported body text from older capture
+functions that would normalize it.

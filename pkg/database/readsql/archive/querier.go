@@ -26,9 +26,11 @@ type Querier interface {
 	ModelPlacements(ctx context.Context, arg ModelPlacementsParams) ([]WeaveCollectionPlacementsArchive, error)
 	OverrideRefs(ctx context.Context, arg OverrideRefsParams) ([]WeaveOverrideRefsArchive, error)
 	ReleaseConceptNamespace(ctx context.Context, arg ReleaseConceptNamespaceParams) (ReleaseConceptNamespaceRow, error)
+	ReleaseContentContract(ctx context.Context, arg ReleaseContentContractParams) (int16, error)
 	ReleaseContentReceipt(ctx context.Context, arg ReleaseContentReceiptParams) ([]byte, error)
 	ReleaseDescriptors(ctx context.Context, arg ReleaseDescriptorsParams) (json.RawMessage, error)
 	ReleaseLegacyContentReceipt(ctx context.Context, arg ReleaseLegacyContentReceiptParams) ([]byte, error)
+	ReleaseLegacyOntologySnapshot(ctx context.Context, arg ReleaseLegacyOntologySnapshotParams) (ReleaseLegacyOntologySnapshotRow, error)
 	ReleaseModelTypes(ctx context.Context, arg ReleaseModelTypesParams) ([]ReleaseModelTypesRow, error)
 }
 

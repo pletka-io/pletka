@@ -55,9 +55,10 @@ func (e *restoreConflict) Unwrap() error           { return e.cause }
 func (e *restoreConflict) ConflictMessage() string { return e.Error() }
 
 func orderArtifacts(artifacts []Artifact) ([]Artifact, error) {
+	// A bundle may contain independent roots with different versions of an
+	// owner. Each artifact's Decode still validates its own closure pins.
 	values := map[string]Artifact{}
 	docs := map[string]Document{}
-	owners := map[string]string{}
 	for _, a := range artifacts {
 		d, err := a.Decode()
 		if err != nil {
@@ -66,12 +67,8 @@ func orderArtifacts(artifacts []Artifact) ([]Artifact, error) {
 		if old, ok := values[d.VersionID]; ok && old != a {
 			return nil, invalid("conflicting artifact bytes for %s", d.VersionID)
 		}
-		if old, ok := owners[d.OntologyID]; ok && old != d.VersionID {
-			return nil, invalid("conflicting artifact versions for %s", d.OntologyID)
-		}
 		values[d.VersionID] = a
 		docs[d.VersionID] = d
-		owners[d.OntologyID] = d.VersionID
 	}
 	ids := make([]string, 0, len(values))
 	for id := range values {
