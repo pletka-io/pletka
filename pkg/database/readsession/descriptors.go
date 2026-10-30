@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pletka-io/pletka/pkg/database/readsql/archive"
-	"github.com/pletka-io/pletka/pkg/database/releasedescriptor"
+	"github.com/pletka-io/pletka/pkg/releasedescriptor"
 )
 
 // Descriptors returns detached identity values for this session's release. Draft

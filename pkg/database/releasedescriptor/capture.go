@@ -76,7 +76,7 @@ func capture(ctx context.Context, q *sqlcgen.Queries, project, version string, h
 		d.ProjectModules[source.SourceProjectID] = s.Module()
 		// A shared ontology must keep the same module identity in every vendored
 		// source. Conflicting historical identities require an explicit decision.
-		for id, module := range s.doc.OntologyModules {
+		for id, module := range s.OntologyModules() {
 			if old, ok := d.OntologyModules[id]; ok && old != module {
 				return &InvalidError{Message: fmt.Sprintf("conflicting captured ontology module for %s", id)}
 			}

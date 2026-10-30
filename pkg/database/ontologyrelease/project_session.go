@@ -2,48 +2,28 @@ package ontologyrelease
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/jackc/pgx/v5"
-
-	readsql "github.com/pletka-io/pletka/pkg/database/readsql/projectontologies"
+	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 )
 
-// ReadProject binds a released project's captured ontology inventory. This has
-// no draft fallback. Values may escape; the reader cannot outlive its callback.
-func (f *Factory) ReadProject(ctx context.Context, project, version string, fn func(ProjectReader) error) (err error) {
+// ProjectReader is the session-bound, verified publication facet. The alias
+// preserves the standalone API while assembly uses Session.Ontologies directly.
+type ProjectReader = readsession.OntologyReader
+
+// ReadProject opens a standalone project session and binds its ontology facet.
+// Inside an existing session use Session.Ontologies; do not nest this factory.
+func (f *Factory) ReadProject(ctx context.Context, project, version string, fn func(ProjectReader) error) error {
 	if f == nil || f.pool == nil || strings.TrimSpace(project) == "" || strings.TrimSpace(version) == "" || fn == nil {
 		return fmt.Errorf("project ontology session requires a project and concrete release")
 	}
-	tx, err := f.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
-	if err != nil {
-		return err
-	}
-	r := &projectReader{queries: readsql.New(tx), project: project, version: version}
-	defer func() {
-		r.closed = true
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if closeErr := tx.Rollback(cleanup); closeErr != nil && !errors.Is(closeErr, pgx.ErrTxClosed) {
-			err = errors.Join(err, closeErr)
+	return readsession.NewFactory(f.pool).Read(ctx, auth.Release(version), project, func(s *readsession.Session) error {
+		r, err := s.Ontologies(ctx)
+		if err != nil {
+			return err
 		}
-	}()
-	verified, err := r.queries.ProjectOntologyInventory(ctx, readsql.ProjectOntologyInventoryParams{ProjectID: project, Version: version})
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && !verified {
-		return &projectMissingError{project: project, version: version}
-	}
-	if err != nil {
-		return err
-	}
-	return fn(r)
+		return fn(r)
+	})
 }
-
-type projectMissingError struct{ project, version string }
-
-func (e *projectMissingError) Error() string {
-	return fmt.Sprintf("project %s@%s has no verified ontology inventory", e.project, e.version)
-}
-func (e *projectMissingError) IsNotInRelease() bool { return true }

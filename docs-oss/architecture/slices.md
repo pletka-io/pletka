@@ -227,7 +227,9 @@ The bound release reader has only publication SELECTs, and `Dependency(owner)`
 can only follow recorded pins. Conformance limits legacy staging to old Git
 restore and raw publication queries to the publisher. Project cuts now capture
 linked/explicit ontology selections and source-project closures. Use
-`ontologyrelease.Factory.ReadProject` to receive immutable artifact values;
+`Session.Ontologies` to bind verified artifacts and semantic references to the
+existing project transaction. `ontologyrelease.Factory.ReadProject` is the
+standalone wrapper over that binding;
 released materializers never use current descriptor/default/alias queries.
 Vendor schema 2 preserves exact artifacts and restore verifies existing IDs.
 Migration 027 moves active selection to a separate policy table. Live status

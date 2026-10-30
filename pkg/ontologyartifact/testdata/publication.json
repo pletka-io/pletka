@@ -1,0 +1,22 @@
+{
+  "format_version": 1,
+  "ontology_id": "owner",
+  "version_id": "v1",
+  "body_json": "{ \"format_version\":1, \"ontology\":{\"id\":\"owner\",\"prefix\":\"ex\",\"name\":\"Original\"}, \"version\":{\"id\":\"v1\",\"ontology_id\":\"owner\",\"version_string\":\"7.1.3\",\"rdf_content\":\"<original/>\"}, \"classes\":[{\"uri\":\"https://one.example/A\",\"prefix\":\"ex\",\"local_name\":\"A\"}], \"namespace_bindings\":[{\"prefix\":\"ex\",\"namespace\":\"https://one.example/\",\"weight\":40,\"source\":\"version-derived\"},{\"prefix\":\"ex\",\"namespace\":\"https://two.example/\",\"weight\":40,\"source\":\"version-derived\"}], \"retained_unknown_field\": [1, 2] }",
+  "body_digest": "600140a0b0964a14453080c2b0f327f153d528fbce97939016b8a8e8e2631580",
+  "pins": [
+    {
+      "ontology_id": "source",
+      "version_id": "s1",
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "requirements": [
+    {
+      "kind": "import",
+      "name": "source",
+      "disposition": "pinned",
+      "ontology_id": "source"
+    }
+  ]
+}

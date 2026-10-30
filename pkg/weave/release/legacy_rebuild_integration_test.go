@@ -21,6 +21,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/rebuildlease"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 	"github.com/pletka-io/pletka/pkg/weave/ontology"
 )
 
@@ -76,6 +77,9 @@ func readLegacySnapshot(ctx context.Context, t *testing.T, p *pgxpool.Pool) onto
 	var saved *readsession.Session
 	err := readsession.NewFactory(p).Read(ctx, auth.Release(legacyVersion), legacyProject, func(s *readsession.Session) error {
 		saved = s
+		if _, err := s.Ontologies(ctx); apierror.FromError(err).Code != apierror.CodeNotInRelease {
+			t.Fatalf("legacy evidence acquired verified ontology reader: %v", err)
+		}
 		if _, err := s.Content(ctx); err == nil {
 			t.Error("legacy release passed verified-content boundary")
 		}

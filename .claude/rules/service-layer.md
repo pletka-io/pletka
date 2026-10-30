@@ -134,8 +134,11 @@ publisher. `StageLegacyVersion` is confined to old Git restore; it cannot mint a
 published identity. Exact external-reference classification is explicit. Operators
 may publish current stored bytes with `weave ontology-publish`; neither operation
 certifies historical content. Project cuts capture linked/explicit ontology
-selections and source-project closures centrally; use `Factory.ReadProject` for
-their immutable artifact values. Released materialization has no legacy fallback.
+selections and source-project closures centrally. Bind `Session.Ontologies` inside
+an existing project session; `Factory.ReadProject` is the standalone wrapper,
+never a nested assembler call. Portable publication values live in
+`pkg/ontologyartifact`, descriptor values in `pkg/releasedescriptor`; neither may
+import database or request capabilities. Released materialization has no legacy fallback.
 Vendor schema 2 and restore preserve exact bytes and reject existing-ID conflicts;
 never send schema 2 through the legacy RDF importer. Active selection lives in
 `weave_ontology_active_versions`, not version content. Use the shared selection

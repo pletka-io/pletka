@@ -221,7 +221,7 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 	root := repoRoot(t)
 	for _, path := range goFilesUnder(t, root) {
 		rel := mustRel(t, root, path)
-		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go" || rel == "pkg/database/readsession/metadata.go" || rel == "pkg/database/readsession/legacy_content.go") {
+		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go" || rel == "pkg/database/readsession/metadata.go" || rel == "pkg/database/readsession/legacy_content.go" || rel == "pkg/database/readsession/ontologies.go") {
 			continue
 		}
 		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
@@ -247,7 +247,7 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 			if p == "github.com/pletka-io/pletka/pkg/database/readsql/ontologyrelease" && (rel == "pkg/database/ontologyrelease/session.go" || rel == "pkg/database/ontologyrelease/reader.go") {
 				allowed = true
 			}
-			if p == "github.com/pletka-io/pletka/pkg/database/readsql/projectontologies" && (rel == "pkg/database/ontologyrelease/project_reader.go" || rel == "pkg/database/ontologyrelease/project_session.go") {
+			if p == "github.com/pletka-io/pletka/pkg/database/readsql/projectontologies" && (rel == "pkg/database/readsession/ontologies.go" || rel == "pkg/database/readsession/session.go") {
 				allowed = true
 			}
 			if p == "github.com/pletka-io/pletka/pkg/database/readsql/importedontologysnapshot" && (rel == "pkg/database/ontologysnapshot/imported_reader.go" || rel == "pkg/database/ontologysnapshot/imported_session.go") {

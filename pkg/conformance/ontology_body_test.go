@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -21,7 +22,7 @@ func TestOntologyReleaseReaderHasOnlyPublishedCapability(t *testing.T) {
 }
 
 func TestProjectOntologyReaderHasOnlyCapturedCapability(t *testing.T) {
-	checkOntologyCapability(t, "ontologyrelease/project_reader.go", "read_project_ontologies",
+	checkOntologyCapability(t, "readsession/ontologies.go", "read_project_ontologies",
 		[]string{"weave_releases", "weave_release_ontology_dependencies", "weave_ontology_releases", "weave_project_ontology_versions_archive", "weave_release_ontology_references"},
 		[]string{"project_id = @project_id", "version_number = @version"})
 }
@@ -33,14 +34,36 @@ func checkOntologyCapability(t *testing.T, reader, queries string, tablesAllowed
 	if err != nil {
 		t.Fatal(err)
 	}
+	if reader == "readsession/ontologies.go" {
+		allowed := map[string]bool{
+			"context": true, "encoding/json": true, "errors": true, "fmt": true,
+			"github.com/jackc/pgx/v5": true,
+			"github.com/pletka-io/pletka/pkg/database/readsql/projectontologies": true,
+			"github.com/pletka-io/pletka/pkg/ontologyartifact":                   true,
+		}
+		for _, imp := range file.Imports {
+			name, err := strconv.Unquote(imp.Path.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !allowed[name] {
+				t.Errorf("project ontology facet imports %s outside its captured SELECT capability", name)
+			}
+		}
+	}
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.StructType:
 			for _, field := range node.Fields.List {
 				switch ty := field.Type.(type) {
 				case *ast.Ident:
-					if ty.Name != "Reference" && ty.Name != "bool" && (reader != "ontologyrelease/project_reader.go" || ty.Name != "string") {
+					if ty.Name != "Reference" && ty.Name != "bool" && (reader != "readsession/ontologies.go" || ty.Name != "string") {
 						t.Errorf("reader retains %s", ty.Name)
+					}
+				case *ast.StarExpr:
+					id, ok := ty.X.(*ast.Ident)
+					if reader != "readsession/ontologies.go" || !ok || id.Name != "lifetime" {
+						t.Error("reader retains unrestricted pointer capability")
 					}
 				case *ast.SelectorExpr:
 					id, ok := ty.X.(*ast.Ident)
