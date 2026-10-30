@@ -143,11 +143,31 @@ reports them without guessing pins. New dependent cuts require sources already
 captured under this model: cut source projects first, or separately establish
 historical evidence. A downgrade refuses to discard captured inventories.
 
-`Session.Dependency(kind, id)` resolves recorded membership and binds a source
-session on the parent's transaction and lifetime. Its resolver receives only
-captured-membership queries. It cannot look up live owners or latest releases.
-Source authorization remains the caller's responsibility. Draft source resolution
-and migration of legacy adoption/aggregate callers remain pending.
+`Session.Dependencies` returns a detached concrete project closure;
+`ProjectDependency(project)` and `Dependency(kind,id)` bind only its recorded or
+planned sources. Every source shares the root transaction and lifetime, cached
+by project and release. Consumers cannot pass another source version.
+
+Configure `Factory.WithSourceAuthorization(auth.CheckProjectRead)` at the read
+boundary for interactive callers. Trusted jobs supply an explicit policy there.
+An unconfigured factory cannot traverse sources. The factory loads only current
+project ID/owner/visibility for access checks on the same transaction; captured
+visibility and pins grant no permission. Traversal checks transitive sources
+before returning a plan and rechecks policy when reusing cached source sessions.
+Root authorization remains the caller's responsibility.
+
+Draft planning and capture reuse `releasedeps` selection/conflict logic. Explicit
+pins and their closures constrain unpinned choices; remaining direct sources
+select latest once before their closures are merged. Missing publication, latest
+lookup errors, conflicting owners/pins, cycles and absent source membership fail.
+Explicit follow-source-draft configurations are unsupported by this planner and
+fail without conversion to latest. Read planning writes no receipts or pins.
+
+Generated SELECT capabilities in `read_dependency_draft/` and
+`read_dependency_archive/` compile the same named SQL used by capture. The released
+closure validator cannot access live-owner or latest queries. Live access policy
+is isolated in `read_project_access/`, limited to the three access fields. General
+legacy adoption/aggregate callers still await consumer migration.
 
 Migration 021 does not certify historical releases or complete content coverage. Run
 `pletka release audit-ownership` for a read-only JSON inventory of

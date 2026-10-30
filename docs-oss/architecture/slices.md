@@ -200,11 +200,18 @@ under the child's version or joining global rows solely by textual version numbe
 creates collisions. Migration 021 corrects capture ownership for new cuts and
 keeps unverified history unavailable. Migration 022 captures project pins and
 direct entity membership at cut time, with source-release retention. The bound
-session's `Dependency(kind, id)` supplies a source reader on the same snapshot
-and lifetime, using captured membership only. One source version per project is
+session's `Dependencies` enumerates the concrete closure; `ProjectDependency`
+and `Dependency(kind,id)` bind project/entity sources on that same snapshot and
+lifetime. Release roots use captured membership only. One source version per project is
 allowed in a closure; conflicting pins, cycles and unverified history fail.
 The marker covers project dependencies, not ontology artifacts or complete output.
-Draft source resolution and migration of adoption/aggregate APIs remain pending.
+Draft sessions now plan dependencies read-only through the same selection and
+conflict logic as capture. Configure source authorization once through
+`Factory.WithSourceAuthorization(auth.CheckProjectRead)` for interactive reads,
+or an explicit job policy. Missing policy denies traversal. Every source,
+including transitive and cached sources, uses current access metadata; pins grant
+no permission. Explicit follow-source-draft is rejected by this path. Legacy
+adoption/aggregate API migration remains pending.
 Collection usage labels for foreign fields still use the recorded ID until that
 consumer is migrated to the source reader.
 See [ADR-0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md).

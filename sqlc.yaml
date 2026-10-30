@@ -1,7 +1,7 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    queries: "pkg/database/queries/*.sql"
+    queries: ["pkg/database/queries/*.sql", "pkg/database/queries/read_dependency_draft/", "pkg/database/queries/read_dependency_archive/"]
     schema: "pkg/database/migrations/"
     gen:
       go:
@@ -198,3 +198,42 @@ sql:
             go_type: "time.Time"
           - db_type: "pg_catalog.timestamptz"
             go_type: "time.Time"
+  - engine: "postgresql"
+    queries: "pkg/database/queries/read_dependency_draft/"
+    schema: "pkg/database/migrations/"
+    gen:
+      go:
+        package: "dependencydraft"
+        out: "pkg/database/readsql/dependencydraft"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        emit_interface: true
+        omit_unused_structs: true
+  - engine: "postgresql"
+    queries: "pkg/database/queries/read_dependency_archive/"
+    schema: "pkg/database/migrations/"
+    gen:
+      go:
+        package: "dependencyarchive"
+        out: "pkg/database/readsql/dependencyarchive"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        emit_interface: true
+        omit_unused_structs: true
+  - engine: "postgresql"
+    queries: "pkg/database/queries/read_project_access/"
+    schema: "pkg/database/migrations/"
+    gen:
+      go:
+        package: "projectaccess"
+        out: "pkg/database/readsql/projectaccess"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_empty_slices: true
+        emit_pointers_for_null_types: true
+        emit_interface: true
+        omit_unused_structs: true

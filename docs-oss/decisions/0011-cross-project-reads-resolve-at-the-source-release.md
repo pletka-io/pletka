@@ -1,7 +1,7 @@
 # ADR-0011: Cross-project reads resolve at the source project's release
 
 Date: 2026-10-23  
-Status: Accepted; amended 2026-10-26, implementation incomplete
+Status: Accepted; amended 2026-10-26 and 2026-10-30, consumer migration incomplete
 
 ---
 
@@ -60,13 +60,39 @@ pins and their closures constrain unpinned references; other direct sources
 resolve independently before merging their closures. One version per source
 project is supported: conflicting pins and project cycles reject the cut.
 Existing inventories remain unverified; the read-only `audit-dependencies`
-command identifies them. Historical verification, draft-session resolution,
-remaining legacy callers and complete output dependencies are still pending.
+command identifies them. Remaining legacy callers and complete output dependencies
+are still pending. Bound draft planning is implemented by the amendment below.
 Ontology artifacts follow ADR-0013 and are not certified by this marker.
 `auth.Release("")` and whitespace-only versions are
 now invalid. Only `auth.ScopeForResolvedVersion` deliberately translates a
 successful empty request-policy result to draft. This removes the implicit
 foreign-draft substitution; it does not supply missing source pins.
+
+## Amendment: bound planning and source authorization (2026-10-30)
+
+`Session.Dependencies` enumerates concrete source projects. `ProjectDependency`
+and `Dependency` resolve only that session's project closure/direct entity
+membership. They share the root transaction and lifetime and cache bound sessions
+by `(project, version)`. No traversal method accepts a caller-selected version.
+
+Draft reads and release capture now share one selection/conflict planner. Reads
+receive separate generated draft and archive SELECT capabilities and never call
+the persistence phase. Explicit pins constrain choices first; other direct
+sources select latest once before merging their closures. The released closure
+validator has no draft-owner, latest or write capability. Missing publication,
+lookup errors, conflicting owners/pins, cycles and missing membership fail without
+partial plans. An explicit follow-source-draft edge is rejected by this path;
+a dedicated authorized workflow remains future work.
+
+The factory requires a source authorization policy to enable traversal. Interactive
+callers configure `WithSourceAuthorization(auth.CheckProjectRead)`; privileged jobs
+choose their policy explicitly. The default factory grants no source traversal.
+Current project ID/owner/visibility are loaded through a separate minimal SELECT
+on the same transaction; historical visibility and immutable pins do not grant
+permission. Every transitive source is checked before a plan escapes, and cached
+sessions are checked again before reuse. The request/job boundary still authorizes
+the root. This is the contract for the bound API; legacy aggregate consumers must
+still migrate through the assembler.
 
 ## Original decision (2026-10-23; qualified by the amendment)
 

@@ -124,7 +124,7 @@ func TestOntologyFacetSharesSessionAcrossRepeatedAndNestedSources(t *testing.T) 
 	defer cancel()
 	var escaped readsession.OntologyReader
 	var source *readsession.Session
-	if err := readsession.NewFactory(pool).Read(ctx, auth.Release("1.0.0"), a.project, func(s *readsession.Session) error {
+	if err := readsession.NewFactory(pool).WithSourceAuthorization(auth.CheckProjectRead).Read(ctx, auth.Release("1.0.0"), a.project, func(s *readsession.Session) error {
 		for range 2 {
 			bs, err := s.Dependency(ctx, "collection", b.collection)
 			if err != nil {

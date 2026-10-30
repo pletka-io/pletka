@@ -107,10 +107,20 @@ only; unresolved/draft dependencies cannot be cut into a release. Shared archive
 membership belongs to the consuming release, never a global textual version key.
 
 Project pins and direct membership now live in migration 022's tables. Released
-source readers use `Session.Dependency(kind, id)` on the same transaction and
-lifetime; they never select latest. Conflicting source versions, cycles and
-unverified inventories fail. Source pins retain the referenced release. This
-does not migrate all legacy consumers or certify ontology/output completeness.
+source readers use `Session.Dependency(kind,id)` or `ProjectDependency(project)`
+on the same transaction/lifetime; `Dependencies` enumerates the captured closure.
+Draft sessions plan once through shared capture selection/conflict logic without
+writes. Released traversal has no live-owner/latest capability. Source sessions
+are cached by concrete project/version, never by a moving label.
+
+Configure `WithSourceAuthorization(auth.CheckProjectRead)` once on the factory
+for interactive reads; trusted jobs supply an explicit policy. Without it, source
+traversal fails. The factory supplies current ID/owner/visibility on the same
+transaction. It checks every source before returning a plan and rechecks access
+when returning cached sessions. Root authorization stays at the request boundary.
+Conflicting pins, cycles, unavailable history and explicit follow-source-draft
+fail; this planner never turns a draft-following edge into latest. Legacy consumer
+migration and complete output coverage remain separate work.
 
 ### Ontology editor boundary
 
