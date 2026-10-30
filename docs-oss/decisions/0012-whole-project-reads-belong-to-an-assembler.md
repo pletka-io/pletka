@@ -114,8 +114,12 @@ values and lossless typed coverage for all 22 sections / 272 captured columns.
 Construction checks explicit section coverage, source closure, required references
 and retained interpretation evidence; input/output buffers are detached. The
 [public value contract](../reference/project-snapshot-values.md) records the exact
-boundary. Database assembly, contextual view composition and portable output
-remain pending; value counts do not authenticate source rows or certify a loader.
+boundary. `pkg/service/projectread` now loads complete projects and their source
+closures on the supplied session, using converted slice readers and an explicit
+temporary-adapter registry. Actual-cut parity and concurrent-edit tests cover the
+production loader. Contextual view composition, bounded database entity loading,
+portable output and consumer migration remain pending. Value counts alone do not
+authenticate source rows.
 
 Authored semantic paths remain available for portable round-tripping. Rendering
 uses captured exact term identities: a QName is valid only if the output binding

@@ -85,8 +85,8 @@ func TestPilotReadMethodsUseBoundSessions(t *testing.T) {
 func TestPilotReaderCapabilitiesAreStateSpecific(t *testing.T) {
 	root := repoRoot(t)
 	parameterCounts := map[string]map[string]int{
-		"collection": {"Get": 2, "List": 2, "Usage": 2, "ScopeClasses": 1, "CategoriesUsed": 1, "CompositionCounts": 2},
-		"override":   {"ListForEntity": 3, "ListForField": 2, "ListByType": 2, "GetRefs": 2, "GetByID": 2, "GetBase": 2, "ListPlacements": 2},
+		"collection": {"Get": 2, "List": 2, "Usage": 2, "ScopeClasses": 1, "CategoriesUsed": 1, "CompositionCounts": 2, "ContentCollections": 2},
+		"override":   {"ListForEntity": 3, "ListForField": 2, "ListByType": 2, "GetRefs": 2, "GetByID": 2, "GetBase": 2, "ListPlacements": 2, "ContentOverrides": 2, "ContentOverrideRefs": 2, "ContentPlacements": 2},
 	}
 	for _, slice := range []string{"collection", "override"} {
 		for _, state := range []string{"draft", "archive"} {
@@ -221,7 +221,7 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 	root := repoRoot(t)
 	for _, path := range goFilesUnder(t, root) {
 		rel := mustRel(t, root, path)
-		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go" || rel == "pkg/database/readsession/metadata.go" || rel == "pkg/database/readsession/legacy_content.go" || rel == "pkg/database/readsession/ontologies.go") {
+		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go" || rel == "pkg/database/readsession/metadata.go" || rel == "pkg/database/readsession/legacy_content.go" || rel == "pkg/database/readsession/ontologies.go" || rel == "pkg/database/readsession/draft_evidence.go" || rel == "pkg/database/readsession/content_reader.go" || rel == "pkg/database/readsession/content_draft.go" || rel == "pkg/database/readsession/content_archive.go") {
 			continue
 		}
 		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
@@ -237,7 +237,7 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 				}
 				continue
 			}
-			allowed := rel == "pkg/weave/collection/reader_draft.go" || rel == "pkg/weave/collection/reader_archive.go" || rel == "pkg/weave/override/reader_draft.go" || rel == "pkg/weave/override/reader_archive.go"
+			allowed := rel == "pkg/weave/example/content_draft.go" || rel == "pkg/weave/example/content_archive.go" || rel == "pkg/weave/vocabulary/content_draft.go" || rel == "pkg/weave/vocabulary/content_archive.go" || rel == "pkg/weave/collection/reader_draft.go" || rel == "pkg/weave/collection/reader_archive.go" || rel == "pkg/weave/override/reader_draft.go" || rel == "pkg/weave/override/reader_archive.go"
 			if p == "github.com/pletka-io/pletka/pkg/database/readsql/ontologydraft" && (rel == "pkg/weave/ontology/draft_reader.go" || rel == "pkg/weave/ontology/draft_session.go" || rel == "pkg/weave/ontology/draft_publish.go") {
 				allowed = true
 			}
@@ -276,7 +276,7 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 			if sel.Sel.Name != "DraftQueries" && sel.Sel.Name != "ArchiveQueries" {
 				return true
 			}
-			if rel != "pkg/weave/collection/read_sessions.go" && rel != "pkg/weave/override/read_sessions.go" {
+			if rel != "pkg/weave/collection/read_sessions.go" && rel != "pkg/weave/override/read_sessions.go" && rel != "pkg/weave/vocabulary/content_reader.go" && rel != "pkg/weave/example/content_reader.go" {
 				t.Errorf("%s obtains raw session queries instead of a bound reader", rel)
 			}
 			return true

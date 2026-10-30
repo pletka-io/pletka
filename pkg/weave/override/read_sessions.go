@@ -7,10 +7,15 @@ import (
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/projectsnapshot"
 )
 
 // Reader serves overrides owned by one bound project and database snapshot.
 type Reader interface {
+	ContentOverrides(context.Context, readsession.Page) ([]projectsnapshot.OverrideRecord, error)
+	ContentOverrideRefs(context.Context, readsession.Page) ([]projectsnapshot.OverrideRefRecord, error)
+	ContentPlacements(context.Context, readsession.Page) ([]projectsnapshot.PlacementRecord, error)
+
 	ListForEntity(context.Context, string, string) ([]domain.FieldOverride, error)
 	ListForField(context.Context, string) ([]domain.FieldOverride, error)
 	ListByType(context.Context, string) ([]domain.FieldOverride, error)

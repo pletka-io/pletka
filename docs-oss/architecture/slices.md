@@ -263,13 +263,15 @@ serializers without database access. Transitional adapters must share that
 transaction, remain private and have a removal task. The assembler consumes the
 recorded dependency graph; it does not repair missing historical pins.
 
-This assembler is not implemented yet. Its acceptance requires an explicit domain
-coverage inventory, actual-cut parity and isolation after edits, deletions and
-source publications. Existing writer parity covers only a subset. Coverage must
-include fields omitted by capture even when their archive column exists, and
-portable additions need matching restore support. Entity exports may assemble a
-smaller graph through the same session; an incomplete fragment cannot be returned
-as a complete project. Publication's timestamp-based dirty-state queries require
+`pkg/service/projectread` now implements complete-project loading for all 22
+sections and the concrete source closure, with actual-cut parity and isolation
+after edits, deletions and source publications. Its explicit binding registry
+preserves converted readers and names replacement APIs for temporary adapters.
+See the [value and loading contract](../reference/project-snapshot-values.md).
+Pure contextual composition, bounded database entity loading and consumer
+migration remain pending. Portable additions still need matching restore support.
+An incomplete fragment cannot be returned as a complete project.
+Publication's timestamp-based dirty-state queries require
 a separate semantic/performance decision;
 search retains its separate read shape. See
 [ADR-0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).
@@ -349,6 +351,6 @@ The interface remains a removal candidate.
 
 Project semantic references are captured centrally at release creation, not by
 individual slice readers. The bound ontology inventory exposes exact resolved
-identities for the planned assembler; source references remain source-owned. New
+identities for the assembler; source references remain source-owned. New
 semantic fields must extend the shared inventory and its storage checks. See
 [ADR-0015](../decisions/0015-project-semantic-references-at-release-cut.md).

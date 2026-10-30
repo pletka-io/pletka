@@ -2,9 +2,10 @@
 
 `pkg/projectsnapshot` is the database-free value boundary for the whole-project
 assembler in [ADR-0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).
-Its construction and field coverage are implemented. Production database assembly,
-pure contextual view composition, Git encoding/restore and generator wiring still
-follow separately. Existing export DTOs do not become complete by wrapping them.
+Its construction, field coverage and complete-project database assembly through
+`pkg/service/projectread` are implemented. Pure contextual view composition,
+bounded entity loading, Git encoding/restore and generator wiring follow
+separately. Existing export DTOs do not become complete by wrapping them.
 
 ## Construction
 
@@ -43,20 +44,25 @@ schema model. All 272 current archive columns are retained; there are no additio
 value-level exclusions. JSON validation covers every byte column, checked by the
 same ratchet. Do not mechanically regenerate the capture ledger from these values.
 
-The registry explicitly marks each section's loader as pending S3 and portable
-encoding/restore as pending S4. Those are open gates, not implemented adapters.
-When introducing a loader, replace its pending disposition with the actual bound
-capability and field mapping. Register transitional adapters with tables, owning
-slice, replacement API and removal phase. Converted slices retain their existing
-Reader boundary. Portable encoding must independently account for each retained
-field and its restore behavior before a full-project tree claims completeness.
+Each section names its implemented bound loader; portable encoding/restore remains
+pending. The [assembly bindings](../../pkg/service/projectread/coverage.go)
+register all 22 sections, including tables, owning slice, mapper files and queries.
+Eleven sections use collection, override, vocabulary and example readers. Eleven
+use temporary session adapters with named replacement APIs and S6 removal tasks.
+Converted slices cannot be downgraded to temporary adapters. The
+[assembly conformance test](../../pkg/conformance/project_assembly_test.go) checks
+actual SQL projections and typed mapper fields against the independent coverage
+contract. Portable encoding must independently account for each retained field
+and its restore behavior before a full-project tree claims completeness.
 
 Records retain raw authored JSON bytes, import provenance, statuses, array order,
 raw paths alongside structured paths, nullable override settings and all repeated
 override/placement identities. SQL null is distinct from JSON `null` bytes.
 `Decimal` preserves exact numeric text without float64 conversion. `Timestamp`
-and `Date` preserve text and infinities; loaders must use a fixed UTC timestamp
-representation. These scalar types do not infer or repair historical defaults.
+and `Date` preserve text and infinities. Database loaders emit finite timestamps
+as UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ` and dates as `YYYY-MM-DD`, with a ` BC` suffix
+for years before the common era. These projections do not depend on session
+timezone or `DateStyle`. These scalar types do not infer or repair historical defaults.
 The private JSON/base64 buffer freeze is an implementation detail, not a wire
 format or a replacement for canonical node serialization.
 
@@ -64,6 +70,39 @@ Input pointers/bytes and returned content are detached. Project and fragment
 identity lists have stable ordering. Row arrays preserve the supplied order;
 loaders must select deterministic order explicitly. No constructor sorts away
 repeated placements or chooses a global winning override.
+
+## Bound database assembly
+
+Construct `projectread.Assembler` once with `New(DefaultOptions())`, adjusting
+limits and draft module hosts at wiring time. Within the boundary's
+`readsession.Factory` callback, call `assembler.Project(ctx, session)`. The caller
+authorizes the root; the factory's explicit source policy authorizes the entire
+captured source closure. The assembler accepts no independent project or scope,
+pool, transaction factory or arbitrary query capability. Every section, source,
+descriptor and ontology input is loaded sequentially on the supplied read-only
+repeatable-read transaction. The returned value remains usable after it closes.
+
+Each query has deterministic bounded paging. Defaults are 256 rows per page,
+1,000,000 rows, 256 MiB of encoded payload and 256 projects including the root.
+Limits must be positive; pages may contain at most 1024 rows. The byte budget
+counts encoded row pages and ontology artifact/reference bytes, not descriptors
+or peak process memory. It is checked as inputs arrive; it does not prevent a
+single large database value from being fetched. Exceeding a limit returns a
+`BudgetError` and no partial complete value. Query, authorization, cancellation
+and validation failures also return no partial result.
+
+Draft assembly and release capture share the read-only ontology selection planner
+in `pkg/database/projectontology`. Explicit selections, defaults and inherited
+published closures must agree. Draft assembly requires verified published
+ontology evidence, normalizes adoption source pins and builds descriptors on the
+same session. Released assembly dispatches explicitly on the stored content
+contract: verified evidence for contract 1, exact legacy evidence for contract 2.
+It never recovers a failed verified read by trying legacy or live data.
+
+Required historical evidence that is absent remains `not_in_release`. In
+particular, migration 040 adds ontology-link authors to future captured actor
+inventories without rewriting historical descriptor documents. A complete read
+cannot obtain a missing historical author from today's actor table.
 
 ## Closure and interpretation
 
@@ -93,6 +132,8 @@ row sections complete or permit reconstruction with a complete receipt.
 
 Pure contextual view composition is still required: these records preserve every
 source body and consumer override, but do not apply display precedence or replace
-the existing resolver. Likewise the same-session concurrency guarantee belongs to
-S3. The PostgreSQL value fixture proves compatibility with real captured rows; its
-test-only adapter does not certify production assembly.
+the existing resolver. Production assembler integration tests now prove actual-cut
+field parity, same-session consistency during edits, concrete transitive source
+isolation, authorization, legacy/published evidence separation and detached output.
+The older PostgreSQL value fixture remains a separate constructor compatibility
+check; consumer migrations and portable round-tripping still need their own proof.

@@ -1,7 +1,7 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    queries: ["pkg/database/queries/*.sql", "pkg/database/queries/read_dependency_draft/", "pkg/database/queries/read_dependency_archive/"]
+    queries: ["pkg/database/queries/*.sql", "pkg/database/queries/read_dependency_draft/", "pkg/database/queries/read_dependency_archive/", "pkg/database/queries/read_draft/ontology.sql"]
     schema: "pkg/database/migrations/"
     gen:
       go:

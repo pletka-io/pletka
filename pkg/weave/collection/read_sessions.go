@@ -7,12 +7,15 @@ import (
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/projectsnapshot"
 	"github.com/pletka-io/pletka/pkg/weave/override"
 )
 
 // Reader serves only its bound project's content in one database snapshot.
 // Foreign sources require separate dependency resolution, never a project argument.
 type Reader interface {
+	ContentCollections(context.Context, readsession.Page) ([]projectsnapshot.CollectionRecord, error)
+
 	Get(context.Context, string) (*domain.Collection, error)
 	List(context.Context, ...domain.QueryOption) ([]*domain.Collection, int64, error)
 	Usage(context.Context, string) (UsageReport, error)

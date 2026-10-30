@@ -134,8 +134,9 @@ serializers accept it or the distinct `EntityFragment`. Explicit empty sections
 are required, and source identities/evidence stay separate. Do not flatten null
 override settings, repeated placements, exact numeric text or raw JSON through
 lossy domain DTOs. See the [value contract](../../docs-oss/reference/project-snapshot-values.md).
-Database assembly and portable restore remain open gates; the private value
-freeze encoding is not a wire format.
+`projectread` implements complete-project database assembly. Contextual composition,
+bounded database entity loading and portable restore remain open gates; the
+private value freeze encoding is not a wire format.
 
 ### Ontology editor boundary
 
@@ -185,11 +186,14 @@ Project semantic references are captured at cut time under ADR-0015. See
 
 The assembler of
 [ADR-0012](../../docs-oss/decisions/0012-whole-project-reads-belong-to-an-assembler.md)
-receives the bound session and emits complete domain values. It is planned, not
-yet implemented. Consumers serialize these values without database access.
+is implemented by `pkg/service/projectread`: it receives the bound session and
+emits complete detached values. Consumers serialize these without database access;
+their migrations remain separate work.
 
 - A slice never grows whole-project assembly or its own export-shaped data model.
 - Transitional adapters must share the transaction and be registered for removal.
+- Use the registered lossless paged row facets; never substitute truncated display
+  projections. Converted slices keep their bound reader ownership.
 - Bind ontology/dependency readers to that session; do not nest read factories.
 - Complete values require every registered section; fragments have a separate shape.
 - Foreign content retains its source's status and provenance.

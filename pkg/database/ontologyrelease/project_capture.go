@@ -2,11 +2,9 @@ package ontologyrelease
 
 import (
 	"context"
-	"errors"
 	"sort"
 
-	"github.com/jackc/pgx/v5"
-
+	"github.com/pletka-io/pletka/pkg/database/projectontology"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
@@ -35,38 +33,26 @@ func CaptureProject(ctx context.Context, q *sqlcgen.Queries, project, version st
 	if err != nil {
 		return err
 	}
-	candidates, err := q.WeaveOntologyPublicationCandidates(ctx)
-	if err != nil {
-		return err
-	}
-	p := publisher{ctx: ctx, q: q, candidates: candidates, pins: map[string]Pin{}, sources: map[string]bodyDocument{}, opts: Options{Pins: map[string]string{}}}
-	direct, err := projectDirectPins(ctx, q, &p, selected)
-	if err != nil {
-		return err
-	}
-	// A declared defaults link overrides active policy. Resolve it before any
-	// source closure can influence the choice; conflicts must be explicit.
-	if len(selected) > 0 || len(refs) > 0 {
-		for _, c := range candidates {
-			if c.Prefix == defaultsPrefix {
-				pin, err := p.choose(c.OntologyID, "")
-				if err != nil {
-					return err
-				}
-				direct = append(direct, pin)
-				break
-			}
-		}
-	}
-	for _, pin := range direct {
-		if err := p.add(pin); err != nil {
-			return err
-		}
-	}
+	pins := make([]Pin, 0, len(inherited))
 	for _, pin := range inherited {
-		if err := p.add(Pin{OntologyID: pin.OntologyID, VersionID: pin.OntologyVersionID, Digest: pin.Digest}); err != nil {
+		pins = append(pins, Pin{OntologyID: pin.OntologyID, VersionID: pin.OntologyVersionID, Digest: pin.Digest})
+	}
+	artifacts, err := projectontology.Plan(ctx, projectPlanner{queries: q}, selected, pins, len(refs) > 0)
+	if err != nil {
+		return err
+	}
+	p := publisher{pins: map[string]Pin{}, sources: map[string]bodyDocument{}}
+	for _, a := range artifacts {
+		d, err := a.Decode()
+		if err != nil {
 			return err
 		}
+		body, err := decodeBody(d.BodyJSON)
+		if err != nil {
+			return err
+		}
+		p.pins[d.OntologyID] = Pin{OntologyID: d.OntologyID, VersionID: d.VersionID, Digest: a.Digest}
+		p.sources[d.OntologyID] = body
 	}
 	owners := make([]string, 0, len(p.pins))
 	for owner := range p.pins {
@@ -83,23 +69,4 @@ func CaptureProject(ctx context.Context, q *sqlcgen.Queries, project, version st
 		return err
 	}
 	return captureProjectReferences(ctx, q, &p, project, version, refs)
-}
-
-func projectDirectPins(ctx context.Context, q *sqlcgen.Queries, p *publisher, selected []string) ([]Pin, error) {
-	direct := []Pin{}
-	for _, id := range selected {
-		row, err := q.WeavePublishedOntologyIdentity(ctx, id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, invalid("ontology version %s is not published; publish it before cutting a project release", id)
-		}
-		if err != nil {
-			return nil, err
-		}
-		if old, ok := p.opts.Pins[row.OntologyID]; ok && old != row.VersionID {
-			return nil, invalid("project selects conflicting ontology versions for %s", row.OntologyID)
-		}
-		p.opts.Pins[row.OntologyID] = row.VersionID
-		direct = append(direct, Pin{OntologyID: row.OntologyID, VersionID: row.VersionID, Digest: row.Digest})
-	}
-	return direct, nil
 }

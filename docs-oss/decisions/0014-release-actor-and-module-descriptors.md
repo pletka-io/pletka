@@ -17,7 +17,8 @@ The release transaction captures a format-versioned descriptor document after
 archiving bodies and resolving project/ontology pins. It records:
 
 - Actor ID, type, slug and display name for the archived owner/creator, release
-  author, adoption/fork authors, project attributions and project actor links.
+  author, adoption/fork authors, ontology-link authors, project attributions and
+  project actor links.
 - The owning project's concrete module identifier and those of every captured
   source project, taken from each source release's own descriptors.
 - Concrete ontology module identifiers for the pinned ontology closure. Source
@@ -55,6 +56,12 @@ from current state. Retained Git artifacts remain historical evidence. There is
 no automatic backfill, recertification or rewrite of existing tags. Downgrade
 refuses to discard stored descriptor snapshots.
 
+Migration 040 extends the shared actor-reference view with ontology-link
+`added_by_id`, which complete-project assembly needs to interpret its retained
+link rows. New cuts capture those authors. Upgrading leaves historical descriptor
+bytes unchanged; when an older document lacks a required link author, complete
+assembly returns `not_in_release` rather than reading current actor data.
+
 This supplies identity inputs for ADR-0012's assembler. It does not complete that
 assembler, migrate every project-page reader, add credit serialization where it
 was absent, or inventory ontology QName/URI references without explicit version
@@ -68,3 +75,5 @@ Integration tests compare complete parent/child release trees and load the
 serialized snapshot after actor and host changes, including receipts, ontology
 vendors and sums. They also cover transaction snapshot consistency, rollback,
 missing historical descriptors, storage guards and downgrade refusal.
+Assembler regressions also cover new ontology-link author capture and unchanged
+historical documents across the migration 040 upgrade.

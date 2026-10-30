@@ -1,7 +1,7 @@
 # Release capture coverage
 
-The complete-project value contract is implemented; its database assembler is
-still planned. Capture evidence has separate
+The complete-project value contract and same-session database assembler are
+implemented; portable output and consumer migration remain pending. Capture evidence has separate
 contracts; archive ownership, dependency pins, ontology references and descriptors
 do not certify that every project field was copied or can be restored from Git.
 See [ADR-0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).
@@ -91,9 +91,9 @@ explicit placements, credits, model type and project settings need assembler and
 portable-format support. Section dispositions record these gaps; exact assembler
 field mappings now exist in [project snapshot values](project-snapshot-values.md).
 The independent value conformance check covers all 272 columns and their
-nullability/types. Each section declares its database loader and portable restore
-as pending; those gates still need implementation. Existing tag bytes and
-export/browser consumers are unchanged.
+nullability/types. Each section names its implemented bound loader, with SQL and
+mapper conformance checks. Portable restore remains a separate pending gate.
+Existing tag bytes and export/browser consumers are unchanged.
 
 Validation includes real cuts of auxiliary/example/core models, null/blank/custom
 namespaces, subsequent live edits/deletion and a second cut, concurrent edits,
