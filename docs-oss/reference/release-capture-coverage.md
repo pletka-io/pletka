@@ -140,6 +140,15 @@ session. Draft, zero and closed sessions fail; an unverified release returns
 prove that existing consumers serialize every section, or replace the separate
 ontology, descriptor and source-resolution contracts.
 
+Detached receipt types and decoding live in `pkg/releasecontent`. Verified and
+legacy receipts are distinct types bound to a concrete project/release. Decoding
+requires the exact 22 reviewed section names, nonnegative explicit counts and
+valid hashes; a map of the right size with a substituted section is rejected.
+`CheckCounts` requires every loaded count, including zero. It checks row coverage,
+not field mappings, reference closure or portable completeness. The receipt
+registry is checked against the independent capture ledger. An imported document
+cannot establish capture provenance merely by parsing successfully.
+
 Legacy releases receive no automatic receipt. An explicit rebuild/repoint tool
 may replace a controlled legacy snapshot set and recapture dependency pins in
 source-first order. Normal readers and cuts have no compatibility switch that

@@ -1,7 +1,6 @@
-package ontologysnapshot
+package ontologyevidence
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -19,7 +18,7 @@ func restoreContext(t *testing.T, project string) Document {
 	return d
 }
 
-func TestRestoreRejectsCrossArtifactSourceContextConflictsBeforeDatabase(t *testing.T) {
+func TestBundleRejectsCrossArtifactSourceContextConflicts(t *testing.T) {
 	source := artifact(t, restoreContext(t, "shared-source"))
 	first := restoreContext(t, "first")
 	first.Sources = []Source{{JSON: source.JSON, Digest: source.Digest}}
@@ -36,9 +35,6 @@ func TestRestoreRejectsCrossArtifactSourceContextConflictsBeforeDatabase(t *test
 	if err := ValidateBundle(values); err == nil || !strings.Contains(err.Error(), "source contexts") {
 		t.Fatalf("bundle preflight accepted conflicting source contexts: %v", err)
 	}
-	if err := Restore(context.Background(), nil, values); err == nil || !strings.Contains(err.Error(), "source contexts") {
-		t.Fatalf("cross-artifact context conflict not rejected before database: %v", err)
-	}
 }
 
 func TestValidateBundleAcceptsSharedSourceContext(t *testing.T) {
@@ -51,14 +47,14 @@ func TestValidateBundleAcceptsSharedSourceContext(t *testing.T) {
 	}
 }
 
-func TestRestoreRejectsRootAndEmbeddedContextDisagreement(t *testing.T) {
+func TestBundleRejectsRootAndEmbeddedContextDisagreement(t *testing.T) {
 	source := restoreContext(t, "shared-source")
 	embedded := artifact(t, source)
 	root := restoreContext(t, "root")
 	root.Sources = []Source{{JSON: embedded.JSON, Digest: embedded.Digest}}
 	root.SourceRefs = []ContextReference{{ProjectID: source.ProjectID, Version: source.Version, Digest: embedded.Digest}}
 	source.Elements, source.Assessments = nil, nil
-	if err := Restore(context.Background(), nil, []Artifact{artifact(t, root), artifact(t, source)}); err == nil || !strings.Contains(err.Error(), "local contexts") {
+	if err := ValidateBundle([]Artifact{artifact(t, root), artifact(t, source)}); err == nil || !strings.Contains(err.Error(), "local contexts") {
 		t.Fatalf("root/source disagreement accepted: %v", err)
 	}
 }

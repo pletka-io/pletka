@@ -2,13 +2,13 @@ package readsession
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pletka-io/pletka/pkg/database/readsql/archive"
+	"github.com/pletka-io/pletka/pkg/releasecontent"
 )
 
 // ReleaseMetadata is detached evidence for capture contract 1: concept namespace
@@ -19,22 +19,11 @@ type ReleaseMetadata struct {
 	modelTypes         map[string]string
 }
 
-// ContentSection is storage evidence for one owned archive section, including
-// an empty section. SHA256 hashes PostgreSQL row values, not portable Git bytes.
-type ContentSection struct {
-	Rows   int64  `json:"rows"`
-	SHA256 string `json:"sha256"`
-}
+// ContentSection is detached storage evidence for one owned archive section.
+type ContentSection = releasecontent.Section
 
-// ContentReceipt certifies complete immutable owned content under contract 1.
-// It does not certify an assembler, serializer or restore implementation.
-type ContentReceipt struct{ sections map[string]ContentSection }
-
-// Section returns a detached section value; absent and empty are distinct.
-func (r ContentReceipt) Section(name string) (ContentSection, bool) {
-	section, ok := r.sections[name]
-	return section, ok
-}
+// ContentReceipt is the distinct contract 1 receipt, not an assembled graph.
+type ContentReceipt = releasecontent.Verified
 
 // Content requires the storage-verified complete owned-content receipt on this
 // bound session. Unverified releases must be rebuilt, never filled from live data.
@@ -50,17 +39,7 @@ func (s *Session) Content(ctx context.Context) (ContentReceipt, error) {
 	if err != nil {
 		return ContentReceipt{}, fmt.Errorf("read content receipt: %w", err)
 	}
-	var document struct {
-		FormatVersion int                       `json:"format_version"`
-		Sections      map[string]ContentSection `json:"sections"`
-	}
-	if err := json.Unmarshal(raw, &document); err != nil {
-		return ContentReceipt{}, fmt.Errorf("decode content receipt: %w", err)
-	}
-	if document.FormatVersion != 1 || len(document.Sections) != 22 {
-		return ContentReceipt{}, errors.New("unsupported content receipt")
-	}
-	return ContentReceipt{sections: document.Sections}, nil
+	return releasecontent.DecodeVerified(raw, s.projectID, s.scope.Version())
 }
 
 // ConceptNamespace preserves null versus an authored empty or whitespace value.

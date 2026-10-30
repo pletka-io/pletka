@@ -1,4 +1,4 @@
-package ontologysnapshot
+package ontologyevidence
 
 import (
 	"encoding/json"

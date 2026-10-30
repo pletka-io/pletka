@@ -19,7 +19,7 @@ func NewFactory(pool *pgxpool.Pool) *Factory { return &Factory{pool: pool} }
 
 // Read validates one exact retained snapshot before entering a read-only callback.
 func (f *Factory) Read(ctx context.Context, ref Reference, fn func(Reader) error) (err error) {
-	if f == nil || f.pool == nil || ref.digest == "" || fn == nil {
+	if f == nil || f.pool == nil || ref.Digest() == "" || fn == nil {
 		return fmt.Errorf("legacy snapshot session requires a reference and callback")
 	}
 	tx, err := f.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})

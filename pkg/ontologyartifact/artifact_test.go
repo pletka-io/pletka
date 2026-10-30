@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pletka-io/pletka/pkg/namespace"
 	"github.com/pletka-io/pletka/pkg/ontologyartifact"
 )
 
@@ -35,7 +34,11 @@ func TestExactPublicationBytesAndDetachedValues(t *testing.T) {
 	if len(content.Bindings) != 2 {
 		t.Fatal("alias registry was collapsed")
 	}
-	if _, err := namespace.Effective(content.Bindings); err == nil {
+	registry, err := a.Namespaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Effective(); err == nil {
 		t.Fatal("tied aliases became a checked effective namespace map")
 	}
 	content.Bindings[0].Namespace = "changed"

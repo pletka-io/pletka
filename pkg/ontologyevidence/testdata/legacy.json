@@ -1,0 +1,90 @@
+{
+  "format_version": 1,
+  "project_id": "legacy-project",
+  "version": "1",
+  "inventory": [
+    {
+      "ontology_id": "crm",
+      "version_id": "revision-a",
+      "digest": "6dc076a7a549b0358db36540ee027962337fb25bae2a37a786b0004911f2c3ad",
+      "body_json": "{\n  \"format_version\": 1,\n  \"ontology\": {\n    \"id\": \"crm\"\n  },\n  \"version\": {\n    \"id\": \"revision-a\",\n    \"ontology_id\": \"crm\",\n    \"version_string\": \"7.1.3\"\n  },\n  \"classes\": [\n    {\n      \"uri\": \"https://example.org/E1\",\n      \"prefix\": \"crm\",\n      \"local_name\": \"E1\"\n    }\n  ]\n}\n",
+      "selection": {
+        "project_id": "legacy-project",
+        "version_number": "1",
+        "ontology_version_id": "revision-a",
+        "is_primary": true
+      }
+    },
+    {
+      "ontology_id": "crm",
+      "version_id": "revision-b",
+      "digest": "8ba3fd21e820181a46628ae803af49aa4ec9f9445c1f3a7ca9c8cce62e3e05e2",
+      "body_json": "{\n  \"format_version\": 1,\n  \"ontology\": {\n    \"id\": \"crm\"\n  },\n  \"version\": {\n    \"id\": \"revision-b\",\n    \"ontology_id\": \"crm\",\n    \"version_string\": \"7.1.3\"\n  },\n  \"classes\": [\n    {\n      \"uri\": \"https://example.org/E1\",\n      \"prefix\": \"crm\",\n      \"local_name\": \"E1\"\n    }\n  ]\n}\n",
+      "selection": {
+        "project_id": "legacy-project",
+        "version_number": "1",
+        "ontology_version_id": "revision-b",
+        "is_primary": true
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "prefix": "crm",
+      "namespace": "https://old.example/",
+      "weight": 20,
+      "source": "ontology"
+    },
+    {
+      "prefix": "crm",
+      "namespace": "https://example.org/",
+      "weight": 20,
+      "source": "ontology"
+    }
+  ],
+  "elements": [
+    {
+      "entity_kind": "field",
+      "entity_id": "f",
+      "location": "/path_elements/0",
+      "default_kind": "",
+      "original": {
+        "type": "class",
+        "prefix": "crm",
+        "local_name": "E1"
+      }
+    }
+  ],
+  "assessments": [
+    {
+      "entity_kind": "field",
+      "entity_id": "f",
+      "location": "/path_elements/0",
+      "reference": {
+        "kind": "class",
+        "uri": "",
+        "prefix": "crm",
+        "local_name": "E1",
+        "version_id": ""
+      },
+      "status": "ambiguous",
+      "candidates": [
+        {
+          "ontology_id": "crm",
+          "version_id": "revision-a",
+          "digest": "6dc076a7a549b0358db36540ee027962337fb25bae2a37a786b0004911f2c3ad",
+          "uri": "https://example.org/E1"
+        },
+        {
+          "ontology_id": "crm",
+          "version_id": "revision-b",
+          "digest": "8ba3fd21e820181a46628ae803af49aa4ec9f9445c1f3a7ca9c8cce62e3e05e2",
+          "uri": "https://example.org/E1"
+        }
+      ]
+    }
+  ],
+  "sources": [],
+  "source_refs": [],
+  "dependencies": []
+}
