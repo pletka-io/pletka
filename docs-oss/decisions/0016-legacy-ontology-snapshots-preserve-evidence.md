@@ -1,7 +1,7 @@
 # ADR-0016: Legacy ontology snapshots preserve evidence without certifying meaning
 
 Date: 2026-10-29  
-Status: Accepted
+Status: Accepted; amended 2026-10-30
 
 ## Why this decision was needed
 
@@ -54,6 +54,24 @@ stronger guarantees.
   rebuild/finalization and export/restore integrations must preserve this distinction.
 - New or changed editor references still require ordinary validation. Carrying
   unchanged legacy inputs forward will require exact source/value evidence.
+
+## Amendment: detached evidence and checked namespace projections (2026-10-30)
+
+`pkg/ontologyevidence` owns the portable values and pure validation, semantic
+assessment and bundle preflight. Database capture/restore/readers remain in
+`pkg/database/ontologysnapshot`, which retains type aliases for compatibility.
+`Session.LegacyOntology` returns the pure artifact on its existing transaction.
+No bytes, digests, evidence formats or assessment rules change at this boundary.
+A validated bundle returns independent body selections and exact original
+artifacts; preflight still precedes any restore transaction.
+
+An artifact's `Namespaces` returns a retained `namespace.Registry` for its root
+context. It preserves every declaration and never merges independently interpreted
+source contexts. `Registry.Effective` is a separate checked projection: conflicting
+top-weight aliases fail without a partial map. A zero projection cannot expand a
+prefix, and missing prefixes cannot use current policy. Semantic `Resolve` still
+follows each imported entity's retained context and rejects non-unique assessments.
+Successful namespace projection alone does not certify those assessments.
 
 ## References
 

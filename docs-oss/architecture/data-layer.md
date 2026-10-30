@@ -278,10 +278,17 @@ storage validation. Mutable actors have no foreign keys into these snapshots.
 
 Portable descriptor values and decoding live in `pkg/releasedescriptor`;
 publication artifacts, content projections and term resolutions live in
-`pkg/ontologyartifact`. These packages have no database or request capability.
+`pkg/ontologyartifact`. Legacy evidence, assessment/closure validation and bundle
+preflight live in `pkg/ontologyevidence`. Capture receipts live in
+`pkg/releasecontent`, with distinct verified and legacy types. These packages have
+no database or request capability.
 Database writer packages retain type aliases for compatibility. Decoding preserves
 exact artifact/body bytes and digests; namespace bindings retain all aliases and
-weights, independently of strict effective-map projection.
+weights, independently of strict effective-map projection. `namespace.Registry`
+retains declarations, including ties; only its successful `Effective` operation
+returns `EffectiveBindings`. Zero/unloaded registries and malformed declarations
+fail. Unknown prefixes cannot fall back to defaults. This new value boundary does
+not migrate existing renderers or certify unresolved legacy semantic references.
 
 `readsession.Session.Descriptors` uses the archive SELECT capability and returns
 detached values; released materialization never consults current actor labels or

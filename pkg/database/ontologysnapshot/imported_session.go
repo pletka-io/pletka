@@ -15,7 +15,7 @@ import (
 // captures. It never substitutes a captured snapshot, or establishes a release
 // completeness certificate. Authorization remains the caller's responsibility.
 func (f *Factory) ReadImported(ctx context.Context, ref Reference, fn func(Reader) error) (err error) {
-	if f == nil || f.pool == nil || ref.digest == "" || fn == nil {
+	if f == nil || f.pool == nil || ref.Digest() == "" || fn == nil {
 		return fmt.Errorf("imported snapshot session requires a reference and callback")
 	}
 	tx, err := f.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})

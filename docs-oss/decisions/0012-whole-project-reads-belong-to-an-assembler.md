@@ -1,7 +1,7 @@
 # ADR-0012: Whole-project reads belong to an assembler, not a slice
 
 Date: 2026-10-23  
-Status: Accepted; amended 2026-10-26 and 2026-10-28, implementation incomplete
+Status: Accepted; amended 2026-10-26, 2026-10-28 and 2026-10-30, implementation incomplete
 
 ---
 
@@ -104,8 +104,13 @@ sessions. The standalone `ontologyrelease.Factory.ReadProject` delegates to this
 path. Descriptor and published ontology values now live in database-free
 `pkg/releasedescriptor` and `pkg/ontologyartifact`. This preserves exact bytes and
 hashes while removing the descriptor-writer import cycle. Legacy preservation
-remains a distinct evidence contract. Complete project/fragment values, general
-project traversal and draft dependency planning still need implementation.
+remains a distinct evidence contract. General project traversal and read-only draft
+dependency planning are now implemented with inherited factory-level source
+policy; see ADR-0011. Legacy artifact values and bundle preflight now live in
+`pkg/ontologyevidence`, and verified/legacy receipt values in `pkg/releasecontent`.
+Namespace registries and checked effective bindings are distinct pure types.
+Complete project/fragment values and their field-level coverage still need
+implementation; counts and storage receipts alone cannot establish them.
 
 Authored semantic paths remain available for portable round-tripping. Rendering
 uses captured exact term identities: a QName is valid only if the output binding

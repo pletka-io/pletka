@@ -122,6 +122,13 @@ Conflicting pins, cycles, unavailable history and explicit follow-source-draft
 fail; this planner never turns a draft-following edge into latest. Legacy consumer
 migration and complete output coverage remain separate work.
 
+Pure assembly inputs belong in `releasedescriptor`, `ontologyartifact`,
+`ontologyevidence` and `releasecontent`; do not import database writer packages
+for their value types. Verified and legacy receipts are distinct. Their count
+checks do not prove field or graph coverage. Preserve raw namespace registries;
+only a checked effective projection may expand prefixes. Ties and unresolved
+legacy assessments must not trigger current-policy fallback.
+
 ### Ontology editor boundary
 
 [ADR-0013](../../docs-oss/decisions/0013-ontology-drafts-and-immutable-releases.md)
