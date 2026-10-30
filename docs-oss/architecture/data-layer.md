@@ -207,12 +207,16 @@ Migration 025 captures project ontology identities in
 `weave_release_ontology_dependencies`, with a separate provenance marker on the
 release. Archived links, explicit version selectors and captured source-project
 inventories contribute their full ontology closures. Storage validates coverage,
-retains source artifacts and prevents later pin changes. `Factory.ReadProject`
-uses only `queries/read_project_ontologies/`; released materialization serializes
-returned values. Historical inventories stay unverified. Migration 030 adds
-project QName/URI resolution evidence under ADR-0015. Complete content coverage
-and binding these readers to the assembler's existing transaction remain pending;
-the standalone `ReadProject` factory currently opens its own transaction.
+retains source artifacts and prevents later pin changes. The captured ontology
+facet uses only `queries/read_project_ontologies/`; released materialization
+serializes returned values. Historical inventories stay unverified. Migration 030
+adds project QName/URI resolution evidence under ADR-0015. `Session.Ontologies`
+binds this SELECT-only facet to the existing project transaction and lifetime,
+including sessions reached through captured sources.
+The standalone `ReadProject` factory opens a project session and delegates to
+that same binding path. Inside assembly use the session facet; never nest read
+factories. Missing verified inventory is `not_in_release`, including legacy-only
+cuts. Legacy preservation stays on `Session.LegacyOntology`.
 
 Vendor schema 2 transports exact artifact bytes plus frozen source files.
 Migration 026 adds optional exact `body_text` to seals: local seals retain JSONB
@@ -251,6 +255,13 @@ actors plus concrete project/ontology module identifiers in the same repeatable
 read transaction as archived bodies, dependencies and outbox. Source modules come
 from their pinned releases. One actor-reference view drives both capture and
 storage validation. Mutable actors have no foreign keys into these snapshots.
+
+Portable descriptor values and decoding live in `pkg/releasedescriptor`;
+publication artifacts, content projections and term resolutions live in
+`pkg/ontologyartifact`. These packages have no database or request capability.
+Database writer packages retain type aliases for compatibility. Decoding preserves
+exact artifact/body bytes and digests; namespace bindings retain all aliases and
+weights, independently of strict effective-map projection.
 
 `readsession.Session.Descriptors` uses the archive SELECT capability and returns
 detached values; released materialization never consults current actor labels or

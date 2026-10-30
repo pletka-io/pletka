@@ -8,31 +8,14 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/namespace"
+	"github.com/pletka-io/pletka/pkg/ontologyartifact"
 )
 
-// TermReference preserves the semantic input at one archived JSON location.
-// Kind is class (including datatypes) or property. VersionID is optional input;
-// the enclosing TermResolution always carries the concrete publication identity.
-type TermReference struct {
-	Kind      string `json:"kind"`
-	URI       string `json:"uri"`
-	Prefix    string `json:"prefix"`
-	LocalName string `json:"local_name"`
-	VersionID string `json:"version_id"`
-}
+// TermReference preserves the authored input at a captured semantic location.
+type TermReference = ontologyartifact.TermReference
 
-// TermResolution is detached release evidence. Foreign entities keep their
-// source project's inventory; consumers must not re-resolve them in their scope.
-type TermResolution struct {
-	EntityKind string        `json:"entity_kind"`
-	EntityID   string        `json:"entity_id"`
-	Location   string        `json:"location"`
-	Reference  TermReference `json:"reference"`
-	OntologyID string        `json:"ontology_id"`
-	VersionID  string        `json:"version_id"`
-	Digest     string        `json:"digest"`
-	URI        string        `json:"uri"`
-}
+// TermResolution retains the exact captured meaning of a semantic reference.
+type TermResolution = ontologyartifact.TermResolution
 
 func captureProjectReferences(ctx context.Context, q *sqlcgen.Queries, p *publisher, project, version string, refs []sqlcgen.WeaveProjectSemanticReferencesRow) error {
 	rows, err := q.WeaveListReleaseNamespaceBindings(ctx, sqlcgen.WeaveListReleaseNamespaceBindingsParams{ProjectID: project, Version: version})

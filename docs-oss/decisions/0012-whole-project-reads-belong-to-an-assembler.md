@@ -98,6 +98,15 @@ consistency. Extract pure artifact/descriptor values where needed to avoid packa
 cycles; do not expose a general transaction executor as a workaround. All identifier
 resolution and reads finish before rendering or streaming response headers.
 
+The first session-facet implementation (2026-10-30) binds verified ontology
+artifacts and references through `Session.Ontologies`, including captured source
+sessions. The standalone `ontologyrelease.Factory.ReadProject` delegates to this
+path. Descriptor and published ontology values now live in database-free
+`pkg/releasedescriptor` and `pkg/ontologyartifact`. This preserves exact bytes and
+hashes while removing the descriptor-writer import cycle. Legacy preservation
+remains a distinct evidence contract. Complete project/fragment values, general
+project traversal and draft dependency planning still need implementation.
+
 Authored semantic paths remain available for portable round-tripping. Rendering
 uses captured exact term identities: a QName is valid only if the output binding
 expands to that identity. Released collection composition is restricted to captured

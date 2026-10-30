@@ -15,6 +15,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/readsql/archive"
 	"github.com/pletka-io/pletka/pkg/database/readsql/draft"
+	"github.com/pletka-io/pletka/pkg/database/readsql/projectontologies"
 	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/database/releasedeps"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
@@ -30,12 +31,13 @@ func NewFactory(pool *pgxpool.Pool) *Factory { return &Factory{pool: pool} }
 // Session is valid only during Factory.Read's callback. It is not safe for
 // concurrent use. Its project and selection cannot be changed by a consumer.
 type Session struct {
-	projectID string
-	scope     auth.ReadScope
-	draft     *draft.Queries
-	archive   *archive.Queries
-	lifetime  *lifetime
-	source    func(context.Context, string, string) (*Session, error)
+	projectID  string
+	scope      auth.ReadScope
+	draft      *draft.Queries
+	archive    *archive.Queries
+	ontologies *projectontologies.Queries
+	lifetime   *lifetime
+	source     func(context.Context, string, string) (*Session, error)
 }
 
 type lifetime struct{ closed bool }
@@ -111,6 +113,7 @@ func bind(ctx context.Context, q *sqlcgen.Queries, tx pgx.Tx, life *lifetime, pr
 			return nil, err
 		}
 		s.archive = archive.New(tx)
+		s.ontologies = projectontologies.New(tx)
 		s.source = func(ctx context.Context, kind, id string) (*Session, error) {
 			project, version, err := releasedeps.EntitySource(ctx, q, projectID, scope.Version(), kind, id)
 			if err != nil {
