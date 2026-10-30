@@ -1,3 +1,5 @@
+// Package rdf parses RDF/XML and RDFS ontology files into the parsed
+// ontology shapes the ontology slice imports.
 package rdf
 
 import (
@@ -199,6 +201,24 @@ var namespaceDeclarationPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\sxmlns:([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*'([^']*)'`),
 }
 
+// PrefixConflictError reports a prefix the uploaded file spells differently
+// from the binding the instance already holds. It is a fault in the file, not
+// in the server, so handlers turn it into a field error naming both URIs --
+// as a bare error it reached the curator as an unexplained 500 with nothing
+// to act on.
+type PrefixConflictError struct {
+	Prefix   string
+	Declared string
+	Existing string
+}
+
+func (e *PrefixConflictError) Error() string {
+	if e == nil {
+		return "rdf namespace declaration conflict"
+	}
+	return fmt.Sprintf("rdf namespace declaration conflict: prefix %q maps to %q, manager already maps it to %q", e.Prefix, e.Declared, e.Existing)
+}
+
 // NamespaceResolutionError reports unresolved namespaces found while parsing.
 type NamespaceResolutionError struct {
 	MissingNamespaces []MissingNamespace
@@ -239,7 +259,7 @@ func (p *RDFParser) parseDeclaredNamespaces(raw []byte) ([]NamespaceDeclaration,
 			if p.namespaces != nil {
 				if existing, err := p.namespaces.GetWithPrefix(prefix); err == nil {
 					if existing.URI != namespace {
-						return nil, fmt.Errorf("rdf namespace declaration conflict: prefix %q maps to %q, manager already maps it to %q", prefix, namespace, existing.URI)
+						return nil, &PrefixConflictError{Prefix: prefix, Declared: namespace, Existing: existing.URI}
 					}
 					continue
 				}
