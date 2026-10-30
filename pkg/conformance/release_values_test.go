@@ -14,11 +14,14 @@ import (
 // current request policy, filesystem paths or lazy readers transitively.
 func TestPortableReleaseValuesHaveNoRuntimeCapabilities(t *testing.T) {
 	allowed := map[string]bool{
-		"crypto/sha256": true, "encoding/json": true, "fmt": true, "strings": true, "slices": true,
-		"github.com/pletka-io/pletka/pkg/namespace":        true,
-		"github.com/pletka-io/pletka/pkg/ontologyevidence": true,
+		"crypto/sha256": true, "encoding/json": true, "fmt": true, "strings": true, "slices": true, "bytes": true,
+		"github.com/pletka-io/pletka/pkg/namespace":         true,
+		"github.com/pletka-io/pletka/pkg/ontologyevidence":  true,
+		"github.com/pletka-io/pletka/pkg/ontologyartifact":  true,
+		"github.com/pletka-io/pletka/pkg/releasecontent":    true,
+		"github.com/pletka-io/pletka/pkg/releasedescriptor": true,
 	}
-	for _, dir := range []string{"ontologyartifact", "ontologyevidence", "releasecontent", "releasedescriptor", "namespace"} {
+	for _, dir := range []string{"ontologyartifact", "ontologyevidence", "releasecontent", "releasedescriptor", "namespace", "projectsnapshot"} {
 		for _, path := range goFilesUnder(t, filepath.Join(repoRoot(t), "pkg", dir)) {
 			if strings.HasSuffix(path, "_test.go") {
 				continue

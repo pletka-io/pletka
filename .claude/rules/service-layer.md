@@ -123,11 +123,19 @@ fail; this planner never turns a draft-following edge into latest. Legacy consum
 migration and complete output coverage remain separate work.
 
 Pure assembly inputs belong in `releasedescriptor`, `ontologyartifact`,
-`ontologyevidence` and `releasecontent`; do not import database writer packages
+`ontologyevidence`, `releasecontent` and `projectsnapshot`; do not import database writer packages
 for their value types. Verified and legacy receipts are distinct. Their count
 checks do not prove field or graph coverage. Preserve raw namespace registries;
 only a checked effective projection may expand prefixes. Ties and unresolved
 legacy assessments must not trigger current-policy fallback.
+
+Only assembly infrastructure constructs `projectsnapshot.CompleteProject`;
+serializers accept it or the distinct `EntityFragment`. Explicit empty sections
+are required, and source identities/evidence stay separate. Do not flatten null
+override settings, repeated placements, exact numeric text or raw JSON through
+lossy domain DTOs. See the [value contract](../../docs-oss/reference/project-snapshot-values.md).
+Database assembly and portable restore remain open gates; the private value
+freeze encoding is not a wire format.
 
 ### Ontology editor boundary
 

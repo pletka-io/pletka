@@ -109,8 +109,13 @@ dependency planning are now implemented with inherited factory-level source
 policy; see ADR-0011. Legacy artifact values and bundle preflight now live in
 `pkg/ontologyevidence`, and verified/legacy receipt values in `pkg/releasecontent`.
 Namespace registries and checked effective bindings are distinct pure types.
-Complete project/fragment values and their field-level coverage still need
-implementation; counts and storage receipts alone cannot establish them.
+`pkg/projectsnapshot` now implements distinct complete-project/entity-fragment
+values and lossless typed coverage for all 22 sections / 272 captured columns.
+Construction checks explicit section coverage, source closure, required references
+and retained interpretation evidence; input/output buffers are detached. The
+[public value contract](../reference/project-snapshot-values.md) records the exact
+boundary. Database assembly, contextual view composition and portable output
+remain pending; value counts do not authenticate source rows or certify a loader.
 
 Authored semantic paths remain available for portable round-tripping. Rendering
 uses captured exact term identities: a QName is valid only if the output binding

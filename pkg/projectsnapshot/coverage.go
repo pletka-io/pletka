@@ -1,0 +1,247 @@
+package projectsnapshot
+
+// Section describes one typed owned section and its full retained field mapping.
+// All columns are retained under their original JSON names. Assembly and portable
+// implementations are separate gates; these values do not certify either.
+type Section struct {
+	Name        string
+	ValueType   string
+	Key         []string
+	Columns     []string
+	Kind        string
+	JSONColumns []string
+	Loader      string
+	Portable    string
+}
+
+const (
+	pendingAssembly = "pending: same-session assembly (S3)"
+	pendingPortable = "pending: canonical encoding and restore (S4)"
+)
+
+// Coverage returns fresh section/column mappings. The reviewed capture ledger and
+// reflected value fields are checked independently against this registry.
+func Coverage() []Section {
+	return []Section{
+		{
+			Name:        sectionAdoptions,
+			ValueType:   "AdoptionRecord",
+			Kind:        "",
+			Key:         []string{columnProjectID, columnContextEntityType, columnContextEntityID, columnEntityType, columnSourceProjectID, columnSourceEntityID, columnSourceVersion, columnVersionNumber},
+			Columns:     []string{columnProjectID, columnContextEntityType, columnContextEntityID, columnEntityType, columnSourceProjectID, columnSourceEntityID, columnSourceVersion, "adopted_at", columnCreatedByID, columnVersionNumber},
+			JSONColumns: []string{},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_categories_archive",
+			ValueType:   "CategoryRecord",
+			Kind:        kindCategory,
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, columnCreatedAt, columnUpdatedAt, columnSemanticID, columnSystemName, columnUIName, columnDescription, columnStatus, columnProjectID, "canonical_order", columnDeprecated, columnVersionNumber},
+			JSONColumns: []string{columnUIName, columnDescription},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_collection_placements_archive",
+			ValueType:   "PlacementRecord",
+			Kind:        "",
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, columnProjectID, "model_id", columnCategoryID, "collection_id", "is_required", "min_occurs", "max_occurs", "is_hidden", columnCreatedAt, columnUpdatedAt, columnVersionNumber},
+			JSONColumns: []string{},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_collections_archive",
+			ValueType:   "CollectionRecord",
+			Kind:        kindCollection,
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, columnCreatedAt, columnUpdatedAt, columnSystemName, columnUIName, columnDescription, columnStatus, columnProjectID, columnOntologyScope, "collection_number", "canonical_collection_order", columnStagingID, columnDeprecated, "default_category_id", columnVersionNumber},
+			JSONColumns: []string{columnUIName, columnDescription, columnOntologyScope},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        sectionConceptBroader,
+			ValueType:   "BroaderRecord",
+			Kind:        "",
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, "concept_id", "broader_id", "scheme_id", columnPosition, columnVersionNumber, columnCreatedAt},
+			JSONColumns: []string{},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        sectionConceptListEntries,
+			ValueType:   "ConceptEntryRecord",
+			Kind:        "",
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, "concept_list_id", "vocabulary_entry_id", columnPosition, "custom_label", columnCreatedAt, columnUpdatedAt, columnVersionNumber},
+			JSONColumns: []string{"custom_label"},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_concept_lists_archive",
+			ValueType:   "ConceptListRecord",
+			Kind:        kindConceptList,
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, columnCreatedAt, columnUpdatedAt, columnSemanticID, columnSystemName, columnUIName, columnDescription, columnStatus, columnProjectID, "list_type", columnVocabularyID, columnVersionNumber, "is_closed"},
+			JSONColumns: []string{columnUIName, columnDescription},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_entity_forks_archive",
+			ValueType:   "ForkRecord",
+			Kind:        "",
+			Key:         []string{columnProjectID, columnEntityType, columnForkEntityID, columnVersionNumber},
+			Columns:     []string{columnProjectID, columnEntityType, columnForkEntityID, columnSourceProjectID, columnSourceEntityID, columnSourceVersion, "forked_at", columnCreatedByID, columnVersionNumber},
+			JSONColumns: []string{},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        sectionExampleValues,
+			ValueType:   "ExampleValueRecord",
+			Kind:        "",
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, "example_id", columnOverrideID, columnFieldID, columnPartOfCollectionID, "occurrence_index", "value_kind", "value_payload", "text_value", "number_value", "date_value", "uri_value", "concept_uri", "linked_example_id", "slot_path", columnCreatedAt, columnUpdatedAt, columnVersionNumber},
+			JSONColumns: []string{"value_payload"},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_examples_archive",
+			ValueType:   "ExampleRecord",
+			Kind:        kindExample,
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, columnProjectID, columnEntityType, columnEntityID, "title", columnDescription, columnStatus, columnCreatedAt, columnUpdatedAt, columnVersionNumber},
+			JSONColumns: []string{"title", columnDescription},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_field_overrides_archive",
+			ValueType:   "OverrideRecord",
+			Kind:        kindOverride,
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, columnFieldID, columnProjectID, columnEntityType, columnEntityID, columnPosition, "collection_order", "display_name", columnDescription, "collection_name", columnCategoryID, columnPartOfCollectionID, "expected_value_type", "set_value", "is_required", "min_occurs", "max_occurs", "is_hidden", "visibility", columnStagingID, columnCreatedAt, columnUpdatedAt, "content_hash", columnVersionNumber, "set_value_entry_id"},
+			JSONColumns: []string{"display_name", columnDescription, "collection_name"},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_fields_archive",
+			ValueType:   "FieldRecord",
+			Kind:        kindField,
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, columnCreatedAt, columnUpdatedAt, columnSemanticID, columnSystemName, columnUIName, columnDescription, columnStatus, columnProjectID, columnOntologyScope, "ontology_path", "path_elements", "expected_value_type", "examples", columnStagingID, columnDeprecated, columnVersionNumber, "subfield_paths"},
+			JSONColumns: []string{columnUIName, columnDescription, columnOntologyScope, "path_elements", "examples", "subfield_paths"},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_models_archive",
+			ValueType:   "ModelRecord",
+			Kind:        kindModel,
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, columnCreatedAt, columnUpdatedAt, columnSystemName, columnUIName, columnDescription, columnStatus, columnProjectID, columnOntologyScope, columnStagingID, columnDeprecated, columnVersionNumber, "model_type"},
+			JSONColumns: []string{columnUIName, columnDescription, columnOntologyScope},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        sectionReleaseNamespaceBindings,
+			ValueType:   "NamespaceRecord",
+			Kind:        "",
+			Key:         []string{columnReleaseProjectID, columnVersionNumber, columnID},
+			Columns:     []string{columnReleaseProjectID, columnVersionNumber, columnID, columnCreatedAt, columnUpdatedAt, "airtable_raw", "airtable_context", "airtable_ref", columnSemanticID, "long_semantic_id", columnSystemName, columnUIName, columnDescription, "uri", columnProjectID, "prefix", "namespace", "weight", "source", "ontology_id"},
+			JSONColumns: []string{"airtable_raw", "airtable_context", columnUIName, columnDescription},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        sectionOverrideRefs,
+			ValueType:   "OverrideRefRecord",
+			Kind:        "",
+			Key:         []string{columnOverrideID, columnRefType, columnPosition, columnVersionNumber},
+			Columns:     []string{columnOverrideID, columnRefType, "target_id", columnSemanticID, columnPosition, columnProjectID, columnVersionNumber},
+			JSONColumns: []string{},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_project_actors_archive",
+			ValueType:   "ProjectActorRecord",
+			Kind:        "",
+			Key:         []string{columnProjectID, columnActorID, "role", columnVersionNumber},
+			Columns:     []string{columnProjectID, columnActorID, "role", columnCreatedAt, columnVersionNumber},
+			JSONColumns: []string{},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_project_attributions_archive",
+			ValueType:   "AttributionRecord",
+			Kind:        "",
+			Key:         []string{columnProjectID, columnActorID, "kind", columnPosition, columnVersionNumber},
+			Columns:     []string{columnProjectID, columnActorID, "kind", columnPosition, "note", columnCreatedAt, columnVersionNumber},
+			JSONColumns: []string{},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_project_inheritance_archive",
+			ValueType:   "InheritanceRecord",
+			Kind:        "",
+			Key:         []string{columnProjectID, columnParentProjectID, columnVersionNumber},
+			Columns:     []string{columnProjectID, columnParentProjectID, "is_primary", "canonical_order", "adopted_at", columnVersionNumber, "source_mode", columnSourceVersion},
+			JSONColumns: []string{},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_project_ontology_versions_archive",
+			ValueType:   "OntologyLinkRecord",
+			Kind:        "",
+			Key:         []string{columnProjectID, "ontology_version_id", columnVersionNumber},
+			Columns:     []string{columnProjectID, "ontology_version_id", "added_at", "added_by_id", "is_primary", "usage_notes", columnVersionNumber},
+			JSONColumns: []string{},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        sectionProjects,
+			ValueType:   "ProjectRecord",
+			Kind:        kindProject,
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, columnCreatedAt, columnUpdatedAt, columnSystemName, columnUIName, columnDescription, columnStatus, "namespace", columnParentProjectID, columnStagingID, columnOwnerID, "visibility", columnDeprecated, "license", "readme", "topics", "base_url", columnCreatedByID, columnVersionNumber, "concept_namespace", "effective_concept_namespace", "enforce_concept_lists"},
+			JSONColumns: []string{columnUIName, columnDescription, "readme"},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        "weave_vocabularies_archive",
+			ValueType:   "VocabularyRecord",
+			Kind:        kindVocabulary,
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, columnProjectID, columnSemanticID, columnSystemName, columnUIName, columnDescription, columnStatus, "connector_type", "base_uri", "config", columnDeprecated, columnCreatedAt, columnUpdatedAt, columnVersionNumber},
+			JSONColumns: []string{columnUIName, columnDescription, "config"},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+		{
+			Name:        sectionVocabularyEntries,
+			ValueType:   "VocabularyEntryRecord",
+			Kind:        kindVocabularyEntry,
+			Key:         []string{columnID, columnVersionNumber},
+			Columns:     []string{columnID, columnVocabularyID, "uri", "label", "scope_note", "broader_uri", "broader_path", "broader_path_items", "external_id", columnCreatedAt, columnUpdatedAt, columnVersionNumber},
+			JSONColumns: []string{"label", "scope_note", "broader_path", "broader_path_items"},
+			Loader:      pendingAssembly,
+			Portable:    pendingPortable,
+		},
+	}
+}
