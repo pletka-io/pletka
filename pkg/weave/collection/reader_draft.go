@@ -7,9 +7,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/database/readsql/draft"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/projectsnapshot"
 )
 
 // draftReader holds SELECT-only capabilities for one project and state.
@@ -92,6 +94,38 @@ func (r *draftReader) CompositionCounts(ctx context.Context, ids []string) (map[
 	out := make(map[string]domain.CompositionCounts, len(rows))
 	for _, row := range rows {
 		out[row.EntityID] = domain.CompositionCounts{FieldCount: int(row.FieldCount)}
+	}
+	return out, nil
+}
+
+// ContentCollections returns one deterministic page of lossless owned records.
+func (r *draftReader) ContentCollections(ctx context.Context, page readsession.Page) ([]projectsnapshot.CollectionRecord, error) {
+	if err := page.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := r.queries.ContentCollections(ctx, draft.ContentCollectionsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
+	if err != nil {
+		return nil, fmt.Errorf("read collections content: %w", err)
+	}
+	out := make([]projectsnapshot.CollectionRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, projectsnapshot.CollectionRecord{
+			ID:                       row.ID,
+			CreatedAt:                projectsnapshot.Timestamp(row.CreatedAt),
+			UpdatedAt:                projectsnapshot.Timestamp(row.UpdatedAt),
+			SystemName:               row.SystemName,
+			UIName:                   row.UiName,
+			Description:              row.Description,
+			Status:                   row.Status,
+			ProjectID:                row.ProjectID,
+			OntologyScope:            row.OntologyScope,
+			CollectionNumber:         row.CollectionNumber,
+			CanonicalCollectionOrder: row.CanonicalCollectionOrder,
+			StagingID:                row.StagingID,
+			Deprecated:               row.Deprecated,
+			DefaultCategoryID:        row.DefaultCategoryID,
+			VersionNumber:            row.VersionNumber,
+		})
 	}
 	return out, nil
 }

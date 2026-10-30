@@ -1,5 +1,10 @@
 package releasedeps
 
+import (
+	"slices"
+	"strings"
+)
+
 // Source is one concrete project release, never a draft or moving selector.
 type Source struct {
 	ProjectID string
@@ -38,4 +43,25 @@ func (p Plan) Entity(kind, id string) (Source, bool) {
 		return Source{}, false
 	}
 	return p.Project(project)
+}
+
+// Member is one direct foreign entity and its immutable selected source.
+type Member struct {
+	Kind, ID string
+	Source   Source
+}
+
+// Membership returns detached direct membership in deterministic kind/ID order.
+func (p Plan) Membership() []Member {
+	out := make([]Member, 0, len(p.entities))
+	for key, project := range p.entities {
+		out = append(out, Member{Kind: key.kind, ID: key.id, Source: Source{ProjectID: project, Version: p.pins[project]}})
+	}
+	slices.SortFunc(out, func(a, b Member) int {
+		if order := strings.Compare(a.Kind, b.Kind); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out
 }

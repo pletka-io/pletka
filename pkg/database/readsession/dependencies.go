@@ -101,3 +101,15 @@ func (s *Session) Dependency(ctx context.Context, kind, id string) (*Session, er
 	}
 	return s.dependencies.graph.open(ctx, source)
 }
+
+// Membership returns direct foreign membership only after authorizing the closure.
+func (s *Session) Membership(ctx context.Context) ([]releasedeps.Member, error) {
+	if _, err := s.Dependencies(ctx); err != nil {
+		return nil, err
+	}
+	plan, err := s.dependencyPlan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return plan.Membership(), nil
+}

@@ -110,7 +110,10 @@ Serialization happens after values are assembled, without retaining database
 access. `pkg/projectsnapshot` now supplies detached complete/fragment value
 types with independently checked field coverage and fail-closed construction.
 See [the value contract](../reference/project-snapshot-values.md) for required
-inputs, scalar/JSON preservation and the still-pending loader/portable gates. See ADRs
+inputs and scalar/JSON preservation. `pkg/service/projectread` loads all registered
+sections and source contexts through that same session; it owns no pool or
+transaction factory. Draft reads and capture share the read-only ontology planner
+in `pkg/database/projectontology`. Portable encoding/restore remains pending. See ADRs
 [0010](../decisions/0010-versioned-reads-through-a-scope-bound-reader.md),
 [0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md) and
 [0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).

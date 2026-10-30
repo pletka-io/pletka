@@ -11,6 +11,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/readsql/archive"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/projectsnapshot"
 )
 
 // releaseReader holds SELECT-only capabilities for one project and state.
@@ -105,6 +106,101 @@ func (r *releaseReader) ListPlacements(ctx context.Context, modelID string) ([]d
 	out := make([]domain.CollectionPlacement, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, domain.CollectionPlacement{ID: row.ID, ProjectID: row.ProjectID, ModelID: row.ModelID, CategoryID: row.CategoryID, CollectionID: row.CollectionID, IsRequired: row.IsRequired, MinOccurs: int(row.MinOccurs), MaxOccurs: int32PtrToIntPtr(row.MaxOccurs), IsHidden: row.IsHidden})
+	}
+	return out, nil
+}
+
+// ContentPlacements returns one deterministic page of lossless owned records.
+func (r *releaseReader) ContentPlacements(ctx context.Context, page readsession.Page) ([]projectsnapshot.PlacementRecord, error) {
+	if err := page.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := r.queries.ContentPlacements(ctx, archive.ContentPlacementsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	if err != nil {
+		return nil, fmt.Errorf("read placements content: %w", err)
+	}
+	out := make([]projectsnapshot.PlacementRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, projectsnapshot.PlacementRecord{
+			ID:            row.ID,
+			ProjectID:     row.ProjectID,
+			ModelID:       row.ModelID,
+			CategoryID:    row.CategoryID,
+			CollectionID:  row.CollectionID,
+			IsRequired:    row.IsRequired,
+			MinOccurs:     row.MinOccurs,
+			MaxOccurs:     row.MaxOccurs,
+			IsHidden:      row.IsHidden,
+			CreatedAt:     projectsnapshot.Timestamp(row.CreatedAt),
+			UpdatedAt:     projectsnapshot.Timestamp(row.UpdatedAt),
+			VersionNumber: row.VersionNumber,
+		})
+	}
+	return out, nil
+}
+
+// ContentOverrides returns one deterministic page of lossless owned records.
+func (r *releaseReader) ContentOverrides(ctx context.Context, page readsession.Page) ([]projectsnapshot.OverrideRecord, error) {
+	if err := page.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := r.queries.ContentOverrides(ctx, archive.ContentOverridesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	if err != nil {
+		return nil, fmt.Errorf("read overrides content: %w", err)
+	}
+	out := make([]projectsnapshot.OverrideRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, projectsnapshot.OverrideRecord{
+			ID:                 row.ID,
+			FieldID:            row.FieldID,
+			ProjectID:          row.ProjectID,
+			EntityType:         row.EntityType,
+			EntityID:           row.EntityID,
+			Position:           row.Position,
+			CollectionOrder:    row.CollectionOrder,
+			DisplayName:        row.DisplayName,
+			Description:        row.Description,
+			CollectionName:     row.CollectionName,
+			CategoryID:         row.CategoryID,
+			PartOfCollectionID: row.PartOfCollectionID,
+			ExpectedValueType:  row.ExpectedValueType,
+			SetValue:           row.SetValue,
+			IsRequired:         row.IsRequired,
+			MinOccurs:          row.MinOccurs,
+			MaxOccurs:          row.MaxOccurs,
+			IsHidden:           row.IsHidden,
+			Visibility:         row.Visibility,
+			StagingID:          row.StagingID,
+			CreatedAt:          projectsnapshot.Timestamp(row.CreatedAt),
+			UpdatedAt:          projectsnapshot.Timestamp(row.UpdatedAt),
+			ContentHash:        row.ContentHash,
+			VersionNumber:      row.VersionNumber,
+			SetValueEntryID:    row.SetValueEntryID,
+		})
+	}
+	return out, nil
+}
+
+// ContentOverrideRefs returns one deterministic page of lossless owned records.
+func (r *releaseReader) ContentOverrideRefs(ctx context.Context, page readsession.Page) ([]projectsnapshot.OverrideRefRecord, error) {
+	if err := page.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := r.queries.ContentOverrideRefs(ctx, archive.ContentOverrideRefsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	if err != nil {
+		return nil, fmt.Errorf("read overriderefs content: %w", err)
+	}
+	out := make([]projectsnapshot.OverrideRefRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, projectsnapshot.OverrideRefRecord{
+			OverrideID:    row.OverrideID,
+			RefType:       row.RefType,
+			TargetID:      row.TargetID,
+			SemanticID:    row.SemanticID,
+			Position:      row.Position,
+			ProjectID:     row.ProjectID,
+			VersionNumber: row.VersionNumber,
+		})
 	}
 	return out, nil
 }
