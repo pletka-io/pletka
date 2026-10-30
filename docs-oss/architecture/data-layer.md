@@ -107,7 +107,10 @@ hold only the generated archive SELECT interface, with no pool or full query set
 draft readers hold the corresponding draft interface. Conformance checks restrict
 raw query access to binding infrastructure and reject SQL crossing states.
 Serialization happens after values are assembled, without retaining database
-access. See ADRs
+access. `pkg/projectsnapshot` now supplies detached complete/fragment value
+types with independently checked field coverage and fail-closed construction.
+See [the value contract](../reference/project-snapshot-values.md) for required
+inputs, scalar/JSON preservation and the still-pending loader/portable gates. See ADRs
 [0010](../decisions/0010-versioned-reads-through-a-scope-bound-reader.md),
 [0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md) and
 [0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).

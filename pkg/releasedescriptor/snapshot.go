@@ -38,6 +38,12 @@ type Document struct {
 // Snapshot is a detached value bound to one release. Its maps are not exposed.
 type Snapshot struct{ doc Document }
 
+// ProjectID returns the owner of this detached descriptor context.
+func (s Snapshot) ProjectID() string { return s.doc.ProjectID }
+
+// Version returns its release identity, or empty for an explicitly bound draft.
+func (s Snapshot) Version() string { return s.doc.Version }
+
 // UnavailableError reports missing historical evidence, without live substitution.
 type UnavailableError struct{ ProjectID, Version string }
 
