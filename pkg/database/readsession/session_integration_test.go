@@ -38,7 +38,7 @@ func newFixture(t *testing.T, project string) fixture {
 	pool := testdb.Pool(t)
 	ctx := auth.WithSnapshot(context.Background(), &auth.AuthSnapshot{IsSuperAdmin: true})
 	ctx = auth.WithPrincipal(ctx, &auth.Principal{ActorID: "unite"})
-	f := fixture{pool: pool, ctx: ctx, factory: readsession.NewFactory(pool), project: project, collection: project + ".c", field: project + ".f"}
+	f := fixture{pool: pool, ctx: ctx, factory: readsession.NewFactory(pool).WithSourceAuthorization(auth.CheckProjectRead), project: project, collection: project + ".c", field: project + ".f"}
 	for _, q := range []string{
 		`INSERT INTO weave_projects(id,owner_id) VALUES ($1,'unite')`,
 		`INSERT INTO weave_collections(id,project_id,system_name) VALUES ($1||'.c',$1,'before')`,

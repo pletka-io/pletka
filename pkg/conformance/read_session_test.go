@@ -256,6 +256,12 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 			if p == "github.com/pletka-io/pletka/pkg/database/readsql/ontologysnapshot" && (rel == "pkg/database/ontologysnapshot/reader.go" || rel == "pkg/database/ontologysnapshot/session.go") {
 				allowed = true
 			}
+			if p == "github.com/pletka-io/pletka/pkg/database/readsql/dependencydraft" && rel == "pkg/database/releasedeps/draft_reader.go" {
+				allowed = true
+			}
+			if p == "github.com/pletka-io/pletka/pkg/database/readsql/dependencyarchive" && (rel == "pkg/database/releasedeps/draft_reader.go" || rel == "pkg/database/releasedeps/archive_reader.go") {
+				allowed = true
+			}
 			if !allowed {
 				t.Errorf("%s imports raw pilot queries; use a bound slice reader", rel)
 			}

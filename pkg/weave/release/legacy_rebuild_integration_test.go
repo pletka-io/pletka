@@ -75,15 +75,31 @@ func readLegacySnapshot(ctx context.Context, t *testing.T, p *pgxpool.Pool) onto
 	t.Helper()
 	var receipt readsession.LegacyContentReceipt
 	var saved *readsession.Session
-	err := readsession.NewFactory(p).Read(ctx, auth.Release(legacyVersion), legacyProject, func(s *readsession.Session) error {
+	err := readsession.NewFactory(p).WithSourceAuthorization(auth.CheckProjectRead).Read(ctx, auth.Release(legacyVersion), legacyProject, func(s *readsession.Session) error {
 		saved = s
+		sources, err := s.Dependencies(ctx)
+		if err != nil {
+			return err
+		}
+		for _, source := range sources {
+			bound, err := s.ProjectDependency(ctx, source.ProjectID)
+			if err != nil {
+				return err
+			}
+			contract, err := bound.ContentContract(ctx)
+			if err != nil {
+				return err
+			}
+			if contract != 2 {
+				t.Fatalf("legacy dependency promoted to contract %d", contract)
+			}
+		}
 		if _, err := s.Ontologies(ctx); apierror.FromError(err).Code != apierror.CodeNotInRelease {
 			t.Fatalf("legacy evidence acquired verified ontology reader: %v", err)
 		}
 		if _, err := s.Content(ctx); err == nil {
 			t.Error("legacy release passed verified-content boundary")
 		}
-		var err error
 		receipt, err = s.LegacyContent(ctx)
 		return err
 	})
