@@ -679,6 +679,13 @@
     "weave_releases": "Release catalog and capture markers; title/retirement/materialization policy is separate from owned content.",
     "goose_db_version": "Migration tool schema bookkeeping.",
     "weave_release_content_fences": "Retained operational parent-identity coordination keys for archive child writes/cuts; never serialized as content.",
-    "weave_release_rebuild_operations": "Durable explicit maintenance/repoint journal; blocks runtimes until publication completes. Not released project content."
+    "weave_release_rebuild_operations": "Durable explicit maintenance/repoint journal; blocks runtimes until publication completes. Not released project content.",
+    "weave_draft_blobs": "Atomic draft mutation history, enrollment or coordination; separate from frozen release content.",
+    "weave_draft_snapshots": "Atomic draft mutation history, enrollment or coordination; separate from frozen release content.",
+    "weave_draft_projects": "Atomic draft mutation history, enrollment or coordination; separate from frozen release content.",
+    "weave_draft_mutations": "Atomic draft mutation history, enrollment or coordination; separate from frozen release content.",
+    "weave_draft_effects": "Atomic draft mutation history, enrollment or coordination; separate from frozen release content.",
+    "weave_draft_row_owners": "Atomic draft mutation history, enrollment or coordination; separate from frozen release content.",
+    "weave_draft_project_fences": "Retained MVCC fences reject stale-snapshot writes across capture enrollment; outside frozen release content."
   }
 }

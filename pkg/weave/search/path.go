@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
@@ -87,7 +88,7 @@ WITH RECURSIVE project_chain AS (
 )
 SELECT id FROM project_chain`
 
-	rows, err := pool.Query(ctx, query, projectID, scope)
+	rows, err := txscope.New(pool).Query(ctx, query, projectID, scope)
 	if err != nil {
 		return nil, fmt.Errorf("resolve project chain: %w", err)
 	}
@@ -160,7 +161,7 @@ func resolvePathFieldIDs(ctx context.Context, pool *pgxpool.Pool, projectIDs []s
 func callMatchPathPrefix(ctx context.Context, pool *pgxpool.Pool, projectIDs, elements, prefixes []string) ([]string, error) {
 	const sql = `SELECT field_id FROM match_path_prefix($1::text[], $2::text[], $3::text[])`
 
-	rows, err := pool.Query(ctx, sql, projectIDs, elements, prefixes)
+	rows, err := txscope.New(pool).Query(ctx, sql, projectIDs, elements, prefixes)
 	if err != nil {
 		return nil, fmt.Errorf("match_path_prefix: %w", err)
 	}
@@ -193,7 +194,7 @@ WHERE f.project_id = ANY($3)
       WHERE pe2.field_id = pe.field_id
   )`
 
-	rows, err := pool.Query(ctx, endsSQL, endLocal, endPrefix, projectIDs)
+	rows, err := txscope.New(pool).Query(ctx, endsSQL, endLocal, endPrefix, projectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("path_ends_with query: %w", err)
 	}
@@ -221,7 +222,7 @@ JOIN weave_fields f ON f.id = pe.field_id
 WHERE f.project_id = ANY($2)
 GROUP BY pe.field_id HAVING COUNT(*) = $1`
 
-	rows, err := pool.Query(ctx, depthSQL, depth, projectIDs)
+	rows, err := txscope.New(pool).Query(ctx, depthSQL, depth, projectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("path_depth query: %w", err)
 	}
@@ -352,7 +353,7 @@ func (h *Handler) PathSuggestionsHandler(w http.ResponseWriter, r *http.Request)
 func callPathNextSuggestions(ctx context.Context, pool *pgxpool.Pool, projectIDs, elements, prefixes []string, query string, limit int) ([]domain.PathSuggestion, error) {
 	const sql = `SELECT local_name, prefix, elem_type, field_count FROM path_next_suggestions($1::text[], $2::text[], $3::text[], $4::text) LIMIT $5`
 
-	rows, err := pool.Query(ctx, sql, projectIDs, elements, prefixes, query, limit)
+	rows, err := txscope.New(pool).Query(ctx, sql, projectIDs, elements, prefixes, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("path_next_suggestions: %w", err)
 	}
@@ -385,7 +386,7 @@ func callPathNextSuggestions(ctx context.Context, pool *pgxpool.Pool, projectIDs
 }
 
 func callArchivedPathNextSuggestions(ctx context.Context, pool *pgxpool.Pool, target selectorTarget, elements, prefixes []string, query string) ([]domain.PathSuggestion, error) {
-	rows, err := pool.Query(ctx, `
+	rows, err := txscope.New(pool).Query(ctx, `
 		SELECT path_elements
 		FROM weave_fields_archive
 		WHERE project_id = $1 AND version_number = $2 AND status IN ('draft', 'published')

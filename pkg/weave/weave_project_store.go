@@ -14,6 +14,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -143,7 +144,7 @@ func (s *weaveProjectStore) Create(ctx context.Context, project *domain.Project)
 		project.Status = "draft"
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin create weave project tx: %w", err)
 	}
@@ -195,7 +196,7 @@ func (s *weaveProjectStore) GetByIDVersion(ctx context.Context, id, version stri
 	if err := releasearchive.Require(ctx, s.queries, id, version); err != nil {
 		return nil, err
 	}
-	row := s.pool.QueryRow(ctx, `
+	row := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT
 			id, created_at, updated_at, system_name, ui_name, description, status,
 			namespace, parent_project_id, staging_id, owner_id, visibility,
@@ -219,7 +220,7 @@ func (s *weaveProjectStore) Update(ctx context.Context, project *domain.Project)
 		project.Status = "draft"
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin update weave project tx: %w", err)
 	}
@@ -334,7 +335,7 @@ func (s *weaveProjectStore) List(ctx context.Context, opts ...domain.QueryOption
 
 // ListChildren returns child projects for a given parent project ID.
 func (s *weaveProjectStore) ListChildren(ctx context.Context, parentID string) ([]*domain.Project, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT
 			wp.id, wp.created_at, wp.updated_at, wp.system_name, wp.ui_name, wp.description,
 			wp.status, wp.namespace, wp.parent_project_id, wp.staging_id, wp.owner_id,
@@ -416,7 +417,7 @@ func (s *weaveProjectStore) StatsForProjects(ctx context.Context, projectIDs []s
 		FROM weave_projects wp
 		WHERE wp.id = ANY($1)`
 
-	rows, err := s.pool.Query(ctx, query, projectIDs)
+	rows, err := txscope.New(s.pool).Query(ctx, query, projectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("stats for projects: %w", err)
 	}
@@ -450,7 +451,7 @@ func (s *weaveProjectStore) statsForProjectsVersion(ctx context.Context, project
 		FROM weave_projects_archive wp
 		WHERE wp.id = ANY($1) AND wp.version_number = $2`
 
-	rows, err := s.pool.Query(ctx, query, projectIDs, version)
+	rows, err := txscope.New(s.pool).Query(ctx, query, projectIDs, version)
 	if err != nil {
 		return nil, fmt.Errorf("stats for archived projects: %w", err)
 	}
@@ -477,7 +478,7 @@ func (s *weaveProjectStore) ListOwnerInstitutions(ctx context.Context) ([]*domai
 		WHERE wpa.role = 'owner' AND wa.type = 'institution'
 		ORDER BY wa.display_name`
 
-	rows, err := s.pool.Query(ctx, query)
+	rows, err := txscope.New(s.pool).Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("list owner institutions: %w", err)
 	}
@@ -509,7 +510,7 @@ func (s *weaveProjectStore) OwnersForProjects(ctx context.Context, projectIDs []
 		JOIN weave_actors wa ON wa.id = wpa.actor_id
 		WHERE wpa.project_id = ANY($1) AND wpa.role = 'owner'`
 
-	rows, err := s.pool.Query(ctx, query, projectIDs)
+	rows, err := txscope.New(s.pool).Query(ctx, query, projectIDs)
 	if err != nil {
 		return nil, fmt.Errorf("owners for projects: %w", err)
 	}
@@ -656,7 +657,7 @@ func (s *weaveProjectStore) appendResolvedOntologyVersionsForTarget(ctx context.
 		return nil
 	}
 
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT project_id, ontology_version_id, added_at, added_by_id, is_primary, usage_notes
 		FROM weave_project_ontology_versions_archive
 		WHERE project_id = $1 AND version_number = $2
@@ -757,7 +758,7 @@ func (s *weaveProjectStore) populateVersionLabels(ctx context.Context, rows []do
 	// canonical now. The renderer consumes Prefix to derive
 	// deterministic ontology UUIDs under ids.OntologyNamespace, so this
 	// query carries both.
-	rs, err := s.pool.Query(ctx,
+	rs, err := txscope.New(s.pool).Query(ctx,
 		`SELECT ov.id,
 		        COALESCE(NULLIF(o.name, ''), ov.ontology_id) AS name,
 		        COALESCE(o.prefix, '') AS prefix,
@@ -851,7 +852,7 @@ func (s *weaveProjectStore) listParentTargets(ctx context.Context, target inheri
 }
 
 func (s *weaveProjectStore) listParentTargetsDraft(ctx context.Context, projectID string) ([]inheritanceTarget, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT parent_project_id, source_mode, COALESCE(source_version, '')
 		FROM weave_project_inheritance
 		WHERE project_id = $1

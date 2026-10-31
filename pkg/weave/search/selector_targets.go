@@ -7,8 +7,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 type selectorTarget struct {
@@ -72,7 +74,7 @@ func listParentTargets(ctx context.Context, pool *pgxpool.Pool, target selectorT
 }
 
 func listParentTargetsDraft(ctx context.Context, pool *pgxpool.Pool, projectID string) ([]selectorTarget, error) {
-	rows, err := pool.Query(ctx, `
+	rows, err := txscope.New(pool).Query(ctx, `
 		SELECT parent_project_id, source_mode, COALESCE(source_version, '')
 		FROM weave_project_inheritance
 		WHERE project_id = $1
@@ -103,7 +105,7 @@ func listParentTargetsDraft(ctx context.Context, pool *pgxpool.Pool, projectID s
 	}
 
 	var parent *string
-	if err := pool.QueryRow(ctx, `SELECT parent_project_id FROM weave_projects WHERE id = $1`, projectID).Scan(&parent); err != nil {
+	if err := txscope.New(pool).QueryRow(ctx, `SELECT parent_project_id FROM weave_projects WHERE id = $1`, projectID).Scan(&parent); err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, nil
 		}
@@ -116,7 +118,7 @@ func listParentTargetsDraft(ctx context.Context, pool *pgxpool.Pool, projectID s
 }
 
 func listParentTargetsArchived(ctx context.Context, pool *pgxpool.Pool, projectID, version string) ([]selectorTarget, error) {
-	rows, err := releasearchive.Parents(ctx, sqlcgen.New(pool), projectID, version)
+	rows, err := releasearchive.Parents(ctx, sqlcgen.New(txscope.New(pool)), projectID, version)
 	if err != nil {
 		return nil, err
 	}

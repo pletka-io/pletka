@@ -1,6 +1,6 @@
 //go:build integration
 
-package publication
+package publication_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	"github.com/pletka-io/pletka/pkg/weave/publication"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
@@ -74,14 +75,14 @@ func seedPublicationFixture(t *testing.T, pool *pgxpool.Pool) {
 func TestBatchState(t *testing.T) {
 	pool := testPool(t)
 	seedPublicationFixture(t, pool)
-	r := NewReader(pool)
+	r := publication.NewReader(pool)
 	ctx := context.Background()
 
 	got, err := r.BatchState(ctx, "TEST_PUB", "field", []string{"F_PUB", "F_MOD", "F_MODOVR", "F_NEW"})
 	if err != nil {
 		t.Fatalf("BatchState field: %v", err)
 	}
-	want := map[string]State{"F_PUB": StatePublished, "F_MOD": StateModified, "F_MODOVR": StateModified, "F_NEW": StateNew}
+	want := map[string]publication.State{"F_PUB": publication.StatePublished, "F_MOD": publication.StateModified, "F_MODOVR": publication.StateModified, "F_NEW": publication.StateNew}
 	for id, w := range want {
 		if got[id] != w {
 			t.Errorf("field %s: got %q want %q", id, got[id], w)
@@ -93,7 +94,7 @@ func TestBatchState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BatchState norel: %v", err)
 	}
-	if nr["F_NOREL"] != StateDraft {
+	if nr["F_NOREL"] != publication.StateDraft {
 		t.Errorf("F_NOREL: got %q want draft", nr["F_NOREL"])
 	}
 
@@ -102,7 +103,7 @@ func TestBatchState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BatchState model: %v", err)
 	}
-	if m["M_MOD"] != StateModified {
+	if m["M_MOD"] != publication.StateModified {
 		t.Errorf("M_MOD: got %q want modified", m["M_MOD"])
 	}
 }
@@ -110,7 +111,7 @@ func TestBatchState(t *testing.T) {
 func TestProjectRollup(t *testing.T) {
 	pool := testPool(t)
 	seedPublicationFixture(t, pool)
-	r := NewReader(pool)
+	r := publication.NewReader(pool)
 
 	got, err := r.ProjectRollup(context.Background(), "TEST_PUB")
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -26,7 +27,7 @@ var _ domain.ProjectOntologyVersionStore = (*projectOntologyVersionStore)(nil)
 // newProjectOntologyVersionStore returns a new projectOntologyVersionStore backed by pool.
 func newProjectOntologyVersionStore(pool *pgxpool.Pool) *projectOntologyVersionStore {
 	return &projectOntologyVersionStore{
-		queries: sqlcgen.New(pool),
+		queries: sqlcgen.New(txscope.New(pool)),
 		pool:    pool,
 	}
 }
@@ -112,7 +113,7 @@ func (s *projectOntologyVersionStore) Delete(ctx context.Context, projectID, ver
 // SetPrimary makes the given version the project's primary, unsetting any
 // other row in the same project atomically.
 func (s *projectOntologyVersionStore) SetPrimary(ctx context.Context, projectID, versionID string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -224,7 +225,7 @@ func (s *projectOntologyVersionStore) ListGrouped(ctx context.Context, projectID
 		versionIDs = append(versionIDs, item.Link.OntologyVersionID)
 	}
 
-	rows, err := s.pool.Query(ctx,
+	rows, err := txscope.New(s.pool).Query(ctx,
 		`SELECT id, COALESCE(compatible_base_versions, '{}'), version_string, ontology_id
 		 FROM weave_ontology_versions WHERE id = ANY($1)`,
 		versionIDs,

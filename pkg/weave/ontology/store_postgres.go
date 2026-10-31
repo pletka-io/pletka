@@ -14,6 +14,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/ontologybody"
 	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
 )
@@ -28,7 +29,7 @@ var _ Store = (*postgresStore)(nil)
 // NewPostgresStore returns a Store backed by pgx + sqlc against the
 // weave_ontology_* tables (created in migration 029).
 func NewPostgresStore(pool *pgxpool.Pool) Store {
-	return &postgresStore{queries: sqlcgen.New(pool), pool: pool}
+	return &postgresStore{queries: sqlcgen.New(txscope.New(pool)), pool: pool}
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +176,7 @@ func (s *postgresStore) SearchOntologies(ctx context.Context, query string, limi
 }
 
 func (s *postgresStore) NamespaceBindings(ctx context.Context) ([]NamespaceBinding, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 SELECT prefix, namespace, weight, source, ontology_id
 FROM (
     SELECT
@@ -222,7 +223,7 @@ ORDER BY length(namespace) DESC, weight DESC, prefix ASC
 }
 
 func (s *postgresStore) UpsertNamespaceBindings(ctx context.Context, bindings []NamespaceBinding) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin upsert namespace bindings tx: %w", err)
 	}
@@ -242,7 +243,7 @@ func (s *postgresStore) DeleteNamespaceBindingsBySource(ctx context.Context, sou
 	if source == "" {
 		return fmt.Errorf("delete namespace bindings: source required")
 	}
-	if _, err := s.pool.Exec(ctx, `
+	if _, err := txscope.New(s.pool).Exec(ctx, `
 DELETE FROM weave_namespace_bindings
 WHERE source = $1
   AND (project_id IS NULL OR project_id = '')
@@ -981,7 +982,7 @@ func (s *postgresStore) CountOntologyVersions(ctx context.Context, ontologyID st
 // ---------------------------------------------------------------------------
 
 func (s *postgresStore) CreateVersion(ctx context.Context, in CreateVersionInput) (*domain.OntologyVersion, error) {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin create ontology version: %w", err)
 	}
@@ -1105,7 +1106,7 @@ func (s *postgresStore) StageLegacyVersion(ctx context.Context, in ImportVersion
 
 func (s *postgresStore) importVersion(ctx context.Context, in ImportVersionInput, publish bool) (out *domain.OntologyVersion, err error) {
 	defer func() { err = ontologybody.MapError(err) }()
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	tx, err := txscope.New(s.pool).BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return nil, fmt.Errorf("begin import-version tx: %w", err)
 	}
@@ -1302,7 +1303,7 @@ WHERE weave_namespace_bindings.weight <= EXCLUDED.weight
 // ---------------------------------------------------------------------------
 
 func (s *postgresStore) ReplaceFieldRefs(ctx context.Context, fieldID, projectID string, refs []domain.FieldOntologyRef) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin replace-field-refs tx: %w", err)
 	}

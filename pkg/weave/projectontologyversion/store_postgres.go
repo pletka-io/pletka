@@ -13,6 +13,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -29,7 +30,7 @@ var _ Store = (*postgresStore)(nil)
 // NewPostgresStore returns a Store backed by the supplied pgx pool.
 func NewPostgresStore(pool *pgxpool.Pool) Store {
 	return &postgresStore{
-		queries: sqlcgen.New(pool),
+		queries: sqlcgen.New(txscope.New(pool)),
 		pool:    pool,
 	}
 }
@@ -95,7 +96,7 @@ func (s *postgresStore) ListVersion(ctx context.Context, projectID, releaseVersi
 	if err := releasearchive.Require(ctx, s.queries, projectID, releaseVersion); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT project_id, ontology_version_id, added_at, added_by_id, is_primary, usage_notes
 		FROM weave_project_ontology_versions_archive
 		WHERE project_id = $1 AND version_number = $2
@@ -136,7 +137,7 @@ func (s *postgresStore) GetVersion(ctx context.Context, projectID, versionID, re
 	if err := releasearchive.Require(ctx, s.queries, projectID, releaseVersion); err != nil {
 		return nil, err
 	}
-	row := s.pool.QueryRow(ctx, `
+	row := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT project_id, ontology_version_id, added_at, added_by_id, is_primary, usage_notes
 		FROM weave_project_ontology_versions_archive
 		WHERE project_id = $1 AND ontology_version_id = $2 AND version_number = $3
@@ -197,7 +198,7 @@ func (s *postgresStore) Delete(ctx context.Context, projectID, versionID string)
 // ---------------------------------------------------------------------------
 
 func (s *postgresStore) SetPrimary(ctx context.Context, projectID, versionID string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -235,7 +236,7 @@ func (s *postgresStore) SetPrimary(ctx context.Context, projectID, versionID str
 // WeaveOntologyUsageByProject.
 func (s *postgresStore) CountPathElementUsage(ctx context.Context, projectID, versionID string) (int64, error) {
 	var n int64
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 		WITH version_qnames AS (
 			SELECT qname FROM weave_ontology_classes WHERE ontology_version_id = $2
 			UNION
@@ -276,7 +277,7 @@ func (s *postgresStore) CountPathElementUsage(ctx context.Context, projectID, ve
 
 func (s *postgresStore) CountPathElementUsageVersion(ctx context.Context, projectID, versionID, releaseVersion string) (int64, error) {
 	var n int64
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 		WITH archived_qnames AS (
 			SELECT DISTINCT
 				f.id AS field_id,
@@ -310,7 +311,7 @@ func (s *postgresStore) SamplePathElementFields(ctx context.Context, projectID, 
 	if limit <= 0 {
 		limit = 10
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT DISTINCT f.id, f.semantic_id, f.system_name, f.ui_name
 		FROM weave_field_ontology_refs r
 		JOIN weave_fields f
@@ -366,7 +367,7 @@ func (s *postgresStore) SamplePathElementFieldsVersion(ctx context.Context, proj
 	if limit <= 0 {
 		limit = 10
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT DISTINCT
 			f.id, f.semantic_id, f.system_name, f.ui_name
 		FROM weave_fields_archive f,
@@ -428,7 +429,7 @@ func (s *postgresStore) OntologyUsage(ctx context.Context, projectID, versionID 
 
 func (s *postgresStore) OntologyUsageVersion(ctx context.Context, projectID, versionID, releaseVersion string) (int, int, error) {
 	var classesUsed, propertiesUsed int64
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 		WITH path_steps AS (
 			SELECT elem->>'prefix' AS prefix,
 				   elem->>'local_name' AS local_name
@@ -528,7 +529,7 @@ func (s *postgresStore) ListGrouped(ctx context.Context, projectID string) ([]do
 		versionIDs = append(versionIDs, item.Link.OntologyVersionID)
 	}
 
-	rows, err := s.pool.Query(ctx,
+	rows, err := txscope.New(s.pool).Query(ctx,
 		`SELECT v.id, COALESCE(v.compatible_base_versions, '{}'), v.version_string, v.ontology_id,
 		        COALESCE(o.name, '')
 		 FROM weave_ontology_versions v

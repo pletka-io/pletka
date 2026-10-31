@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // ArchiveInput carries the required message explaining why a release is
@@ -40,7 +41,7 @@ func (s *Service) Archive(ctx context.Context, projectID, version string, in Arc
 		return nil, errors.New("release: missing principal")
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin release archive tx: %w", err)
 	}

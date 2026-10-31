@@ -1,12 +1,13 @@
 //go:build integration
 
-package vocabulary
+package vocabulary_test
 
 import (
 	"context"
 	"testing"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
 
 // TestListProjectScopedVocabulariesIgnoresTheJoinTable pins the post-change
@@ -52,7 +53,7 @@ func TestListProjectScopedVocabulariesIgnoresTheJoinTable(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_actors WHERE id = $1`, ownerID)
 	})
 
-	svc := NewService(pool, nil)
+	svc := vocabulary.NewService(pool, nil)
 
 	ids := func(projectID string) []string {
 		views, err := svc.ListProjectVocabularies(ctx, projectID)

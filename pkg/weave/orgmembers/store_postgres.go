@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -20,7 +21,7 @@ type postgresStore struct {
 var _ Store = (*postgresStore)(nil)
 
 func NewPostgresStore(pool *pgxpool.Pool) Store {
-	return &postgresStore{queries: sqlcgen.New(pool), pool: pool}
+	return &postgresStore{queries: sqlcgen.New(txscope.New(pool)), pool: pool}
 }
 
 func (s *postgresStore) ListByOrg(ctx context.Context, orgID string) ([]MemberRow, error) {

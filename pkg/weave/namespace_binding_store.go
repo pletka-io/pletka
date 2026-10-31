@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -25,7 +26,7 @@ var _ domain.NamespaceBindingStore = (*namespaceBindingStore)(nil)
 // newNamespaceBindingStore returns a new namespaceBindingStore backed by pool.
 func newNamespaceBindingStore(pool *pgxpool.Pool) *namespaceBindingStore {
 	return &namespaceBindingStore{
-		queries: sqlcgen.New(pool),
+		queries: sqlcgen.New(txscope.New(pool)),
 		pool:    pool,
 	}
 }

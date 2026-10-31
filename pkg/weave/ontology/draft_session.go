@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	readsql "github.com/pletka-io/pletka/pkg/database/readsql/ontologydraft"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	writesql "github.com/pletka-io/pletka/pkg/database/writesql/ontologydraft"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
@@ -36,7 +37,7 @@ func (s *DraftService) Read(ctx context.Context, ref DraftReference, fn func(Dra
 	if fn == nil {
 		return fmt.Errorf("draft callback required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := txscope.New(s.pool).BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return err
 	}
@@ -58,7 +59,7 @@ func (s *DraftService) Edit(ctx context.Context, ref DraftReference, revision in
 	if fn == nil {
 		return fmt.Errorf("draft callback required")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	tx, err := txscope.New(s.pool).BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return err
 	}

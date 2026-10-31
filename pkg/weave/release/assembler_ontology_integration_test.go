@@ -167,6 +167,12 @@ func TestProjectOntologyLinkActorMigrationDoesNotInventHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	var historicalView string
+	mustScan(t, pool, `SELECT pg_get_viewdef('weave_release_actor_references'::regclass, true)`, nil, &historicalView)
+	if err := database.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	mustExec(t, pool, "CREATE OR REPLACE VIEW weave_release_actor_references AS "+historicalView)
 	mustExec(t, pool, `INSERT INTO weave_actors(id,type,slug,display_name) VALUES ('legacy-link-author','person','author','Historical author')`)
 	mustExec(t, pool, `UPDATE weave_project_ontology_versions SET added_by_id='legacy-link-author'`)
 	plan, err := svc.PlanLegacyRebuild(ctx, nil)
@@ -178,6 +184,13 @@ func TestProjectOntologyLinkActorMigrationDoesNotInventHistory(t *testing.T) {
 	}
 	var before, after string
 	mustScan(t, pool, `SELECT document::text FROM weave_release_descriptors WHERE project_id=$1 AND version_number=$2`, []any{legacyProject, legacyVersion}, &before)
+	// Rebuild uses the current maintenance inventory; now run the actual
+	// migration again over the historical descriptors produced with the old view.
+	for version := latest; version >= 40; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := database.Migrate(db); err != nil {
 		t.Fatal(err)
 	}

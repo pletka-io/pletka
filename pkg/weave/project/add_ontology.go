@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // Giving a parent's children an ontology of their own.
@@ -102,7 +104,7 @@ func AddOntologyToChildren(ctx context.Context, pool *pgxpool.Pool, parentID, on
 	}
 
 	var parentExists bool
-	if err := pool.QueryRow(ctx,
+	if err := txscope.New(pool).QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM weave_projects WHERE id = $1)`, parentID).Scan(&parentExists); err != nil {
 		return nil, fmt.Errorf("check parent: %w", err)
 	}
@@ -134,7 +136,7 @@ func AddOntologyToChildren(ctx context.Context, pool *pgxpool.Pool, parentID, on
 // resolveOntology accepts a version id or an ontology prefix.
 func resolveOntology(ctx context.Context, pool *pgxpool.Pool, ontology string) (OntologyRef, error) {
 	var ref OntologyRef
-	err := pool.QueryRow(ctx, `
+	err := txscope.New(pool).QueryRow(ctx, `
 		SELECT ov.id, o.prefix, o.name, ov.version_string
 		FROM weave_ontology_versions ov
 		JOIN weave_ontologies o ON o.id = ov.ontology_id
@@ -146,7 +148,7 @@ func resolveOntology(ctx context.Context, pool *pgxpool.Pool, ontology string) (
 		return ref, fmt.Errorf("resolve ontology by id: %w", err)
 	}
 
-	rows, err := pool.Query(ctx, `
+	rows, err := txscope.New(pool).Query(ctx, `
 		SELECT ov.id, o.prefix, o.name, ov.version_string
 		FROM weave_ontology_versions ov
 		JOIN weave_ontologies o ON o.id = ov.ontology_id
@@ -187,7 +189,7 @@ func resolveOntology(ctx context.Context, pool *pgxpool.Pool, ontology string) (
 // classifyForOntology reads the parent's children and decides, per child,
 // whether this run gives it the ontology.
 func classifyForOntology(ctx context.Context, pool *pgxpool.Pool, parentID, versionID string, opts AddOntologyOptions) ([]AddOntologyChild, error) {
-	rows, err := pool.Query(ctx, `
+	rows, err := txscope.New(pool).Query(ctx, `
 		SELECT i.project_id, i.source_mode, COALESCE(i.source_version, ''),
 		       EXISTS (SELECT 1 FROM weave_project_ontology_versions o
 		               WHERE o.project_id = i.project_id AND o.ontology_version_id = $2)
@@ -232,7 +234,7 @@ func applyOntologyLinks(ctx context.Context, pool *pgxpool.Pool, versionID, note
 		note = "added to children by pletkactl project add-ontology"
 	}
 
-	tx, err := pool.Begin(ctx)
+	tx, err := txscope.New(pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}

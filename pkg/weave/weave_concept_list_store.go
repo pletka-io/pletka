@@ -10,6 +10,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
 )
@@ -187,7 +188,7 @@ func (s *conceptListStore) ListEntries(ctx context.Context, conceptListID string
 
 // ReorderEntries updates position for a list of entry IDs (1-indexed).
 func (s *conceptListStore) ReorderEntries(ctx context.Context, conceptListID string, entryIDs []string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}

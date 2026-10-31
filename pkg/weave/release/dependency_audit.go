@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // DependencyAuditEntry identifies a release unavailable as a new dependency.
@@ -22,7 +23,7 @@ type DependencyAuditEntry struct {
 // AuditProjectDependencies reports releases needing historical evidence or a
 // new cut before consumers may pin them. It never modifies or certifies history.
 func AuditProjectDependencies(ctx context.Context, pool *pgxpool.Pool) ([]DependencyAuditEntry, error) {
-	rows, err := sqlcgen.New(pool).WeaveAuditReleaseProjectDependencies(ctx)
+	rows, err := sqlcgen.New(txscope.New(pool)).WeaveAuditReleaseProjectDependencies(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("audit release project dependencies: %w", err)
 	}

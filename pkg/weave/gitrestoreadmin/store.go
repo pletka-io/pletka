@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/ids"
 )
 
@@ -73,7 +74,7 @@ func (s *PostgresStore) Create(ctx context.Context, job Job) (*Job, error) {
 
 	var out Job
 	var previewRaw []byte
-	err := s.pool.QueryRow(ctx, `
+	err := txscope.New(s.pool).QueryRow(ctx, `
 		INSERT INTO admin_git_restore_jobs (
 			id, snapshot_path, source_project_id, target_project_id, requested_by_id,
 			status, current_phase, error_message, preview_json
@@ -115,7 +116,7 @@ func (s *PostgresStore) Create(ctx context.Context, job Job) (*Job, error) {
 func (s *PostgresStore) Get(ctx context.Context, id string) (*Job, error) {
 	var out Job
 	var previewRaw []byte
-	err := s.pool.QueryRow(ctx, `
+	err := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT id, snapshot_path, source_project_id, target_project_id, requested_by_id,
 		       status, current_phase, error_message, preview_json, created_at, started_at, finished_at
 		FROM admin_git_restore_jobs
@@ -149,7 +150,7 @@ func (s *PostgresStore) List(ctx context.Context, limit int) ([]Job, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT id, snapshot_path, source_project_id, target_project_id, requested_by_id,
 		       status, current_phase, error_message, preview_json, created_at, started_at, finished_at
 		FROM admin_git_restore_jobs
@@ -190,14 +191,14 @@ func (s *PostgresStore) List(ctx context.Context, limit int) ([]Job, error) {
 
 func (s *PostgresStore) ProjectExists(ctx context.Context, projectID string) (bool, error) {
 	var exists bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM weave_projects WHERE id = $1)`, projectID).Scan(&exists)
+	err := txscope.New(s.pool).QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM weave_projects WHERE id = $1)`, projectID).Scan(&exists)
 	return exists, err
 }
 
 func (s *PostgresStore) UpdateState(ctx context.Context, id string, status JobStatus, currentPhase, errorMessage string, startedAt, finishedAt *time.Time) (*Job, error) {
 	var out Job
 	var previewRaw []byte
-	err := s.pool.QueryRow(ctx, `
+	err := txscope.New(s.pool).QueryRow(ctx, `
 		UPDATE admin_git_restore_jobs
 		SET status = $2,
 		    current_phase = $3,

@@ -14,6 +14,7 @@ SELECT * FROM weave_change_set WHERE id = $1;
 -- name: WeaveListUnprocessedChangeSets :many
 SELECT * FROM weave_change_set
 WHERE closed_at IS NOT NULL AND processed_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM weave_draft_projects d WHERE d.project_id=weave_change_set.project_id)
 ORDER BY closed_at ASC
 LIMIT $1;
 
@@ -53,3 +54,6 @@ ORDER BY id ASC;
 UPDATE weave_change_log
 SET processed_at = now()
 WHERE change_set_id = $1;
+
+-- name: WeaveSetChangeSetProject :exec
+UPDATE weave_change_set SET project_id=$2 WHERE id=$1;

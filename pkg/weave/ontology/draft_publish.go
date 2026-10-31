@@ -9,6 +9,7 @@ import (
 
 	readsql "github.com/pletka-io/pletka/pkg/database/readsql/ontologydraft"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	writesql "github.com/pletka-io/pletka/pkg/database/writesql/ontologydraft"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
@@ -26,7 +27,7 @@ func (s *DraftService) Publish(ctx context.Context, ref DraftReference, revision
 		return out, err
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	tx, err := txscope.New(s.pool).BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return out, err
 	}

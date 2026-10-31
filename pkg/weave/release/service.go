@@ -16,6 +16,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/releasedeps"
 	"github.com/pletka-io/pletka/pkg/database/releasedescriptor"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // semverRE matches MAJOR.MINOR.PATCH with an optional pre-release or
@@ -102,7 +103,7 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 		return nil, errors.New("release: missing principal")
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	tx, err := txscope.New(s.pool).BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return nil, fmt.Errorf("begin release tx: %w", err)
 	}

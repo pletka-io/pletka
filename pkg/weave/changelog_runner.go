@@ -11,11 +11,10 @@ import (
 // entries in a real transaction. It replaces domain.NoopChangeLogRunner in
 // production; the persisted entries are drained by the gitmaterializer.
 //
-// The mutation write and the change_log flush are NOT one atomic unit — each
-// slice Store method opens its own transaction, and WithChangeLog opens a
-// separate one for the log flush. This is the DB-first policy: on flush
-// failure the entity write stands and the git history lags until an operator
-// retry. See the git-integration-live-save plan, "Partial Commit State".
+// Store adapters join the callback transaction through txscope. Entity writes,
+// nested savepoints and audit flushing commit or roll back together. These domain
+// entries still are not complete storage receipts; managed draft capture is a
+// separate outer boundary.
 func NewChangeLogRunner(store *PostgresStore) domain.ChangeLogRunner {
 	return storeChangeLogRunner{store: store}
 }
@@ -24,7 +23,7 @@ type storeChangeLogRunner struct{ store *PostgresStore }
 
 func (r storeChangeLogRunner) Run(ctx context.Context, fn func(context.Context, domain.ChangeLogRecorder) error) error {
 	return r.store.WithChangeLog(ctx, func(cl *ChangeLogger) error {
-		return fn(ctx, changeLogRecorder{cl: cl})
+		return fn(cl.ctx, changeLogRecorder{cl: cl})
 	})
 }
 

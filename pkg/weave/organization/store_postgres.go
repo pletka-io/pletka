@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -23,7 +24,7 @@ func NewPostgresStore(pool *pgxpool.Pool) Store {
 	return &postgresStore{
 		pool:    pool,
 		db:      pool,
-		queries: sqlcgen.New(pool),
+		queries: sqlcgen.New(txscope.New(pool)),
 	}
 }
 
@@ -89,7 +90,7 @@ func (s *postgresStore) ListByIDs(ctx context.Context, ids []string) ([]BrowseRo
 		WHERE wa.type = 'organization'
 		  AND wa.id = ANY($1)
 		ORDER BY wa.display_name`
-	rows, err := s.pool.Query(ctx, q, ids)
+	rows, err := txscope.New(s.pool).Query(ctx, q, ids)
 	if err != nil {
 		return nil, fmt.Errorf("list organizations by ids: %w", err)
 	}

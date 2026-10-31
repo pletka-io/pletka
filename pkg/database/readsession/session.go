@@ -23,6 +23,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/database/releasedeps"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -76,7 +77,9 @@ func (s *Session) ArchiveQueries() (archive.Querier, error) {
 
 // Read validates a concrete selection, then runs fn against one database
 // snapshot. The callback must finish all DB work before returning; rendering,
-// network calls and publication belong after this method releases the connection.
+// network calls and publication belong after the owning transaction ends.
+// Inside an infrastructure transaction, Read borrows its repeatable-read snapshot
+// and closes only its reader lifetime; the outer owner commits or rolls back.
 func (f *Factory) Read(ctx context.Context, scope auth.ReadScope, projectID string, fn func(*Session) error) (err error) {
 	if !scope.Valid() || strings.TrimSpace(projectID) == "" || (scope.IsRelease() && strings.TrimSpace(scope.Version()) == "") {
 		return fmt.Errorf("read session requires a project and an explicit draft or nonempty release selection")
@@ -84,19 +87,28 @@ func (f *Factory) Read(ctx context.Context, scope auth.ReadScope, projectID stri
 	if f == nil || f.pool == nil || fn == nil {
 		return fmt.Errorf("read session factory is not configured")
 	}
+	if tx, scoped, err := txscope.Current(ctx, f.pool); err != nil {
+		return err
+	} else if scoped {
+		return f.readOn(ctx, tx, scope, projectID, fn)
+	}
 	tx, err := f.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return fmt.Errorf("begin read session: %w", err)
 	}
-	life := &lifetime{}
 	defer func() {
-		life.closed = true
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		if rollbackErr := tx.Rollback(cleanup); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
-			err = errors.Join(err, fmt.Errorf("close read session: %w", rollbackErr))
+		if e := tx.Rollback(cleanup); e != nil && !errors.Is(e, pgx.ErrTxClosed) {
+			err = errors.Join(err, fmt.Errorf("close read session: %w", e))
 		}
 	}()
+	return f.readOn(ctx, tx, scope, projectID, fn)
+}
+
+func (f *Factory) readOn(ctx context.Context, tx pgx.Tx, scope auth.ReadScope, projectID string, fn func(*Session) error) error {
+	life := &lifetime{}
+	defer func() { life.closed = true }()
 	q := sqlcgen.New(tx)
 	graph := &sourceGraph{}
 	if f.authorize != nil {

@@ -1,6 +1,6 @@
 //go:build integration
 
-package override
+package override_test
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/override"
 )
 
 // Scratch coordinates for ReplaceForEntity id-preservation tests: real LA
@@ -52,7 +53,7 @@ func cleanupReplaceEntity(t *testing.T, pool *pgxpool.Pool) {
 
 func TestReplaceForEntityKeepsIDs(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
+	store := override.NewPostgresStore(pool)
 	ctx := context.Background()
 	cleanupReplaceEntity(t, pool)
 
@@ -102,7 +103,7 @@ func TestReplaceForEntityKeepsIDs(t *testing.T) {
 
 func TestReplaceForEntityReusesByKeyWithoutIDs(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
+	store := override.NewPostgresStore(pool)
 	ctx := context.Background()
 	cleanupReplaceEntity(t, pool)
 
@@ -133,7 +134,7 @@ func TestReplaceForEntityReusesByKeyWithoutIDs(t *testing.T) {
 
 func TestReplaceForEntityRemovesOnlyDropped(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
+	store := override.NewPostgresStore(pool)
 	ctx := context.Background()
 	cleanupReplaceEntity(t, pool)
 
@@ -174,7 +175,7 @@ func TestReplaceForEntityRemovesOnlyDropped(t *testing.T) {
 
 func TestReplaceForEntityKeepsExampleValues(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
+	store := override.NewPostgresStore(pool)
 	ctx := context.Background()
 	cleanupReplaceEntity(t, pool)
 
@@ -235,7 +236,7 @@ func TestReplaceForEntityKeepsExampleValues(t *testing.T) {
 // dropped.
 func TestDeletingOverrideKeepsExampleValues(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
+	store := override.NewPostgresStore(pool)
 	ctx := context.Background()
 	cleanupReplaceEntity(t, pool)
 

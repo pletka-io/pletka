@@ -13,6 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // Attach batch-fetches publication state for ids and writes each into the row
@@ -119,7 +121,7 @@ rel AS (
 // projectID, or "" when the project has no release.
 func (r *Reader) LatestReleaseVersion(ctx context.Context, projectID string) (string, error) {
 	var version string
-	err := r.pool.QueryRow(ctx, `WITH `+latestReleaseCTE+` SELECT version FROM rel`, projectID).Scan(&version)
+	err := txscope.New(r.pool).QueryRow(ctx, `WITH `+latestReleaseCTE+` SELECT version FROM rel`, projectID).Scan(&version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -176,7 +178,7 @@ func (r *Reader) BatchState(ctx context.Context, projectID, entityType string, i
 		return nil, err
 	}
 	q := "WITH " + latestReleaseCTE + ", ovr AS (" + ovrCTE(spec) + ")" + typedStateSelect(spec, true)
-	rows, err := r.pool.Query(ctx, q, projectID, ids)
+	rows, err := txscope.New(r.pool).Query(ctx, q, projectID, ids)
 	if err != nil {
 		return nil, fmt.Errorf("publication batch state (%s): %w", entityType, err)
 	}
@@ -220,7 +222,7 @@ GROUP BY state`,
 		typedStateSelectAliased(mSpec, "ovr_m"),
 		typedStateSelectAliased(cSpec, "ovr_c"),
 	)
-	rows, err := r.pool.Query(ctx, q, projectID)
+	rows, err := txscope.New(r.pool).Query(ctx, q, projectID)
 	if err != nil {
 		return rollup, fmt.Errorf("publication rollup: %w", err)
 	}

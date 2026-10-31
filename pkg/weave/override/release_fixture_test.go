@@ -1,6 +1,6 @@
 //go:build integration
 
-package override
+package override_test
 
 import (
 	"context"

@@ -13,6 +13,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -30,7 +31,7 @@ const entityTypeCollection = "collection"
 var _ Store = (*postgresStore)(nil)
 
 func NewPostgresStore(pool *pgxpool.Pool) Store {
-	return &postgresStore{queries: sqlcgen.New(pool), pool: pool}
+	return &postgresStore{queries: sqlcgen.New(txscope.New(pool)), pool: pool}
 }
 
 func (s *postgresStore) Create(ctx context.Context, c *domain.Collection) error {
@@ -117,7 +118,7 @@ func (s *postgresStore) ListReceiptCollectionClosure(ctx context.Context, seedID
 }
 
 func (s *postgresStore) getByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Collection, error) {
-	row := s.pool.QueryRow(ctx, `
+	row := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT
 			id, created_at, updated_at, system_name, ui_name, description,
 			status, project_id, ontology_scope, collection_number,
@@ -182,7 +183,7 @@ func (s *postgresStore) Update(ctx context.Context, c *domain.Collection) error 
 // weave_override_refs cascade from the deleted override rows via their
 // own FK.
 func (s *postgresStore) Delete(ctx context.Context, id string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin delete collection tx: %w", err)
 	}
@@ -301,7 +302,7 @@ func (s *postgresStore) listVersion(ctx context.Context, projectID, version stri
 	scopeClass, _ := cfg.Filters["scope_class"].(string)
 	categoryID, _ := cfg.Filters["category_id"].(string)
 	status, _ := cfg.Filters["status"].(string)
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT
 			id, created_at, updated_at, system_name, ui_name, description,
 			status, project_id, ontology_scope, collection_number,
@@ -344,7 +345,7 @@ func (s *postgresStore) listVersion(ctx context.Context, projectID, version stri
 		return nil, 0, fmt.Errorf("iterate archived weave collections: %w", err)
 	}
 	var total int64
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT COUNT(*) FROM weave_collections_archive
 		WHERE project_id = $1
 		  AND version_number = $2
@@ -424,7 +425,7 @@ func (s *postgresStore) Usage(ctx context.Context, projectID, collectionID strin
 
 func (s *postgresStore) usageVersion(ctx context.Context, projectID, collectionID, version string) (UsageReport, error) {
 	var count int64
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT COUNT(DISTINCT o.field_id) AS field_count
 		FROM weave_override_refs_archive r
 		JOIN weave_field_overrides_archive o
@@ -441,7 +442,7 @@ func (s *postgresStore) usageVersion(ctx context.Context, projectID, collectionI
 	if count == 0 {
 		return report, nil
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT DISTINCT
 			f.id AS field_id,
 			f.semantic_id AS field_semantic_id,
@@ -492,7 +493,7 @@ SELECT fo.entity_id, count(*) AS field_count
 FROM weave_field_overrides fo
 WHERE fo.entity_type = 'collection' AND fo.entity_id = ANY($1)
 GROUP BY fo.entity_id`
-	rows, err := s.pool.Query(ctx, q, collectionIDs)
+	rows, err := txscope.New(s.pool).Query(ctx, q, collectionIDs)
 	if err != nil {
 		return nil, fmt.Errorf("batch collection composition counts: %w", err)
 	}
@@ -548,7 +549,7 @@ WHERE EXISTS (
   )
 ORDER BY m.project_id ASC, COALESCE(m.ui_name ->> 'en', m.system_name, '') ASC, m.id ASC`
 
-	rows, err := s.pool.Query(ctx, q, collectionID)
+	rows, err := txscope.New(s.pool).Query(ctx, q, collectionID)
 	if err != nil {
 		return nil, fmt.Errorf("list collection usage: %w", err)
 	}
@@ -578,7 +579,7 @@ WHERE EXISTS (
   )
 ORDER BY m.project_id ASC, COALESCE(m.ui_name ->> 'en', m.system_name, '') ASC, m.id ASC`
 
-	rows, err := s.pool.Query(ctx, q, collectionID, version)
+	rows, err := txscope.New(s.pool).Query(ctx, q, collectionID, version)
 	if err != nil {
 		return nil, fmt.Errorf("list archived collection usage: %w", err)
 	}
@@ -817,7 +818,7 @@ WHERE fo.part_of_collection_id <> ''
   AND NOT c.deprecated
   AND f.path_elements IS NOT NULL;`
 
-	rows, err := s.pool.Query(ctx, q)
+	rows, err := txscope.New(s.pool).Query(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("collection anchor index: %w", err)
 	}

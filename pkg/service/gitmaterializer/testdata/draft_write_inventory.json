@@ -5,7 +5,7 @@
       "pkg/weave/adoption_store.go"
     ],
     "observed_audit_kinds": [],
-    "review": "ReplaceForContext deletes then reinserts the entire context in its own transaction; no per-row prior images."
+    "review": "ReplaceForContext deletes then reinserts the entire context in a store transaction/savepoint; no per-row prior images in the domain audit."
   },
   {
     "section": "weave_categories_archive",
@@ -88,7 +88,7 @@
       "pkg/weave/example/store_postgres.go"
     ],
     "observed_audit_kinds": [],
-    "review": "Own store transaction combines header and values, without change-log transaction or audit entry."
+    "review": "Store transaction/savepoint combines header and values, without a domain audit entry."
   },
   {
     "section": "weave_field_overrides_archive",
@@ -120,7 +120,7 @@
     "observed_audit_kinds": [
       "model"
     ],
-    "review": "Delete removes overrides in a separate store transaction, then model; references cascade from overrides."
+    "review": "Delete removes overrides in a store transaction/savepoint, then model; references cascade from overrides."
   },
   {
     "section": "weave_release_namespace_bindings_archive",

@@ -36,6 +36,27 @@ func (c CompleteProject) Input(id Identity) (ProjectInput, error) {
 	return in, nil
 }
 
+// Source returns an already retained immutable source and its complete closure.
+// It cannot discover, retarget or promote a draft into a release.
+func (c CompleteProject) Source(id Identity) (CompleteProject, error) {
+	if id.IsDraft() {
+		return CompleteProject{}, fmt.Errorf("source must be an immutable release")
+	}
+	root, err := c.Input(id)
+	if err != nil {
+		return CompleteProject{}, err
+	}
+	sources := make([]ProjectInput, 0, len(root.Dependencies))
+	for _, dep := range root.Dependencies {
+		in, err := c.Input(dep)
+		if err != nil {
+			return CompleteProject{}, err
+		}
+		sources = append(sources, in)
+	}
+	return NewComplete(root, sources)
+}
+
 // CaptureSections returns a copy of the original storage receipt inventory.
 // Its hashes describe PostgreSQL rows, not portable file bytes. Drafts have no
 // receipt; parsing a receipt never authenticates imported content as a local cut.

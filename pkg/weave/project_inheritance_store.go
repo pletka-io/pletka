@@ -11,6 +11,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -21,7 +22,7 @@ type projectInheritanceStore struct {
 var _ domain.ProjectInheritanceStore = (*projectInheritanceStore)(nil)
 
 func (s *projectInheritanceStore) List(ctx context.Context, projectID string) ([]domain.ProjectInheritance, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT project_id, parent_project_id, is_primary, canonical_order, adopted_at, source_mode, COALESCE(source_version, '')
 		FROM weave_project_inheritance
 		WHERE project_id = $1
@@ -35,7 +36,7 @@ func (s *projectInheritanceStore) List(ctx context.Context, projectID string) ([
 }
 
 func (s *projectInheritanceStore) ListVersion(ctx context.Context, projectID, version string) ([]domain.ProjectInheritance, error) {
-	rows, err := releasearchive.Parents(ctx, sqlcgen.New(s.pool), projectID, version)
+	rows, err := releasearchive.Parents(ctx, sqlcgen.New(txscope.New(s.pool)), projectID, version)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +48,7 @@ func (s *projectInheritanceStore) ListVersion(ctx context.Context, projectID, ve
 }
 
 func (s *projectInheritanceStore) ListByParent(ctx context.Context, parentID string) ([]domain.ProjectInheritance, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT project_id, parent_project_id, is_primary, canonical_order, adopted_at, source_mode, COALESCE(source_version, '')
 		FROM weave_project_inheritance
 		WHERE parent_project_id = $1
@@ -61,7 +62,7 @@ func (s *projectInheritanceStore) ListByParent(ctx context.Context, parentID str
 }
 
 func (s *projectInheritanceStore) Add(ctx context.Context, link domain.ProjectInheritance) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin add project inheritance tx: %w", err)
 	}
@@ -105,7 +106,7 @@ func (s *projectInheritanceStore) Add(ctx context.Context, link domain.ProjectIn
 }
 
 func (s *projectInheritanceStore) Remove(ctx context.Context, projectID, parentID string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin remove project inheritance tx: %w", err)
 	}
@@ -133,7 +134,7 @@ func (s *projectInheritanceStore) Remove(ctx context.Context, projectID, parentI
 }
 
 func (s *projectInheritanceStore) SetPrimary(ctx context.Context, projectID, parentID string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin set primary inheritance tx: %w", err)
 	}
@@ -181,7 +182,7 @@ func (s *projectInheritanceStore) Reorder(ctx context.Context, projectID string,
 		return nil
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin reorder inheritance tx: %w", err)
 	}

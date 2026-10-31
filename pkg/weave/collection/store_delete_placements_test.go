@@ -1,6 +1,6 @@
 //go:build integration
 
-package collection
+package collection_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	"github.com/pletka-io/pletka/pkg/weave/collection"
 )
 
 // TestDelete_RemovesOwnPlacementsAndRefs proves that deleting a collection
@@ -68,7 +69,7 @@ func TestDelete_RemovesOwnPlacementsAndRefs(t *testing.T) {
 		mustExecCleanup(pool, ctx, `DELETE FROM weave_actors WHERE id = $1`, actorID)
 	})
 
-	store := NewPostgresStore(pool)
+	store := collection.NewPostgresStore(pool)
 	if err := store.Delete(ctx, collectionID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}

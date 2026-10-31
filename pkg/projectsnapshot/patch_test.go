@@ -417,3 +417,23 @@ func TestDraftPatchSemanticChangesRequireMatchingEvidence(t *testing.T) {
 		t.Fatal("new semantic evidence missing")
 	}
 }
+
+func TestRetainedSourceExtractionPreservesExactRelease(t *testing.T) {
+	base, in, expected := patchFixture(t)
+	id, err := expected.Root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained, err := base.Source(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(bundleBytes(t, expected), bundleBytes(t, retained)); diff != "" {
+		t.Fatal(diff)
+	}
+	for _, rejected := range []projectsnapshot.Identity{in.Evidence.Identity(), identity(t, "B", "missing"), {}} {
+		if _, err := base.Source(rejected); err == nil {
+			t.Fatalf("accepted unavailable or mutable source: %+v", rejected)
+		}
+	}
+}

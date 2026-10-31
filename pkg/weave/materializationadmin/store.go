@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // Store runs read-only queries over weave_change_set.
@@ -43,7 +45,7 @@ func (s *Store) Recent(ctx context.Context, limit int) ([]Run, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT id, project_id, actor_name, started_at, processed_at,
 		       materialized_outcome, materialized_duration_ms,
 		       materialized_files, materialized_changed, git_commit_sha,
@@ -100,7 +102,7 @@ func (s *Store) Summary(ctx context.Context, windowHours int) (Summary, error) {
 	sum.WindowHours = windowHours
 
 	// Percentiles + outcome counts over the window (materialized rows only).
-	err := s.pool.QueryRow(ctx, `
+	err := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT
 		  count(*) FILTER (WHERE materialized_outcome IS NOT NULL),
 		  count(*) FILTER (WHERE materialized_outcome = 'committed'),
@@ -123,7 +125,7 @@ func (s *Store) Summary(ctx context.Context, windowHours int) (Summary, error) {
 
 	// Live gauges: queue depth = closed but unprocessed; lag = age of the
 	// oldest such set. These would surface a stuck materializer immediately.
-	err = s.pool.QueryRow(ctx, `
+	err = txscope.New(s.pool).QueryRow(ctx, `
 		SELECT
 		  count(*) FILTER (WHERE closed_at IS NOT NULL AND processed_at IS NULL),
 		  COALESCE(

@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -134,7 +135,7 @@ const archivedCategoryColumns = `
 	status, project_id, canonical_order, deprecated, version_number`
 
 func (s *postgresStore) listVersion(ctx context.Context, projectID, version string) ([]*domain.Category, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT `+archivedCategoryColumns+`
 		FROM weave_categories_archive
 		WHERE project_id = $1 AND version_number = $2
@@ -161,7 +162,7 @@ func (s *postgresStore) listVersion(ctx context.Context, projectID, version stri
 
 func (s *postgresStore) countVersion(ctx context.Context, projectID, version string) (int64, error) {
 	var n int64
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT count(*) FROM weave_categories_archive
 		WHERE project_id = $1 AND version_number = $2
 	`, projectID, version).Scan(&n); err != nil {
@@ -171,7 +172,7 @@ func (s *postgresStore) countVersion(ctx context.Context, projectID, version str
 }
 
 func (s *postgresStore) getByIdentifierVersion(ctx context.Context, projectID, identifier, version string) (*domain.Category, error) {
-	row := s.pool.QueryRow(ctx, `
+	row := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT `+archivedCategoryColumns+`
 		FROM weave_categories_archive
 		WHERE project_id = $1 AND version_number = $2
@@ -193,7 +194,7 @@ func (s *postgresStore) getByIdentifierVersion(ctx context.Context, projectID, i
 // release still uses.
 func (s *postgresStore) isInUseVersion(ctx context.Context, projectID, id, semanticID, version string) (bool, error) {
 	var inUse bool
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM weave_field_overrides_archive fo
 			WHERE fo.project_id = $1 AND fo.version_number = $4

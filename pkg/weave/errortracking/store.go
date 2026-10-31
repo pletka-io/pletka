@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // Source identifies the origin of an error event row.
@@ -81,7 +82,7 @@ func (s *Store) Insert(ctx context.Context, e Event) error {
 	if category == "" {
 		category = string(CategoryHandlerDecision)
 	}
-	_, err := s.pool.Exec(ctx, `
+	_, err := txscope.New(s.pool).Exec(ctx, `
 		INSERT INTO weave_error_events (
 			request_id, occurred_at, source, category, route, method, status,
 			actor_id, duration_ms, user_agent, request, response, error
@@ -142,7 +143,7 @@ func (s *Store) List(ctx context.Context, f ListFilter) ([]ListResult, error) {
 		limit = 100
 	}
 
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT id, occurred_at, source, category, route, method, status,
 		       actor_id, duration_ms, user_agent, request, response, error
 		FROM weave_error_events

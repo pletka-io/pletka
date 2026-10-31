@@ -1,6 +1,6 @@
 //go:build integration
 
-package override
+package override_test
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
+	"github.com/pletka-io/pletka/pkg/weave/override"
 )
 
 // TestWithEntityLockReturnsRealErrLockBusy is lock_busy_classification_test.go's
@@ -25,13 +26,13 @@ import (
 // production 10s — see the var's doc comment in store_postgres.go.
 func TestWithEntityLockReturnsRealErrLockBusy(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
-	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
+	store := override.NewPostgresStore(pool)
+	svc := override.NewService(store, override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 
-	orig := lockTimeout
-	lockTimeout = 150 * time.Millisecond
-	t.Cleanup(func() { lockTimeout = orig })
+	orig := (*override.TestLockTimeout)
+	(*override.TestLockTimeout) = 150 * time.Millisecond
+	t.Cleanup(func() { (*override.TestLockTimeout) = orig })
 
 	holderErr := make(chan error, 1)
 	started := make(chan struct{})
@@ -59,7 +60,7 @@ func TestWithEntityLockReturnsRealErrLockBusy(t *testing.T) {
 		t.Fatal("waiter's callback ran — the lock should still have been held")
 		return nil
 	})
-	if !errors.Is(err, ErrLockBusy) {
+	if !errors.Is(err, override.ErrLockBusy) {
 		t.Fatalf("errors.Is(err, ErrLockBusy) = false, want true; real WithEntityLock error = %v", err)
 	}
 

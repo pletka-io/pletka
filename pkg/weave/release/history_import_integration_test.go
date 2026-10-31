@@ -222,6 +222,15 @@ func checkHistoryImport(ctx context.Context, t *testing.T, source *pgxpool.Pool,
 	}
 	db := stdlib.OpenDBFromPool(target)
 	defer func() { _ = db.Close() }()
+	latest, err := database.LatestMigrationVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for version := latest; version > 41; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade retained imported release history") {
 		t.Fatalf("imported history/workspace downgrade not protected: %v", err)
 	}

@@ -1,12 +1,14 @@
 //go:build integration
 
-package publication
+package publication_test
 
 import (
 	"context"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/weave/publication"
 )
 
 // seedLatestReleaseFixture builds a project TEST_LATEST with two releases,
@@ -45,7 +47,7 @@ func seedLatestReleaseFixture(t *testing.T, pool *pgxpool.Pool) {
 func TestLatestReleaseVersion(t *testing.T) {
 	pool := testPool(t)
 	seedLatestReleaseFixture(t, pool)
-	r := NewReader(pool)
+	r := publication.NewReader(pool)
 	ctx := context.Background()
 
 	got, err := r.LatestReleaseVersion(ctx, "TEST_LATEST")
@@ -74,7 +76,7 @@ func TestLatestReleaseVersion(t *testing.T) {
 func TestLatestReleaseVersion_SkipsArchived(t *testing.T) {
 	pool := testPool(t)
 	seedLatestReleaseFixture(t, pool)
-	r := NewReader(pool)
+	r := publication.NewReader(pool)
 	ctx := context.Background()
 
 	// Sanity: 0.10.0 is latest while nothing is archived. Without this the

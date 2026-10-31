@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // Re-pinning a parent's children onto a newer release.
@@ -114,7 +116,7 @@ func RepinChildren(ctx context.Context, pool *pgxpool.Pool, parentID, version st
 // mistyped argument fails loudly instead of reading as "nothing to do".
 func checkRepinTarget(ctx context.Context, pool *pgxpool.Pool, parentID, version string) error {
 	var parentExists bool
-	if err := pool.QueryRow(ctx,
+	if err := txscope.New(pool).QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM weave_projects WHERE id = $1)`, parentID).Scan(&parentExists); err != nil {
 		return fmt.Errorf("check parent: %w", err)
 	}
@@ -123,7 +125,7 @@ func checkRepinTarget(ctx context.Context, pool *pgxpool.Pool, parentID, version
 	}
 
 	var releaseExists bool
-	if err := pool.QueryRow(ctx,
+	if err := txscope.New(pool).QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM weave_releases WHERE project_id = $1 AND version = $2)`,
 		parentID, version).Scan(&releaseExists); err != nil {
 		return fmt.Errorf("check release: %w", err)
@@ -137,7 +139,7 @@ func checkRepinTarget(ctx context.Context, pool *pgxpool.Pool, parentID, version
 // classifyChildren reads the parent's children and decides, per child,
 // whether this run moves it.
 func classifyChildren(ctx context.Context, pool *pgxpool.Pool, parentID, version string, opts RepinOptions) ([]RepinChild, error) {
-	rows, err := pool.Query(ctx, `
+	rows, err := txscope.New(pool).Query(ctx, `
 		SELECT project_id, source_mode, COALESCE(source_version, '')
 		FROM weave_project_inheritance
 		WHERE parent_project_id = $1
@@ -172,7 +174,7 @@ func classifyChildren(ctx context.Context, pool *pgxpool.Pool, parentID, version
 // applyRepins writes every unskipped move in one transaction, so a parent's
 // children never end up half moved.
 func applyRepins(ctx context.Context, pool *pgxpool.Pool, parentID, version string, children []RepinChild) error {
-	tx, err := pool.Begin(ctx)
+	tx, err := txscope.New(pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}

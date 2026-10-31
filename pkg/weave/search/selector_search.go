@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -29,7 +30,7 @@ func resolveArchivedPathFieldIDs(ctx context.Context, pool *pgxpool.Pool, target
 		return nil, nil
 	}
 
-	rows, err := pool.Query(ctx, `
+	rows, err := txscope.New(pool).Query(ctx, `
 		SELECT id, path_elements
 		FROM weave_fields_archive
 		WHERE project_id = $1 AND version_number = $2 AND status IN ('draft', 'published')
@@ -162,7 +163,7 @@ func matchesOntologyScope(scope *domain.PathElement, classFilter, prefixFilter s
 
 func (h *Handler) searchArchivedFields(ctx context.Context, pool *pgxpool.Pool, target selectorTarget, params domain.SearchParams, rootProjectID string) ([]fieldSearchCandidate, error) {
 	adoptionCounts := make(map[string]int)
-	rows, err := pool.Query(ctx, `
+	rows, err := txscope.New(pool).Query(ctx, `
 		SELECT field_id, COUNT(DISTINCT entity_id)
 		FROM weave_field_overrides_archive
 		WHERE project_id = $1 AND version_number = $2 AND entity_type IN ('model', 'collection')
@@ -183,7 +184,7 @@ func (h *Handler) searchArchivedFields(ctx context.Context, pool *pgxpool.Pool, 
 	rows.Close()
 
 	categoryByField := make(map[string]string)
-	categoryRows, err := pool.Query(ctx, `
+	categoryRows, err := txscope.New(pool).Query(ctx, `
 		SELECT field_id, COALESCE(category_id, '')
 		FROM weave_field_overrides_archive
 		WHERE project_id = $1 AND version_number = $2 AND entity_type = ''
@@ -201,7 +202,7 @@ func (h *Handler) searchArchivedFields(ctx context.Context, pool *pgxpool.Pool, 
 	}
 	categoryRows.Close()
 
-	fieldRows, err := pool.Query(ctx, `
+	fieldRows, err := txscope.New(pool).Query(ctx, `
 		SELECT id, semantic_id, system_name, ui_name, description, ontology_scope, ontology_path, path_elements, expected_value_type, project_id
 		FROM weave_fields_archive
 		WHERE project_id = $1 AND version_number = $2 AND status IN ('draft', 'published')
@@ -253,7 +254,7 @@ func (h *Handler) searchArchivedFields(ctx context.Context, pool *pgxpool.Pool, 
 
 func (h *Handler) searchArchivedCollections(ctx context.Context, pool *pgxpool.Pool, target selectorTarget, params domain.SearchParams, rootProjectID string) ([]collectionSearchCandidate, error) {
 	adoptionCounts := make(map[string]int)
-	rows, err := pool.Query(ctx, `
+	rows, err := txscope.New(pool).Query(ctx, `
 		SELECT part_of_collection_id, COUNT(DISTINCT entity_id)
 		FROM weave_field_overrides_archive
 		WHERE project_id = $1 AND version_number = $2 AND entity_type = 'model' AND COALESCE(part_of_collection_id, '') != ''
@@ -274,7 +275,7 @@ func (h *Handler) searchArchivedCollections(ctx context.Context, pool *pgxpool.P
 	rows.Close()
 
 	fieldIDsByCollection := make(map[string][]string)
-	overrideRows, err := pool.Query(ctx, `
+	overrideRows, err := txscope.New(pool).Query(ctx, `
 		SELECT entity_id, field_id
 		FROM weave_field_overrides_archive
 		WHERE project_id = $1 AND version_number = $2 AND entity_type = 'collection'
@@ -292,7 +293,7 @@ func (h *Handler) searchArchivedCollections(ctx context.Context, pool *pgxpool.P
 	}
 	overrideRows.Close()
 
-	collectionRows, err := pool.Query(ctx, `
+	collectionRows, err := txscope.New(pool).Query(ctx, `
 		SELECT id, system_name, ui_name, description, ontology_scope, project_id
 		FROM weave_collections_archive
 		WHERE project_id = $1 AND version_number = $2 AND status IN ('draft', 'published')
@@ -391,7 +392,7 @@ func loadArchivedFieldExpectedRefs(ctx context.Context, pool *pgxpool.Pool, vers
 		fieldIDs = append(fieldIDs, row.ID)
 	}
 
-	baseRows, err := pool.Query(ctx, `
+	baseRows, err := txscope.New(pool).Query(ctx, `
 		SELECT id, field_id
 		FROM weave_field_overrides_archive
 		WHERE project_id = $1 AND version_number = $2 AND entity_type = '' AND field_id = ANY($3)
@@ -416,7 +417,7 @@ func loadArchivedFieldExpectedRefs(ctx context.Context, pool *pgxpool.Pool, vers
 		return map[string]fieldExpectedRefs{}, nil
 	}
 
-	refRows, err := pool.Query(ctx, `
+	refRows, err := txscope.New(pool).Query(ctx, `
 		SELECT override_id, ref_type, target_id, semantic_id
 		FROM weave_override_refs_archive
 		WHERE project_id = $1 AND version_number = $2 AND override_id = ANY($3)
@@ -452,7 +453,7 @@ func loadArchivedFieldExpectedRefs(ctx context.Context, pool *pgxpool.Pool, vers
 
 	names := make(map[string]domain.Translations)
 	if len(modelIDs) > 0 {
-		rows, err := pool.Query(ctx, `
+		rows, err := txscope.New(pool).Query(ctx, `
 			SELECT id, ui_name
 			FROM weave_models_archive
 			WHERE project_id = $1 AND version_number = $2 AND id = ANY($3)
@@ -472,7 +473,7 @@ func loadArchivedFieldExpectedRefs(ctx context.Context, pool *pgxpool.Pool, vers
 		rows.Close()
 	}
 	if len(collectionIDs) > 0 {
-		rows, err := pool.Query(ctx, `
+		rows, err := txscope.New(pool).Query(ctx, `
 			SELECT id, ui_name
 			FROM weave_collections_archive
 			WHERE project_id = $1 AND version_number = $2 AND id = ANY($3)

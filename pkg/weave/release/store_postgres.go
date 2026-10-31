@@ -6,6 +6,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 type PostgresStore struct {
@@ -17,7 +19,7 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 }
 
 func (s *PostgresStore) ListByProject(ctx context.Context, projectID string) ([]Release, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT project_id, version, title, description, created_at, created_by_id, archived_at, archived_message
 		FROM weave_releases
 		WHERE project_id = $1
@@ -55,7 +57,7 @@ func (s *PostgresStore) ListByProject(ctx context.Context, projectID string) ([]
 
 func (s *PostgresStore) Get(ctx context.Context, projectID, version string) (*Release, error) {
 	var item Release
-	err := s.pool.QueryRow(ctx, `
+	err := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT project_id, version, title, description, created_at, created_by_id, archived_at, archived_message
 		FROM weave_releases
 		WHERE project_id = $1 AND version = $2

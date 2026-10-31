@@ -13,6 +13,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -31,7 +32,7 @@ var _ Store = (*postgresStore)(nil)
 
 // NewPostgresStore returns a Store backed by the supplied pgx pool.
 func NewPostgresStore(pool *pgxpool.Pool) Store {
-	return &postgresStore{queries: sqlcgen.New(pool), pool: pool}
+	return &postgresStore{queries: sqlcgen.New(txscope.New(pool)), pool: pool}
 }
 
 func (s *postgresStore) Create(ctx context.Context, m *domain.Model) error {
@@ -131,7 +132,7 @@ func (s *postgresStore) ListReceiptModelClosure(ctx context.Context, seedID, see
 }
 
 func (s *postgresStore) GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Model, error) {
-	row := s.pool.QueryRow(ctx, `
+	row := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT
 			id, created_at, updated_at, system_name, ui_name, description,
 			status, project_id, ontology_scope, staging_id, deprecated, version_number, model_type
@@ -192,7 +193,7 @@ func (s *postgresStore) Update(ctx context.Context, m *domain.Model) error {
 // permanently inflates category usage counts. weave_override_refs cascade
 // from the deleted override rows via their own FK.
 func (s *postgresStore) Delete(ctx context.Context, id string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin delete model tx: %w", err)
 	}
@@ -285,7 +286,7 @@ func (s *postgresStore) ListVersion(ctx context.Context, projectID, version stri
 	if offset < 0 {
 		offset = 0
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT
 			id, created_at, updated_at, system_name, ui_name, description,
 			status, project_id, ontology_scope, staging_id, deprecated, version_number, model_type
@@ -325,7 +326,7 @@ func (s *postgresStore) ListVersion(ctx context.Context, projectID, version stri
 		return nil, 0, fmt.Errorf("iterate archived weave models: %w", err)
 	}
 	var total int64
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT COUNT(*) FROM weave_models_archive
 		WHERE project_id = $1
 		  AND version_number = $2
@@ -447,7 +448,7 @@ SELECT
 FROM weave_field_overrides fo
 WHERE fo.entity_type = 'model' AND fo.entity_id = ANY($1)
 GROUP BY fo.entity_id`
-	rows, err := s.pool.Query(ctx, q, modelIDs)
+	rows, err := txscope.New(s.pool).Query(ctx, q, modelIDs)
 	if err != nil {
 		return nil, fmt.Errorf("batch model composition counts: %w", err)
 	}
@@ -473,7 +474,7 @@ func (s *postgresStore) BatchInUse(ctx context.Context, modelIDs []string) (map[
 		return out, nil
 	}
 	const q = `SELECT DISTINCT target_id FROM weave_override_refs WHERE target_id = ANY($1)`
-	rows, err := s.pool.Query(ctx, q, modelIDs)
+	rows, err := txscope.New(s.pool).Query(ctx, q, modelIDs)
 	if err != nil {
 		return nil, fmt.Errorf("batch model in-use: %w", err)
 	}
@@ -520,7 +521,7 @@ WHERE r.target_id = $1
   AND r.ref_type IN ('resource_model', 'collection_model')
   AND o.entity_type IN ('model', 'collection')
 ORDER BY o.project_id ASC, o.entity_type ASC, COALESCE(e.ui_name ->> 'en', e.system_name, '') ASC`
-	rows, err := s.pool.Query(ctx, q, modelID)
+	rows, err := txscope.New(s.pool).Query(ctx, q, modelID)
 	if err != nil {
 		return domain.FieldUsageList{}, fmt.Errorf("list model usage: %w", err)
 	}
@@ -556,7 +557,7 @@ WHERE r.target_id = $1
   AND o.entity_type IN ('model', 'collection')
   AND r.version_number = $2
 ORDER BY o.project_id ASC, o.entity_type ASC, COALESCE(e.ui_name ->> 'en', e.system_name, '') ASC`
-	rows, err := s.pool.Query(ctx, q, modelID, version)
+	rows, err := txscope.New(s.pool).Query(ctx, q, modelID, version)
 	if err != nil {
 		return domain.FieldUsageList{}, fmt.Errorf("list archived model usage: %w", err)
 	}
@@ -604,7 +605,7 @@ func scanModelUsageRows(rows pgx.Rows) (domain.FieldUsageList, error) {
 
 func (s *postgresStore) UsageVersion(ctx context.Context, projectID, modelID, version string) (UsageReport, error) {
 	var count int64
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT COUNT(DISTINCT o.field_id) AS field_count
 		FROM weave_override_refs_archive r
 		JOIN weave_field_overrides_archive o
@@ -621,7 +622,7 @@ func (s *postgresStore) UsageVersion(ctx context.Context, projectID, modelID, ve
 	if count == 0 {
 		return report, nil
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT DISTINCT
 			f.id AS field_id,
 			f.semantic_id AS field_semantic_id,
