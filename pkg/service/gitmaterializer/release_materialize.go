@@ -22,13 +22,11 @@ const (
 	releasesBranchRef  = "refs/heads/releases"
 )
 
-// buildReleaseTree writes the full release snapshot for version plus the live
-// releases/index.yaml into dstDir. It is the deterministic unit both the fresh
-// commit path and the determinism test build against: the same (projectID,
-// version) uses the captured snapshot plus the current releases index. Existing
-// tag verification supplies that tag's frozen index instead.
-func (m *Materializer) buildReleaseTree(ctx context.Context, dstDir, projectID, version string) error {
-	if err := m.writeReleaseSnapshot(ctx, dstDir, projectID, version); err != nil {
+// buildLegacyReleaseTree preserves the historical schema1/2 tree and catalog
+// recipe for compatibility fixtures. Production release writes use complete
+// values; verification calls only the snapshot adapter with a frozen catalog.
+func (m *Materializer) buildLegacyReleaseTree(ctx context.Context, dstDir, projectID, version string) error {
+	if err := m.writeLegacyReleaseSnapshot(ctx, dstDir, projectID, version); err != nil {
 		return err
 	}
 	idx, err := m.loadReleasesIndex(ctx, projectID)
@@ -42,7 +40,7 @@ func (m *Materializer) buildReleaseTree(ctx context.Context, dstDir, projectID, 
 	return writeEntityFile(dstDir, releasesIndexPath, data)
 }
 
-func (m *Materializer) writeReleaseSnapshot(ctx context.Context, dstDir, projectID, version string) error {
+func (m *Materializer) writeLegacyReleaseSnapshot(ctx context.Context, dstDir, projectID, version string) error {
 	if err := m.writeProjectTreeVersion(ctx, dstDir, projectID, version); err != nil {
 		return fmt.Errorf("write release snapshot %s@%s: %w", projectID, version, err)
 	}
@@ -109,23 +107,9 @@ func (m *Materializer) verifyExistingReleaseTag(ctx context.Context, git *gitRun
 	}
 	defer os.RemoveAll(tmp)
 
-	// Build the snapshot only; the live index may have moved on (archives
-	// append entries), so inject the tag's OWN frozen index — the tree the tag
-	// actually froze — rather than the current index.
-	if err := m.writeReleaseSnapshot(ctx, tmp, cs.ProjectID, cs.ReleaseVersion); err != nil {
-		m.recordReleaseFailure(ctx, cs.ID, fmt.Errorf("write verify snapshot %s@%s: %w", cs.ProjectID, cs.ReleaseVersion, err), start)
+	if err := m.writeVerificationTree(ctx, git, tagSHA, tmp, cs.ProjectID, cs.ReleaseVersion); err != nil {
+		m.recordReleaseFailure(ctx, cs.ID, err, start)
 		return
-	}
-	frozen, ok, err := git.ShowFile(ctx, tagSHA, releasesIndexPath)
-	if err != nil {
-		m.recordReleaseFailure(ctx, cs.ID, fmt.Errorf("read frozen index at %s: %w", tagSHA, err), start)
-		return
-	}
-	if ok {
-		if err := writeEntityFile(tmp, releasesIndexPath, frozen); err != nil {
-			m.recordReleaseFailure(ctx, cs.ID, err, start)
-			return
-		}
 	}
 
 	computed, err := git.WriteTreeFrom(ctx, tmp)
@@ -170,7 +154,8 @@ func (m *Materializer) commitFreshRelease(ctx context.Context, git *gitRunner, c
 	}
 	defer os.RemoveAll(tmp)
 
-	if err := m.buildReleaseTree(ctx, tmp, cs.ProjectID, version); err != nil {
+	tagMessage, err := m.writeCompleteRelease(ctx, tmp, cs.ProjectID, version)
+	if err != nil {
 		m.recordReleaseFailure(ctx, cs.ID, err, start)
 		return
 	}
@@ -196,12 +181,7 @@ func (m *Materializer) commitFreshRelease(ctx context.Context, git *gitRunner, c
 		return
 	}
 
-	idx, err := m.loadReleasesIndex(ctx, cs.ProjectID)
-	if err != nil {
-		m.recordReleaseFailure(ctx, cs.ID, fmt.Errorf("load releases index for tag message: %w", err), start)
-		return
-	}
-	if err := git.TagAnnotated(ctx, tagName, releaseTagMessage(idx, version), commit, releaseSystemName, releaseSystemEmail); err != nil {
+	if err := git.TagAnnotated(ctx, tagName, tagMessage, commit, releaseSystemName, releaseSystemEmail); err != nil {
 		m.recordReleaseFailure(ctx, cs.ID, fmt.Errorf("tag %s: %w", tagName, err), start)
 		return
 	}
@@ -235,23 +215,17 @@ func (m *Materializer) processReleaseArchivedChangeSet(ctx context.Context, cs s
 		return
 	}
 
-	idx, err := m.loadReleasesIndex(ctx, cs.ProjectID)
+	tip, exists, err := git.RefSHA(ctx, releasesBranchRef)
 	if err != nil {
-		m.recordReleaseFailure(ctx, cs.ID, fmt.Errorf("load releases index %s: %w", cs.ProjectID, err), start)
+		m.recordReleaseFailure(ctx, cs.ID, err, start)
 		return
 	}
-	data, err := encodeReleasesIndex(idx)
+	data, err := m.releaseCatalogOverlay(ctx, git, tip, cs.ProjectID)
 	if err != nil {
-		m.recordReleaseFailure(ctx, cs.ID, fmt.Errorf("encode releases index %s: %w", cs.ProjectID, err), start)
+		m.recordReleaseFailure(ctx, cs.ID, err, start)
 		return
 	}
 	message := cs.CommitMessage + "\n\nChange-Set: " + strconv.FormatInt(cs.ID, 10)
-
-	tip, exists, err := git.RefSHA(ctx, releasesBranchRef)
-	if err != nil {
-		m.recordReleaseFailure(ctx, cs.ID, fmt.Errorf("resolve releases branch: %w", err), start)
-		return
-	}
 
 	if !exists {
 		// Archive recorded before any release was materialized: seed the

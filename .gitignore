@@ -229,3 +229,5 @@ cmd/internal/importconfig/ontologies/project-specific/_unsupported/
 !pkg/database/queries/read_dependency_draft/*.sql
 !pkg/database/queries/read_dependency_archive/*.sql
 !pkg/database/queries/read_project_access/*.sql
+
+!pkg/database/queries/read_catalog/*.sql
