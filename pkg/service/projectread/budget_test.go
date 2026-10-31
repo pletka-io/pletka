@@ -62,6 +62,13 @@ func TestAssemblerRejectsUninitializedInputs(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, s := range []*readsession.Session{nil, {}} {
+		fragment, err := a.Entity(t.Context(), s, "field", "id")
+		if err == nil {
+			t.Fatal("entity accepted zero session")
+		}
+		if _, err := fragment.Root(); err == nil {
+			t.Fatal("entity returned partial value")
+		}
 		value, err := a.Project(t.Context(), s)
 		if err == nil {
 			t.Fatal("zero session accepted")

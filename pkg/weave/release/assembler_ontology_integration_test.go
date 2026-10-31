@@ -29,7 +29,7 @@ func TestProjectAssemblerOntologySelectionSharesSnapshotWithContent(t *testing.T
 		}
 	}
 	for _, version := range []string{"assembly-defaults-1", "assembly-defaults-2"} {
-		if _, err := store.ImportVersion(ctx, ontology.ImportVersionInput{Version: ontology.CreateVersionInput{ID: version, OntologyID: "assembly-defaults", VersionString: version, RDFContent: "<defaults/>"}, SetActive: version == "assembly-defaults-1"}); err != nil {
+		if _, err := store.ImportVersion(ctx, ontology.ImportVersionInput{Version: ontology.CreateVersionInput{ID: version, OntologyID: "assembly-defaults", VersionString: version, RDFContent: "<defaults/>"}, Classes: []ontology.ImportClass{{ID: version + "-class", URI: "https://defaults.example/E1", Prefix: "defaults", LocalName: "E1"}}, SetActive: version == "assembly-defaults-1"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -123,6 +123,32 @@ func TestProjectAssemblerOntologySelectionSharesSnapshotWithContent(t *testing.T
 	if err != nil || actor.DisplayName != "Link author" {
 		t.Fatalf("link provenance actor omitted: %v", err)
 	}
+	// A reference-free entity still inherits the whole project's defaults choice.
+	mustExec(t, pool, `DELETE FROM weave_project_ontology_versions WHERE project_id='ZREL'`)
+	mustExec(t, pool, `UPDATE weave_fields SET ontology_scope='{"prefix":"defaults","local_name":"E1"}' WHERE project_id='ZREL'`)
+	mustExec(t, pool, `INSERT INTO weave_models(id,project_id) VALUES ('blank-model','ZREL')`)
+	fragment, err := assembleEntityFixture(ctx, t, pool, project, auth.Draft(), "model", "blank-model", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumer, _ := fragment.Consumer()
+	content, _ := fragment.Content(consumer)
+	if len(content.Fields) != 0 {
+		t.Fatal("fragment loaded unrelated semantic fields")
+	}
+	evidence, err := fragment.Evidence(consumer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publications, err := evidence.Publications()
+	if err != nil || len(publications) != 1 {
+		t.Fatalf("fragment defaults policy lost: %v", err)
+	}
+	doc, err := publications[0].Artifact.Decode()
+	if err != nil || doc.VersionID != "assembly-defaults-2" {
+		t.Fatalf("fragment selected defaults from its subset: %v", err)
+	}
+
 }
 
 func TestProjectOntologyLinkActorMigrationDoesNotInventHistory(t *testing.T) {

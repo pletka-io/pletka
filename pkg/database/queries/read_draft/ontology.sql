@@ -21,3 +21,19 @@ WITH bodies AS (
  UNION SELECT value #>> '{}' FROM bodies, LATERAL jsonb_path_query(body,'$.**.ontology_version_id') AS value
 )
 SELECT DISTINCT id::text FROM selected WHERE id IS NOT NULL AND btrim(id)<>'' ORDER BY id;
+
+-- name: DraftHasSemanticReferences :one
+-- Selection policy belongs to the whole draft even for a bounded entity read.
+WITH elements AS (
+ SELECT ontology_scope AS element, 'class'::text AS default_kind FROM weave_fields WHERE project_id=sqlc.arg(project_id)::text
+ UNION ALL SELECT ontology_scope,'class' FROM weave_models WHERE project_id=sqlc.arg(project_id)::text
+ UNION ALL SELECT ontology_scope,'class' FROM weave_collections WHERE project_id=sqlc.arg(project_id)::text
+ UNION ALL SELECT p.element,'' FROM weave_fields f
+ CROSS JOIN LATERAL jsonb_array_elements(NULLIF(f.path_elements,'null'::jsonb)) p(element)
+ WHERE f.project_id=sqlc.arg(project_id)::text
+ UNION ALL SELECT p.element,'' FROM weave_fields f
+ CROSS JOIN LATERAL jsonb_array_elements(NULLIF(f.subfield_paths,'null'::jsonb)) sub(element)
+ CROSS JOIN LATERAL jsonb_array_elements(NULLIF(sub.element->'path_elements','null'::jsonb)) p(element)
+ WHERE f.project_id=sqlc.arg(project_id)::text
+)
+SELECT EXISTS(SELECT 1 FROM elements e CROSS JOIN LATERAL weave_semantic_element_references(e.element,e.default_kind,'') r)::boolean AS has_references;

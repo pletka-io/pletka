@@ -34,10 +34,10 @@ func (s *Session) DraftActors(ctx context.Context) ([]releasedescriptor.Actor, e
 }
 
 // DraftPublications plans linked/explicit/defaults publications on this snapshot,
-// using the same selection algorithm as capture. hasReferences describes the
-// already-loaded authored semantic inputs; it cannot select another version.
+// using the same selection algorithm as capture. Policy is determined from the
+// whole project, even when a caller assembles only one entity.
 // Source pins are loaded through this session's authorized dependency graph.
-func (s *Session) DraftPublications(ctx context.Context, hasReferences bool) ([]ontologyartifact.Artifact, error) {
+func (s *Session) DraftPublications(ctx context.Context) ([]ontologyartifact.Artifact, error) {
 	q, err := s.DraftQueries()
 	if err != nil {
 		return nil, err
@@ -71,6 +71,10 @@ func (s *Session) DraftPublications(ctx context.Context, hasReferences bool) ([]
 			}
 			pins = append(pins, ontologyartifact.Pin{OntologyID: d.OntologyID, VersionID: d.VersionID, Digest: a.Artifact.Digest})
 		}
+	}
+	hasReferences, err := q.DraftHasSemanticReferences(ctx, s.projectID)
+	if err != nil {
+		return nil, err
 	}
 	return projectontology.Plan(ctx, draftOntologyPlanner{queries: q}, selected, pins, hasReferences)
 }

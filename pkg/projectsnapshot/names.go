@@ -56,3 +56,13 @@ const (
 	sectionReleaseNamespaceBindings = "weave_release_namespace_bindings_archive"
 	sectionVocabularyEntries        = "weave_vocabulary_entries_archive"
 )
+
+const (
+	refResourceModel      = "resource_model"
+	refCollectionModel    = "collection_model"
+	sectionFieldOverrides = "weave_field_overrides_archive"
+	columnSetValueEntryID = "set_value_entry_id"
+	columnExampleID       = "example_id"
+)
+
+const columnLinkedExampleID = "linked_example_id"

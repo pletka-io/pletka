@@ -28,6 +28,7 @@ type CompleteProject struct{ graph *graph }
 
 type graph struct {
 	root     Identity
+	fragment bool
 	projects map[Identity]*project
 	entities map[EntityKey]nodeKey
 	nodes    map[nodeKey]record
@@ -55,29 +56,37 @@ type record struct {
 // NewComplete constructs all-or-error, without exposing input buffers. Only
 // assembly infrastructure should call it; serializers receive the finished value.
 func NewComplete(root ProjectInput, sources []ProjectInput) (CompleteProject, error) {
-	g := &graph{root: root.Evidence.id, projects: map[Identity]*project{}, entities: map[EntityKey]nodeKey{}, nodes: map[nodeKey]record{}, edges: map[nodeKey][]nodeKey{}}
+	g, err := buildGraph(root, sources, false)
+	if err != nil {
+		return CompleteProject{}, err
+	}
+	return CompleteProject{graph: g}, nil
+}
+
+func buildGraph(root ProjectInput, sources []ProjectInput, fragment bool) (*graph, error) {
+	g := &graph{fragment: fragment, root: root.Evidence.id, projects: map[Identity]*project{}, entities: map[EntityKey]nodeKey{}, nodes: map[nodeKey]record{}, edges: map[nodeKey][]nodeKey{}}
 	inputs := append([]ProjectInput{root}, sources...)
 	versions := map[string]Identity{}
 	for i, in := range inputs {
 		id := in.Evidence.id
 		if !id.valid() || i > 0 && id.draft {
-			return CompleteProject{}, fmt.Errorf("project input has no valid evidence or selects a source draft")
+			return nil, fmt.Errorf("project input has no valid evidence or selects a source draft")
 		}
 		if _, ok := versions[id.project]; ok {
-			return CompleteProject{}, fmt.Errorf("duplicate or conflicting project selection %s", id.project)
+			return nil, fmt.Errorf("duplicate or conflicting project selection %s", id.project)
 		}
 		versions[id.project] = id
 		if err := g.addProject(in); err != nil {
-			return CompleteProject{}, err
+			return nil, err
 		}
 	}
 	if err := g.checkSources(); err != nil {
-		return CompleteProject{}, err
+		return nil, err
 	}
 	if err := g.connect(); err != nil {
-		return CompleteProject{}, err
+		return nil, err
 	}
-	return CompleteProject{graph: g}, nil
+	return g, nil
 }
 
 func (g *graph) addProject(in ProjectInput) error {
@@ -112,8 +121,10 @@ func (g *graph) addProject(in ProjectInput) error {
 	if len(in.Content.Projects) != 1 || in.Content.Projects[0].ID != id.project {
 		return fmt.Errorf("project metadata is absent or belongs to another project")
 	}
-	if err := in.Evidence.checkCounts(counts); err != nil {
-		return err
+	if !g.fragment {
+		if err := in.Evidence.checkCounts(counts); err != nil {
+			return err
+		}
 	}
 	if err := p.addMembership(id, in.Membership); err != nil {
 		return err
@@ -356,7 +367,7 @@ func (g *graph) checkProjectSources(id Identity, p *project) error {
 		if _, own := g.entities[EntityKey{Source: id, Kind: entity.kind, ID: entity.id}]; own {
 			return fmt.Errorf("entity has both owned and foreign membership")
 		}
-		if _, ok := g.entities[EntityKey{Source: source, Kind: entity.kind, ID: entity.id}]; !ok {
+		if _, ok := g.entities[EntityKey{Source: source, Kind: entity.kind, ID: entity.id}]; !ok && !g.fragment {
 			return fmt.Errorf("foreign entity is absent from selected source")
 		}
 	}

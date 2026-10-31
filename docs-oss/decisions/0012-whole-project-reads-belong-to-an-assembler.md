@@ -117,9 +117,14 @@ and retained interpretation evidence; input/output buffers are detached. The
 boundary. `pkg/service/projectread` now loads complete projects and their source
 closures on the supplied session, using converted slice readers and an explicit
 temporary-adapter registry. Actual-cut parity and concurrent-edit tests cover the
-production loader. Contextual view composition, bounded database entity loading,
-portable output and consumer migration remain pending. Value counts alone do not
-authenticate source rows.
+production loader. Bounded `Assembler.Entity` now loads structural subsets through
+explicit selectors on the same readers. `EntityFragment.Compose` applies consumer
+context while retaining source bodies, copied overrides, required ref targets and
+empty placements. Full interpretation evidence stays separate from subset counts;
+fragments cannot satisfy complete receipt checks. Portable output, renderer-specific
+projection and consumer migration remain pending. Value counts alone do not
+authenticate source rows. See the public value contract for resource accounting
+and the distinction between contextual values and presentation formats.
 
 Authored semantic paths remain available for portable round-tripping. Rendering
 uses captured exact term identities: a QName is valid only if the output binding

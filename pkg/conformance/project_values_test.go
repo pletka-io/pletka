@@ -172,7 +172,7 @@ func TestOnlyAssemblerConstructsCompleteProjectValues(t *testing.T) {
 			aliases[alias] = true
 		}
 		ast.Inspect(file, func(n ast.Node) bool {
-			if selector, ok := n.(*ast.SelectorExpr); ok && selector.Sel.Name == "NewComplete" {
+			if selector, ok := n.(*ast.SelectorExpr); ok && (selector.Sel.Name == "NewComplete" || selector.Sel.Name == "NewFragment") {
 				if name, ok := selector.X.(*ast.Ident); ok && aliases[name.Name] {
 					t.Errorf("%s constructs complete content outside assembly", rel)
 				}

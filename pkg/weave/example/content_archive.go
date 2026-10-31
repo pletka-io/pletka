@@ -21,7 +21,7 @@ func (r *archiveContentReader) ContentExamples(ctx context.Context, page readses
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentExamples(ctx, archive.ContentExamplesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentExamples(ctx, archive.ContentExamplesParams{Restricted: page.Restricted(), SelectedExample: page.IDs("example"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read examples content: %w", err)
 	}
@@ -48,7 +48,7 @@ func (r *archiveContentReader) ContentExampleValues(ctx context.Context, page re
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentExampleValues(ctx, archive.ContentExampleValuesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentExampleValues(ctx, archive.ContentExampleValuesParams{Restricted: page.Restricted(), SelectedExample: page.IDs("example"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read examplevalues content: %w", err)
 	}

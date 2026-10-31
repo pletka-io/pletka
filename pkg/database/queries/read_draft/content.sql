@@ -11,6 +11,7 @@ SELECT s.project_id AS project_id,
        ''::text AS version_number
 FROM (SELECT DISTINCT ON (context_entity_type, context_entity_id, entity_type, source_project_id, source_entity_id) * FROM weave_adoptions WHERE project_id=sqlc.arg(project_id)::text ORDER BY context_entity_type, context_entity_id, entity_type, source_project_id, source_entity_id, adopted_at, id) s
 WHERE s.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (((s.context_entity_type = 'model' AND s.context_entity_id = ANY(sqlc.arg(selected_model)::text[])) OR (s.context_entity_type = 'collection' AND s.context_entity_id = ANY(sqlc.arg(selected_collection)::text[])) OR (s.context_entity_type = 'field' AND s.context_entity_id = ANY(sqlc.arg(selected_field)::text[]))) OR (s.context_entity_type IN ('','project') AND ((s.entity_type = 'model' AND s.source_entity_id = ANY(sqlc.arg(selected_model)::text[])) OR (s.entity_type = 'collection' AND s.source_entity_id = ANY(sqlc.arg(selected_collection)::text[])) OR (s.entity_type = 'field' AND s.source_entity_id = ANY(sqlc.arg(selected_field)::text[])) OR (s.entity_type = 'category' AND s.source_entity_id = ANY(sqlc.arg(selected_category)::text[]))))))
 ORDER BY s.project_id, s.context_entity_type, s.context_entity_id, s.entity_type, s.source_project_id, s.source_entity_id, s.source_version
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -29,6 +30,7 @@ SELECT s.id AS id,
        s.version_number AS version_number
 FROM weave_categories s
 WHERE s.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.id = ANY(sqlc.arg(selected_category)::text[])))
 ORDER BY s.canonical_order, s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -47,6 +49,7 @@ SELECT s.id AS id,
        ''::text AS version_number
 FROM weave_collection_placements s
 WHERE s.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.model_id = ANY(sqlc.arg(selected_model)::text[])))
 ORDER BY s.model_id, s.category_id, s.collection_id, s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -68,6 +71,7 @@ SELECT s.id AS id,
        s.version_number AS version_number
 FROM weave_collections s
 WHERE s.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.id = ANY(sqlc.arg(selected_collection)::text[])))
 ORDER BY s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -81,6 +85,7 @@ SELECT s.id AS id,
        (CASE WHEN isfinite(s.created_at) THEN to_char(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') || CASE WHEN EXTRACT(YEAR FROM s.created_at AT TIME ZONE 'UTC') < 0 THEN ' BC' ELSE '' END ELSE COALESCE(s.created_at::text,'') END)::text AS created_at
 FROM weave_concept_broader s JOIN weave_concept_lists p ON p.id=s.scheme_id
 WHERE p.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.scheme_id = ANY(sqlc.arg(selected_concept_list)::text[])))
 ORDER BY s.scheme_id, s.position, s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -95,6 +100,7 @@ SELECT s.id AS id,
        ''::text AS version_number
 FROM weave_concept_list_entries s JOIN weave_concept_lists p ON p.id=s.concept_list_id
 WHERE p.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.concept_list_id = ANY(sqlc.arg(selected_concept_list)::text[])))
 ORDER BY s.concept_list_id, s.position, s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -114,6 +120,7 @@ SELECT s.id AS id,
        s.is_closed AS is_closed
 FROM weave_concept_lists s
 WHERE s.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.id = ANY(sqlc.arg(selected_concept_list)::text[])))
 ORDER BY s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -129,6 +136,7 @@ SELECT s.project_id AS project_id,
        ''::text AS version_number
 FROM weave_entity_forks s
 WHERE s.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR ((s.entity_type = 'model' AND s.fork_entity_id = ANY(sqlc.arg(selected_model)::text[])) OR (s.entity_type = 'collection' AND s.fork_entity_id = ANY(sqlc.arg(selected_collection)::text[])) OR (s.entity_type = 'field' AND s.fork_entity_id = ANY(sqlc.arg(selected_field)::text[]))))
 ORDER BY s.project_id, s.entity_type, s.fork_entity_id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -153,6 +161,7 @@ SELECT s.id AS id,
        s.version_number AS version_number
 FROM weave_example_values s JOIN weave_examples p ON p.id=s.example_id
 WHERE p.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.example_id = ANY(sqlc.arg(selected_example)::text[])))
 ORDER BY s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -169,6 +178,7 @@ SELECT s.id AS id,
        s.version_number AS version_number
 FROM weave_examples s
 WHERE s.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.id = ANY(sqlc.arg(selected_example)::text[])))
 ORDER BY s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -200,6 +210,7 @@ SELECT s.id AS id,
        s.set_value_entry_id AS set_value_entry_id
 FROM weave_field_overrides s
 WHERE s.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.id::text = ANY(sqlc.arg(selected_override)::text[]) OR (s.entity_type = '' AND s.field_id = ANY(sqlc.arg(selected_field)::text[])) OR ((s.entity_type = 'model' AND s.entity_id = ANY(sqlc.arg(selected_model)::text[])) OR (s.entity_type = 'collection' AND s.entity_id = ANY(sqlc.arg(selected_collection)::text[])) OR (s.entity_type = 'field' AND s.entity_id = ANY(sqlc.arg(selected_field)::text[])))))
 ORDER BY s.entity_type, s.entity_id, s.position, s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -224,6 +235,7 @@ SELECT s.id AS id,
        s.subfield_paths AS subfield_paths
 FROM weave_fields s
 WHERE s.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.id = ANY(sqlc.arg(selected_field)::text[])))
 ORDER BY s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -243,6 +255,7 @@ SELECT s.id AS id,
        s.model_type AS model_type
 FROM weave_models s
 WHERE s.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.id = ANY(sqlc.arg(selected_model)::text[])))
 ORDER BY s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -282,6 +295,7 @@ SELECT s.override_id AS override_id,
        ''::text AS version_number
 FROM weave_override_refs s JOIN weave_field_overrides p ON p.id=s.override_id
 WHERE p.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.override_id::text = ANY(sqlc.arg(selected_override)::text[])))
 ORDER BY s.override_id, s.ref_type, s.position
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -320,6 +334,7 @@ SELECT s.project_id AS project_id,
        s.source_version AS source_version
 FROM weave_project_inheritance s
 WHERE s.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (FALSE))
 ORDER BY s.canonical_order, s.parent_project_id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -381,6 +396,7 @@ SELECT s.id AS id,
        ''::text AS version_number
 FROM weave_vocabularies s
 WHERE s.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.id = ANY(sqlc.arg(selected_vocabulary)::text[])))
 ORDER BY s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -399,5 +415,6 @@ SELECT s.id AS id,
        ''::text AS version_number
 FROM weave_vocabulary_entries s JOIN weave_vocabularies p ON p.id=s.vocabulary_id
 WHERE p.project_id=sqlc.arg(project_id)::text
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.id = ANY(sqlc.arg(selected_vocabulary_entry)::text[]) OR s.vocabulary_id = ANY(sqlc.arg(selected_vocabulary)::text[])))
 ORDER BY s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;

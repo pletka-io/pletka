@@ -20,7 +20,7 @@ func (r *draftContentReader) ContentExamples(ctx context.Context, page readsessi
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentExamples(ctx, draft.ContentExamplesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
+	rows, err := r.queries.ContentExamples(ctx, draft.ContentExamplesParams{Restricted: page.Restricted(), SelectedExample: page.IDs("example"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
 	if err != nil {
 		return nil, fmt.Errorf("read examples content: %w", err)
 	}
@@ -47,7 +47,7 @@ func (r *draftContentReader) ContentExampleValues(ctx context.Context, page read
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentExampleValues(ctx, draft.ContentExampleValuesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
+	rows, err := r.queries.ContentExampleValues(ctx, draft.ContentExampleValuesParams{Restricted: page.Restricted(), SelectedExample: page.IDs("example"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
 	if err != nil {
 		return nil, fmt.Errorf("read examplevalues content: %w", err)
 	}

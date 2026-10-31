@@ -21,7 +21,7 @@ func (r *archiveContentReader) ContentBroader(ctx context.Context, page readsess
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentBroader(ctx, archive.ContentBroaderParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentBroader(ctx, archive.ContentBroaderParams{Restricted: page.Restricted(), SelectedConceptList: page.IDs("concept_list"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read broader content: %w", err)
 	}
@@ -45,7 +45,7 @@ func (r *archiveContentReader) ContentConceptEntries(ctx context.Context, page r
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentConceptEntries(ctx, archive.ContentConceptEntriesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentConceptEntries(ctx, archive.ContentConceptEntriesParams{Restricted: page.Restricted(), SelectedConceptList: page.IDs("concept_list"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read conceptentries content: %w", err)
 	}
@@ -70,7 +70,7 @@ func (r *archiveContentReader) ContentConceptLists(ctx context.Context, page rea
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentConceptLists(ctx, archive.ContentConceptListsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentConceptLists(ctx, archive.ContentConceptListsParams{Restricted: page.Restricted(), SelectedConceptList: page.IDs("concept_list"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read conceptlists content: %w", err)
 	}
@@ -100,7 +100,7 @@ func (r *archiveContentReader) ContentVocabularies(ctx context.Context, page rea
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentVocabularies(ctx, archive.ContentVocabulariesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentVocabularies(ctx, archive.ContentVocabulariesParams{Restricted: page.Restricted(), SelectedVocabulary: page.IDs("vocabulary"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read vocabularies content: %w", err)
 	}
@@ -131,7 +131,7 @@ func (r *archiveContentReader) ContentVocabularyEntries(ctx context.Context, pag
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentVocabularyEntries(ctx, archive.ContentVocabularyEntriesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentVocabularyEntries(ctx, archive.ContentVocabularyEntriesParams{Restricted: page.Restricted(), SelectedVocabularyEntry: page.IDs("vocabulary_entry"), SelectedVocabulary: page.IDs("vocabulary"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read vocabularyentries content: %w", err)
 	}

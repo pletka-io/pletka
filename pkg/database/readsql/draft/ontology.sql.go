@@ -9,6 +9,30 @@ import (
 	"context"
 )
 
+const draftHasSemanticReferences = `-- name: DraftHasSemanticReferences :one
+WITH elements AS (
+ SELECT ontology_scope AS element, 'class'::text AS default_kind FROM weave_fields WHERE project_id=$1::text
+ UNION ALL SELECT ontology_scope,'class' FROM weave_models WHERE project_id=$1::text
+ UNION ALL SELECT ontology_scope,'class' FROM weave_collections WHERE project_id=$1::text
+ UNION ALL SELECT p.element,'' FROM weave_fields f
+ CROSS JOIN LATERAL jsonb_array_elements(NULLIF(f.path_elements,'null'::jsonb)) p(element)
+ WHERE f.project_id=$1::text
+ UNION ALL SELECT p.element,'' FROM weave_fields f
+ CROSS JOIN LATERAL jsonb_array_elements(NULLIF(f.subfield_paths,'null'::jsonb)) sub(element)
+ CROSS JOIN LATERAL jsonb_array_elements(NULLIF(sub.element->'path_elements','null'::jsonb)) p(element)
+ WHERE f.project_id=$1::text
+)
+SELECT EXISTS(SELECT 1 FROM elements e CROSS JOIN LATERAL weave_semantic_element_references(e.element,e.default_kind,'') r)::boolean AS has_references
+`
+
+// Selection policy belongs to the whole draft even for a bounded entity read.
+func (q *Queries) DraftHasSemanticReferences(ctx context.Context, projectID string) (bool, error) {
+	row := q.db.QueryRow(ctx, draftHasSemanticReferences, projectID)
+	var has_references bool
+	err := row.Scan(&has_references)
+	return has_references, err
+}
+
 const draftOntologySelections = `-- name: DraftOntologySelections :many
 WITH bodies AS (
  SELECT to_jsonb(f) AS body FROM weave_fields f WHERE project_id=$1::text

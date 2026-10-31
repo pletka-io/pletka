@@ -87,6 +87,7 @@ func TestProjectAssemblyCoversEverySectionAndField(t *testing.T) {
 				file = binding.ArchiveFile
 			}
 			checkLosslessMapper(t, root, file, state, binding, field.Type.Elem())
+			checkEntitySelection(t, root, file, binding.Query, body)
 		}
 	}
 }
@@ -249,4 +250,62 @@ func TestProjectAssemblerCannotAcquireAnotherReadCapability(t *testing.T) {
 			return true
 		})
 	}
+}
+
+// Every structural query must apply the closure selector, and every bound
+// mapper must pass it. Removing one predicate must fail before runtime fallback.
+func checkEntitySelection(t *testing.T, root, file, query, body string) {
+	t.Helper()
+	metadata := map[string]bool{"ContentProjects": true, "ContentNamespaces": true, "ContentProjectActors": true, "ContentAttributions": true, "ContentOntologyLinks": true}
+	if metadata[query] {
+		return
+	}
+	if !strings.Contains(body, "NOT sqlc.arg(restricted)::boolean") {
+		t.Fatalf("%s ignores entity selection", query)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := query + "Params{"
+	_, mapper, ok := strings.Cut(string(raw), marker)
+	if !ok {
+		t.Fatal("selection mapper absent")
+	}
+	mapper = strings.Split(mapper, "})")[0]
+	compact := strings.Join(strings.Fields(mapper), "")
+	if !strings.Contains(compact, "Restricted:page.Restricted()") {
+		t.Fatal("selection mode not bound")
+	}
+	for _, m := range regexp.MustCompile(`sqlc.arg\(selected_([a-z_]+)\)`).FindAllStringSubmatch(body, -1) {
+		parts := strings.Split(m[1], "_")
+		for i, p := range parts {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+		want := "Selected" + strings.Join(parts, "") + ":page.IDs(" + strconv.Quote(m[1]) + ")"
+		if !strings.Contains(compact, want) {
+			t.Fatalf("%s drops or swaps selector %s", query, m[1])
+		}
+	}
+}
+
+func TestEntityAssemblerCannotFallBackToCompleteLoading(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(repoRoot(t), "pkg/service/projectread/entity.go"), nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if sel.Sel.Name == "Project" || sel.Sel.Name == "NewComplete" {
+			t.Error("entity assembler falls back to complete content")
+		}
+		return true
+	})
 }

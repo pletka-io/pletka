@@ -103,7 +103,7 @@ func (r *draftReader) ContentCollections(ctx context.Context, page readsession.P
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentCollections(ctx, draft.ContentCollectionsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
+	rows, err := r.queries.ContentCollections(ctx, draft.ContentCollectionsParams{Restricted: page.Restricted(), SelectedCollection: page.IDs("collection"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
 	if err != nil {
 		return nil, fmt.Errorf("read collections content: %w", err)
 	}

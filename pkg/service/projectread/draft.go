@@ -23,7 +23,7 @@ func (a *Assembler) draftEvidence(ctx context.Context, s *readsession.Session, c
 	if err != nil {
 		return projectsnapshot.Evidence{}, err
 	}
-	artifacts, err := s.DraftPublications(ctx, len(inputs) > 0)
+	artifacts, err := s.DraftPublications(ctx)
 	if err != nil {
 		return projectsnapshot.Evidence{}, err
 	}

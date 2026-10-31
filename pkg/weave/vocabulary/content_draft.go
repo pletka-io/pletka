@@ -20,7 +20,7 @@ func (r *draftContentReader) ContentBroader(ctx context.Context, page readsessio
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentBroader(ctx, draft.ContentBroaderParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
+	rows, err := r.queries.ContentBroader(ctx, draft.ContentBroaderParams{Restricted: page.Restricted(), SelectedConceptList: page.IDs("concept_list"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
 	if err != nil {
 		return nil, fmt.Errorf("read broader content: %w", err)
 	}
@@ -44,7 +44,7 @@ func (r *draftContentReader) ContentConceptEntries(ctx context.Context, page rea
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentConceptEntries(ctx, draft.ContentConceptEntriesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
+	rows, err := r.queries.ContentConceptEntries(ctx, draft.ContentConceptEntriesParams{Restricted: page.Restricted(), SelectedConceptList: page.IDs("concept_list"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
 	if err != nil {
 		return nil, fmt.Errorf("read conceptentries content: %w", err)
 	}
@@ -69,7 +69,7 @@ func (r *draftContentReader) ContentConceptLists(ctx context.Context, page reads
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentConceptLists(ctx, draft.ContentConceptListsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
+	rows, err := r.queries.ContentConceptLists(ctx, draft.ContentConceptListsParams{Restricted: page.Restricted(), SelectedConceptList: page.IDs("concept_list"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
 	if err != nil {
 		return nil, fmt.Errorf("read conceptlists content: %w", err)
 	}
@@ -99,7 +99,7 @@ func (r *draftContentReader) ContentVocabularies(ctx context.Context, page reads
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentVocabularies(ctx, draft.ContentVocabulariesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
+	rows, err := r.queries.ContentVocabularies(ctx, draft.ContentVocabulariesParams{Restricted: page.Restricted(), SelectedVocabulary: page.IDs("vocabulary"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
 	if err != nil {
 		return nil, fmt.Errorf("read vocabularies content: %w", err)
 	}
@@ -130,7 +130,7 @@ func (r *draftContentReader) ContentVocabularyEntries(ctx context.Context, page 
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentVocabularyEntries(ctx, draft.ContentVocabularyEntriesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
+	rows, err := r.queries.ContentVocabularyEntries(ctx, draft.ContentVocabularyEntriesParams{Restricted: page.Restricted(), SelectedVocabularyEntry: page.IDs("vocabulary_entry"), SelectedVocabulary: page.IDs("vocabulary"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
 	if err != nil {
 		return nil, fmt.Errorf("read vocabularyentries content: %w", err)
 	}

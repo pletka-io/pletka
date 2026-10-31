@@ -115,7 +115,7 @@ func (r *releaseReader) ContentPlacements(ctx context.Context, page readsession.
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentPlacements(ctx, archive.ContentPlacementsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentPlacements(ctx, archive.ContentPlacementsParams{Restricted: page.Restricted(), SelectedModel: page.IDs("model"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read placements content: %w", err)
 	}
@@ -144,7 +144,7 @@ func (r *releaseReader) ContentOverrides(ctx context.Context, page readsession.P
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentOverrides(ctx, archive.ContentOverridesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentOverrides(ctx, archive.ContentOverridesParams{Restricted: page.Restricted(), SelectedOverride: page.IDs("override"), SelectedField: page.IDs("field"), SelectedModel: page.IDs("model"), SelectedCollection: page.IDs("collection"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read overrides content: %w", err)
 	}
@@ -186,7 +186,7 @@ func (r *releaseReader) ContentOverrideRefs(ctx context.Context, page readsessio
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentOverrideRefs(ctx, archive.ContentOverrideRefsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentOverrideRefs(ctx, archive.ContentOverrideRefsParams{Restricted: page.Restricted(), SelectedOverride: page.IDs("override"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read overriderefs content: %w", err)
 	}
