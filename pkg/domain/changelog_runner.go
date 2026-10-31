@@ -10,9 +10,11 @@ type ChangeLogRecorder interface {
 	Record(ctx context.Context, entry ChangeLogEntry) error
 }
 
-// ChangeLogRunner runs fn inside a transactional boundary that includes a
-// ChangeLogRecorder. Service-layer mutations call Run to combine a Store
-// write with one or more changelog entries atomically.
+// ChangeLogRunner supplies a ChangeLogRecorder while fn performs a mutation.
+// It does not currently make the Store write and audit flush atomic: production
+// slice stores open their own transactions, separate from the recorder's flush.
+// Entries are domain audit payloads, not lossless before/after storage images;
+// they cannot be used as complete project draft patches.
 //
 // The current production implementation is in pkg/weave (TxRunner over
 // PostgresStore.WithChangeLog). NoopChangeLogRunner is a drop-in

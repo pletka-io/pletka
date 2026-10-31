@@ -196,3 +196,9 @@ Fresh release writes consume this complete value and a separately loaded
 same-session catalog. Existing-tag and prepared-repoint verification dispatch by
 stored format and preserve frozen catalog bytes. Draft initialization,
 reconciliation, incremental patching and generators remain to migrate.
+
+The pure [draft patch boundary](draft-project-patches.md) now applies explicit
+before/after rows and context changes to complete baselines, preserving unrelated
+rows and exact sources. Its tests cover all retained sections. Production draft
+wiring awaits atomic lossless change capture: current domain audit entries are
+incomplete and commit separately from entity writes.

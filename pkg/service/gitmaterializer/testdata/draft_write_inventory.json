@@ -1,0 +1,208 @@
+[
+  {
+    "section": "weave_adoptions_archive",
+    "write_paths": [
+      "pkg/weave/adoption_store.go"
+    ],
+    "observed_audit_kinds": [],
+    "review": "ReplaceForContext deletes then reinserts the entire context in its own transaction; no per-row prior images."
+  },
+  {
+    "section": "weave_categories_archive",
+    "write_paths": [
+      "pkg/weave/category/service.go",
+      "pkg/weave/category/store_postgres.go"
+    ],
+    "observed_audit_kinds": [
+      "category"
+    ],
+    "review": "Delete/reassign can change placements, override categories and collection defaults; a category audit is not the resulting row set."
+  },
+  {
+    "section": "weave_collection_placements_archive",
+    "write_paths": [
+      "pkg/weave/override/placements.go",
+      "pkg/database/queries/weave_collection_placements.sql"
+    ],
+    "observed_audit_kinds": [],
+    "review": "Independent upsert/delete by model/category/collection; parent operations can remove placements."
+  },
+  {
+    "section": "weave_collections_archive",
+    "write_paths": [
+      "pkg/weave/collection/service.go",
+      "pkg/weave/collection/store_postgres.go"
+    ],
+    "observed_audit_kinds": [
+      "collection"
+    ],
+    "review": "Store deletes owned overrides before collection deletion; referenced placements/defaults require explicit accounting."
+  },
+  {
+    "section": "weave_concept_broader_archive",
+    "write_paths": [
+      "pkg/weave/vocabulary/service.go",
+      "pkg/database/queries/weave_concept_broader.sql"
+    ],
+    "observed_audit_kinds": [],
+    "review": "Broader edge insert/delete and scheme ownership must be captured separately from referenced concept bodies."
+  },
+  {
+    "section": "weave_concept_list_entries_archive",
+    "write_paths": [
+      "pkg/weave/vocabulary/service.go",
+      "pkg/weave/weave_concept_list_store.go"
+    ],
+    "observed_audit_kinds": [],
+    "review": "Entry edits/removals/reorder; baseline FK deletes entries with list. Reorder affects several rows."
+  },
+  {
+    "section": "weave_concept_lists_archive",
+    "write_paths": [
+      "pkg/weave/vocabulary/service.go",
+      "pkg/weave/weave_concept_list_store.go"
+    ],
+    "observed_audit_kinds": [],
+    "review": "Direct writes; delete checks use then removes list and cascading entries."
+  },
+  {
+    "section": "weave_entity_forks_archive",
+    "write_paths": [
+      "pkg/weave/fork_store.go"
+    ],
+    "observed_audit_kinds": [],
+    "review": "Fork creation has no standalone audit kind; provenance receipt is distinct from copied content."
+  },
+  {
+    "section": "weave_example_values_archive",
+    "write_paths": [
+      "pkg/weave/example/store_postgres.go"
+    ],
+    "observed_audit_kinds": [],
+    "review": "UpdateWithValues deletes and reinserts values; delete of example cascades values. Preserve exact numeric/date/JSON nulls."
+  },
+  {
+    "section": "weave_examples_archive",
+    "write_paths": [
+      "pkg/weave/example/service.go",
+      "pkg/weave/example/store_postgres.go"
+    ],
+    "observed_audit_kinds": [],
+    "review": "Own store transaction combines header and values, without change-log transaction or audit entry."
+  },
+  {
+    "section": "weave_field_overrides_archive",
+    "write_paths": [
+      "pkg/weave/override/service.go",
+      "pkg/weave/field/service.go"
+    ],
+    "observed_audit_kinds": [
+      "override"
+    ],
+    "review": "Save diff logs domain override payloads; deletes cascade refs; nullable captured fields are not all represented."
+  },
+  {
+    "section": "weave_fields_archive",
+    "write_paths": [
+      "pkg/weave/field/service.go"
+    ],
+    "observed_audit_kinds": [
+      "field"
+    ],
+    "review": "Field create/save can also write base override; parent field audit does not identify all storage effects."
+  },
+  {
+    "section": "weave_models_archive",
+    "write_paths": [
+      "pkg/weave/model/service.go",
+      "pkg/weave/model/store_postgres.go"
+    ],
+    "observed_audit_kinds": [
+      "model"
+    ],
+    "review": "Delete removes overrides in a separate store transaction, then model; references cascade from overrides."
+  },
+  {
+    "section": "weave_release_namespace_bindings_archive",
+    "write_paths": [
+      "pkg/weave/namespacebinding/service.go",
+      "pkg/weave/namespace_binding_store.go"
+    ],
+    "observed_audit_kinds": [
+      "namespace_binding"
+    ],
+    "review": "Individual binding audit; complete effective inventory includes global/system/ontology policy outside a project operation."
+  },
+  {
+    "section": "weave_override_refs_archive",
+    "write_paths": [
+      "pkg/weave/override/service.go"
+    ],
+    "observed_audit_kinds": [
+      "override"
+    ],
+    "review": "SetRefs logs parent override update; previous payload explicitly omits refs. FK cascade deletes refs with override."
+  },
+  {
+    "section": "weave_project_actors_archive",
+    "write_paths": [
+      "pkg/database/queries/weave_actors.sql"
+    ],
+    "observed_audit_kinds": [],
+    "review": "Project/actor association query exists without an emitting audit service kind."
+  },
+  {
+    "section": "weave_project_attributions_archive",
+    "write_paths": [
+      "pkg/weave/attribution/service.go",
+      "pkg/weave/attribution/store_postgres.go"
+    ],
+    "observed_audit_kinds": [],
+    "review": "Create/update/delete and two-phase reorder call store directly; composite row keys may move."
+  },
+  {
+    "section": "weave_project_inheritance_archive",
+    "write_paths": [
+      "pkg/weave/project_inheritance_store.go",
+      "pkg/weave/project/repin.go"
+    ],
+    "observed_audit_kinds": [],
+    "review": "Add/remove/reorder/primary normalize siblings and project parent column; source pin changes interpretation context too."
+  },
+  {
+    "section": "weave_project_ontology_versions_archive",
+    "write_paths": [
+      "pkg/weave/projectontologyversion/service.go"
+    ],
+    "observed_audit_kinds": [
+      "project-ontology-version"
+    ],
+    "review": "Link/unlink/primary have domain audits; selected publications, defaults and semantic resolutions need explicit context images."
+  },
+  {
+    "section": "weave_projects_archive",
+    "write_paths": [
+      "pkg/weave/project/store_postgres.go",
+      "pkg/weave/weave_project_store.go"
+    ],
+    "observed_audit_kinds": [],
+    "review": "Create/update/about/delete plus inherited parent synchronization; project deletion may orphan pending sets."
+  },
+  {
+    "section": "weave_vocabularies_archive",
+    "write_paths": [
+      "pkg/weave/weave_vocabulary_store.go"
+    ],
+    "observed_audit_kinds": [],
+    "review": "Vocabulary writes/imports have no standalone audit kind; owned entries are separate rows."
+  },
+  {
+    "section": "weave_vocabulary_entries_archive",
+    "write_paths": [
+      "pkg/weave/weave_vocabulary_store.go",
+      "pkg/weave/vocabulary/service.go"
+    ],
+    "observed_audit_kinds": [],
+    "review": "Entry upserts/local term creation and connector cache writes do not supply attributed before/after images."
+  }
+]

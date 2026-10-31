@@ -114,7 +114,7 @@ even after a writer upgrade or later title/retirement edits.
 | Transitional adapter | Owner and boundary | Retirement condition |
 | --- | --- | --- |
 | `writeLegacyReleaseSnapshot`, `versioned_tree.go`, recursive vendor writers | `gitmaterializer`; schema1/2 stored-tag and prepared-object verification only on release paths. They never supply a complete value. | Replace with a value-only historical-format serializer during adapter retirement; retain old-tag verification without rewriting tags. |
-| Existing draft tree/closure writers | `gitmaterializer`; draft initialization, reconciliation and change-set processing only. | Switch together after bounded patching covers every retained section and proves `NoCrossEntityStealing`. |
+| Existing draft tree/closure writers | `gitmaterializer`; draft initialization, reconciliation and change-set processing only. | Pure patching now covers every retained section; switch together after atomic change capture and durable Git checkpointing prove attribution and recovery. See [draft patches](draft-project-patches.md). |
 
 Draft migration must not replace a scoped change-set write with a full current
 project rebuild. It needs an existing complete baseline, explicit ownership of
