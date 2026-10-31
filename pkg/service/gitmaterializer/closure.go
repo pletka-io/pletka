@@ -68,6 +68,9 @@ func (m *Materializer) closure(ctx context.Context, cs sqlcgen.WeaveChangeSet) (
 	if err != nil {
 		return nil, fmt.Errorf("list change log for change set %d: %w", cs.ID, err)
 	}
+	if err := validateDraftAudit(cs, entries); err != nil {
+		return nil, err
+	}
 
 	seen := map[string]bool{}
 	var out []ScopedRef
