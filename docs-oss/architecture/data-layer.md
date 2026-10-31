@@ -367,7 +367,8 @@ remains live administrative policy; connector secrets are excluded. Migration 03
 validates all 22 owned sections before issuing a content receipt, guards archived
 rows and dependency evidence, and coordinates child writes through retained parent
 identities. `Session.Content` requires this evidence on its existing transaction.
-Assembler/serializer migration remains pending. The explicit rebuild lifecycle
+Complete assembly and release serialization now use this evidence; draft writer
+and generator migrations remain. The explicit rebuild lifecycle
 shares structural capture with normal release creation. See
 [capture coverage](../reference/release-capture-coverage.md).
 
@@ -426,3 +427,11 @@ bytes. Exact retries preserve later draft edits; different existing targets fail
 Draft status, staging attachments, current global/default policy and sequence
 behavior are specified in
 [ADR-0019](../decisions/0019-imported-project-history-keeps-its-origin.md).
+
+`readsession.Catalog` and `ReleaseRecord` expose a separate SELECT-only catalog
+facet. Both keep the existing session lifetime/project binding; `ReleaseRecord`
+requires its already-selected concrete release. The assembler's catalog helper
+loads root history and exact authorized source headers on the same snapshot as
+content. Stable UTC timestamp text preserves SQL NULL, era and infinity. Catalog
+metadata does not enter the frozen complete value. Tag verification supplies the
+stored overlay instead of calling the live catalog facet.

@@ -82,7 +82,7 @@ func TestReleasedOntologyTreeUsesCapturedArtifacts(t *testing.T) {
 	}
 	mat := gitmaterializer.NewMaterializer(pool, t.TempDir(), testLogger()).WithOntologyImporter(ontologyvendor.New(ontology.NewService(store, nil, nil)))
 	first := t.TempDir()
-	if err := mat.BuildReleaseTree(ctx, first, zmatProjectID, "7.9.0"); err != nil {
+	if err := mat.BuildLegacyReleaseTree(ctx, first, zmatProjectID, "7.9.0"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := gitmaterializer.LoadProjectSnapshot(first)
@@ -217,7 +217,7 @@ func TestReleasedOntologyTreeUsesCapturedArtifacts(t *testing.T) {
 	}
 	// The release index intentionally lists all cuts. Refresh it after the
 	// additional capture tests, before varying ontology serialization inputs.
-	if err := mat.BuildReleaseTree(ctx, first, zmatProjectID, "7.9.0"); err != nil {
+	if err := mat.BuildLegacyReleaseTree(ctx, first, zmatProjectID, "7.9.0"); err != nil {
 		t.Fatal(err)
 	}
 	// Exercise the actual editor lifecycle after the project release is captured.
@@ -241,7 +241,7 @@ func TestReleasedOntologyTreeUsesCapturedArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	afterEdit := t.TempDir()
-	if err := mat.BuildReleaseTree(ctx, afterEdit, zmatProjectID, "7.9.0"); err != nil {
+	if err := mat.BuildLegacyReleaseTree(ctx, afterEdit, zmatProjectID, "7.9.0"); err != nil {
 		t.Fatal(err)
 	}
 	if diff := cmp.Diff(collectTree(t, first), collectTree(t, afterEdit)); diff != "" {
@@ -272,7 +272,7 @@ func TestReleasedOntologyTreeUsesCapturedArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := t.TempDir()
-	if err := mat.BuildReleaseTree(ctx, second, zmatProjectID, "7.9.0"); err != nil {
+	if err := mat.BuildLegacyReleaseTree(ctx, second, zmatProjectID, "7.9.0"); err != nil {
 		t.Fatal(err)
 	}
 	if diff := cmp.Diff(collectTree(t, first), collectTree(t, second)); diff != "" {

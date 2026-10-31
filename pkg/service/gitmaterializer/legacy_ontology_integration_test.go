@@ -114,7 +114,7 @@ func TestLegacyOntologyTransportAndRepointRecovery(t *testing.T) {
 		t.Fatal("verified publisher accepted legacy content")
 	}
 	first := t.TempDir()
-	if err := m.BuildReleaseTree(ctx, first, zmatProjectID, "7.0.1"); err != nil {
+	if err := m.BuildLegacyReleaseTree(ctx, first, zmatProjectID, "7.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := gitmaterializer.LoadProjectSnapshot(first)
@@ -257,7 +257,7 @@ func TestLegacyOntologyTransportAndRepointRecovery(t *testing.T) {
 		t.Fatalf("resume changed prepared objects: %s", diff)
 	}
 	second := t.TempDir()
-	if err := m.BuildReleaseTree(ctx, second, zmatProjectID, "7.0.1"); err != nil {
+	if err := m.BuildLegacyReleaseTree(ctx, second, zmatProjectID, "7.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	if diff := cmp.Diff(collectTree(t, first), collectTree(t, second)); diff != "" {

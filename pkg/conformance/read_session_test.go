@@ -221,7 +221,7 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 	root := repoRoot(t)
 	for _, path := range goFilesUnder(t, root) {
 		rel := mustRel(t, root, path)
-		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go" || rel == "pkg/database/readsession/metadata.go" || rel == "pkg/database/readsession/import_origin.go" || rel == "pkg/database/readsession/legacy_content.go" || rel == "pkg/database/readsession/ontologies.go" || rel == "pkg/database/readsession/draft_evidence.go" || rel == "pkg/database/readsession/content_reader.go" || rel == "pkg/database/readsession/content_draft.go" || rel == "pkg/database/readsession/content_archive.go") {
+		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go" || rel == "pkg/database/readsession/metadata.go" || rel == "pkg/database/readsession/import_origin.go" || rel == "pkg/database/readsession/catalog.go" || rel == "pkg/database/readsession/legacy_content.go" || rel == "pkg/database/readsession/ontologies.go" || rel == "pkg/database/readsession/draft_evidence.go" || rel == "pkg/database/readsession/content_reader.go" || rel == "pkg/database/readsession/content_draft.go" || rel == "pkg/database/readsession/content_archive.go") {
 			continue
 		}
 		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)

@@ -3,8 +3,9 @@
 `pkg/projectbundle` is the pure transport codec for
 [complete project values](project-snapshot-values.md). Encoding and decoding are
 implemented, along with atomic immutable-history restoration through the CLI and
-admin restore runner. The switch of Git writers remains a separate delivery gate.
-Existing writers still emit their historical formats.
+admin restore runner. Fresh release commits and new release-repoint objects now
+use this format. Automatic draft updates, draft initialization and reconciliation
+still use their existing format until bounded draft patching is migrated.
 
 The encoder accepts only `projectsnapshot.CompleteProject`. Draft and released
 values share one implementation. It has no database, filesystem, configuration,
@@ -86,6 +87,40 @@ Historical formats 1/2 remain on `LoadProjectSnapshot`; their missing sections d
 not acquire completeness. That loader rejects schema 3 immediately. Published tags
 must continue to be verified using their stored format and corresponding evidence;
 a new-format tree must never be compared with old-format tag bytes.
+
+## Release Git writer and verification
+
+The release materializer opens one authorized read session, assembles the complete
+root/source graph, and loads an explicit catalog on that same snapshot through
+`projectread.Catalog`. The bound session supplies all root release headers and only
+the selected header for each source. Encoding and filesystem writes happen after
+the session closes; no writer performs its own entity or recursive vendor queries.
+The annotated tag message comes from that same detached catalog.
+
+Verification dispatches on the tag's stored `project.yaml` schema. Schema3 uses the
+complete serializer and validates/reuses the tag's frozen catalog bytes. It does
+not load today's catalog. Schema1/2 use their compatibility serializer and existing
+archive prerequisites. Unknown formats and unavailable evidence fail explicitly;
+known-format tree differences remain a persistent mismatch. Verification never
+rewrites tags.
+
+Archiving a release preserves the releases branch's stored content and catalog
+format, replacing only `releases/index.yaml`. Schema3 retains source-release
+headers. Git blobs are budgeted before loading and streamed in one `cat-file`
+process; export attributes cannot alter their bytes. An interrupted repoint also
+verifies already-prepared objects against their stored format and frozen catalog,
+even after a writer upgrade or later title/retirement edits.
+
+| Transitional adapter | Owner and boundary | Retirement condition |
+| --- | --- | --- |
+| `writeLegacyReleaseSnapshot`, `versioned_tree.go`, recursive vendor writers | `gitmaterializer`; schema1/2 stored-tag and prepared-object verification only on release paths. They never supply a complete value. | Replace with a value-only historical-format serializer during adapter retirement; retain old-tag verification without rewriting tags. |
+| Existing draft tree/closure writers | `gitmaterializer`; draft initialization, reconciliation and change-set processing only. | Switch together after bounded patching covers every retained section and proves `NoCrossEntityStealing`. |
+
+Draft migration must not replace a scoped change-set write with a full current
+project rebuild. It needs an existing complete baseline, explicit ownership of
+replacement/deleted rows and coverage for examples, vocabulary/concepts, credits
+and placements as well as fields/models/collections. Baseline format migration
+must be distinct from an individual user's change-set commit.
 
 ## Release catalog overlay (schema 2)
 

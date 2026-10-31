@@ -5,8 +5,9 @@ assembler in [ADR-0012](../decisions/0012-whole-project-reads-belong-to-an-assem
 Its construction, field coverage and complete-project database assembly through
 `pkg/service/projectread` are implemented, including bounded entity loading and
 pure contextual composition. The [portable codec](project-bundle-format.md) now
-encodes and decodes all captured values; storage restore, Git writer migration
-and generator wiring follow separately. Existing export DTOs do not become complete by wrapping them.
+encodes and decodes all captured values. Atomic storage restoration and release
+Git writes use it; bounded draft writer migration and generator wiring remain.
+Existing export DTOs do not become complete by wrapping them.
 
 ## Construction
 
@@ -48,7 +49,7 @@ value-level exclusions. JSON validation covers every byte column, checked by the
 same ratchet. Do not mechanically regenerate the capture ledger from these values.
 
 Each section names its implemented bound loader and portable codec. Storage
-restoration remains a separate S4 gate. The [assembly bindings](../../pkg/service/projectread/coverage.go)
+restoration validates typed rows and original receipts. The [assembly bindings](../../pkg/service/projectread/coverage.go)
 register all 22 sections, including tables, owning slice, mapper files and queries.
 Eleven sections use collection, override, vocabulary and example readers. Eleven
 use temporary session adapters with named replacement APIs and S6 removal tasks.
@@ -191,5 +192,7 @@ history and working copies atomically, comparing every archived row and original
 receipt after normal bound-reader reassembly. Import provenance remains separate
 from this frozen value; see
 [ADR-0019](../decisions/0019-imported-project-history-keeps-its-origin.md).
-Default Git writer, incremental patcher, tag verification and generator migrations
-remain pending.
+Fresh release writes consume this complete value and a separately loaded
+same-session catalog. Existing-tag and prepared-repoint verification dispatch by
+stored format and preserve frozen catalog bytes. Draft initialization,
+reconciliation, incremental patching and generators remain to migrate.

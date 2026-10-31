@@ -215,7 +215,7 @@ func TestReleaseWritePath(t *testing.T) {
 		t.Fatalf("expected 1 index entry, got %d: %+v", len(idx.Releases), idx.Releases)
 	}
 	e := idx.Releases[0]
-	if e.Version != "7.0.0" || e.Tag != "v7.0.0" || e.ArchivedAt != "" {
+	if idx.SchemaVersion != 2 || e.Version != "7.0.0" || e.ArchivedAt != "" {
 		t.Fatalf("unexpected index entry: %+v", e)
 	}
 
@@ -348,14 +348,17 @@ func TestReleaseTagMismatchFailsLoudly(t *testing.T) {
 
 	repo := filepath.Join(baseDir, zmatProjectID)
 
-	// Corrupt: retag v7.2.0 at a dummy commit whose tree differs from the
-	// archive-derived snapshot (empty tree).
-	emptyTree := gitOut(t, repo, "hash-object", "-t", "tree", "/dev/null")
+	// Keep the known format and frozen catalog, but add an unaccounted blob.
+	// Unknown/missing formats are unavailable; known-format drift is a mismatch.
+	gitOut(t, repo, "read-tree", "v7.2.0")
+	blob := gitOut(t, repo, "hash-object", "-w", "/dev/null")
+	gitOut(t, repo, "update-index", "--add", "--cacheinfo", "100644,"+blob+",unexpected.txt")
+	changedTree := gitOut(t, repo, "write-tree")
 	// -c identity flags: CI runners have no global git identity and both
 	// commit-tree and annotated tags refuse to run without one.
 	dummy, err := exec.Command("git", "-C", repo,
 		"-c", "user.name=pletka-test", "-c", "user.email=test@pletka.local",
-		"commit-tree", emptyTree, "-m", "dummy").Output()
+		"commit-tree", changedTree, "-m", "dummy").Output()
 	if err != nil {
 		t.Fatalf("commit-tree dummy: %v", err)
 	}
@@ -385,7 +388,7 @@ func TestReleaseTagMismatchFailsLoudly(t *testing.T) {
 	if outcome != "release_tag_mismatch" {
 		t.Fatalf("expected outcome 'release_tag_mismatch', got %q", outcome)
 	}
-	if !strings.Contains(errMsg, emptyTree) || !strings.Contains(errMsg, "!=") {
+	if !strings.Contains(errMsg, changedTree) || !strings.Contains(errMsg, "!=") {
 		t.Fatalf("expected materialized_error to mention both trees, got %q", errMsg)
 	}
 

@@ -59,5 +59,11 @@ hot-table checks; finalized archive guards apply to both origins.
   default Git writer, incremental draft patcher and stored-format tag verifier
   migrate separately; implementing import does not switch their output format.
 
+Implementation follow-up: fresh release writes now use complete values and a
+same-session catalog. Existing tags and prepared repoints select their stored
+format and frozen overlay; archive commits update only the catalog. Draft writers
+remain on their existing format until bounded patching is implemented. See the
+bundle contract for the compatibility adapter inventory.
+
 See the [bundle contract](../reference/project-bundle-format.md) and
 [complete project values](../reference/project-snapshot-values.md).

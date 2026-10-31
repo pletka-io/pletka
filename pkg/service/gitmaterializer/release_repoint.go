@@ -139,7 +139,7 @@ func (m *Materializer) CheckReleaseRepoint(ctx context.Context, operation string
 
 // PrepareReleaseRepoint writes replacement objects and recoverable backup refs.
 // All projects should be prepared before any public ref is moved. This uses the
-// current materializer format; it does not claim complete portable serialization.
+// complete format for new objects; resumed objects keep their stored format.
 func (m *Materializer) PrepareReleaseRepoint(ctx context.Context, operation string, expected ReleaseRefState) (PreparedRelease, error) {
 	return m.prepareReleaseRepoint(ctx, operation, expected, 1)
 }
@@ -184,13 +184,6 @@ func (m *Materializer) prepareReleaseRepoint(ctx context.Context, operation stri
 		return prepared, err
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
-	if err := m.buildReleaseTree(ctx, tmp, expected.ProjectID, expected.Version); err != nil {
-		return prepared, err
-	}
-	tree, err := git.WriteTreeFrom(ctx, tmp)
-	if err != nil {
-		return prepared, err
-	}
 	prepared.Commit, _, err = git.RefSHA(ctx, prefix+"prepared-commit")
 	if err != nil {
 		return prepared, err
@@ -200,6 +193,18 @@ func (m *Materializer) prepareReleaseRepoint(ctx context.Context, operation stri
 		return prepared, err
 	}
 	if prepared.Commit != "" || prepared.Tag != "" {
+		if prepared.Commit == "" || prepared.Tag == "" {
+			return prepared, fmt.Errorf("incomplete prepared release for %s", expected.ProjectID)
+		}
+		// Resume the exact stored format and catalog, even after a writer upgrade
+		// or mutable title/retirement edit. Never reinterpret prepared bytes.
+		if err := m.writeVerificationTree(ctx, git, prepared.Commit, tmp, expected.ProjectID, expected.Version); err != nil {
+			return prepared, err
+		}
+		tree, err := git.WriteTreeFrom(ctx, tmp)
+		if err != nil {
+			return prepared, err
+		}
 		actualTree, _, err := git.TreeOfRev(ctx, prepared.Commit)
 		if err != nil {
 			return prepared, err
@@ -212,6 +217,13 @@ func (m *Materializer) prepareReleaseRepoint(ctx context.Context, operation stri
 			return prepared, fmt.Errorf("prepared content differs for %s", expected.ProjectID)
 		}
 		return prepared, nil
+	}
+	if err := m.buildReleaseTree(ctx, tmp, expected.ProjectID, expected.Version); err != nil {
+		return prepared, err
+	}
+	tree, err := git.WriteTreeFrom(ctx, tmp)
+	if err != nil {
+		return prepared, err
 	}
 	return prepareRepointObjects(ctx, git, operation, prefix, tree, expected)
 }

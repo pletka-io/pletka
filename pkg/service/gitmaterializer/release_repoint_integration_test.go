@@ -116,6 +116,9 @@ func TestReleaseRepointRecoveryAndCAS(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE weave_fields SET ui_name='{"en":"Later draft"}' WHERE project_id='ZMAT'`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE weave_releases SET title='Later catalog title' WHERE project_id IN ('ZMAT','ZMAT2')`); err != nil {
+		t.Fatal(err)
+	}
 	fail = false
 	finished, err := svc.RunRebuild(ctx, request, check, publish)
 	if err != nil {

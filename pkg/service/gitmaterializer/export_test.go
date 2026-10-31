@@ -10,3 +10,8 @@ import "context"
 func (m *Materializer) BuildReleaseTree(ctx context.Context, dstDir, projectID, version string) error {
 	return m.buildReleaseTree(ctx, dstDir, projectID, version)
 }
+
+// BuildLegacyReleaseTree exercises the stored schema1/2 verification adapter.
+func (m *Materializer) BuildLegacyReleaseTree(ctx context.Context, dstDir, projectID, version string) error {
+	return m.buildLegacyReleaseTree(ctx, dstDir, projectID, version)
+}

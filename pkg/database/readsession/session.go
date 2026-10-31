@@ -14,6 +14,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/readsql/archive"
+	"github.com/pletka-io/pletka/pkg/database/readsql/catalog"
 	"github.com/pletka-io/pletka/pkg/database/readsql/dependencyarchive"
 	"github.com/pletka-io/pletka/pkg/database/readsql/dependencydraft"
 	"github.com/pletka-io/pletka/pkg/database/readsql/draft"
@@ -42,6 +43,7 @@ type Session struct {
 	scope        auth.ReadScope
 	draft        *draft.Queries
 	archive      *archive.Queries
+	catalog      *catalog.Queries
 	ontologies   *projectontologies.Queries
 	lifetime     *lifetime
 	dependencies *dependencies
@@ -136,7 +138,7 @@ func (f *Factory) Read(ctx context.Context, scope auth.ReadScope, projectID stri
 }
 
 func bind(ctx context.Context, q *sqlcgen.Queries, tx pgx.Tx, life *lifetime, graph *sourceGraph, projectID string, scope auth.ReadScope) (*Session, error) {
-	s := &Session{projectID: projectID, scope: scope, lifetime: life}
+	s := &Session{projectID: projectID, scope: scope, lifetime: life, catalog: catalog.New(tx)}
 	if scope.IsRelease() {
 		if err := releasearchive.Require(ctx, q, projectID, scope.Version()); err != nil {
 			return nil, err

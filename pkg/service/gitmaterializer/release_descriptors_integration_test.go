@@ -28,6 +28,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/database/releasedescriptor"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/projectbundle"
 	"github.com/pletka-io/pletka/pkg/service/gitmaterializer"
 	"github.com/pletka-io/pletka/pkg/weave/ontology"
 	"github.com/pletka-io/pletka/pkg/weave/release"
@@ -59,8 +60,12 @@ func descriptorTree(t *testing.T, pool *pgxpool.Pool, project, version, host str
 	if err := mat.BuildReleaseTree(t.Context(), dir, project, version); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := gitmaterializer.LoadProjectSnapshot(dir); err != nil {
+	bundle, err := gitmaterializer.LoadCompleteProjectBundle(dir, projectbundle.DefaultLimits())
+	if err != nil {
 		t.Fatalf("load serialized release: %v", err)
+	}
+	if _, err := projectbundle.DecodeCatalog(bundle.Project.Snapshot(), bundle.Catalog, projectbundle.DefaultLimits().MaxBytes); err != nil {
+		t.Fatalf("source-aware catalog missing: %v", err)
 	}
 	out := map[string]string{}
 	if err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
@@ -120,10 +125,26 @@ func TestReleaseDescriptorsFreezeActorAndModuleOutput(t *testing.T) {
 	descriptorExec(t, pool, `INSERT INTO weave_project_actors(project_id,actor_id,role) VALUES ('descriptor-child','descriptor-credit','contributor')`)
 	descriptorCut(t, pool, "descriptor-child", "1.0.0", "child.example")
 	before := descriptorTree(t, pool, "descriptor-child", "1.0.0", "unrelated.example")
-	if !strings.Contains(before["pletka.mod"], "child.example/orgs/owner/projects/descriptor-child") || !strings.Contains(before["pletka.mod"], "source.example/orgs/owner/projects/descriptor-parent") {
+	files := projectbundle.Files{}
+	for path, data := range before {
+		if path != projectbundle.CatalogPath {
+			files[path] = []byte(data)
+		}
+	}
+	imported, err := projectbundle.Decode(files, projectbundle.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := imported.Snapshot()
+	root, _ := value.Root()
+	evidence, _ := value.Evidence(root)
+	descriptors := evidence.Descriptors()
+	parent, err := descriptors.ProjectModule("descriptor-parent")
+	if err != nil || descriptors.Module() != "child.example/orgs/owner/projects/descriptor-child" || parent != "source.example/orgs/owner/projects/descriptor-parent" {
 		t.Fatal("module identities do not come from their respective cuts")
 	}
-	if !strings.Contains(before["pletka.mod"], "source.example-ontologies/frozen-ontology") {
+	module, err := descriptors.OntologyModule(version)
+	if err != nil || module != "source.example-ontologies/frozen-ontology" {
 		t.Fatal("source ontology module identity was not retained")
 	}
 	descriptorExec(t, pool, `UPDATE weave_actors SET slug=slug||'-changed',display_name='Changed',type='person' WHERE id LIKE 'descriptor-%'`)
@@ -137,7 +158,7 @@ func TestReleaseDescriptorsFreezeActorAndModuleOutput(t *testing.T) {
 		t.Fatal("release tree changed after actor/host mutations")
 	}
 	var escaped *readsession.Session
-	err := readsession.NewFactory(pool).Read(t.Context(), auth.Release("1.0.0"), "descriptor-child", func(s *readsession.Session) error {
+	err = readsession.NewFactory(pool).Read(t.Context(), auth.Release("1.0.0"), "descriptor-child", func(s *readsession.Session) error {
 		escaped = s
 		d, err := s.Descriptors(t.Context())
 		if err != nil {
