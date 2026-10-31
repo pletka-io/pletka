@@ -2,8 +2,9 @@
 
 `pkg/projectbundle` is the pure transport codec for
 [complete project values](project-snapshot-values.md). Encoding and decoding are
-implemented. Storage import and the switch of Git writers to this format remain
-separate delivery gates. Existing writers still emit their historical formats.
+implemented, along with atomic immutable-history restoration through the CLI and
+admin restore runner. The switch of Git writers remains a separate delivery gate.
+Existing writers still emit their historical formats.
 
 The encoder accepts only `projectsnapshot.CompleteProject`. Draft and released
 values share one implementation. It has no database, filesystem, configuration,
@@ -108,3 +109,26 @@ Legacy schema 1 catalogs remain on the legacy path; they do not contain the sour
 metadata required for complete history import. The filesystem loader returns the
 overlay bytes separately. A storage importer must require and validate this overlay
 before any writes; plain content inspection does not require a catalog.
+
+## Immutable history restoration
+
+`database/projectrestore.Restore` accepts only the decoded import and validated
+catalog. One transaction restores original release headers, every archived row,
+source pins/membership, descriptors and exact ontology evidence, then creates
+working copies. Both typed row equality and the original PostgreSQL receipt hashes
+are checked. SQL NULL and JSON null remain distinct through the storage conversion.
+Imported finalization does not compare historical values with current hot rows.
+
+An immutable ledger identifies imported history separately from a local release
+cut. Normal release-scoped readers load the restored archives; the bound session's
+`Origin` method reports the local import time outside the frozen content value.
+Imports cannot commit unfinished releases or modify already finalized archives.
+
+Restoration requires absent targets or exact prior imports and preserves original
+IDs. Exact retries leave later working-copy edits intact; conflicts and retargeting
+fail. Working copies have draft status. Missing instance-local staging attachments
+are cleared and reported, while archives retain them. Current global namespace and
+ontology defaults remain current; historical interpretation stays in release
+evidence. Sequence advances can leave gaps after rollback. See
+[ADR-0019](../decisions/0019-imported-project-history-keeps-its-origin.md) for the
+transaction, provenance and working-copy rules.

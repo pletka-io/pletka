@@ -31,3 +31,11 @@ JOIN weave_releases r ON r.project_id=s.project_id AND r.version=s.version_numbe
 WHERE s.project_id=sqlc.arg(project_id)::text AND s.version_number=sqlc.arg(version)::text
   AND r.content_capture_version=2
   AND s.digest=r.content_capture_receipt->>'ontology_snapshot_digest';
+
+-- name: ReleaseImportOrigin :one
+SELECT (i.project_id IS NOT NULL)::boolean AS imported,
+       COALESCE(to_char(i.imported_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'')::text AS imported_at
+FROM weave_releases r
+LEFT JOIN weave_release_imports i ON i.project_id=r.project_id AND i.version_number=r.version
+WHERE r.project_id=sqlc.arg(project_id)::text AND r.version=sqlc.arg(version)::text
+  AND r.content_capture_version IN (1,2);

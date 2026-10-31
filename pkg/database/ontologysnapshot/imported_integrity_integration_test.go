@@ -292,6 +292,15 @@ func TestImportedIntegrityUpgradeAndDowngrade(t *testing.T) {
 			p := testdb.EmptyPool(t)
 			db := stdlib.OpenDB(*p.Config().ConnConfig)
 			defer db.Close()
+			latest, err := database.LatestMigrationVersion()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for version := latest; version > 39; version-- {
+				if err := database.MigrateDown(db); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if mode == "portable body only" {
 				restoreIntegrityBodies(t, p, a, true)
 				requireCount(t, p, `SELECT count(*) FROM weave_imported_legacy_ontology_snapshots`, 0)
@@ -319,7 +328,7 @@ func TestImportedIntegrityUpgradeAndDowngrade(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			err := database.Migrate(db)
+			err = database.Migrate(db)
 			if mode == "invalid existing" {
 				if err == nil || !strings.Contains(err.Error(), "assessments differ") {
 					t.Fatalf("invalid import was grandfathered: %v", err)

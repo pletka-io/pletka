@@ -186,4 +186,10 @@ fragment parity and detached composition after closing the database pool.
 The older PostgreSQL value fixture remains a separate constructor compatibility
 check. Database-backed bundle tests now compare every captured row and its
 interpretation evidence after portable round-tripping, including published and
-legacy source graphs. Storage restoration and consumer migrations remain pending.
+legacy source graphs. Schema3 storage restoration now restores original immutable
+history and working copies atomically, comparing every archived row and original
+receipt after normal bound-reader reassembly. Import provenance remains separate
+from this frozen value; see
+[ADR-0019](../decisions/0019-imported-project-history-keeps-its-origin.md).
+Default Git writer, incremental patcher, tag verification and generator migrations
+remain pending.

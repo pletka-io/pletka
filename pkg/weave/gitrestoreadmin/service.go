@@ -25,6 +25,8 @@ type CreateJobInput struct {
 }
 
 type Runner interface {
+	// HydrateComplete owns root-first locks and one transaction; never wrap it in AcquireProjectLock.
+	HydrateComplete(ctx context.Context, plan *gitmaterializer.RestorePlan) error
 	Prepare(rootDir, targetProjectID string) (*gitmaterializer.RestorePlan, error)
 	HydrateVendored(ctx context.Context, plan *gitmaterializer.RestorePlan) error
 	HydrateShell(ctx context.Context, plan *gitmaterializer.RestorePlan) error
@@ -58,6 +60,10 @@ type materializerRunner struct {
 
 func NewMaterializerRunner(mat *gitmaterializer.Materializer) Runner {
 	return materializerRunner{mat: mat}
+}
+
+func (r materializerRunner) HydrateComplete(ctx context.Context, plan *gitmaterializer.RestorePlan) error {
+	return r.mat.HydrateCompleteRestore(ctx, plan)
 }
 
 func (r materializerRunner) Prepare(rootDir, targetProjectID string) (*gitmaterializer.RestorePlan, error) {
@@ -192,6 +198,17 @@ func (s *Service) Run(ctx context.Context, id string) (*Job, error) {
 		return s.failJob(ctx, job.ID, RestorePhaseValidate, err)
 	}
 
+	if plan.Complete != nil {
+		if _, err := s.store.UpdateState(ctx, job.ID, JobStatusRunning, RestorePhaseHistory, "", nil, nil); err != nil {
+			return nil, err
+		}
+		if err := s.runner.HydrateComplete(ctx, plan); err != nil {
+			return s.failJob(ctx, job.ID, RestorePhaseHistory, err)
+		}
+		finishedAt := time.Now().UTC()
+		return s.store.UpdateState(ctx, job.ID, JobStatusCompleted, "", "", nil, &finishedAt)
+	}
+
 	// Acquired ONCE, as the very first thing after Prepare — before the
 	// vendored phase's first write, not merely before overrides — and held
 	// across every phase through provenance below (including every
@@ -264,7 +281,9 @@ func (s *Service) failJob(ctx context.Context, jobID, phase string, cause error)
 	return job, cause
 }
 
+// Restore phases are persisted job progress labels.
 const (
+	RestorePhaseHistory    = "history"
 	RestorePhaseValidate   = "validate"
 	RestorePhaseVendored   = "vendored"
 	RestorePhaseShell      = "shell"
@@ -292,6 +311,9 @@ func (e *conflictError) ConflictMessage() string {
 }
 
 func retargetUnsupported(preview *PreviewResult, targetProjectID string) bool {
+	if preview != nil && preview.PreservesHistory && targetProjectID != preview.ProjectID {
+		return true
+	}
 	if preview == nil {
 		return false
 	}

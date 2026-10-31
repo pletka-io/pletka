@@ -1,10 +1,16 @@
 package gitmaterializer
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/pletka-io/pletka/pkg/database/projectrestore"
+)
 
 type RestoreOperationKind string
 
+// Restore operation kinds distinguish complete imports from legacy phases.
 const (
+	RestoreCompleteSnapshot   RestoreOperationKind = "complete_snapshot"
 	RestoreVendoredProject    RestoreOperationKind = "vendored_project"
 	RestoreVendoredOntology   RestoreOperationKind = "vendored_ontology"
 	RestoreProjectManifest    RestoreOperationKind = "project_manifest"
@@ -34,11 +40,13 @@ type RestoreOperation struct {
 }
 
 type RestorePlan struct {
-	RootDir    string
-	ProjectID  string
-	ModulePath string
-	Snapshot   *ProjectSnapshot
-	Operations []RestoreOperation
+	Complete     *CompleteRestore
+	ImportResult *projectrestore.Result
+	RootDir      string
+	ProjectID    string
+	ModulePath   string
+	Snapshot     *ProjectSnapshot
+	Operations   []RestoreOperation
 }
 
 func BuildRestorePlan(snapshot *ProjectSnapshot) *RestorePlan {

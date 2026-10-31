@@ -69,6 +69,32 @@ func (q *Queries) ReleaseContentReceipt(ctx context.Context, arg ReleaseContentR
 	return content_capture_receipt, err
 }
 
+const releaseImportOrigin = `-- name: ReleaseImportOrigin :one
+SELECT (i.project_id IS NOT NULL)::boolean AS imported,
+       COALESCE(to_char(i.imported_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'')::text AS imported_at
+FROM weave_releases r
+LEFT JOIN weave_release_imports i ON i.project_id=r.project_id AND i.version_number=r.version
+WHERE r.project_id=$1::text AND r.version=$2::text
+  AND r.content_capture_version IN (1,2)
+`
+
+type ReleaseImportOriginParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+type ReleaseImportOriginRow struct {
+	Imported   bool   `json:"imported"`
+	ImportedAt string `json:"imported_at"`
+}
+
+func (q *Queries) ReleaseImportOrigin(ctx context.Context, arg ReleaseImportOriginParams) (ReleaseImportOriginRow, error) {
+	row := q.db.QueryRow(ctx, releaseImportOrigin, arg.ProjectID, arg.Version)
+	var i ReleaseImportOriginRow
+	err := row.Scan(&i.Imported, &i.ImportedAt)
+	return i, err
+}
+
 const releaseLegacyContentReceipt = `-- name: ReleaseLegacyContentReceipt :one
 SELECT content_capture_receipt FROM weave_releases
 WHERE project_id=$1::text AND version=$2::text

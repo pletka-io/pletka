@@ -206,9 +206,9 @@ func TestPilotQueriesCannotCrossStateOrWrite(t *testing.T) {
 			}
 			for _, match := range tables.FindAllStringSubmatch(sql.String(), -1) {
 				isArchive := strings.HasSuffix(match[1], "_archive") || match[1] == "weave_release_descriptors" || match[1] == "weave_legacy_ontology_snapshots"
-				// This session facet reads only the release's capture certificate,
-				// never mutable project content from the release catalog.
-				isArchive = isArchive || (match[1] == "weave_releases" && filepath.Base(path) == "metadata.sql")
+				// This facet reads the capture certificate and immutable import
+				// origin, never mutable content from the release catalog.
+				isArchive = isArchive || ((match[1] == "weave_releases" || match[1] == "weave_release_imports") && filepath.Base(path) == "metadata.sql")
 				if isArchive != (state == "archive") {
 					t.Errorf("%s accesses other state table %s", path, match[1])
 				}
@@ -221,7 +221,7 @@ func TestPilotQueryPackagesAreOnlyUsedByBindingInfrastructure(t *testing.T) {
 	root := repoRoot(t)
 	for _, path := range goFilesUnder(t, root) {
 		rel := mustRel(t, root, path)
-		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go" || rel == "pkg/database/readsession/metadata.go" || rel == "pkg/database/readsession/legacy_content.go" || rel == "pkg/database/readsession/ontologies.go" || rel == "pkg/database/readsession/draft_evidence.go" || rel == "pkg/database/readsession/content_reader.go" || rel == "pkg/database/readsession/content_draft.go" || rel == "pkg/database/readsession/content_archive.go") {
+		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/database/readsql/") || (rel == "pkg/database/readsession/session.go" || rel == "pkg/database/readsession/descriptors.go" || rel == "pkg/database/readsession/metadata.go" || rel == "pkg/database/readsession/import_origin.go" || rel == "pkg/database/readsession/legacy_content.go" || rel == "pkg/database/readsession/ontologies.go" || rel == "pkg/database/readsession/draft_evidence.go" || rel == "pkg/database/readsession/content_reader.go" || rel == "pkg/database/readsession/content_draft.go" || rel == "pkg/database/readsession/content_archive.go") {
 			continue
 		}
 		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)

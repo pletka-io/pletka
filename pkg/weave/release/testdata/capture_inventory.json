@@ -674,6 +674,8 @@
     "weave_release_ontology_dependencies": "Retained concrete ontology artifact closure (ADR-0013); separate from archived authored links.",
     "weave_release_ontology_references": "Immutable exact term-resolution evidence (ADR-0015); separate from authored semantic paths.",
     "weave_release_project_dependencies": "Captured retained source project/version closure (ADR-0011); assembler must validate separately from owned rows.",
+    "weave_release_imports": "Immutable local import provenance and original evidence for restored history (ADR-0019); separate from frozen content and original capture receipt.",
+    "weave_project_workspace_imports": "Local exact-import replay fingerprint and staging attachment report; preserves later working-copy edits, never released content.",
     "weave_releases": "Release catalog and capture markers; title/retirement/materialization policy is separate from owned content.",
     "goose_db_version": "Migration tool schema bookkeeping.",
     "weave_release_content_fences": "Retained operational parent-identity coordination keys for archive child writes/cuts; never serialized as content.",

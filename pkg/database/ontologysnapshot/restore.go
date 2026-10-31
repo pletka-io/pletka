@@ -25,7 +25,7 @@ func Restore(ctx context.Context, pool *pgxpool.Pool, artifacts []Artifact) (err
 	if err != nil {
 		return err
 	}
-	bodies, evidence := bundle.Bodies(), bundle.Artifacts()
+	evidence := bundle.Artifacts()
 	if len(evidence) == 0 {
 		return nil
 	}
@@ -44,6 +44,31 @@ func Restore(ctx context.Context, pool *pgxpool.Pool, artifacts []Artifact) (err
 			err = &restoreConflict{cause: err}
 		}
 	}()
+	if err := restoreBundle(ctx, tx, bundle); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+type restoreConflict struct{ cause error }
+
+func (e *restoreConflict) Error() string {
+	return "legacy ontology restore conflicts with retained content: " + e.cause.Error()
+}
+func (e *restoreConflict) Unwrap() error           { return e.cause }
+func (e *restoreConflict) ConflictMessage() string { return e.Error() }
+
+// RestoreTx retains exact legacy evidence and bodies inside the caller's
+// transaction. It still creates no release, publication or active selection.
+func RestoreTx(ctx context.Context, tx pgx.Tx, artifacts []Artifact) error {
+	bundle, err := ontologyevidence.PrepareBundle(artifacts)
+	if err != nil {
+		return err
+	}
+	return restoreBundle(ctx, tx, bundle)
+}
+func restoreBundle(ctx context.Context, tx pgx.Tx, bundle ontologyevidence.Bundle) error {
+	bodies, evidence := bundle.Bodies(), bundle.Artifacts()
 	q := sqlcgen.New(tx)
 	documents := make([]string, len(evidence))
 	for i, a := range evidence {
@@ -66,13 +91,5 @@ func Restore(ctx context.Context, pool *pgxpool.Pool, artifacts []Artifact) (err
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	return nil
 }
-
-type restoreConflict struct{ cause error }
-
-func (e *restoreConflict) Error() string {
-	return "legacy ontology restore conflicts with retained content: " + e.cause.Error()
-}
-func (e *restoreConflict) Unwrap() error           { return e.cause }
-func (e *restoreConflict) ConflictMessage() string { return e.Error() }
