@@ -12,6 +12,7 @@ import (
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
 )
@@ -132,7 +133,7 @@ func (s *Service) CreateSelfOrganization(ctx context.Context, actorID string, in
 		return nil, errors.New("organization: missing creator actor")
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin organization create tx: %w", err)
 	}

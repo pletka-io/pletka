@@ -247,3 +247,13 @@ its own complete validation contract before it may produce this evidence.
 - Released output resolving actor labels or module hosts from current state; use `readsession.Session.Descriptors` (ADR-0014)
 - Released semantic references resolved through current ontology policy or prefix guesses; capture at the cut and read `ontologyrelease.ProjectReader.References` (ADR-0015)
 - A new `_archive` table whose slice is not registered in `pkg/conformance/slices.go`
+
+## Atomic mutation context
+
+Enrolled project edits enter `service/draftcapture`; propagate its callback context
+to every store and read-session call. Store SQL binds through `txscope.New(pool)`;
+nested Begin creates a savepoint, not another committing transaction. Only the
+capture/change-log owners bind transaction scopes. Do not reconstruct a user patch
+from current fragments, bypass enrolled writes for bulk/restore, or refresh external
+policy under a user's message. See
+[ADR-0020](../../docs-oss/decisions/0020-draft-mutations-own-their-capture.md).

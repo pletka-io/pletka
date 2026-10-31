@@ -57,7 +57,8 @@ the row and context images atomically with the writes they describe.
 
 The pure patcher is implemented and tested; automatic draft materialization,
 initialization and reconciliation still use the legacy writer. Switching them
-requires a complete transactional change source first.
+requires coordinated baseline and delivery checkpoints. Atomic capture is now
+available as an explicit opt-in boundary; see [atomic capture](atomic-draft-capture.md).
 
 The reviewed [write inventory](../../pkg/service/gitmaterializer/testdata/draft_write_inventory.json)
 records all captured sections, representative write paths, observed audit kinds
@@ -65,8 +66,8 @@ and child/delete effects. The existing recorder emits seven kinds: field, model,
 collection, category, override, namespace binding and project ontology version.
 That vocabulary is not complete storage coverage:
 
-- `weave.NewChangeLogRunner` flushes logs in a transaction separate from slice
-  store writes. A failed log flush can leave an entity mutation committed.
+- `weave.NewChangeLogRunner` now joins store writes and log flushing in one
+  transaction. Its domain payloads still do not provide complete storage images.
 - Example updates delete/reinsert value rows in their own transaction, without
   emitting the row changes. Vocabulary/concept, attribution, project metadata
   and relationship operations also lack complete attributable row images.
@@ -81,13 +82,12 @@ producers with the legacy writer's accepted vocabulary. Unknown kinds, operation
 or ownership fail before a tree rewrite and remain pending with an error. This
 detects unsupported entries; it cannot detect a mutation that emits no entry.
 
-The next write boundary needs one mutation transaction, lossless storage effects
-(including cascades and generated fields), ordered project revisions, attributable
-interpretation changes and durable delivery checkpoints. Central storage capture
-should enforce coverage; adding more hand-maintained service log calls alone
-does not establish these guarantees. Explicit baseline initialization/reconciliation
-and isolated Git publication follow that boundary. A full current-state upgrade
-must never be attributed to an individual user's change-set message.
+`draftcapture.Receipt.Patch` now derives patches from complete snapshots retained
+atomically by the writing transaction. Storage effects cover all 22sections and
+cascades, while explicit context refresh separates external policy drift. Default
+writers still await coordinated baseline initialization/reconciliation and
+isolated Git publication. A full current-state upgrade must never be attributed
+to an individual user's change-set message.
 
 ## Verification
 

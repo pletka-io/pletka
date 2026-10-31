@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // postgresStore is the pgx + sqlc implementation of Store, backed by the
@@ -24,7 +25,7 @@ var _ Store = (*postgresStore)(nil)
 
 // NewPostgresStore returns a Store backed by the supplied pgx pool.
 func NewPostgresStore(pool *pgxpool.Pool) Store {
-	return &postgresStore{queries: sqlcgen.New(pool)}
+	return &postgresStore{queries: sqlcgen.New(txscope.New(pool))}
 }
 
 func (s *postgresStore) ListActorsByType(ctx context.Context, actorType string) ([]sqlcgen.WeaveActor, error) {

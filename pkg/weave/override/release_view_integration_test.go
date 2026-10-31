@@ -1,6 +1,6 @@
 //go:build integration
 
-package override
+package override_test
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/override"
 )
 
 // TestReleaseViewDoesNotServeDraftOverrides is #3582 as a regression test:
@@ -26,7 +27,7 @@ import (
 func TestReleaseViewDoesNotServeDraftOverrides(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := serviceTestContext(t, "Z3582")
-	svc := NewService(NewPostgresStore(pool), NewReadSessions(readsession.NewFactory(pool)), nil, nil)
+	svc := override.NewService(override.NewPostgresStore(pool), override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 
 	const projectID, entityID, version = "Z3582", "Z3582M.1", "1.0.0"
 

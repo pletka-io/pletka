@@ -14,6 +14,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/rebuildlease"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // LegacyRebuildPlan names the explicit preservation contract, not ordinary publication.
@@ -125,7 +126,7 @@ func (s *Service) planRebuildSession(ctx context.Context, projectIDs []string, c
 	if err != nil {
 		return RebuildPlan{}, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := txscope.New(s.pool).BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return RebuildPlan{}, err
 	}
@@ -320,7 +321,7 @@ func (s *Service) GetRebuild(ctx context.Context, id string) (RebuildOperation, 
 	if _, err := s.requireRebuild(ctx); err != nil {
 		return RebuildOperation{}, err
 	}
-	row, err := sqlcgen.New(s.pool).WeaveGetRebuildOperation(ctx, id)
+	row, err := sqlcgen.New(txscope.New(s.pool)).WeaveGetRebuildOperation(ctx, id)
 	if err != nil {
 		return RebuildOperation{}, err
 	}
@@ -377,7 +378,7 @@ func (s *Service) runRebuild(ctx context.Context, request RebuildRequest, check 
 		}
 	}
 	for _, r := range op.Releases {
-		valid, err := sqlcgen.New(s.pool).WeaveVerifyRebuiltRelease(ctx, sqlcgen.WeaveVerifyRebuiltReleaseParams{ProjectID: r.ProjectID, Version: r.Version, Receipt: r.Receipt, ChangeSetID: r.ChangeSetID})
+		valid, err := sqlcgen.New(txscope.New(s.pool)).WeaveVerifyRebuiltRelease(ctx, sqlcgen.WeaveVerifyRebuiltReleaseParams{ProjectID: r.ProjectID, Version: r.Version, Receipt: r.Receipt, ChangeSetID: r.ChangeSetID})
 		if err != nil {
 			return op, err
 		}
@@ -396,7 +397,7 @@ func (s *Service) completeRebuild(ctx context.Context, op RebuildOperation, comm
 	if len(commits) != len(op.Releases) {
 		return op, errors.New("publisher omitted rebuilt releases")
 	}
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return op, err
 	}
@@ -429,7 +430,7 @@ func (s *Service) captureRebuild(ctx context.Context, request RebuildRequest, id
 	// LOCK TABLE is the first command and does not take an MVCC snapshot.
 	// Validation therefore sees writers that committed while locks waited;
 	// repeatable read then satisfies the normal capture contract.
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	tx, err := txscope.New(s.pool).BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return op, err
 	}

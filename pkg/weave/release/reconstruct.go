@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // Reconstruction fills the seven archive tables added alongside examples,
@@ -406,7 +408,7 @@ func Reconstruct(ctx context.Context, pool *pgxpool.Pool, opts ReconstructOption
 		return report, ErrAmbiguousRows
 	}
 
-	tx, err := pool.Begin(ctx)
+	tx, err := txscope.New(pool).Begin(ctx)
 	if err != nil {
 		return report, fmt.Errorf("begin reconstruct tx: %w", err)
 	}
@@ -440,7 +442,7 @@ type releaseRef struct {
 }
 
 func listReleasesForReconstruct(ctx context.Context, pool *pgxpool.Pool, projectID string) ([]releaseRef, error) {
-	rows, err := pool.Query(ctx, `
+	rows, err := txscope.New(pool).Query(ctx, `
 		SELECT project_id, version, created_at
 		FROM weave_releases
 		WHERE $1::text = '' OR project_id = $1::text
@@ -463,7 +465,7 @@ func listReleasesForReconstruct(ctx context.Context, pool *pgxpool.Pool, project
 
 func projectExists(ctx context.Context, pool *pgxpool.Pool, projectID string) (bool, error) {
 	var exists bool
-	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM weave_projects WHERE id = $1)`, projectID).Scan(&exists); err != nil {
+	if err := txscope.New(pool).QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM weave_projects WHERE id = $1)`, projectID).Scan(&exists); err != nil {
 		return false, fmt.Errorf("look up project %s: %w", projectID, err)
 	}
 	return exists, nil
@@ -484,7 +486,7 @@ func classifyTable(ctx context.Context, pool *pgxpool.Pool, tbl reconstructTable
 	// classification walks the same live parent — but it is why this is an
 	// optimisation and a report-noise fix, never a correctness guarantee.
 	var archived bool
-	if err := pool.QueryRow(ctx, tbl.exists, rel.ProjectID, rel.Version).Scan(&archived); err != nil {
+	if err := txscope.New(pool).QueryRow(ctx, tbl.exists, rel.ProjectID, rel.Version).Scan(&archived); err != nil {
 		return tr, err
 	}
 	if archived {
@@ -496,7 +498,7 @@ func classifyTable(ctx context.Context, pool *pgxpool.Pool, tbl reconstructTable
 		return tr, nil
 	}
 
-	rows, err := pool.Query(ctx, tbl.classifySQL(), rel.ProjectID, rel.CreatedAt)
+	rows, err := txscope.New(pool).Query(ctx, tbl.classifySQL(), rel.ProjectID, rel.CreatedAt)
 	if err != nil {
 		return tr, err
 	}

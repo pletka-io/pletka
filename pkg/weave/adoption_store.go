@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -64,7 +65,7 @@ func (s *adoptionStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 		} else {
 			where += " AND " + versionWhere
 		}
-		rows, err = s.pool.Query(ctx, `
+		rows, err = txscope.New(s.pool).Query(ctx, `
 			SELECT
 				project_id,
 				context_entity_type,
@@ -81,7 +82,7 @@ func (s *adoptionStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 			ORDER BY context_entity_type ASC, context_entity_id ASC, entity_type ASC, source_entity_id ASC
 		`, args...)
 	} else {
-		rows, err = s.pool.Query(ctx, `
+		rows, err = txscope.New(s.pool).Query(ctx, `
 			SELECT
 				id,
 				project_id,
@@ -157,7 +158,7 @@ func (s *adoptionStore) List(ctx context.Context, opts ...domain.QueryOption) ([
 }
 
 func (s *adoptionStore) ReplaceForContext(ctx context.Context, projectID, contextEntityType, contextEntityID string, adoptions []domain.Adoption) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin adoption replace tx: %w", err)
 	}

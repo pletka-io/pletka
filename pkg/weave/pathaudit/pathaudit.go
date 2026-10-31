@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // defaultsOntologyPrefix is the well-known prefix of the implicit defaults
@@ -147,7 +148,7 @@ SELECT project, semantic_id, position, prefix, local_name, stored_type,
 FROM classified
 ORDER BY project, semantic_id, position`
 
-	rows, err := s.pool.Query(ctx, query, projectID, defaultsVersionID)
+	rows, err := txscope.New(s.pool).Query(ctx, query, projectID, defaultsVersionID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query path elements: %w", err)
 	}
@@ -187,7 +188,7 @@ ORDER BY project, semantic_id, position`
 // it has no active version): callers treat that as "nothing to union",
 // leaving Audit's behavior identical to before defaults existed.
 func (s *Service) resolveDefaultsVersionID(ctx context.Context) (string, error) {
-	queries := sqlcgen.New(s.pool)
+	queries := sqlcgen.New(txscope.New(s.pool))
 	ontology, err := queries.WeaveGetOntologyByPrefix(ctx, defaultsOntologyPrefix)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil

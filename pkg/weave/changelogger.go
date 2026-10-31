@@ -14,6 +14,7 @@ import (
 // occur. It is the sole entry point for mutations — the txn-scoped sqlc
 // queries handle is only accessible through ChangeLogger.Queries().
 type ChangeLogger struct {
+	ctx     context.Context
 	tx      pgx.Tx
 	queries *sqlcgen.Queries
 	csID    int64

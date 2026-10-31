@@ -1,6 +1,6 @@
 //go:build integration
 
-package override
+package override_test
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/override"
 )
 
 // Scratch coordinates for fingerprint/lock tests: real LA fixture fields
@@ -37,8 +38,8 @@ func cleanupFPEntity(t *testing.T, pool *pgxpool.Pool) {
 
 func TestEntityFingerprintChangesWithSave(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
-	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
+	store := override.NewPostgresStore(pool)
+	svc := override.NewService(store, override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 	cleanupFPEntity(t, pool)
 
@@ -89,8 +90,8 @@ func TestEntityFingerprintChangesWithSave(t *testing.T) {
 
 func TestEntityFingerprintCoversRefs(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
-	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
+	store := override.NewPostgresStore(pool)
+	svc := override.NewService(store, override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 	cleanupFPEntity(t, pool)
 
@@ -125,8 +126,8 @@ func TestEntityFingerprintCoversRefs(t *testing.T) {
 
 func TestWithEntityLockSerialises(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
-	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
+	store := override.NewPostgresStore(pool)
+	svc := override.NewService(store, override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 
 	holderErr := make(chan error, 1)
@@ -179,7 +180,7 @@ func TestWithEntityLockSerialises(t *testing.T) {
 // its own still-held lock and mask the leak instead of detecting it.
 func TestWithAdvisoryLockReleasesOnCancelledContext(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
+	store := override.NewPostgresStore(pool)
 
 	const key = "model:TSTFPCANCEL.1"
 
@@ -234,7 +235,7 @@ func TestWithAdvisoryLockResetsLockTimeout(t *testing.T) {
 	}
 	defer pool.Close()
 
-	store := NewPostgresStore(pool)
+	store := override.NewPostgresStore(pool)
 	if lockErr := store.WithAdvisoryLock(ctx, fpTestProjectID, "model:TSTFPRESET.1", func(context.Context) error {
 		return nil
 	}); lockErr != nil {

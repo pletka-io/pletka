@@ -18,6 +18,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
 	"github.com/pletka-io/pletka/pkg/weave/generators/skos"
@@ -53,7 +54,7 @@ func NewService(pool *pgxpool.Pool, reg *registry.Registry, numberer ...EntityNu
 	}
 	return &Service{
 		pool:     pool,
-		queries:  sqlcgen.New(pool),
+		queries:  sqlcgen.New(txscope.New(pool)),
 		registry: reg,
 		numberer: n,
 		logger:   slog.Default(),
@@ -229,7 +230,7 @@ func (s *Service) ListAdminVocabularies(ctx context.Context) ([]AdminVocabularyV
 	// is NOT NULL, so COUNT(DISTINCT v.project_id) is always exactly 1 per
 	// vocabulary — the "Projects" column is trivial post-ownership, kept only
 	// because AdminVocabularyView/the admin screen still expose it.
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 SELECT
     v.id,
     COALESCE(v.semantic_id, '') AS semantic_id,
@@ -317,7 +318,7 @@ func (s *Service) decorateConceptLists(ctx context.Context, projectID string, li
 	if len(lists) == 0 {
 		return nil
 	}
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 SELECT
     cl.id,
     COALESCE(v.id, '') AS vocabulary_id,
@@ -519,7 +520,7 @@ func (s *Service) CreateConceptList(ctx context.Context, projectID string, input
 	if listTypeID != "" {
 		listTypeArg = listTypeID
 	}
-	_, err = s.pool.Exec(ctx, `
+	_, err = txscope.New(s.pool).Exec(ctx, `
 INSERT INTO weave_concept_lists (
     id, semantic_id, system_name, ui_name, description, status,
     project_id, list_type, vocabulary_id, created_at, updated_at
@@ -576,7 +577,7 @@ func (s *Service) UpdateConceptList(ctx context.Context, projectID, id string, i
 		listTypeArg = listTypeID
 	}
 
-	_, err = s.pool.Exec(ctx, `
+	_, err = txscope.New(s.pool).Exec(ctx, `
 UPDATE weave_concept_lists
 SET system_name = $3,
     ui_name = $4::jsonb,
@@ -603,7 +604,7 @@ func (s *Service) DeleteConceptList(ctx context.Context, projectID, id string) e
 		return &ErrConceptListNotFound{ID: id}
 	}
 	var bound int
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 SELECT COUNT(DISTINCT fo.field_id)
 FROM weave_override_refs r
 JOIN weave_field_overrides fo ON fo.id = r.override_id
@@ -616,7 +617,7 @@ WHERE fo.project_id = $1
 	if bound > 0 {
 		return &ErrConceptListInUse{Count: bound}
 	}
-	_, err = s.pool.Exec(ctx, `
+	_, err = txscope.New(s.pool).Exec(ctx, `
 DELETE FROM weave_concept_lists
 WHERE project_id = $1
   AND (id = $2 OR semantic_id = $2)
@@ -662,7 +663,7 @@ func (s *Service) AddConceptListEntry(ctx context.Context, projectID, listID, vo
 	}
 
 	var existingID string
-	err = s.pool.QueryRow(ctx, `
+	err = txscope.New(s.pool).QueryRow(ctx, `
 SELECT id
 FROM weave_concept_list_entries
 WHERE concept_list_id = $1 AND vocabulary_entry_id = $2
@@ -676,7 +677,7 @@ LIMIT 1
 	}
 
 	var position int
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 SELECT COALESCE(MAX(position), 0) + 1
 FROM weave_concept_list_entries
 WHERE concept_list_id = $1
@@ -684,7 +685,7 @@ WHERE concept_list_id = $1
 		return nil, fmt.Errorf("next concept list entry position: %w", err)
 	}
 	entryID := ids.GenerateULID()
-	if _, err := s.pool.Exec(ctx, `
+	if _, err := txscope.New(s.pool).Exec(ctx, `
 INSERT INTO weave_concept_list_entries (
     id, concept_list_id, vocabulary_entry_id, position, custom_label, created_at, updated_at
 ) VALUES (
@@ -742,13 +743,13 @@ func (s *Service) CreateLocalTerm(ctx context.Context, projectID, listID string,
 	}
 
 	var position int
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 SELECT COALESCE(MAX(position), 0) + 1 FROM weave_concept_list_entries WHERE concept_list_id = $1
 `, list.ID).Scan(&position); err != nil {
 		return nil, fmt.Errorf("next concept list entry position: %w", err)
 	}
 	junctionID := ids.GenerateULID()
-	if _, err := s.pool.Exec(ctx, `
+	if _, err := txscope.New(s.pool).Exec(ctx, `
 INSERT INTO weave_concept_list_entries (
     id, concept_list_id, vocabulary_entry_id, position, custom_label, created_at, updated_at
 ) VALUES ($1, $2, $3, $4, '{}'::jsonb, NOW(), NOW())
@@ -771,7 +772,7 @@ func (s *Service) EnsureLocalVocabulary(ctx context.Context, projectID string) (
 // creating it (connector_type 'local') if it does not exist. Idempotent.
 func (s *Service) ensureLocalVocabulary(ctx context.Context, projectID string) (string, error) {
 	var id string
-	err := s.pool.QueryRow(ctx, `
+	err := txscope.New(s.pool).QueryRow(ctx, `
 SELECT id FROM weave_vocabularies
 WHERE project_id = $1 AND connector_type = 'local'
 ORDER BY created_at LIMIT 1
@@ -989,7 +990,7 @@ func (s *Service) RemoveConceptListEntry(ctx context.Context, projectID, listID,
 	if list == nil {
 		return &ErrConceptListNotFound{ID: listID}
 	}
-	tag, err := s.pool.Exec(ctx, `
+	tag, err := txscope.New(s.pool).Exec(ctx, `
 DELETE FROM weave_concept_list_entries
 WHERE id = $1 AND concept_list_id = $2
 `, entryID, list.ID)
@@ -1013,7 +1014,7 @@ func (s *Service) UpdateConceptListEntry(ctx context.Context, projectID, listID,
 	if customLabel == nil {
 		customLabel = domain.Translations{}
 	}
-	tag, err := s.pool.Exec(ctx, `
+	tag, err := txscope.New(s.pool).Exec(ctx, `
 UPDATE weave_concept_list_entries
 SET custom_label = $1::jsonb,
     updated_at = NOW()
@@ -1057,7 +1058,7 @@ func (s *Service) ReorderConceptListEntries(ctx context.Context, projectID, list
 		seen[entryID] = true
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin concept list reorder: %w", err)
 	}
@@ -1375,7 +1376,7 @@ func appendVocabularyHits(out []ConceptListEntryView, vocabHits []VocabularyEntr
 
 func (s *Service) nextConceptListID(ctx context.Context, projectID string) (string, error) {
 	var maxNumber int64
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 SELECT COALESCE(MAX((regexp_match(id, '^' || $1 || '\.CL\.([0-9]+)$'))[1]::bigint), 0)
 FROM weave_concept_lists
 WHERE project_id = $1
@@ -1384,7 +1385,7 @@ WHERE project_id = $1
 		return "", fmt.Errorf("read max concept list id: %w", err)
 	}
 	if s.numberer != nil {
-		_, err := s.pool.Exec(ctx, `
+		_, err := txscope.New(s.pool).Exec(ctx, `
 INSERT INTO weave_entity_counters (project_id, kind, next_n)
 VALUES ($1, 'concept_list', $2)
 ON CONFLICT (project_id, kind)

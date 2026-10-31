@@ -15,6 +15,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -31,7 +32,7 @@ var _ Store = (*postgresStore)(nil)
 // NewPostgresStore returns a Store backed by the supplied pgx pool.
 func NewPostgresStore(pool *pgxpool.Pool) Store {
 	return &postgresStore{
-		queries: sqlcgen.New(pool),
+		queries: sqlcgen.New(txscope.New(pool)),
 		pool:    pool,
 	}
 }
@@ -90,7 +91,7 @@ func (s *postgresStore) GetByID(ctx context.Context, projectID, id string) (*dom
 }
 
 func (s *postgresStore) GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Category, error) {
-	row := s.pool.QueryRow(ctx, `
+	row := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT
 			id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 			status, project_id, canonical_order, deprecated, version_number
@@ -157,7 +158,7 @@ func (s *postgresStore) Update(ctx context.Context, c *domain.Category) error {
 //
 // Unknown keys are silently ignored. Returns "not found" if the row is gone.
 func (s *postgresStore) UpdateFields(ctx context.Context, id string, fields map[string]any) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -232,7 +233,7 @@ func (s *postgresStore) Delete(ctx context.Context, projectID, id string) error 
 // semanticID is currently unused — kept on the interface for future symmetric
 // override cleanup. Override rows are matched via category_id alone.
 func (s *postgresStore) DeleteWithReassignment(ctx context.Context, projectID, id, reassignTo, semanticID string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -327,7 +328,7 @@ func (s *postgresStore) ListWithCounts(ctx context.Context, projectID string) ([
 }
 
 func (s *postgresStore) ListWithCountsVersion(ctx context.Context, projectID, version string) ([]WithCounts, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT
 			c.id, c.created_at, c.updated_at, c.semantic_id, c.system_name, c.ui_name,
 			c.description, c.status, c.project_id, c.canonical_order, c.deprecated, c.version_number,
@@ -383,7 +384,7 @@ func (s *postgresStore) ListWithCountsVersion(ctx context.Context, projectID, ve
 // Reorder rewrites canonical_order on each ID to its 1-based position in
 // orderedIDs, transactionally. IDs not belonging to projectID are rejected.
 func (s *postgresStore) Reorder(ctx context.Context, projectID string, orderedIDs []string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
@@ -445,7 +446,7 @@ func (s *postgresStore) ModelFieldOverrides(ctx context.Context, projectID, cate
 }
 
 func (s *postgresStore) ModelFieldOverridesVersion(ctx context.Context, projectID, categoryID, version string) ([]domain.OverrideEntry, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT
 			fo.id,
 			COALESCE(m.ui_name ->> 'en', m.system_name, '') AS model_name,
@@ -501,7 +502,7 @@ func (s *postgresStore) CollectionFieldOverrides(ctx context.Context, projectID,
 }
 
 func (s *postgresStore) CollectionFieldOverridesVersion(ctx context.Context, projectID, semanticID, version string) ([]domain.OverrideEntry, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT
 			fo.id,
 			COALESCE(col.ui_name ->> 'en', col.system_name, '') AS collection_name,

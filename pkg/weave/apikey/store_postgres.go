@@ -10,6 +10,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -21,7 +22,7 @@ var _ Store = (*postgresStore)(nil)
 
 // NewPostgresStore returns the pgx-backed API key store.
 func NewPostgresStore(pool *pgxpool.Pool) Store {
-	return &postgresStore{queries: sqlcgen.New(pool)}
+	return &postgresStore{queries: sqlcgen.New(txscope.New(pool))}
 }
 
 func (s *postgresStore) Create(ctx context.Context, key *domain.APIKey) (*domain.APIKey, error) {

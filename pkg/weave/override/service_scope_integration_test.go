@@ -1,6 +1,6 @@
 //go:build integration
 
-package override
+package override_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
+	"github.com/pletka-io/pletka/pkg/weave/override"
 )
 
 // serviceTestContext returns a context that satisfies Service's
@@ -28,7 +29,7 @@ func serviceTestContext(t *testing.T, projectID string) context.Context {
 func TestService_ReadsHonourTheScope(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := serviceTestContext(t, "ZSVC") // a context with ProjectRead on ZSVC
-	svc := NewService(NewPostgresStore(pool), NewReadSessions(readsession.NewFactory(pool)), nil, nil)
+	svc := override.NewService(override.NewPostgresStore(pool), override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 
 	const projectID, entityID, version = "ZSVC", "ZSVCM.1", "1.0.0"
 	seedScopeFixture(t, pool, projectID, entityID, version)
@@ -52,7 +53,7 @@ func TestService_ReadsHonourTheScope(t *testing.T) {
 func TestService_InvalidScopeIsRefused(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := serviceTestContext(t, "ZSVC")
-	svc := NewService(NewPostgresStore(pool), NewReadSessions(readsession.NewFactory(pool)), nil, nil)
+	svc := override.NewService(override.NewPostgresStore(pool), override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 
 	var zero auth.ReadScope
 	if _, err := svc.ListForEntity(ctx, zero, "ZSVC", "model", "ZSVCM.1"); err == nil {

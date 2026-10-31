@@ -11,6 +11,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -120,7 +121,7 @@ func (s *authStore) GetProfileByActorID(ctx context.Context, actorID string) (*d
 // RegisterPerson runs WeaveActorCreatePerson + WeaveAuthCreate in one pgx
 // transaction so a partial registration cannot leak a half-created user.
 func (s *authStore) RegisterPerson(ctx context.Context, p domain.RegisterPersonParams) (*domain.AuthWithActor, error) {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin register tx: %w", err)
 	}

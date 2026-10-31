@@ -11,6 +11,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/ontologybody"
 	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/ids"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
@@ -38,7 +39,7 @@ func (s *DraftService) start(ctx context.Context, owner ontologybody.OntologyID,
 	if err != nil {
 		return out, err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	tx, err := txscope.New(s.pool).BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return out, err
 	}
@@ -64,7 +65,7 @@ func (s *DraftService) Current(ctx context.Context, owner ontologybody.OntologyI
 	if s == nil || s.pool == nil || strings.TrimSpace(string(owner)) == "" {
 		return DraftSnapshot{}, draftInvalid("ontology", "ontology identity required")
 	}
-	id, err := sqlcgen.New(s.pool).WeaveCurrentOntologyDraft(ctx, string(owner))
+	id, err := sqlcgen.New(txscope.New(s.pool)).WeaveCurrentOntologyDraft(ctx, string(owner))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DraftSnapshot{}, apierror.NotFound("ontology draft not found")
 	}

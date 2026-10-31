@@ -11,8 +11,9 @@ type ChangeLogRecorder interface {
 }
 
 // ChangeLogRunner supplies a ChangeLogRecorder while fn performs a mutation.
-// It does not currently make the Store write and audit flush atomic: production
-// slice stores open their own transactions, separate from the recorder's flush.
+// Production store adapters join the callback transaction through its context:
+// entity writes and audit flush commit or roll back together. Propagate that
+// context to every store call.
 // Entries are domain audit payloads, not lossless before/after storage images;
 // they cannot be used as complete project draft patches.
 //
@@ -29,19 +30,6 @@ type ChangeLogRunner interface {
 // recorder that drops all entries. Use during migration when changelog
 // wiring is incomplete; calls remain non-atomic with the underlying
 // Store writes (each Store method opens its own tx).
-//
-// TODO(changelog): replace with the postgres-backed runner. The
-// production impl should:
-//  1. Open a pgx tx from the supplied pool / weave store.
-//  2. Build a tx-bound ChangeLogRecorder that buffers entries.
-//  3. Pass a context carrying the tx (so Store.* methods join it
-//     instead of opening their own) into fn.
-//  4. On fn success, flush buffered entries via WeaveCreateChangeLogEntry,
-//     close the change set, commit. On error, rollback (which discards
-//     the buffered entries naturally).
-//
-// Existing pkg/weave.PostgresStore.WithChangeLog already does most of
-// this — wire it up as a Runner adapter and inject from cmd/serve.go.
 func NoopChangeLogRunner() ChangeLogRunner {
 	return noopRunner{}
 }

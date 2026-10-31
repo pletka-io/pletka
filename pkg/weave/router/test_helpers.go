@@ -10,6 +10,7 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/session"
 	"github.com/pletka-io/pletka/pkg/weave"
 )
@@ -25,7 +26,7 @@ func TestPool(t *testing.T) *pgxpool.Pool {
 
 func ensureSessionsTable(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
-	_, err := pool.Exec(context.Background(), `
+	_, err := txscope.New(pool).Exec(context.Background(), `
 		CREATE TABLE IF NOT EXISTS sessions (
 			token  TEXT PRIMARY KEY,
 			data   BYTEA NOT NULL,

@@ -183,6 +183,7 @@ func (q *Queries) WeaveListChangeLogForChangeSet(ctx context.Context, changeSetI
 const weaveListUnprocessedChangeSets = `-- name: WeaveListUnprocessedChangeSets :many
 SELECT id, project_id, actor_id, actor_name, actor_email, commit_message, started_at, closed_at, processed_at, git_commit_sha, materialized_duration_ms, materialized_files, materialized_changed, materialized_outcome, materialized_error, kind, release_version FROM weave_change_set
 WHERE closed_at IS NOT NULL AND processed_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM weave_draft_projects d WHERE d.project_id=weave_change_set.project_id)
 ORDER BY closed_at ASC
 LIMIT $1
 `
@@ -286,5 +287,19 @@ type WeaveRecordMaterializationFailureParams struct {
 // processed, so the poller retries it. processed_at stays NULL.
 func (q *Queries) WeaveRecordMaterializationFailure(ctx context.Context, arg WeaveRecordMaterializationFailureParams) error {
 	_, err := q.db.Exec(ctx, weaveRecordMaterializationFailure, arg.ID, arg.MaterializedError, arg.MaterializedDurationMs)
+	return err
+}
+
+const weaveSetChangeSetProject = `-- name: WeaveSetChangeSetProject :exec
+UPDATE weave_change_set SET project_id=$2 WHERE id=$1
+`
+
+type WeaveSetChangeSetProjectParams struct {
+	ID        int64  `json:"id"`
+	ProjectID string `json:"project_id"`
+}
+
+func (q *Queries) WeaveSetChangeSetProject(ctx context.Context, arg WeaveSetChangeSetProjectParams) error {
+	_, err := q.db.Exec(ctx, weaveSetChangeSetProject, arg.ID, arg.ProjectID)
 	return err
 }

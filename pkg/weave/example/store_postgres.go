@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -23,7 +24,7 @@ func NewPostgresStore(pool *pgxpool.Pool) Store {
 }
 
 func (s *postgresStore) CreateWithValues(ctx context.Context, ex *domain.Example, values []domain.ExampleValue) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -44,7 +45,7 @@ func (s *postgresStore) CreateWithValues(ctx context.Context, ex *domain.Example
 }
 
 func (s *postgresStore) UpdateWithValues(ctx context.Context, ex *domain.Example, values []domain.ExampleValue) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -70,7 +71,7 @@ func (s *postgresStore) UpdateWithValues(ctx context.Context, ex *domain.Example
 }
 
 func (s *postgresStore) Delete(ctx context.Context, id string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM weave_examples WHERE id = $1`, id)
+	_, err := txscope.New(s.pool).Exec(ctx, `DELETE FROM weave_examples WHERE id = $1`, id)
 	return err
 }
 
@@ -123,7 +124,7 @@ func (r *reader) GetByID(ctx context.Context, id string) (*domain.Example, error
 		sql += ` AND version_number = $2`
 		args = append(args, r.version)
 	}
-	return scanExample(r.pool.QueryRow(ctx, sql, args...))
+	return scanExample(txscope.New(r.pool).QueryRow(ctx, sql, args...))
 }
 
 func (r *reader) List(ctx context.Context, opts ...domain.QueryOption) ([]*domain.Example, int64, error) {
@@ -158,7 +159,7 @@ func (r *reader) List(ctx context.Context, opts ...domain.QueryOption) ([]*domai
 	}
 	countSQL := "SELECT count(*) FROM " + r.examples + " WHERE " + strings.Join(where, " AND ")
 	var total int64
-	if err := r.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
+	if err := txscope.New(r.pool).QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 	orderBy := "updated_at DESC"
@@ -175,7 +176,7 @@ func (r *reader) List(ctx context.Context, opts ...domain.QueryOption) ([]*domai
 		WHERE ` + strings.Join(where, " AND ") + `
 		ORDER BY ` + orderBy + `
 		LIMIT $` + fmt.Sprint(len(args)-1) + ` OFFSET $` + fmt.Sprint(len(args))
-	rows, err := r.pool.Query(ctx, sql, args...)
+	rows, err := txscope.New(r.pool).Query(ctx, sql, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -205,7 +206,7 @@ func (r *reader) ListValues(ctx context.Context, exampleID string) ([]domain.Exa
 	}
 	sql += `
 		ORDER BY override_id ASC, occurrence_index ASC, slot_path ASC`
-	rows, err := r.pool.Query(ctx, sql, args...)
+	rows, err := txscope.New(r.pool).Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +230,7 @@ func (s *postgresStore) ConceptURIAllowedForLists(ctx context.Context, uri strin
 	// A field bound to a control list accepts only that list's own entries —
 	// open or sealed. open/sealed governs whether the list can still grow, not
 	// which values a field accepts; the value must always be a member (#3599).
-	err := s.pool.QueryRow(ctx, `
+	err := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
 			FROM weave_concept_lists cl

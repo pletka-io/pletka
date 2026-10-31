@@ -16,6 +16,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/assets"
 	"github.com/pletka-io/pletka/pkg/buildinfo"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // Payload is the JSON body returned by GET /version. Field names
@@ -113,7 +114,7 @@ func readMigrationVersion(ctx context.Context, pool *pgxpool.Pool, logger *slog.
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	var version int64
-	err := pool.QueryRow(cctx, `
+	err := txscope.New(pool).QueryRow(cctx, `
 		SELECT version_id FROM goose_db_version WHERE is_applied = true
 		ORDER BY id DESC LIMIT 1
 	`).Scan(&version)

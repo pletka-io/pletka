@@ -12,6 +12,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -388,7 +389,7 @@ type archivedResolvedRow struct {
 }
 
 func (r *resolver) resolveForModelVersion(ctx context.Context, modelID, projectID, version string) ([]domain.ResolvedField, error) {
-	rows, err := r.pool.Query(ctx, `
+	rows, err := txscope.New(r.pool).Query(ctx, `
 		SELECT
 			fo.id, fo.field_id, fo.project_id, fo.entity_type, fo.entity_id, fo.position, fo.collection_order,
 			fo.display_name, fo.description, fo.collection_name, fo.category_id, fo.part_of_collection_id,
@@ -436,7 +437,7 @@ func (r *resolver) resolveForModelVersion(ctx context.Context, modelID, projectI
 }
 
 func (r *resolver) resolveForCollectionVersion(ctx context.Context, collectionID, projectID, version string) ([]domain.ResolvedField, error) {
-	rows, err := r.pool.Query(ctx, `
+	rows, err := txscope.New(r.pool).Query(ctx, `
 		SELECT
 			fo.id, fo.field_id, fo.project_id, fo.entity_type, fo.entity_id, fo.position, fo.collection_order,
 			fo.display_name, fo.description, fo.collection_name, fo.category_id, fo.part_of_collection_id,
@@ -526,7 +527,7 @@ func archivedResolvedRowToField(row archivedResolvedRow, source string) domain.R
 }
 
 func (r *resolver) attachRefsVersion(ctx context.Context, fields []domain.ResolvedField, overrideIDs []int64, version string) error {
-	refs, err := r.pool.Query(ctx, `
+	refs, err := txscope.New(r.pool).Query(ctx, `
 		SELECT override_id, ref_type, target_id, semantic_id, position
 		FROM weave_override_refs_archive
 		WHERE version_number = $2
@@ -603,7 +604,7 @@ func (r *resolver) batchLoadNamesVersion(ctx context.Context, modelIDs, collecti
 		isClosed:   make(map[string]bool),
 	}
 	if len(modelIDs) > 0 {
-		rows, err := r.pool.Query(ctx, `
+		rows, err := txscope.New(r.pool).Query(ctx, `
 			SELECT id, ui_name FROM weave_models_archive
 			WHERE version_number = $2 AND id = ANY($1)
 		`, mapKeys(modelIDs), version)
@@ -619,7 +620,7 @@ func (r *resolver) batchLoadNamesVersion(ctx context.Context, modelIDs, collecti
 		}
 	}
 	if len(collectionIDs) > 0 {
-		rows, err := r.pool.Query(ctx, `
+		rows, err := txscope.New(r.pool).Query(ctx, `
 			SELECT id, ui_name FROM weave_collections_archive
 			WHERE version_number = $2 AND id = ANY($1)
 		`, mapKeys(collectionIDs), version)
@@ -635,7 +636,7 @@ func (r *resolver) batchLoadNamesVersion(ctx context.Context, modelIDs, collecti
 		}
 	}
 	if len(conceptListIDs) > 0 {
-		rows, err := r.pool.Query(ctx, `
+		rows, err := txscope.New(r.pool).Query(ctx, `
 			SELECT id, semantic_id, ui_name, project_id, is_closed FROM weave_concept_lists_archive
 			WHERE version_number = $2 AND (id = ANY($1) OR semantic_id = ANY($1))
 		`, mapKeys(conceptListIDs), version)
@@ -681,7 +682,7 @@ func (r *resolver) applyBaseSetValueLockVersion(ctx context.Context, fields []do
 		seen[id] = struct{}{}
 		fieldIDs = append(fieldIDs, id)
 	}
-	rows, err := r.pool.Query(ctx, `
+	rows, err := txscope.New(r.pool).Query(ctx, `
 		SELECT field_id, set_value
 		FROM weave_field_overrides_archive
 		WHERE entity_type = ''
@@ -1178,7 +1179,7 @@ func (r *resolver) buildModelViewVersion(ctx context.Context, modelID, projectID
 	}
 
 	// 2. Load archived categories for grouping.
-	catRows, err := r.pool.Query(ctx, `
+	catRows, err := txscope.New(r.pool).Query(ctx, `
 		SELECT id, ui_name, canonical_order
 		FROM weave_categories_archive
 		WHERE project_id = $1 AND version_number = $2
@@ -1219,7 +1220,7 @@ func (r *resolver) buildModelViewVersion(ctx context.Context, modelID, projectID
 
 	collNames := make(map[string]domain.Translations, len(collIDs))
 	if len(collIDs) > 0 {
-		rows, err := r.pool.Query(ctx, `
+		rows, err := txscope.New(r.pool).Query(ctx, `
 			SELECT id, ui_name
 			FROM weave_collections_archive
 			WHERE version_number = $2 AND id = ANY($1)

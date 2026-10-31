@@ -435,3 +435,21 @@ loads root history and exact authorized source headers on the same snapshot as
 content. Stable UTC timestamp text preserves SQL NULL, era and infinity. Catalog
 metadata does not enter the frozen complete value. Tag verification supplies the
 stored overlay instead of calling the live catalog facet.
+
+## Atomic draft mutations
+
+Migration 042 adds opt-in project enrollment and storage-enforced mutation capture.
+`service/draftcapture` owns one repeatable-read write transaction; `txscope` routes
+store queries and nested savepoints onto it. Bound read sessions borrow its
+SELECT-only view and see its writes. The ordinary change-log runner also uses
+this routing. All 22hot-table guards require a same-transaction receipt for enrolled
+writes and retain lossless raw effects, including cascades and generated values.
+
+Immutable schema3 blobs/manifests retain the captured complete before/after
+snapshots; delayed receipt replay never rereads current project tables. Global
+context drift needs its own explicit refresh. Enrollment is not enabled by the
+migration or normal handlers, and the legacy poller excludes enrolled projects.
+The complete draft Git baseline/recovery workflow remains pending. Full assembly
+and manifest costs require measurement before rollout. See
+[ADR-0020](../decisions/0020-draft-mutations-own-their-capture.md) and
+[operation contract](../reference/atomic-draft-capture.md).

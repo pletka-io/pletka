@@ -1,6 +1,6 @@
 //go:build integration
 
-package override
+package override_test
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
+	"github.com/pletka-io/pletka/pkg/weave/override"
 )
 
 // TestDifferentEntitySavesInOneProjectRunConcurrently proves the design's
@@ -21,8 +22,8 @@ import (
 // holder's own sleep.
 func TestDifferentEntitySavesInOneProjectRunConcurrently(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
-	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
+	store := override.NewPostgresStore(pool)
+	svc := override.NewService(store, override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 
 	const projectID = "TSTPLOCKCONC"
@@ -76,15 +77,15 @@ func TestDifferentEntitySavesInOneProjectRunConcurrently(t *testing.T) {
 // does, so the wait stays well under a second instead of the production 10s.
 func TestSaveGetsErrLockBusyWhileProjectLockHeldExclusively(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
-	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
+	store := override.NewPostgresStore(pool)
+	svc := override.NewService(store, override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 
 	const projectID = "TSTPLOCKBUSY"
 
-	orig := lockTimeout
-	lockTimeout = 150 * time.Millisecond
-	t.Cleanup(func() { lockTimeout = orig })
+	orig := (*override.TestLockTimeout)
+	(*override.TestLockTimeout) = 150 * time.Millisecond
+	t.Cleanup(func() { (*override.TestLockTimeout) = orig })
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -92,7 +93,7 @@ func TestSaveGetsErrLockBusyWhileProjectLockHeldExclusively(t *testing.T) {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, ProjectLockKey(projectID)); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, override.ProjectLockKey(projectID)); err != nil {
 		t.Fatalf("take exclusive project lock: %v", err)
 	}
 
@@ -108,7 +109,7 @@ func TestSaveGetsErrLockBusyWhileProjectLockHeldExclusively(t *testing.T) {
 		t.Fatal("save's callback ran — the project lock should still have been held exclusively")
 		return nil
 	})
-	if !errors.Is(saveErr, ErrLockBusy) {
+	if !errors.Is(saveErr, override.ErrLockBusy) {
 		t.Fatalf("errors.Is(err, ErrLockBusy) = false, want true; save error = %v", saveErr)
 	}
 
@@ -134,16 +135,16 @@ func TestSaveGetsErrLockBusyWhileProjectLockHeldExclusively(t *testing.T) {
 // roughly 2x lockTimeout; this asserts it fails well short of that.
 func TestSaveTotalWaitIsBoundedAcrossBothAcquisitions(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
-	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, nil)
+	store := override.NewPostgresStore(pool)
+	svc := override.NewService(store, override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 	ctx := context.Background()
 
 	const projectID = "TSTPLOCKBUDGET"
 	const entityKey = "model:TSTPLOCKBUDGET.1"
 
-	orig := lockTimeout
-	lockTimeout = 400 * time.Millisecond
-	t.Cleanup(func() { lockTimeout = orig })
+	orig := (*override.TestLockTimeout)
+	(*override.TestLockTimeout) = 400 * time.Millisecond
+	t.Cleanup(func() { (*override.TestLockTimeout) = orig })
 
 	// Holder Y: takes the entity key EXCLUSIVE, session-level, directly —
 	// held for the whole test, so the save's entity-lock acquisition can
@@ -169,7 +170,7 @@ func TestSaveTotalWaitIsBoundedAcrossBothAcquisitions(t *testing.T) {
 		t.Fatalf("begin holder X tx: %v", err)
 	}
 	defer func() { _ = xTx.Rollback(ctx) }()
-	if _, err := xTx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, ProjectLockKey(projectID)); err != nil {
+	if _, err := xTx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, override.ProjectLockKey(projectID)); err != nil {
 		t.Fatalf("holder X take project lock: %v", err)
 	}
 	go func() {
@@ -184,7 +185,7 @@ func TestSaveTotalWaitIsBoundedAcrossBothAcquisitions(t *testing.T) {
 	})
 	elapsed := time.Since(start)
 
-	if !errors.Is(saveErr, ErrLockBusy) {
+	if !errors.Is(saveErr, override.ErrLockBusy) {
 		t.Fatalf("errors.Is(err, ErrLockBusy) = false, want true; save error = %v", saveErr)
 	}
 	// Buggy behaviour (fresh lockTimeout per acquisition) would fail around

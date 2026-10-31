@@ -1,6 +1,6 @@
 //go:build integration
 
-package override
+package override_test
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/override"
 )
 
 // TestScopedReader_ReadsTheRightTable pins the whole point of the slice: a
@@ -22,7 +23,7 @@ import (
 func TestScopedReader_ReadsTheRightTable(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
-	store := NewPostgresStore(pool)
+	store := override.NewPostgresStore(pool)
 
 	const projectID, entityID, version = "ZSCOPE", "ZSCOPEM.1", "1.0.0"
 
@@ -240,7 +241,7 @@ func mustScopeExec(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
 func TestListPlacementsAtReleaseReadsTheArchive(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := serviceTestContext(t, "ZPLC")
-	svc := NewService(NewPostgresStore(pool), NewReadSessions(readsession.NewFactory(pool)), nil, nil)
+	svc := override.NewService(override.NewPostgresStore(pool), override.NewReadSessions(readsession.NewFactory(pool)), nil, nil)
 
 	const projectID, modelID, version = "ZPLC", "ZPLCM.1", "1.0.0"
 	seedVerifiedRelease(t, pool, projectID, version)

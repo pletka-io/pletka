@@ -1,6 +1,6 @@
 //go:build integration
 
-package override
+package override_test
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	"github.com/pletka-io/pletka/pkg/weave/override"
+
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
@@ -189,9 +191,9 @@ func TestTestChangeLogRecorderRejectsWhatProductionRejects(t *testing.T) {
 // diff.Added (fix round 1, finding 3).
 func TestSaveForEntityLogsKeptRowAsChangedAndNewRowWithRealID(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
+	store := override.NewPostgresStore(pool)
 	runner := &testChangeLogRunner{pool: pool}
-	svc := NewService(store, NewReadSessions(readsession.NewFactory(pool)), nil, runner)
+	svc := override.NewService(store, override.NewReadSessions(readsession.NewFactory(pool)), nil, runner)
 	ctx := writeCtx()
 	cleanupCLEntity(t, pool)
 

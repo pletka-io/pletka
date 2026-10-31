@@ -6,6 +6,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 type Reader interface {
@@ -17,7 +18,7 @@ type PostgresReader struct {
 }
 
 func NewPostgresReader(pool *pgxpool.Pool) *PostgresReader {
-	return &PostgresReader{queries: sqlcgen.New(pool)}
+	return &PostgresReader{queries: sqlcgen.New(txscope.New(pool))}
 }
 
 func (r *PostgresReader) LabelsByID(ctx context.Context, ids []string) map[string]string {

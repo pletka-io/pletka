@@ -1,6 +1,6 @@
 //go:build integration
 
-package collection
+package collection_test
 
 import (
 	"context"
@@ -15,17 +15,18 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/collection"
 )
 
 // newServiceWithPool builds the service over a real pool. The adoption store
 // is always wired, with the receipts the caller names: a nil AdoptionStore
 // makes ListAdoptedExplicit return early, so leaving it nil means no test can
 // reach the adopted-collection resolution at all.
-func newServiceWithPool(t *testing.T, receipts ...domain.Adoption) (*Service, *pgxpool.Pool) {
+func newServiceWithPool(t *testing.T, receipts ...domain.Adoption) (*collection.Service, *pgxpool.Pool) {
 	t.Helper()
 	pool := testdb.Pool(t)
 	adoptions := &stubAdoptions{rows: receipts}
-	return NewService(NewPostgresStore(pool), NewReadSessions(readsession.NewFactory(pool)), nil, adoptions, nil, nil, nil, nil, nil, nil, nil, nil), pool
+	return collection.NewService(collection.NewPostgresStore(pool), collection.NewReadSessions(readsession.NewFactory(pool)), nil, adoptions, nil, nil, nil, nil, nil, nil, nil, nil), pool
 }
 
 // stubAdoptions stands in for the real receipt store, which lives in pkg/weave

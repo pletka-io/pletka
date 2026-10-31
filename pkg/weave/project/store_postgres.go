@@ -14,6 +14,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/releasearchive"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -29,7 +30,7 @@ var _ Store = (*postgresStore)(nil)
 // NewPostgresStore returns a Store backed by the supplied pgx pool.
 func NewPostgresStore(pool *pgxpool.Pool) Store {
 	return &postgresStore{
-		queries: sqlcgen.New(pool),
+		queries: sqlcgen.New(txscope.New(pool)),
 		pool:    pool,
 	}
 }
@@ -79,7 +80,7 @@ func (s *postgresStore) GetByIDVersion(ctx context.Context, id, version string) 
 	if err := releasearchive.Require(ctx, s.queries, id, version); err != nil {
 		return nil, err
 	}
-	row := s.pool.QueryRow(ctx, `
+	row := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT
 			id, created_at, updated_at, system_name, ui_name, description, status,
 			namespace, parent_project_id, staging_id, owner_id, visibility,
@@ -245,7 +246,7 @@ func (s *postgresStore) StatsForProjects(ctx context.Context, ids []string) (map
 			(SELECT COUNT(*) FROM weave_categories wcat WHERE wcat.project_id = wp.id) AS category_count
 		FROM weave_projects wp
 		WHERE wp.id = ANY($1)`
-	rows, err := s.pool.Query(ctx, q, ids)
+	rows, err := txscope.New(s.pool).Query(ctx, q, ids)
 	if err != nil {
 		return nil, fmt.Errorf("stats for projects: %w", err)
 	}
@@ -275,7 +276,7 @@ func (s *postgresStore) statsForProjectsVersion(ctx context.Context, ids []strin
 			(SELECT COUNT(*) FROM weave_categories_archive wcat WHERE wcat.project_id = wp.id AND wcat.version_number = $2) AS category_count
 		FROM weave_projects_archive wp
 		WHERE wp.id = ANY($1) AND wp.version_number = $2`
-	rows, err := s.pool.Query(ctx, q, ids, version)
+	rows, err := txscope.New(s.pool).Query(ctx, q, ids, version)
 	if err != nil {
 		return nil, fmt.Errorf("stats for archived projects: %w", err)
 	}
@@ -298,7 +299,7 @@ func (s *postgresStore) ListOwnerInstitutions(ctx context.Context) ([]*domain.Pr
 		JOIN weave_projects wp ON wp.owner_id = wa.id
 		WHERE wa.type = 'organization'
 		ORDER BY wa.display_name`
-	rows, err := s.pool.Query(ctx, q)
+	rows, err := txscope.New(s.pool).Query(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("list owner institutions: %w", err)
 	}
@@ -326,7 +327,7 @@ func (s *postgresStore) OwnersForProjects(ctx context.Context, ids []string) (ma
 		FROM weave_projects wp
 		JOIN weave_actors wa ON wa.id = wp.owner_id
 		WHERE wp.id = ANY($1)`
-	rows, err := s.pool.Query(ctx, q, ids)
+	rows, err := txscope.New(s.pool).Query(ctx, q, ids)
 	if err != nil {
 		return nil, fmt.Errorf("owners for projects: %w", err)
 	}

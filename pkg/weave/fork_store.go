@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -60,7 +61,7 @@ func (s *forkStore) List(ctx context.Context, opts ...domain.QueryOption) ([]dom
 		} else {
 			where += " AND " + versionWhere
 		}
-		rows, err = s.pool.Query(ctx, `
+		rows, err = txscope.New(s.pool).Query(ctx, `
 			SELECT
 				project_id,
 				entity_type,
@@ -76,7 +77,7 @@ func (s *forkStore) List(ctx context.Context, opts ...domain.QueryOption) ([]dom
 			ORDER BY entity_type ASC, fork_entity_id ASC
 		`, args...)
 	} else {
-		rows, err = s.pool.Query(ctx, `
+		rows, err = txscope.New(s.pool).Query(ctx, `
 			SELECT
 				id,
 				project_id,
@@ -143,7 +144,7 @@ func (s *forkStore) Create(ctx context.Context, fork *domain.EntityFork) error {
 	if fork == nil {
 		return fmt.Errorf("fork is nil")
 	}
-	return s.pool.QueryRow(ctx, `
+	return txscope.New(s.pool).QueryRow(ctx, `
 		INSERT INTO weave_entity_forks (
 			project_id,
 			entity_type,

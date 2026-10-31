@@ -1,6 +1,6 @@
 //go:build integration
 
-package collection
+package collection_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/weave/collection"
 )
 
 // TestListUsage_VersionAware is the regression test for Redmine #3580:
@@ -91,7 +92,7 @@ func TestListUsage_VersionAware(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_projects WHERE id=$1`, containerProj)
 	})
 
-	store := NewPostgresStore(pool)
+	store := collection.NewPostgresStore(pool)
 
 	live, err := store.ListUsage(ctx, targetCollectionID, containerProj)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
 )
@@ -175,7 +176,7 @@ func (s *weaveCategoryStore) List(ctx context.Context, opts ...domain.QueryOptio
 
 // Reorder updates canonical_order for a list of category IDs (1-indexed).
 func (s *weaveCategoryStore) Reorder(ctx context.Context, projectID string, categoryIDs []string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
@@ -218,7 +219,7 @@ func (s *weaveCategoryStore) Reorder(ctx context.Context, projectID string, cate
 // Supported keys: "ui_name", "description", "system_name", "canonical_order".
 // Unknown keys are silently ignored.
 func (s *weaveCategoryStore) UpdateFields(ctx context.Context, id string, fields map[string]any) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
@@ -324,7 +325,7 @@ func (s *weaveCategoryStore) ListWithCounts(ctx context.Context, projectID strin
 // clears field overrides referencing it, then deletes the category itself — all in
 // one transaction.
 func (s *weaveCategoryStore) DeleteWithReassignment(ctx context.Context, id string, reassignTo string, semanticID string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}

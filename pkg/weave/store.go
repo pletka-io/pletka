@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 	weavecollection "github.com/pletka-io/pletka/pkg/weave/collection"
 	weavefield "github.com/pletka-io/pletka/pkg/weave/field"
@@ -28,7 +30,7 @@ var _ domain.WeaveStore = (*PostgresStore)(nil)
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{
 		pool:    pool,
-		queries: sqlcgen.New(pool),
+		queries: sqlcgen.New(txscope.New(pool)),
 	}
 }
 
@@ -449,55 +451,51 @@ func (s *PostgresStore) WithChangeLog(
 	ctx context.Context,
 	fn func(*ChangeLogger) error,
 ) error {
-	cs, err := resolveChangeSet(ctx, s)
-	if err != nil {
-		return fmt.Errorf("resolve change set: %w", err)
+	var tx pgx.Tx
+	var err error
+	if _, scoped, e := txscope.Current(ctx, s.pool); e != nil {
+		return e
+	} else if scoped {
+		tx, err = txscope.New(s.pool).Begin(ctx)
+	} else {
+		tx, err = s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	}
-
-	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin change log tx: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-
-	cl := &ChangeLogger{
-		tx:      tx,
-		queries: s.queries.WithTx(tx),
-		csID:    cs.ID,
-	}
-
-	if err := fn(cl); err != nil {
-		return err
-	}
-
-	// Backfill an implicit change set's project from its entries. A
-	// CLI/background write with no request-scoped project hint gets an
-	// empty-project change set (see resolveChangeSet); without this the
-	// materializer can't route it (WeaveGetProjectByID("") → no rows) and it
-	// clogs the outbox with failures forever. The entries carry the real
-	// project, so adopt it when they agree on one.
-	if cs.ProjectID == "" {
-		if pid := singleEntryProjectID(cl.pending); pid != "" {
-			if _, err := tx.Exec(ctx, `UPDATE weave_change_set SET project_id = $1 WHERE id = $2`, pid, cs.ID); err != nil {
-				return fmt.Errorf("backfill change set project: %w", err)
-			}
-			cs.ProjectID = pid
+	run := func(bound context.Context) error {
+		cs, err := resolveChangeSet(bound, s)
+		if err != nil {
+			return err
 		}
+		cl := &ChangeLogger{tx: tx, queries: s.queries.WithTx(tx), csID: cs.ID, ctx: bound}
+		if err := fn(cl); err != nil {
+			return err
+		}
+		if cs.ProjectID == "" {
+			if pid := singleEntryProjectID(cl.pending); pid != "" {
+				if err := cl.queries.WeaveSetChangeSetProject(bound, sqlcgen.WeaveSetChangeSetProjectParams{ID: cs.ID, ProjectID: pid}); err != nil {
+					return err
+				}
+			}
+		}
+		if err := cl.writeChangeLogEntries(bound); err != nil {
+			return err
+		}
+		return cl.queries.WeaveCloseChangeSet(bound, cs.ID)
 	}
-
-	if err := cl.writeChangeLogEntries(ctx); err != nil {
+	if _, scoped, e := txscope.Current(ctx, s.pool); e != nil {
+		return e
+	} else if scoped {
+		err = run(ctx)
+	} else {
+		err = txscope.Within(ctx, s.pool, tx, run)
+	}
+	if err != nil {
 		return err
 	}
-
-	if err := cl.queries.WeaveCloseChangeSet(ctx, cs.ID); err != nil {
-		return fmt.Errorf("close change set: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit change log tx: %w", err)
-	}
-
-	return nil
+	return tx.Commit(ctx)
 }
 
 // singleEntryProjectID returns the common project id of the entries, or ""

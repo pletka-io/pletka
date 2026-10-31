@@ -13,6 +13,7 @@ import (
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -30,7 +31,7 @@ var _ Store = (*postgresStore)(nil)
 // NewPostgresStore returns a Store backed by the supplied pgx pool.
 func NewPostgresStore(pool *pgxpool.Pool) Store {
 	return &postgresStore{
-		queries: sqlcgen.New(pool),
+		queries: sqlcgen.New(txscope.New(pool)),
 		pool:    pool,
 	}
 }
@@ -92,7 +93,7 @@ func (s *postgresStore) Update(ctx context.Context, f *domain.Field) error {
 }
 
 func (s *postgresStore) Delete(ctx context.Context, id string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin delete field tx: %w", err)
 	}
@@ -187,7 +188,7 @@ func (s *postgresStore) ListReceiptFieldDirect(ctx context.Context, seedID, seed
 }
 
 func (s *postgresStore) GetByIDVersion(ctx context.Context, projectID, id, version string) (*domain.Field, error) {
-	row := s.pool.QueryRow(ctx, `
+	row := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT
 			id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 			status, project_id, ontology_scope, ontology_path, path_elements,
@@ -219,7 +220,7 @@ func (s *postgresStore) GetByIDVersion(ctx context.Context, projectID, id, versi
 // because the archive columns are a subset and scanArchivedField already reads
 // exactly that shape.
 func (s *postgresStore) GetByIdentifierVersion(ctx context.Context, projectID, identifier, version string) (*domain.Field, error) {
-	row := s.pool.QueryRow(ctx, `
+	row := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT
 			id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 			status, project_id, ontology_scope, ontology_path, path_elements,
@@ -309,7 +310,7 @@ func (s *postgresStore) ListVersion(ctx context.Context, projectID, version stri
 		offset = 0
 	}
 
-	rows, err := s.pool.Query(ctx, `
+	rows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT
 			id, created_at, updated_at, semantic_id, system_name, ui_name, description,
 			status, project_id, ontology_scope, ontology_path, path_elements,
@@ -353,7 +354,7 @@ func (s *postgresStore) ListVersion(ctx context.Context, projectID, version stri
 	}
 
 	var total int64
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT COUNT(*) FROM weave_fields_archive
 		WHERE project_id = $1
 		  AND version_number = $2
@@ -479,7 +480,7 @@ func (s *postgresStore) GetCollections(ctx context.Context, fieldID string) ([]d
 
 func (s *postgresStore) UsageVersion(ctx context.Context, projectID, fieldID, version string) (UsageReport, error) {
 	var usage UsageReport
-	if err := s.pool.QueryRow(ctx, `
+	if err := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT
 			COUNT(*) FILTER (WHERE entity_type = 'model') AS model_count,
 			COUNT(*) FILTER (WHERE entity_type = 'collection') AS collection_count
@@ -492,7 +493,7 @@ func (s *postgresStore) UsageVersion(ctx context.Context, projectID, fieldID, ve
 		return UsageReport{}, fmt.Errorf("archived field usage counts: %w", err)
 	}
 
-	modelRows, err := s.pool.Query(ctx, `
+	modelRows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT
 			m.id,
 			COALESCE(m.ui_name ->> 'en', m.system_name, '') AS model_name
@@ -523,7 +524,7 @@ func (s *postgresStore) UsageVersion(ctx context.Context, projectID, fieldID, ve
 		return UsageReport{}, fmt.Errorf("iterate archived field model samples: %w", err)
 	}
 
-	collectionRows, err := s.pool.Query(ctx, `
+	collectionRows, err := txscope.New(s.pool).Query(ctx, `
 		SELECT
 			c.id,
 			COALESCE(c.ui_name ->> 'en', c.system_name, '') AS collection_name
@@ -822,7 +823,7 @@ FROM weave_field_overrides
 WHERE field_id = $1 AND project_id = $2`
 	var counts domain.FieldUsageCounts
 	var modelsUsing, collectionsUsing, overrideCount int64
-	if err := s.pool.QueryRow(ctx, q, fieldID, projectID).Scan(
+	if err := txscope.New(s.pool).QueryRow(ctx, q, fieldID, projectID).Scan(
 		&modelsUsing, &collectionsUsing, &overrideCount,
 	); err != nil {
 		return domain.FieldUsageCounts{}, fmt.Errorf("count field usage: %w", err)
@@ -843,7 +844,7 @@ FROM weave_field_overrides_archive
 WHERE field_id = $1 AND project_id = $2 AND version_number = $3`
 	var counts domain.FieldUsageCounts
 	var modelsUsing, collectionsUsing, overrideCount int64
-	if err := s.pool.QueryRow(ctx, q, fieldID, projectID, version).Scan(
+	if err := txscope.New(s.pool).QueryRow(ctx, q, fieldID, projectID, version).Scan(
 		&modelsUsing, &collectionsUsing, &overrideCount,
 	); err != nil {
 		return domain.FieldUsageCounts{}, fmt.Errorf("count archived field usage: %w", err)
@@ -888,7 +889,7 @@ JOIN LATERAL (
 WHERE fo.field_id = $1
   AND fo.entity_type IN ('model', 'collection')
 ORDER BY fo.project_id ASC, fo.entity_type ASC, COALESCE(e.ui_name ->> 'en', e.system_name, '') ASC`
-	rows, err := s.pool.Query(ctx, q, fieldID)
+	rows, err := txscope.New(s.pool).Query(ctx, q, fieldID)
 	if err != nil {
 		return domain.FieldUsageList{}, fmt.Errorf("list field usage: %w", err)
 	}
@@ -919,7 +920,7 @@ WHERE fo.field_id = $1
   AND fo.version_number = $2
   AND fo.entity_type IN ('model', 'collection')
 ORDER BY fo.project_id ASC, fo.entity_type ASC, COALESCE(e.ui_name ->> 'en', e.system_name, '') ASC`
-	rows, err := s.pool.Query(ctx, q, fieldID, version)
+	rows, err := txscope.New(s.pool).Query(ctx, q, fieldID, version)
 	if err != nil {
 		return domain.FieldUsageList{}, fmt.Errorf("list archived field usage: %w", err)
 	}
@@ -989,7 +990,7 @@ SELECT
 FROM weave_field_overrides fo
 WHERE fo.field_id = ANY($2) AND fo.entity_type IN ('model', 'collection')
 GROUP BY fo.field_id`
-	rows, err := s.pool.Query(ctx, q, projectID, fieldIDs)
+	rows, err := txscope.New(s.pool).Query(ctx, q, projectID, fieldIDs)
 	if err != nil {
 		return nil, fmt.Errorf("batch field usage counts: %w", err)
 	}
@@ -1041,7 +1042,7 @@ JOIN LATERAL (
 ) e ON true
 WHERE fo.field_id = ANY($1) AND fo.entity_type IN ('model', 'collection')
 ORDER BY fo.field_id, fo.entity_type, e.id`
-	rows, err := s.pool.Query(ctx, q, fieldIDs)
+	rows, err := txscope.New(s.pool).Query(ctx, q, fieldIDs)
 	if err != nil {
 		return nil, fmt.Errorf("batch field usage refs: %w", err)
 	}

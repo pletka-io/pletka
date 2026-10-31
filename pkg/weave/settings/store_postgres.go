@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
 )
@@ -40,7 +41,7 @@ type postgresStore struct {
 func NewPostgresStore(pool *pgxpool.Pool) Store {
 	return &postgresStore{
 		pool:    pool,
-		queries: sqlcgen.New(pool),
+		queries: sqlcgen.New(txscope.New(pool)),
 	}
 }
 
@@ -116,7 +117,7 @@ func (s *postgresStore) VocabularySettingsState(ctx context.Context, projectID s
 }
 
 func (s *postgresStore) UpdateVocabularySettings(ctx context.Context, projectID string, enforceConceptLists bool, conceptNamespace string) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin vocabulary settings update: %w", err)
 	}

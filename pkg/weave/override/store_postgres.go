@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/advisorylock"
 	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -63,7 +65,7 @@ var _ Store = (*postgresStore)(nil)
 // NewPostgresStore returns a Store backed by the supplied pgx pool.
 func NewPostgresStore(pool *pgxpool.Pool) Store {
 	return &postgresStore{
-		queries: sqlcgen.New(pool),
+		queries: sqlcgen.New(txscope.New(pool)),
 		pool:    pool,
 	}
 }
@@ -127,7 +129,7 @@ func (s *postgresStore) Delete(ctx context.Context, id int64) error {
 // one transaction, keeping the ids of rows it can match (see matchOverrides)
 // so example values anchored to them survive the save.
 func (s *postgresStore) ReplaceForEntity(ctx context.Context, entityType, entityID string, overrides []domain.FieldOverride) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin replace overrides tx: %w", err)
 	}
@@ -184,7 +186,7 @@ func (s *postgresStore) ReplaceForEntity(ctx context.Context, entityType, entity
 
 // SetRefs atomically replaces the override-ref rows for overrideID.
 func (s *postgresStore) SetRefs(ctx context.Context, overrideID int64, refs []domain.OverrideRef) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin set refs tx: %w", err)
 	}
@@ -289,6 +291,11 @@ func setSessionLockTimeout(ctx context.Context, conn *pgxpool.Conn, d time.Durat
 // project lock; the old "don't nest the same entity" rule alone no longer
 // covers it.
 func (s *postgresStore) WithAdvisoryLock(ctx context.Context, projectID, key string, fn func(context.Context) error) (err error) {
+	if _, scoped, scopeErr := txscope.Current(ctx, s.pool); scopeErr != nil {
+		return scopeErr
+	} else if scoped {
+		return s.withTransactionLock(ctx, projectID, key, fn)
+	}
 	conn, err := s.pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire lock conn: %w", err)
@@ -373,6 +380,33 @@ func (s *postgresStore) WithAdvisoryLock(ctx context.Context, projectID, key str
 	}()
 
 	return fn(ctx)
+}
+
+// A scoped save uses the owner's connection. Locks survive the child savepoint
+// until the outer commit, and never require a second pool connection.
+func (s *postgresStore) withTransactionLock(ctx context.Context, projectID, key string, fn func(context.Context) error) error {
+	tx, err := txscope.New(s.pool).Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), unlockGraceTimeout)
+		defer cancel()
+		_ = tx.Rollback(cleanup)
+	}()
+	if err := sqlcgen.New(tx).WeaveLockEntityInTransaction(ctx, sqlcgen.WeaveLockEntityInTransactionParams{
+		ProjectKey: advisorylock.ProjectLockKey(projectID), EntityKey: key, BudgetMs: lockTimeout.Milliseconds(),
+	}); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
+			return errors.Join(ErrLockBusy, err)
+		}
+		return err
+	}
+	if err := fn(ctx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // ---------------------------------------------------------------------------

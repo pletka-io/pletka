@@ -1,6 +1,6 @@
 //go:build integration
 
-package publication
+package publication_test
 
 import (
 	"os"

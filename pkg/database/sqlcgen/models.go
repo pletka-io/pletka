@@ -358,6 +358,55 @@ type WeaveConceptListsArchive struct {
 	IsClosed      bool      `json:"is_closed"`
 }
 
+type WeaveDraftBlob struct {
+	Digest string `json:"digest"`
+	Body   []byte `json:"body"`
+}
+
+type WeaveDraftEffect struct {
+	ID        int64  `json:"id"`
+	ProjectID string `json:"project_id"`
+	Revision  int64  `json:"revision"`
+	TableName string `json:"table_name"`
+	BeforeRow []byte `json:"before_row"`
+	AfterRow  []byte `json:"after_row"`
+}
+
+type WeaveDraftMutation struct {
+	ProjectID     string      `json:"project_id"`
+	Revision      int64       `json:"revision"`
+	TransactionID interface{} `json:"transaction_id"`
+	Purpose       string      `json:"purpose"`
+	ActorID       string      `json:"actor_id"`
+	ActorName     string      `json:"actor_name"`
+	ActorEmail    string      `json:"actor_email"`
+	Message       string      `json:"message"`
+	BeforeDigest  string      `json:"before_digest"`
+	AfterDigest   *string     `json:"after_digest"`
+	CreatedAt     time.Time   `json:"created_at"`
+}
+
+type WeaveDraftProject struct {
+	ProjectID      string `json:"project_id"`
+	Revision       int64  `json:"revision"`
+	SnapshotDigest string `json:"snapshot_digest"`
+}
+
+type WeaveDraftProjectFence struct {
+	Key string `json:"key"`
+}
+
+type WeaveDraftRowOwner struct {
+	TableName string `json:"table_name"`
+	EntityID  string `json:"entity_id"`
+	ProjectID string `json:"project_id"`
+}
+
+type WeaveDraftSnapshot struct {
+	Digest   string          `json:"digest"`
+	Manifest json.RawMessage `json:"manifest"`
+}
+
 type WeaveEntityCounter struct {
 	ProjectID string    `json:"project_id"`
 	Kind      string    `json:"kind"`

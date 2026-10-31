@@ -3,6 +3,8 @@ package project
 import (
 	"context"
 	"fmt"
+
+	"github.com/pletka-io/pletka/pkg/database/txscope"
 )
 
 // DeleteBlockers counts everything outside the project that depends on it.
@@ -10,7 +12,7 @@ import (
 // ownership checks join on the owning tables rather than trusting prefixes.
 func (s *postgresStore) DeleteBlockers(ctx context.Context, id string) (DeleteBlockers, error) {
 	var b DeleteBlockers
-	row := s.pool.QueryRow(ctx, `
+	row := txscope.New(s.pool).QueryRow(ctx, `
 		SELECT
 		  (SELECT count(*) FROM weave_project_inheritance WHERE parent_project_id = $1),
 		  (SELECT count(*) FROM weave_adoptions WHERE source_project_id = $1 AND project_id <> $1),
@@ -51,7 +53,7 @@ func (s *postgresStore) DeleteBlockers(ctx context.Context, id string) (DeleteBl
 // deliberately carry no FK to weave_projects.
 func (s *postgresStore) DeleteCascade(ctx context.Context, id string) (DeleteStats, error) {
 	var stats DeleteStats
-	tx, err := s.pool.Begin(ctx)
+	tx, err := txscope.New(s.pool).Begin(ctx)
 	if err != nil {
 		return stats, fmt.Errorf("begin delete-project tx: %w", err)
 	}

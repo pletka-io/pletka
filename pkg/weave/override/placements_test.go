@@ -1,6 +1,6 @@
 //go:build integration
 
-package override
+package override_test
 
 import (
 	"context"
@@ -12,11 +12,12 @@ import (
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/override"
 )
 
 func TestCollectionPlacements_CRUD(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
+	store := override.NewPostgresStore(pool)
 	ctx := context.Background()
 
 	const modelID = "TSTPLCM.1"
@@ -42,7 +43,7 @@ func TestCollectionPlacements_CRUD(t *testing.T) {
 		t.Fatalf("upsert new: expected generated id, got 0")
 	}
 
-	list, err := listLive(t, store, ctx, modelID)
+	list, err := listLive(ctx, t, store, modelID)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -61,7 +62,7 @@ func TestCollectionPlacements_CRUD(t *testing.T) {
 	if err := store.UpsertPlacement(ctx, &p); err != nil {
 		t.Fatalf("upsert existing: %v", err)
 	}
-	list, err = listLive(t, store, ctx, modelID)
+	list, err = listLive(ctx, t, store, modelID)
 	if err != nil {
 		t.Fatalf("list after update: %v", err)
 	}
@@ -78,7 +79,7 @@ func TestCollectionPlacements_CRUD(t *testing.T) {
 	if err := store.DeletePlacement(ctx, modelID, p.CategoryID, p.CollectionID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	list, err = listLive(t, store, ctx, modelID)
+	list, err = listLive(ctx, t, store, modelID)
 	if err != nil {
 		t.Fatalf("list after delete: %v", err)
 	}
@@ -89,9 +90,9 @@ func TestCollectionPlacements_CRUD(t *testing.T) {
 
 func TestCollectionPlacements_ListUnknownModelEmpty(t *testing.T) {
 	pool := testdb.Pool(t)
-	store := NewPostgresStore(pool)
+	store := override.NewPostgresStore(pool)
 
-	list, err := listLive(t, store, context.Background(), "TSTPLCM.NOPE")
+	list, err := listLive(context.Background(), t, store, "TSTPLCM.NOPE")
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestCollectionPlacements_ListUnknownModelEmpty(t *testing.T) {
 
 // listLive reads placements through the Draft reader, the only way a Store
 // now exposes them.
-func listLive(t *testing.T, store Store, ctx context.Context, modelID string) ([]domain.CollectionPlacement, error) {
+func listLive(ctx context.Context, t *testing.T, store override.Store, modelID string) ([]domain.CollectionPlacement, error) {
 	t.Helper()
 	r, err := store.At(auth.Draft())
 	if err != nil {

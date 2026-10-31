@@ -356,3 +356,16 @@ individual slice readers. The bound ontology inventory exposes exact resolved
 identities for the assembler; source references remain source-owned. New
 semantic fields must extend the shared inventory and its storage checks. See
 [ADR-0015](../decisions/0015-project-semantic-references-at-release-cut.md).
+
+### Draft mutation ownership
+
+Enrolled project edits enter `service/draftcapture`. Stores route SQL through
+`txscope.New(pool)` using the callback context; nested transactions are savepoints.
+Bound readers borrow the same transaction. Storage guards enforce coverage across
+all 22captured tables, including cascades; no slice is responsible for remembering
+to emit a complete portable patch. The existing domain audit remains an intent log.
+
+Delayed writers take retained `Receipt.Patch()` values. Global context refresh has
+its own attributed operation. Normal traffic is not enrolled until coordinated Git
+baseline and recovery support lands. See
+[ADR-0020](../decisions/0020-draft-mutations-own-their-capture.md).

@@ -8,15 +8,9 @@
 // error, or the partial-acquisition/cancellation-free-unlock handling they
 // both need.
 //
-// This package exists purely to break an import cycle: gitmaterializer's
-// production code cannot import pkg/weave/override directly, because
-// override's own integration tests (package override, not override_test)
-// import internal/testdb, and internal/testdb imports gitmaterializer to
-// hydrate its fixtures — so override(test) -> testdb -> gitmaterializer ->
-// override(prod) would cycle the moment gitmaterializer's production code
-// imported override back. advisorylock imports nothing of this repo's own,
-// so it can never be part of a cycle; both sides import it instead of one
-// importing the other.
+// The shared primitives keep save, capture and restore lock semantics aligned.
+// Integration fixtures use external test packages so their materializer/assembler
+// dependency cannot introduce a cycle back into the slices they exercise.
 package advisorylock
 
 import (
