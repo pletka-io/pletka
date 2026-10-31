@@ -27,9 +27,14 @@ func encodeJSON(t *testing.T, v any) []byte {
 }
 func fixture(t *testing.T, draft bool) projectsnapshot.CompleteProject {
 	t.Helper()
-	id, err := projectsnapshot.Release("P/../not-a-path", "1")
+	return fixtureProject(t, draft, "P/../not-a-path")
+}
+
+func fixtureProject(t *testing.T, draft bool, project string) projectsnapshot.CompleteProject {
+	t.Helper()
+	id, err := projectsnapshot.Release(project, "1")
 	if draft {
-		id, err = projectsnapshot.Draft("P/../not-a-path")
+		id, err = projectsnapshot.Draft(project)
 	}
 	if err != nil {
 		t.Fatal(err)
