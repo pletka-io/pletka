@@ -15,37 +15,44 @@ type EntityFragment struct {
 	projects map[Identity]bool
 }
 
+// NewFragment validates explicitly paged subsets and returns only their closed
+// entity graph. Counts describe loaded subsets, never complete receipt counts.
+// Only assembly infrastructure may use this constructor. Interpretation contexts
+// and source inventories remain complete even when structural rows are partial.
+func NewFragment(root ProjectInput, sources []ProjectInput, kind, id string) (EntityFragment, error) {
+	g, err := buildGraph(root, sources, true)
+	if err != nil {
+		return EntityFragment{}, err
+	}
+	return g.entity(kind, id)
+}
+
+// Consumer returns the selection whose contextual overrides are being viewed.
+func (f EntityFragment) Consumer() (Identity, error) {
+	if f.graph == nil {
+		return Identity{}, fmt.Errorf("entity fragment is uninitialized")
+	}
+	return f.graph.root, nil
+}
+
 // Entity selects a closed fragment through the root's recorded membership. It
 // accepts no source version override. This initial value-level operation uses an
 // already complete input; bounded database assembly belongs to the assembler.
 func (c CompleteProject) Entity(kind, id string) (EntityFragment, error) {
-	if c.graph == nil || kind == kindProject {
+	return c.graph.entity(kind, id)
+}
+
+func (g *graph) entity(kind, id string) (EntityFragment, error) {
+	if g == nil || !selectable(kind) {
 		return EntityFragment{}, fmt.Errorf("entity fragment requires an initialized graph and non-project root")
 	}
-	root, err := c.graph.resolve(c.graph.root, kind, id)
+	root, err := g.resolve(g.root, kind, id)
 	if err != nil {
 		return EntityFragment{}, err
 	}
-	f := EntityFragment{graph: c.graph, root: EntityKey{Source: root.source, Kind: kind, ID: id}, selected: map[nodeKey]bool{}, projects: map[Identity]bool{}}
+	f := EntityFragment{graph: g, root: EntityKey{Source: root.source, Kind: kind, ID: id}, selected: map[nodeKey]bool{}, projects: map[Identity]bool{}}
 	queue := []nodeKey{root}
-	queue = f.addContext(c.graph.root, queue)
-	// Base adoption and fork receipts are evidence attached to this requested
-	// entity. Contextual receipts are reached through their selected model/collection.
-	for _, section := range []string{sectionAdoptions, "weave_entity_forks_archive"} {
-		for _, key := range c.graph.projects[c.graph.root].rows[section] {
-			r := c.graph.nodes[key]
-			entityID := r.text(columnForkEntityID)
-			if section == sectionAdoptions {
-				if r.text(columnContextEntityType) != "" {
-					continue
-				}
-				entityID = r.text(columnSourceEntityID)
-			}
-			if r.text(columnEntityType) == kind && entityID == id {
-				queue = append(queue, key)
-			}
-		}
-	}
+	queue = f.addContext(g.root, queue)
 	for len(queue) > 0 {
 		for len(queue) > 0 {
 			key := queue[0]
@@ -57,7 +64,7 @@ func (c CompleteProject) Entity(kind, id string) (EntityFragment, error) {
 			queue = f.addContext(key.source, queue)
 			queue = append(queue, f.graph.edges[key]...)
 		}
-		queue, err = f.fieldDefaults()
+		queue, err = f.contextSupplements()
 		if err != nil {
 			return EntityFragment{}, err
 		}
@@ -67,10 +74,30 @@ func (c CompleteProject) Entity(kind, id string) (EntityFragment, error) {
 
 // Consumer base overrides are not children of a foreign field globally. Add
 // them only for selected fields visible in contexts this fragment actually uses.
-func (f *EntityFragment) fieldDefaults() ([]nodeKey, error) {
+func (f *EntityFragment) contextSupplements() ([]nodeKey, error) {
 	queue := []nodeKey{}
 	for id := range f.projects {
-		for _, key := range f.graph.projects[id].rows["weave_field_overrides_archive"] {
+
+		for _, section := range []string{sectionAdoptions, "weave_entity_forks_archive"} {
+			for _, key := range f.graph.projects[id].rows[section] {
+				if f.selected[key] {
+					continue
+				}
+				r := f.graph.nodes[key]
+				entityID := r.text(columnForkEntityID)
+				if section == sectionAdoptions {
+					if r.text(columnContextEntityType) != "" && r.text(columnContextEntityType) != kindProject {
+						continue
+					}
+					entityID = r.text(columnSourceEntityID)
+				}
+				entity, err := f.graph.resolve(id, r.text(columnEntityType), entityID)
+				if err == nil && f.selected[entity] {
+					queue = append(queue, key)
+				}
+			}
+		}
+		for _, key := range f.graph.projects[id].rows[sectionFieldOverrides] {
 			r := f.graph.nodes[key]
 			if f.selected[key] || r.text(columnEntityType) != "" {
 				continue

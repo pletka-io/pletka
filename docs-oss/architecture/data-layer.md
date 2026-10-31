@@ -113,7 +113,10 @@ See [the value contract](../reference/project-snapshot-values.md) for required
 inputs and scalar/JSON preservation. `pkg/service/projectread` loads all registered
 sections and source contexts through that same session; it owns no pool or
 transaction factory. Draft reads and capture share the read-only ontology planner
-in `pkg/database/projectontology`. Portable encoding/restore remains pending. See ADRs
+in `pkg/database/projectontology`. Entity assembly uses explicit structural
+selectors on those same paged queries, with no full-project fallback. Ontology
+policy and interpretation evidence stay project-wide even for a small fragment.
+Portable encoding/restore remains pending. See ADRs
 [0010](../decisions/0010-versioned-reads-through-a-scope-bound-reader.md),
 [0011](../decisions/0011-cross-project-reads-resolve-at-the-source-release.md) and
 [0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).

@@ -513,6 +513,16 @@ func TestPublishedSemanticsCoverPrimaryAdditionalDatatypeAndSubfieldInputs(t *te
 	if _, err := projectsnapshot.NewComplete(makeInput(wrong), nil); err == nil {
 		t.Fatal("wrong but present term URI accepted")
 	}
+	if _, err := projectsnapshot.NewFragment(in, nil, "field", "f"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectsnapshot.NewFragment(makeInput(refs[:len(refs)-1]), nil, "field", "f"); err == nil {
+		t.Fatal("fragment accepted omitted selected subfield resolution")
+	}
+	if _, err := projectsnapshot.NewFragment(makeInput(wrong), nil, "field", "f"); err == nil {
+		t.Fatal("fragment accepted substituted selected term")
+	}
+
 	if _, _, err := (ontologyevidence.Assessor{}).Assess(inputs[0].Reference); err == nil {
 		t.Fatal("zero semantic assessor accepted")
 	}

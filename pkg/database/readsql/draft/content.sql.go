@@ -23,14 +23,20 @@ SELECT s.project_id AS project_id,
        ''::text AS version_number
 FROM (SELECT DISTINCT ON (context_entity_type, context_entity_id, entity_type, source_project_id, source_entity_id) id, project_id, context_entity_type, context_entity_id, entity_type, source_project_id, source_entity_id, source_version, adopted_at, created_by_id FROM weave_adoptions WHERE project_id=$1::text ORDER BY context_entity_type, context_entity_id, entity_type, source_project_id, source_entity_id, adopted_at, id) s
 WHERE s.project_id=$1::text
+  AND (NOT $2::boolean OR (((s.context_entity_type = 'model' AND s.context_entity_id = ANY($3::text[])) OR (s.context_entity_type = 'collection' AND s.context_entity_id = ANY($4::text[])) OR (s.context_entity_type = 'field' AND s.context_entity_id = ANY($5::text[]))) OR (s.context_entity_type IN ('','project') AND ((s.entity_type = 'model' AND s.source_entity_id = ANY($3::text[])) OR (s.entity_type = 'collection' AND s.source_entity_id = ANY($4::text[])) OR (s.entity_type = 'field' AND s.source_entity_id = ANY($5::text[])) OR (s.entity_type = 'category' AND s.source_entity_id = ANY($6::text[]))))))
 ORDER BY s.project_id, s.context_entity_type, s.context_entity_id, s.entity_type, s.source_project_id, s.source_entity_id, s.source_version
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $8::integer OFFSET $7::bigint
 `
 
 type ContentAdoptionsParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID          string   `json:"project_id"`
+	Restricted         bool     `json:"restricted"`
+	SelectedModel      []string `json:"selected_model"`
+	SelectedCollection []string `json:"selected_collection"`
+	SelectedField      []string `json:"selected_field"`
+	SelectedCategory   []string `json:"selected_category"`
+	PageOffset         int64    `json:"page_offset"`
+	PageLimit          int32    `json:"page_limit"`
 }
 
 type ContentAdoptionsRow struct {
@@ -47,7 +53,16 @@ type ContentAdoptionsRow struct {
 }
 
 func (q *Queries) ContentAdoptions(ctx context.Context, arg ContentAdoptionsParams) ([]ContentAdoptionsRow, error) {
-	rows, err := q.db.Query(ctx, contentAdoptions, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentAdoptions,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedModel,
+		arg.SelectedCollection,
+		arg.SelectedField,
+		arg.SelectedCategory,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -145,14 +160,17 @@ SELECT s.id AS id,
        (CASE WHEN isfinite(s.created_at) THEN to_char(s.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') || CASE WHEN EXTRACT(YEAR FROM s.created_at AT TIME ZONE 'UTC') < 0 THEN ' BC' ELSE '' END ELSE COALESCE(s.created_at::text,'') END)::text AS created_at
 FROM weave_concept_broader s JOIN weave_concept_lists p ON p.id=s.scheme_id
 WHERE p.project_id=$1::text
+  AND (NOT $2::boolean OR (s.scheme_id = ANY($3::text[])))
 ORDER BY s.scheme_id, s.position, s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $5::integer OFFSET $4::bigint
 `
 
 type ContentBroaderParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID           string   `json:"project_id"`
+	Restricted          bool     `json:"restricted"`
+	SelectedConceptList []string `json:"selected_concept_list"`
+	PageOffset          int64    `json:"page_offset"`
+	PageLimit           int32    `json:"page_limit"`
 }
 
 type ContentBroaderRow struct {
@@ -166,7 +184,13 @@ type ContentBroaderRow struct {
 }
 
 func (q *Queries) ContentBroader(ctx context.Context, arg ContentBroaderParams) ([]ContentBroaderRow, error) {
-	rows, err := q.db.Query(ctx, contentBroader, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentBroader,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedConceptList,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -208,14 +232,17 @@ SELECT s.id AS id,
        s.version_number AS version_number
 FROM weave_categories s
 WHERE s.project_id=$1::text
+  AND (NOT $2::boolean OR (s.id = ANY($3::text[])))
 ORDER BY s.canonical_order, s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $5::integer OFFSET $4::bigint
 `
 
 type ContentCategoriesParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID        string   `json:"project_id"`
+	Restricted       bool     `json:"restricted"`
+	SelectedCategory []string `json:"selected_category"`
+	PageOffset       int64    `json:"page_offset"`
+	PageLimit        int32    `json:"page_limit"`
 }
 
 type ContentCategoriesRow struct {
@@ -234,7 +261,13 @@ type ContentCategoriesRow struct {
 }
 
 func (q *Queries) ContentCategories(ctx context.Context, arg ContentCategoriesParams) ([]ContentCategoriesRow, error) {
-	rows, err := q.db.Query(ctx, contentCategories, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentCategories,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedCategory,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -284,14 +317,17 @@ SELECT s.id AS id,
        s.version_number AS version_number
 FROM weave_collections s
 WHERE s.project_id=$1::text
+  AND (NOT $2::boolean OR (s.id = ANY($3::text[])))
 ORDER BY s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $5::integer OFFSET $4::bigint
 `
 
 type ContentCollectionsParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID          string   `json:"project_id"`
+	Restricted         bool     `json:"restricted"`
+	SelectedCollection []string `json:"selected_collection"`
+	PageOffset         int64    `json:"page_offset"`
+	PageLimit          int32    `json:"page_limit"`
 }
 
 type ContentCollectionsRow struct {
@@ -313,7 +349,13 @@ type ContentCollectionsRow struct {
 }
 
 func (q *Queries) ContentCollections(ctx context.Context, arg ContentCollectionsParams) ([]ContentCollectionsRow, error) {
-	rows, err := q.db.Query(ctx, contentCollections, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentCollections,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedCollection,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -359,14 +401,17 @@ SELECT s.id AS id,
        ''::text AS version_number
 FROM weave_concept_list_entries s JOIN weave_concept_lists p ON p.id=s.concept_list_id
 WHERE p.project_id=$1::text
+  AND (NOT $2::boolean OR (s.concept_list_id = ANY($3::text[])))
 ORDER BY s.concept_list_id, s.position, s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $5::integer OFFSET $4::bigint
 `
 
 type ContentConceptEntriesParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID           string   `json:"project_id"`
+	Restricted          bool     `json:"restricted"`
+	SelectedConceptList []string `json:"selected_concept_list"`
+	PageOffset          int64    `json:"page_offset"`
+	PageLimit           int32    `json:"page_limit"`
 }
 
 type ContentConceptEntriesRow struct {
@@ -381,7 +426,13 @@ type ContentConceptEntriesRow struct {
 }
 
 func (q *Queries) ContentConceptEntries(ctx context.Context, arg ContentConceptEntriesParams) ([]ContentConceptEntriesRow, error) {
-	rows, err := q.db.Query(ctx, contentConceptEntries, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentConceptEntries,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedConceptList,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -425,14 +476,17 @@ SELECT s.id AS id,
        s.is_closed AS is_closed
 FROM weave_concept_lists s
 WHERE s.project_id=$1::text
+  AND (NOT $2::boolean OR (s.id = ANY($3::text[])))
 ORDER BY s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $5::integer OFFSET $4::bigint
 `
 
 type ContentConceptListsParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID           string   `json:"project_id"`
+	Restricted          bool     `json:"restricted"`
+	SelectedConceptList []string `json:"selected_concept_list"`
+	PageOffset          int64    `json:"page_offset"`
+	PageLimit           int32    `json:"page_limit"`
 }
 
 type ContentConceptListsRow struct {
@@ -452,7 +506,13 @@ type ContentConceptListsRow struct {
 }
 
 func (q *Queries) ContentConceptLists(ctx context.Context, arg ContentConceptListsParams) ([]ContentConceptListsRow, error) {
-	rows, err := q.db.Query(ctx, contentConceptLists, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentConceptLists,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedConceptList,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -506,14 +566,17 @@ SELECT s.id AS id,
        s.version_number AS version_number
 FROM weave_example_values s JOIN weave_examples p ON p.id=s.example_id
 WHERE p.project_id=$1::text
+  AND (NOT $2::boolean OR (s.example_id = ANY($3::text[])))
 ORDER BY s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $5::integer OFFSET $4::bigint
 `
 
 type ContentExampleValuesParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID       string   `json:"project_id"`
+	Restricted      bool     `json:"restricted"`
+	SelectedExample []string `json:"selected_example"`
+	PageOffset      int64    `json:"page_offset"`
+	PageLimit       int32    `json:"page_limit"`
 }
 
 type ContentExampleValuesRow struct {
@@ -538,7 +601,13 @@ type ContentExampleValuesRow struct {
 }
 
 func (q *Queries) ContentExampleValues(ctx context.Context, arg ContentExampleValuesParams) ([]ContentExampleValuesRow, error) {
-	rows, err := q.db.Query(ctx, contentExampleValues, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentExampleValues,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedExample,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -589,14 +658,17 @@ SELECT s.id AS id,
        s.version_number AS version_number
 FROM weave_examples s
 WHERE s.project_id=$1::text
+  AND (NOT $2::boolean OR (s.id = ANY($3::text[])))
 ORDER BY s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $5::integer OFFSET $4::bigint
 `
 
 type ContentExamplesParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID       string   `json:"project_id"`
+	Restricted      bool     `json:"restricted"`
+	SelectedExample []string `json:"selected_example"`
+	PageOffset      int64    `json:"page_offset"`
+	PageLimit       int32    `json:"page_limit"`
 }
 
 type ContentExamplesRow struct {
@@ -613,7 +685,13 @@ type ContentExamplesRow struct {
 }
 
 func (q *Queries) ContentExamples(ctx context.Context, arg ContentExamplesParams) ([]ContentExamplesRow, error) {
-	rows, err := q.db.Query(ctx, contentExamples, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentExamples,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedExample,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -664,14 +742,17 @@ SELECT s.id AS id,
        s.subfield_paths AS subfield_paths
 FROM weave_fields s
 WHERE s.project_id=$1::text
+  AND (NOT $2::boolean OR (s.id = ANY($3::text[])))
 ORDER BY s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $5::integer OFFSET $4::bigint
 `
 
 type ContentFieldsParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID     string   `json:"project_id"`
+	Restricted    bool     `json:"restricted"`
+	SelectedField []string `json:"selected_field"`
+	PageOffset    int64    `json:"page_offset"`
+	PageLimit     int32    `json:"page_limit"`
 }
 
 type ContentFieldsRow struct {
@@ -696,7 +777,13 @@ type ContentFieldsRow struct {
 }
 
 func (q *Queries) ContentFields(ctx context.Context, arg ContentFieldsParams) ([]ContentFieldsRow, error) {
-	rows, err := q.db.Query(ctx, contentFields, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentFields,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedField,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -746,14 +833,19 @@ SELECT s.project_id AS project_id,
        ''::text AS version_number
 FROM weave_entity_forks s
 WHERE s.project_id=$1::text
+  AND (NOT $2::boolean OR ((s.entity_type = 'model' AND s.fork_entity_id = ANY($3::text[])) OR (s.entity_type = 'collection' AND s.fork_entity_id = ANY($4::text[])) OR (s.entity_type = 'field' AND s.fork_entity_id = ANY($5::text[]))))
 ORDER BY s.project_id, s.entity_type, s.fork_entity_id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $7::integer OFFSET $6::bigint
 `
 
 type ContentForksParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID          string   `json:"project_id"`
+	Restricted         bool     `json:"restricted"`
+	SelectedModel      []string `json:"selected_model"`
+	SelectedCollection []string `json:"selected_collection"`
+	SelectedField      []string `json:"selected_field"`
+	PageOffset         int64    `json:"page_offset"`
+	PageLimit          int32    `json:"page_limit"`
 }
 
 type ContentForksRow struct {
@@ -769,7 +861,15 @@ type ContentForksRow struct {
 }
 
 func (q *Queries) ContentForks(ctx context.Context, arg ContentForksParams) ([]ContentForksRow, error) {
-	rows, err := q.db.Query(ctx, contentForks, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentForks,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedModel,
+		arg.SelectedCollection,
+		arg.SelectedField,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -809,12 +909,14 @@ SELECT s.project_id AS project_id,
        s.source_version AS source_version
 FROM weave_project_inheritance s
 WHERE s.project_id=$1::text
+  AND (NOT $2::boolean OR (FALSE))
 ORDER BY s.canonical_order, s.parent_project_id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $4::integer OFFSET $3::bigint
 `
 
 type ContentInheritanceParams struct {
 	ProjectID  string `json:"project_id"`
+	Restricted bool   `json:"restricted"`
 	PageOffset int64  `json:"page_offset"`
 	PageLimit  int32  `json:"page_limit"`
 }
@@ -831,7 +933,12 @@ type ContentInheritanceRow struct {
 }
 
 func (q *Queries) ContentInheritance(ctx context.Context, arg ContentInheritanceParams) ([]ContentInheritanceRow, error) {
-	rows, err := q.db.Query(ctx, contentInheritance, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentInheritance,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -875,14 +982,17 @@ SELECT s.id AS id,
        s.model_type AS model_type
 FROM weave_models s
 WHERE s.project_id=$1::text
+  AND (NOT $2::boolean OR (s.id = ANY($3::text[])))
 ORDER BY s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $5::integer OFFSET $4::bigint
 `
 
 type ContentModelsParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID     string   `json:"project_id"`
+	Restricted    bool     `json:"restricted"`
+	SelectedModel []string `json:"selected_model"`
+	PageOffset    int64    `json:"page_offset"`
+	PageLimit     int32    `json:"page_limit"`
 }
 
 type ContentModelsRow struct {
@@ -902,7 +1012,13 @@ type ContentModelsRow struct {
 }
 
 func (q *Queries) ContentModels(ctx context.Context, arg ContentModelsParams) ([]ContentModelsRow, error) {
-	rows, err := q.db.Query(ctx, contentModels, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentModels,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedModel,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1100,14 +1216,17 @@ SELECT s.override_id AS override_id,
        ''::text AS version_number
 FROM weave_override_refs s JOIN weave_field_overrides p ON p.id=s.override_id
 WHERE p.project_id=$1::text
+  AND (NOT $2::boolean OR (s.override_id::text = ANY($3::text[])))
 ORDER BY s.override_id, s.ref_type, s.position
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $5::integer OFFSET $4::bigint
 `
 
 type ContentOverrideRefsParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID        string   `json:"project_id"`
+	Restricted       bool     `json:"restricted"`
+	SelectedOverride []string `json:"selected_override"`
+	PageOffset       int64    `json:"page_offset"`
+	PageLimit        int32    `json:"page_limit"`
 }
 
 type ContentOverrideRefsRow struct {
@@ -1121,7 +1240,13 @@ type ContentOverrideRefsRow struct {
 }
 
 func (q *Queries) ContentOverrideRefs(ctx context.Context, arg ContentOverrideRefsParams) ([]ContentOverrideRefsRow, error) {
-	rows, err := q.db.Query(ctx, contentOverrideRefs, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentOverrideRefs,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedOverride,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1176,14 +1301,20 @@ SELECT s.id AS id,
        s.set_value_entry_id AS set_value_entry_id
 FROM weave_field_overrides s
 WHERE s.project_id=$1::text
+  AND (NOT $2::boolean OR (s.id::text = ANY($3::text[]) OR (s.entity_type = '' AND s.field_id = ANY($4::text[])) OR ((s.entity_type = 'model' AND s.entity_id = ANY($5::text[])) OR (s.entity_type = 'collection' AND s.entity_id = ANY($6::text[])) OR (s.entity_type = 'field' AND s.entity_id = ANY($4::text[])))))
 ORDER BY s.entity_type, s.entity_id, s.position, s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $8::integer OFFSET $7::bigint
 `
 
 type ContentOverridesParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID          string   `json:"project_id"`
+	Restricted         bool     `json:"restricted"`
+	SelectedOverride   []string `json:"selected_override"`
+	SelectedField      []string `json:"selected_field"`
+	SelectedModel      []string `json:"selected_model"`
+	SelectedCollection []string `json:"selected_collection"`
+	PageOffset         int64    `json:"page_offset"`
+	PageLimit          int32    `json:"page_limit"`
 }
 
 type ContentOverridesRow struct {
@@ -1215,7 +1346,16 @@ type ContentOverridesRow struct {
 }
 
 func (q *Queries) ContentOverrides(ctx context.Context, arg ContentOverridesParams) ([]ContentOverridesRow, error) {
-	rows, err := q.db.Query(ctx, contentOverrides, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentOverrides,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedOverride,
+		arg.SelectedField,
+		arg.SelectedModel,
+		arg.SelectedCollection,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1275,14 +1415,17 @@ SELECT s.id AS id,
        ''::text AS version_number
 FROM weave_collection_placements s
 WHERE s.project_id=$1::text
+  AND (NOT $2::boolean OR (s.model_id = ANY($3::text[])))
 ORDER BY s.model_id, s.category_id, s.collection_id, s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $5::integer OFFSET $4::bigint
 `
 
 type ContentPlacementsParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID     string   `json:"project_id"`
+	Restricted    bool     `json:"restricted"`
+	SelectedModel []string `json:"selected_model"`
+	PageOffset    int64    `json:"page_offset"`
+	PageLimit     int32    `json:"page_limit"`
 }
 
 type ContentPlacementsRow struct {
@@ -1301,7 +1444,13 @@ type ContentPlacementsRow struct {
 }
 
 func (q *Queries) ContentPlacements(ctx context.Context, arg ContentPlacementsParams) ([]ContentPlacementsRow, error) {
-	rows, err := q.db.Query(ctx, contentPlacements, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentPlacements,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedModel,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1505,14 +1654,17 @@ SELECT s.id AS id,
        ''::text AS version_number
 FROM weave_vocabularies s
 WHERE s.project_id=$1::text
+  AND (NOT $2::boolean OR (s.id = ANY($3::text[])))
 ORDER BY s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $5::integer OFFSET $4::bigint
 `
 
 type ContentVocabulariesParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID          string   `json:"project_id"`
+	Restricted         bool     `json:"restricted"`
+	SelectedVocabulary []string `json:"selected_vocabulary"`
+	PageOffset         int64    `json:"page_offset"`
+	PageLimit          int32    `json:"page_limit"`
 }
 
 type ContentVocabulariesRow struct {
@@ -1533,7 +1685,13 @@ type ContentVocabulariesRow struct {
 }
 
 func (q *Queries) ContentVocabularies(ctx context.Context, arg ContentVocabulariesParams) ([]ContentVocabulariesRow, error) {
-	rows, err := q.db.Query(ctx, contentVocabularies, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentVocabularies,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedVocabulary,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1582,14 +1740,18 @@ SELECT s.id AS id,
        ''::text AS version_number
 FROM weave_vocabulary_entries s JOIN weave_vocabularies p ON p.id=s.vocabulary_id
 WHERE p.project_id=$1::text
+  AND (NOT $2::boolean OR (s.id = ANY($3::text[]) OR s.vocabulary_id = ANY($4::text[])))
 ORDER BY s.id
-LIMIT $3::integer OFFSET $2::bigint
+LIMIT $6::integer OFFSET $5::bigint
 `
 
 type ContentVocabularyEntriesParams struct {
-	ProjectID  string `json:"project_id"`
-	PageOffset int64  `json:"page_offset"`
-	PageLimit  int32  `json:"page_limit"`
+	ProjectID               string   `json:"project_id"`
+	Restricted              bool     `json:"restricted"`
+	SelectedVocabularyEntry []string `json:"selected_vocabulary_entry"`
+	SelectedVocabulary      []string `json:"selected_vocabulary"`
+	PageOffset              int64    `json:"page_offset"`
+	PageLimit               int32    `json:"page_limit"`
 }
 
 type ContentVocabularyEntriesRow struct {
@@ -1608,7 +1770,14 @@ type ContentVocabularyEntriesRow struct {
 }
 
 func (q *Queries) ContentVocabularyEntries(ctx context.Context, arg ContentVocabularyEntriesParams) ([]ContentVocabularyEntriesRow, error) {
-	rows, err := q.db.Query(ctx, contentVocabularyEntries, arg.ProjectID, arg.PageOffset, arg.PageLimit)
+	rows, err := q.db.Query(ctx, contentVocabularyEntries,
+		arg.ProjectID,
+		arg.Restricted,
+		arg.SelectedVocabularyEntry,
+		arg.SelectedVocabulary,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

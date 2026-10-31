@@ -40,6 +40,7 @@ func (e *BudgetError) ValidationFields() map[string][]string {
 type budget struct {
 	limits      Limits
 	rows, bytes int64
+	selection   projectsnapshot.Selection
 }
 
 func (b *budget) addBytes(n int64) error {
@@ -82,7 +83,7 @@ func pages[T any](ctx context.Context, b *budget, read func(context.Context, rea
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		rows, err := read(ctx, readsession.Page{Limit: b.limits.PageSize, Offset: offset})
+		rows, err := read(ctx, readsession.Page{Limit: b.limits.PageSize, Offset: offset, Selection: b.selection})
 		if err != nil {
 			return nil, err
 		}

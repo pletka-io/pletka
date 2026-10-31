@@ -38,6 +38,8 @@ type Querier interface {
 	ContentVocabularyEntries(ctx context.Context, arg ContentVocabularyEntriesParams) ([]ContentVocabularyEntriesRow, error)
 	CountCollections(ctx context.Context, arg CountCollectionsParams) (int64, error)
 	DraftActorDescriptors(ctx context.Context, projectID string) ([]DraftActorDescriptorsRow, error)
+	// Selection policy belongs to the whole draft even for a bounded entity read.
+	DraftHasSemanticReferences(ctx context.Context, projectID string) (bool, error)
 	DraftOntologySelections(ctx context.Context, projectID string) ([]string, error)
 	GetBaseOverride(ctx context.Context, arg GetBaseOverrideParams) (WeaveFieldOverride, error)
 	GetCollection(ctx context.Context, arg GetCollectionParams) (WeaveCollection, error)

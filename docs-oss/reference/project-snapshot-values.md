@@ -3,14 +3,14 @@
 `pkg/projectsnapshot` is the database-free value boundary for the whole-project
 assembler in [ADR-0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).
 Its construction, field coverage and complete-project database assembly through
-`pkg/service/projectread` are implemented. Pure contextual view composition,
-bounded entity loading, Git encoding/restore and generator wiring follow
+`pkg/service/projectread` are implemented, including bounded entity loading and
+pure contextual composition. Git encoding/restore and generator wiring follow
 separately. Existing export DTOs do not become complete by wrapping them.
 
 ## Construction
 
 Only assembly infrastructure constructs `CompleteProject`. The conformance guard
-allows `NewComplete` in this package and `pkg/service/projectread`, with test-only
+allows `NewComplete` and `NewFragment` in this package and `pkg/service/projectread`, with test-only
 fixtures exempt. Consumers receive the finished value. Its zero value is invalid;
 `EntityFragment` is a different type and cannot satisfy a complete-project API.
 These are value contracts, not an authentication or database provenance mechanism.
@@ -88,7 +88,7 @@ Limits must be positive; pages may contain at most 1024 rows. The byte budget
 counts encoded row pages and ontology artifact/reference bytes, not descriptors
 or peak process memory. It is checked as inputs arrive; it does not prevent a
 single large database value from being fetched. Exceeding a limit returns a
-`BudgetError` and no partial complete value. Query, authorization, cancellation
+`BudgetError` and no partial result. Query, authorization, cancellation
 and validation failures also return no partial result.
 
 Draft assembly and release capture share the read-only ontology selection planner
@@ -122,18 +122,63 @@ no latest-version or live-lookup capability. Legacy content checks its exact
 original elements, aliases, selected bodies/primary flags and source membership
 against the retained artifact while preserving unresolved assessments.
 
-`CompleteProject.Entity(kind,id)` currently derives a closed fragment from an
-already complete value. It is not the future bounded database assembly path.
-Fragments retain required bodies and per-project interpretation context, including
+`CompleteProject.Entity(kind,id)` derives a closed fragment from an already
+complete value. `projectread.Assembler.Entity(ctx, session, kind, id)` loads a
+bounded structural closure directly through the same session. It never calls
+`Project` and filters afterward. Fragments retain required bodies and per-project interpretation context, including
 consumer base overrides for selected foreign fields, empty placements and repeated
 contextual overrides. They may contain a superset of the minimal graph. Their
 ontology evidence retains its original complete context; that does not make their
 row sections complete or permit reconstruction with a complete receipt.
 
-Pure contextual view composition is still required: these records preserve every
-source body and consumer override, but do not apply display precedence or replace
-the existing resolver. Production assembler integration tests now prove actual-cut
+The bound loader supplies explicit entity selections to the existing lossless
+paged readers. SQL filters entity bodies and their child rows, then the assembler
+expands required refs and consumer base overrides until the closure stops growing.
+Every structural query and its selector mapping are checked by conformance.
+Project metadata, descriptors, namespaces, ontology evidence and authorized source
+inventories remain complete; this is bounded structural loading, not a claim that
+interpretation artifacts are entity-sized. Closure rounds may reread an expanded
+subset. Row/byte budgets count that query work, including repeated pages, and
+reject excessive work rather than truncate it. Dependency authorization still
+covers the whole recorded source closure.
+
+`NewFragment` validates loaded subsets and required references independently of
+complete receipt row counts. It checks every retained semantic location for each
+loaded entity against the original evidence without claiming unrelated entities
+were loaded. `NewComplete` continues to require exact complete counts. Project-level
+adoption receipts attach only to selected entities; loading metadata cannot pull
+every unrelated adoption into a fragment. Stale saved-value exceptions stay the
+same as for complete assembly. Draft defaults selection uses the entire project's
+semantic inventory, even for an entity containing no references.
+
+## Pure contextual composition
+
+`EntityFragment.Compose()` builds a detached `ContextView` for a model, collection
+or field in the requesting consumer's context. `ComposeContext` explicitly selects
+another retained context and entity within that fragment. An empty consumer
+context does not silently fall back to source-owned overrides.
+
+Each `ContextField` retains the complete source body, original override and
+effective settings separately. Every copied override survives, including repeated
+occurrences; false, zero, empty and null settings do not become inheritance rules.
+As in the existing resolver, expected value type comes from the field body. A
+consumer base fixed value or fixed vocabulary entry locks both fixed-value fields;
+`FixedBy` records that commitment without rewriting the original override. Groups
+retain empty and hidden placements with stable category/collection/field ordering.
+
+Refs resolve required bodies, labels and sealed-list flags from their captured
+source contexts. Closed-list choices retain ordered memberships, custom labels,
+exact vocabulary entries and the list owner's captured concept namespace. Missing
+required bodies are errors, not empty constraints. Returned buffers may be changed
+by a consumer without affecting later compositions or the underlying fragment.
+
+This is a value composition boundary, not the existing HTTP response or Git wire
+format. UI statistics/shared-prefix presentation, renderer-specific path grafting
+and generator migration remain consumer work. No global anchor discovery is part
+of composition; later renderers must stay inside the captured graph.
+Production assembler integration tests prove actual-cut
 field parity, same-session consistency during edits, concrete transitive source
-isolation, authorization, legacy/published evidence separation and detached output.
+isolation, authorization, legacy/published evidence separation, bounded/complete
+fragment parity and detached composition after closing the database pool.
 The older PostgreSQL value fixture remains a separate constructor compatibility
 check; consumer migrations and portable round-tripping still need their own proof.

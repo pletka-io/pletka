@@ -32,6 +32,89 @@ func assembleFixture(ctx context.Context, t *testing.T, pool *pgxpool.Pool, proj
 	return value, err
 }
 
+func assembleEntityFixture(ctx context.Context, t *testing.T, pool *pgxpool.Pool, project string, scope auth.ReadScope, kind, id string, options projectread.Options) (projectsnapshot.EntityFragment, error) {
+	t.Helper()
+	assembler, err := projectread.New(options)
+	if err != nil {
+		return projectsnapshot.EntityFragment{}, err
+	}
+	var value projectsnapshot.EntityFragment
+	err = readsession.NewFactory(pool).WithSourceAuthorization(auth.CheckProjectRead).Read(ctx, scope, project, func(s *readsession.Session) error {
+		var e error
+		value, e = assembler.Entity(ctx, s, kind, id)
+		return e
+	})
+	return value, err
+}
+
+func compareEntityAssembly(ctx context.Context, t *testing.T, pool *pgxpool.Pool, project string, scope auth.ReadScope, complete projectsnapshot.CompleteProject) {
+	t.Helper()
+	options := projectread.DefaultOptions()
+	options.Limits.MaxRows = 250
+	failed, err := assembleFixture(ctx, t, pool, project, scope, options)
+	var budget *projectread.BudgetError
+	if !errors.As(err, &budget) {
+		t.Fatalf("fixture must exceed the fragment's row budget: %v", err)
+	}
+	if _, err := failed.Root(); err == nil {
+		t.Fatal("truncated complete value returned")
+	}
+	missing, err := assembleEntityFixture(ctx, t, pool, project, scope, "field", "missing", options)
+	if err == nil {
+		t.Fatal("missing entity accepted")
+	}
+	if _, err := missing.Root(); err == nil {
+		t.Fatal("missing entity returned a value")
+	}
+	options.Limits.MaxRows = 1
+	limited, err := assembleEntityFixture(ctx, t, pool, project, scope, "model", "ZRELM.1", options)
+	if !errors.As(err, &budget) {
+		t.Fatalf("entity budget lost: %v", err)
+	}
+	if _, err := limited.Root(); err == nil {
+		t.Fatal("entity budget returned partial value")
+	}
+
+	for _, root := range [][2]string{{"model", "ZRELM.1"}, {"field", "ZRELF1"}, {"collection", "empty"}, {"example", "receipt-example"}, {"concept_list", "receipt-list"}, {"vocabulary", "receipt-vocab"}} {
+		want, err := complete.Entity(root[0], root[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		options := projectread.DefaultOptions()
+		options.Limits.PageSize = 7
+		options.Limits.MaxRows = 250
+		got, err := assembleEntityFixture(ctx, t, pool, project, scope, root[0], root[1], options)
+		if err != nil {
+			t.Fatalf("%s: %v", root, err)
+		}
+		projects, _ := want.Projects()
+		gotProjects, _ := got.Projects()
+		if diff := cmp.Diff(projects, gotProjects, cmp.AllowUnexported(projectsnapshot.Identity{})); diff != "" {
+			t.Fatal(diff)
+		}
+		for _, id := range projects {
+			a, _ := want.Content(id)
+			b, _ := got.Content(id)
+			if diff := cmp.Diff(a, b); diff != "" {
+				t.Fatalf("%s content: %s", root, diff)
+			}
+		}
+		if root[0] == "model" || root[0] == "field" || root[0] == "collection" {
+			a, err := want.Compose()
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := got.Compose()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(a, b, cmp.AllowUnexported(projectsnapshot.Identity{})); diff != "" {
+				t.Fatal(diff)
+			}
+		}
+	}
+}
+
 // The only normalization permitted by this parity test is the documented cut
 // transformation: concrete version_number on each row and publication status on
 // these seven entity sections. Example assessment status is never rewritten.
@@ -99,6 +182,7 @@ func TestProjectAssemblerLosslessPagesAndCutParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	compareEntityAssembly(ctx, t, pool, project, auth.Draft(), before)
 	beforeID, err := before.Root()
 	if err != nil {
 		t.Fatal(err)
@@ -129,6 +213,7 @@ func TestProjectAssemblerLosslessPagesAndCutParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	compareEntityAssembly(ctx, t, regional, project, auth.Release("9.0.1"), released)
 	releasedID, err := released.Root()
 	if err != nil {
 		t.Fatal(err)
@@ -202,6 +287,33 @@ func TestProjectAssemblerPreservesLegacySourceEvidence(t *testing.T) {
 	if _, err := evidence.Publications(); err == nil {
 		t.Fatal("legacy exposed as verified")
 	}
+	for _, root := range [][2]string{{"field", "legacy-field"}, {"model", "legacy-model"}} {
+		fragment, err := assembleEntityFixture(ctx, t, pool, legacyProject, auth.Release(legacyVersion), root[0], root[1], projectread.DefaultOptions())
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := value.Entity(root[0], root[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids, _ := want.Projects()
+		for _, id := range ids {
+			a, _ := want.Content(id)
+			b, _ := fragment.Content(id)
+			if diff := cmp.Diff(a, b); diff != "" {
+				t.Fatal(diff)
+			}
+		}
+		retained, err := fragment.Evidence(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, err := retained.Legacy()
+		if err != nil || a != artifact {
+			t.Fatal("legacy fragment changed exact evidence")
+		}
+	}
+
 }
 
 type assemblyTrace struct {
@@ -292,6 +404,83 @@ func TestProjectAssemblerOneSnapshotAndDetachedLifetime(t *testing.T) {
 		t.Fatalf("value buffer shared: %v", err)
 	}
 	if _, err := assembler.Project(ctx, escaped); err == nil {
+		t.Fatal("closed session accepted")
+	}
+}
+
+func TestEntityAssemblerOneSnapshotAndDetachedLifetime(t *testing.T) {
+	pool := testdb.EmptyPool(t)
+	ctx, owner, project := seedZREL(t, pool)
+	ctx = releaseAuthCtx(ctx, owner)
+	mustExec(t, pool, `INSERT INTO weave_project_attributions(project_id,actor_id,kind,note) VALUES ('ZREL','ZREL_OWNER','author','before')`)
+	tr := &assemblyTrace{pids: map[uint32]bool{}}
+	tr.mutate = func() {
+		mustExec(t, pool, `UPDATE weave_fields SET system_name='changed' WHERE project_id='ZREL'`)
+		mustExec(t, pool, `UPDATE weave_field_overrides SET display_name='{"en":"changed"}' WHERE project_id='ZREL'`)
+		mustExec(t, pool, `UPDATE weave_projects SET ui_name='{"en":"changed"}' WHERE id='ZREL'`)
+		mustExec(t, pool, `UPDATE weave_project_attributions SET note='changed' WHERE project_id='ZREL'`)
+		mustExec(t, pool, `UPDATE weave_actors SET display_name='changed' WHERE id='ZREL_OWNER'`)
+	}
+	cfg := pool.Config()
+	cfg.MaxConns, cfg.MinConns = 1, 0
+	cfg.ConnConfig.Tracer = tr
+	one, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(one.Close)
+	assembler, err := projectread.New(projectread.DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bounded, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	var value projectsnapshot.EntityFragment
+	var escaped *readsession.Session
+	err = readsession.NewFactory(one).WithSourceAuthorization(auth.CheckProjectRead).Read(bounded, auth.Draft(), project, func(s *readsession.Session) error {
+		escaped = s
+		var err error
+		value, err = assembler.Entity(bounded, s, "model", "ZRELM.1")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	one.Close()
+	if _, err := value.Compose(); err != nil {
+		t.Fatal(err)
+	}
+	id, err := value.Consumer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := value.Content(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Attributions[0].Note != "before" {
+		t.Fatal("credit escaped snapshot")
+	}
+	if !tr.triggered || len(tr.pids) != 1 || len(tr.queries) < 22 {
+		t.Fatalf("did not prove one backend/all sections: %d", len(tr.queries))
+	}
+	if c.Fields[0].SystemName == nil || *c.Fields[0].SystemName != "release_probe" || strings.Contains(string(c.Projects[0].UIName), "changed") || strings.Contains(string(c.Overrides[0].DisplayName), "changed") {
+		t.Fatal("mixed section snapshot")
+	}
+	e, err := value.Evidence(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, err := e.Descriptors().Actor(&owner)
+	if err != nil || actor.DisplayName == "changed" {
+		t.Fatalf("descriptor escaped snapshot: %v", err)
+	}
+	c.Fields[0].UIName[0] = '!'
+	fresh, err := value.Content(id)
+	if err != nil || fresh.Fields[0].UIName[0] == '!' {
+		t.Fatalf("value buffer shared: %v", err)
+	}
+	if _, err := assembler.Entity(ctx, escaped, "model", "ZRELM.1"); err == nil {
 		t.Fatal("closed session accepted")
 	}
 }

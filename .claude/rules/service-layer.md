@@ -134,9 +134,12 @@ serializers accept it or the distinct `EntityFragment`. Explicit empty sections
 are required, and source identities/evidence stay separate. Do not flatten null
 override settings, repeated placements, exact numeric text or raw JSON through
 lossy domain DTOs. See the [value contract](../../docs-oss/reference/project-snapshot-values.md).
-`projectread` implements complete-project database assembly. Contextual composition,
-bounded database entity loading and portable restore remain open gates; the
-private value freeze encoding is not a wire format.
+`projectread` implements complete-project and bounded entity assembly.
+`EntityFragment.Compose` applies contextual settings without reads. Keep original
+overrides and source bodies separate, preserve every occurrence and empty placement,
+and resolve required refs from captured content. Never load a complete project to
+answer `Assembler.Entity`. Portable restore and consumer migration remain open;
+the private value freeze encoding is not a wire format.
 
 ### Ontology editor boundary
 
@@ -197,7 +200,9 @@ their migrations remain separate work.
 - Bind ontology/dependency readers to that session; do not nest read factories.
 - Complete values require every registered section; fragments have a separate shape.
 - Foreign content retains its source's status and provenance.
-- Entity exports may assemble a smaller graph through the same session.
+- Entity exports use `Assembler.Entity` for a smaller structural graph through
+  the same session. Full interpretation metadata remains explicit; row budgets
+  include any repeated closure reads. An empty selector never means all entities.
 - Render captured term identities; use a QName only when its binding matches the
   exact URI. Released composition cannot introduce globally discovered live content.
 - Publication dirty-state semantics and search remain explicit separate concerns.

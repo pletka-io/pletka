@@ -104,7 +104,7 @@ func (r *releaseReader) ContentCollections(ctx context.Context, page readsession
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentCollections(ctx, archive.ContentCollectionsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentCollections(ctx, archive.ContentCollectionsParams{Restricted: page.Restricted(), SelectedCollection: page.IDs("collection"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read collections content: %w", err)
 	}

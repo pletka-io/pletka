@@ -82,6 +82,38 @@ func TestProjectAssemblerKeepsNestedSourcesPinnedAndAuthorized(t *testing.T) {
 			t.Fatal(diff)
 		}
 	}
+
+	readEntity := func(factory *readsession.Factory) (projectsnapshot.EntityFragment, error) {
+		var value projectsnapshot.EntityFragment
+		err := factory.Read(ctx, auth.Release("1.0.0"), a.project, func(s *readsession.Session) error {
+			var e error
+			value, e = assembler.Entity(ctx, s, "collection", a.collection)
+			return e
+		})
+		return value, err
+	}
+	entity, err := readEntity(factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, err := before.Entity("collection", a.collection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, _ := expected.Projects()
+	for _, id := range selected {
+		want, _ := expected.Content(id)
+		got, err := entity.Content(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatal(diff)
+		}
+	}
+	if _, err := entity.Compose(); err != nil {
+		t.Fatal(err)
+	}
 	denied := errors.New("source access revoked")
 	inaccessible, err := read(readsession.NewFactory(pool).WithSourceAuthorization(func(_ context.Context, r auth.Resource) error { return denied }))
 	if !errors.Is(err, denied) {
@@ -90,4 +122,12 @@ func TestProjectAssemblerKeepsNestedSourcesPinnedAndAuthorized(t *testing.T) {
 	if _, err := inaccessible.Root(); err == nil {
 		t.Fatal("unauthorized partial graph returned")
 	}
+	inaccessibleEntity, err := readEntity(readsession.NewFactory(pool).WithSourceAuthorization(func(_ context.Context, _ auth.Resource) error { return denied }))
+	if !errors.Is(err, denied) {
+		t.Fatal("entity bypassed source authorization")
+	}
+	if _, err := inaccessibleEntity.Root(); err == nil {
+		t.Fatal("unauthorized entity graph returned")
+	}
+
 }

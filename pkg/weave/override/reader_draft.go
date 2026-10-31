@@ -114,7 +114,7 @@ func (r *draftReader) ContentPlacements(ctx context.Context, page readsession.Pa
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentPlacements(ctx, draft.ContentPlacementsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
+	rows, err := r.queries.ContentPlacements(ctx, draft.ContentPlacementsParams{Restricted: page.Restricted(), SelectedModel: page.IDs("model"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
 	if err != nil {
 		return nil, fmt.Errorf("read placements content: %w", err)
 	}
@@ -143,7 +143,7 @@ func (r *draftReader) ContentOverrides(ctx context.Context, page readsession.Pag
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentOverrides(ctx, draft.ContentOverridesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
+	rows, err := r.queries.ContentOverrides(ctx, draft.ContentOverridesParams{Restricted: page.Restricted(), SelectedOverride: page.IDs("override"), SelectedField: page.IDs("field"), SelectedModel: page.IDs("model"), SelectedCollection: page.IDs("collection"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
 	if err != nil {
 		return nil, fmt.Errorf("read overrides content: %w", err)
 	}
@@ -185,7 +185,7 @@ func (r *draftReader) ContentOverrideRefs(ctx context.Context, page readsession.
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentOverrideRefs(ctx, draft.ContentOverrideRefsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
+	rows, err := r.queries.ContentOverrideRefs(ctx, draft.ContentOverrideRefsParams{Restricted: page.Restricted(), SelectedOverride: page.IDs("override"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset})
 	if err != nil {
 		return nil, fmt.Errorf("read overriderefs content: %w", err)
 	}

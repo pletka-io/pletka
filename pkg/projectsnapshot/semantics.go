@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/pletka-io/pletka/pkg/namespace"
+	"github.com/pletka-io/pletka/pkg/ontologyartifact"
 	"github.com/pletka-io/pletka/pkg/ontologyevidence"
 )
 
@@ -82,10 +83,10 @@ func (g *graph) checkInterpretation(id Identity) error {
 	if p.evidence.contract == 2 {
 		return g.checkLegacy(id, content, elements, bindings)
 	}
-	return p.checkPublished(content, elements, bindings)
+	return p.checkPublished(content, elements, bindings, g.fragment)
 }
 
-func (p *project) checkPublished(c Content, elements []ontologyevidence.Element, bindings []namespace.Binding) error {
+func (p *project) checkPublished(c Content, elements []ontologyevidence.Element, bindings []namespace.Binding, fragment bool) error {
 	expected, err := ontologyevidence.InputReferences(elements)
 	if err != nil {
 		return err
@@ -94,7 +95,13 @@ func (p *project) checkPublished(c Content, elements []ontologyevidence.Element,
 	for _, ref := range expected {
 		refs[semanticKey{ref.EntityKind, ref.EntityID, ref.Location}] = ref
 	}
-	if len(refs) != len(p.evidence.references) {
+	retained := p.evidence.references
+	if fragment {
+		retained = slices.DeleteFunc(slices.Clone(retained), func(r ontologyartifact.TermResolution) bool {
+			return !hasSemanticEntity(elements, r.EntityKind, r.EntityID)
+		})
+	}
+	if len(refs) != len(retained) {
 		return fmt.Errorf("semantic reference coverage differs from authored content")
 	}
 	inventory := make([]ontologyevidence.Body, 0, len(p.evidence.publications))
@@ -112,7 +119,7 @@ func (p *project) checkPublished(c Content, elements []ontologyevidence.Element,
 	if err != nil {
 		return err
 	}
-	for _, r := range p.evidence.references {
+	for _, r := range retained {
 		key := semanticKey{r.EntityKind, r.EntityID, r.Location}
 		input, ok := refs[key]
 		if !ok || input.Reference != ontologyevidence.TermReference(r.Reference) {
@@ -161,7 +168,11 @@ func (g *graph) checkLegacy(id Identity, c Content, elements []ontologyevidence.
 	if err != nil {
 		return err
 	}
-	if err := checkLegacyElements(d.Elements, elements); err != nil {
+	retained := d.Elements
+	if g.fragment {
+		retained = slices.DeleteFunc(slices.Clone(retained), func(e ontologyevidence.Element) bool { return !hasSemanticEntity(elements, e.EntityKind, e.EntityID) })
+	}
+	if err := checkLegacyElements(retained, elements); err != nil {
 		return err
 	}
 	if !sameBindings(d.Bindings, bindings) {
@@ -272,4 +283,8 @@ func (p *project) checkLegacyLinks(links []OntologyLinkRecord, inventory []ontol
 		}
 	}
 	return nil
+}
+
+func hasSemanticEntity(elements []ontologyevidence.Element, kind, id string) bool {
+	return slices.ContainsFunc(elements, func(e ontologyevidence.Element) bool { return e.EntityKind == kind && e.EntityID == id })
 }

@@ -77,7 +77,7 @@ func (g *graph) connectRow(key nodeKey, r record) error {
 		if r.text(columnOwnerID) == "" || r.text("effective_concept_namespace") == "" || r.text("enforce_concept_lists") == "" {
 			return fmt.Errorf("project lacks owner or effective concept policy")
 		}
-	case "weave_field_overrides_archive":
+	case sectionFieldOverrides:
 		err = g.connectOverride(key, r)
 	case sectionOverrideRefs:
 		err = g.connectOverrideRef(key, r)
@@ -121,7 +121,7 @@ func (r record) references(section string) []reference {
 }
 
 func (g *graph) connectOverride(key nodeKey, r record) error {
-	refs := []reference{{kindField, columnFieldID, false, r.text(columnEntityType) == ""}, {kindCategory, columnCategoryID, true, false}, {kindCollection, columnPartOfCollectionID, true, false}, {kindVocabularyEntry, "set_value_entry_id", true, false}}
+	refs := []reference{{kindField, columnFieldID, false, r.text(columnEntityType) == ""}, {kindCategory, columnCategoryID, true, false}, {kindCollection, columnPartOfCollectionID, true, false}, {kindVocabularyEntry, columnSetValueEntryID, true, false}}
 	// A consumer-owned base override points at its adopted source body; it does
 	// not become an owned child of that source project's field.
 	if _, ok := g.projects[key.source].members[localKey{kindField, r.text(columnFieldID)}]; ok {
@@ -144,9 +144,9 @@ func (g *graph) connectOverrideRef(key nodeKey, r record) error {
 	}
 	kind := r.text(columnRefType)
 	switch kind {
-	case "resource_model":
+	case refResourceModel:
 		kind = kindModel
-	case "collection_model":
+	case refCollectionModel:
 		kind = kindCollection
 	}
 	target := r.text("target_id")
@@ -157,7 +157,7 @@ func (g *graph) connectOverrideRef(key nodeKey, r record) error {
 }
 
 func (g *graph) connectSavedValue(key nodeKey, r record) error {
-	refs := []reference{{kindExample, "example_id", false, true}, {kindExample, "linked_example_id", true, false}}
+	refs := []reference{{kindExample, columnExampleID, false, true}, {kindExample, columnLinkedExampleID, true, false}}
 	// Deleted placement/field references remain stale evidence. Linked examples
 	// still require bodies; a missing link is not a stale-placement exception.
 	_, fieldErr := g.resolve(key.source, kindField, r.text(columnFieldID))
@@ -198,7 +198,7 @@ func (g *graph) connectAdoption(key nodeKey, r record) error {
 	}
 	g.edges[key] = append(g.edges[key], to)
 	if r.text(columnContextEntityType) != "" {
-		return g.link(key, r.text(columnContextEntityType), r.text(columnContextEntityID), false, true)
+		return g.link(key, r.text(columnContextEntityType), r.text(columnContextEntityID), false, r.text(columnContextEntityType) != kindProject)
 	}
 	return nil
 }

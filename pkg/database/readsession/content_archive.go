@@ -19,7 +19,7 @@ func (r *archiveContentReader) ContentAdoptions(ctx context.Context, page Page) 
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentAdoptions(ctx, archive.ContentAdoptionsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentAdoptions(ctx, archive.ContentAdoptionsParams{SelectedCategory: page.IDs("category"), Restricted: page.Restricted(), SelectedModel: page.IDs("model"), SelectedCollection: page.IDs("collection"), SelectedField: page.IDs("field"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read adoptions content: %w", err)
 	}
@@ -46,7 +46,7 @@ func (r *archiveContentReader) ContentCategories(ctx context.Context, page Page)
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentCategories(ctx, archive.ContentCategoriesParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentCategories(ctx, archive.ContentCategoriesParams{Restricted: page.Restricted(), SelectedCategory: page.IDs("category"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read categories content: %w", err)
 	}
@@ -75,7 +75,7 @@ func (r *archiveContentReader) ContentForks(ctx context.Context, page Page) ([]p
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentForks(ctx, archive.ContentForksParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentForks(ctx, archive.ContentForksParams{Restricted: page.Restricted(), SelectedModel: page.IDs("model"), SelectedCollection: page.IDs("collection"), SelectedField: page.IDs("field"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read forks content: %w", err)
 	}
@@ -101,7 +101,7 @@ func (r *archiveContentReader) ContentFields(ctx context.Context, page Page) ([]
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentFields(ctx, archive.ContentFieldsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentFields(ctx, archive.ContentFieldsParams{Restricted: page.Restricted(), SelectedField: page.IDs("field"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read fields content: %w", err)
 	}
@@ -136,7 +136,7 @@ func (r *archiveContentReader) ContentModels(ctx context.Context, page Page) ([]
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentModels(ctx, archive.ContentModelsParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentModels(ctx, archive.ContentModelsParams{Restricted: page.Restricted(), SelectedModel: page.IDs("model"), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read models content: %w", err)
 	}
@@ -249,7 +249,7 @@ func (r *archiveContentReader) ContentInheritance(ctx context.Context, page Page
 	if err := page.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := r.queries.ContentInheritance(ctx, archive.ContentInheritanceParams{ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
+	rows, err := r.queries.ContentInheritance(ctx, archive.ContentInheritanceParams{Restricted: page.Restricted(), ProjectID: r.projectID, PageLimit: page.Limit, PageOffset: page.Offset, Version: r.version})
 	if err != nil {
 		return nil, fmt.Errorf("read inheritance content: %w", err)
 	}

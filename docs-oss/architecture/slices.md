@@ -268,8 +268,10 @@ sections and the concrete source closure, with actual-cut parity and isolation
 after edits, deletions and source publications. Its explicit binding registry
 preserves converted readers and names replacement APIs for temporary adapters.
 See the [value and loading contract](../reference/project-snapshot-values.md).
-Pure contextual composition, bounded database entity loading and consumer
-migration remain pending. Portable additions still need matching restore support.
+Bounded entity loading and pure contextual composition are also implemented.
+Entity loading uses explicit selectors on those same readers; interpretation
+metadata stays complete and no full-project fallback is allowed. Consumer
+migration remains pending. Portable additions still need matching restore support.
 An incomplete fragment cannot be returned as a complete project.
 Publication's timestamp-based dirty-state queries require
 a separate semantic/performance decision;
