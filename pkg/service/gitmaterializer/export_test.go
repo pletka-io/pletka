@@ -15,3 +15,13 @@ func (m *Materializer) BuildReleaseTree(ctx context.Context, dstDir, projectID, 
 func (m *Materializer) BuildLegacyReleaseTree(ctx context.Context, dstDir, projectID, version string) error {
 	return m.buildLegacyReleaseTree(ctx, dstDir, projectID, version)
 }
+
+// PrepareCapturedDraftForTest stops at the durable prepare boundary to simulate
+// process loss before publishing the Git ref.
+func (m *Materializer) PrepareCapturedDraftForTest(ctx context.Context, project string) error {
+	_, err := m.withCapturedRepo(ctx, project, func(git *gitRunner) (int, error) {
+		_, err := m.prepareDraft(ctx, git, project, nil)
+		return 0, err
+	})
+	return err
+}

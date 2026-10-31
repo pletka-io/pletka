@@ -55,10 +55,10 @@ the row and context images atomically with the writes they describe.
 
 ## Current write-path limitation
 
-The pure patcher is implemented and tested; automatic draft materialization,
-initialization and reconciliation still use the legacy writer. Switching them
-requires coordinated baseline and delivery checkpoints. Atomic capture is now
-available as an explicit opt-in boundary; see [atomic capture](atomic-draft-capture.md).
+The pure patcher and atomic capture are implemented. Enrolled projects now use
+[ordered captured delivery](captured-draft-delivery.md) for initialization,
+reconciliation and incremental materialization. Unenrolled projects retain the
+legacy writer; normal traffic is not enrolled automatically.
 
 The reviewed [write inventory](../../pkg/service/gitmaterializer/testdata/draft_write_inventory.json)
 records all captured sections, representative write paths, observed audit kinds
@@ -84,9 +84,9 @@ detects unsupported entries; it cannot detect a mutation that emits no entry.
 
 `draftcapture.Receipt.Patch` now derives patches from complete snapshots retained
 atomically by the writing transaction. Storage effects cover all 22sections and
-cascades, while explicit context refresh separates external policy drift. Default
-writers still await coordinated baseline initialization/reconciliation and
-isolated Git publication. A full current-state upgrade must never be attributed
+cascades, while explicit context refresh separates external policy drift. Enrolled
+writers now use coordinated baseline initialization/reconciliation and isolated
+Git publication. A full current-state upgrade must never be attributed
 to an individual user's change-set message.
 
 ## Verification

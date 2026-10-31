@@ -449,7 +449,8 @@ Immutable schema3 blobs/manifests retain the captured complete before/after
 snapshots; delayed receipt replay never rereads current project tables. Global
 context drift needs its own explicit refresh. Enrollment is not enabled by the
 migration or normal handlers, and the legacy poller excludes enrolled projects.
-The complete draft Git baseline/recovery workflow remains pending. Full assembly
+Migration 043 adds the durable baseline, audit coverage and Git delivery journal;
+see [captured delivery](../reference/captured-draft-delivery.md). Full assembly
 and manifest costs require measurement before rollout. See
 [ADR-0020](../decisions/0020-draft-mutations-own-their-capture.md) and
 [operation contract](../reference/atomic-draft-capture.md).

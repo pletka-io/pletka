@@ -90,21 +90,32 @@ func (m *Materializer) ProcessPending(ctx context.Context, limit int32) (int, er
 	processed := 0
 	for _, cs := range changeSets {
 		if err := m.processChangeSet(ctx, cs); err != nil {
+			if errors.Is(err, errCapturedDraft) {
+				continue
+			}
 			m.logger.Error("failed to process change set",
 				"change_set_id", cs.ID, "err", err)
 			continue
 		}
 		processed++
 	}
+	if remaining := limit - int32(processed); remaining > 0 {
+		n, err := m.processCapturedPending(ctx, remaining)
+		return processed + n, err
+	}
 	return processed, nil
 }
+
+const changeSetKindDraft = "draft"
+
+var errCapturedDraft = errors.New("draft audit belongs to captured delivery")
 
 func (m *Materializer) processChangeSet(ctx context.Context, cs sqlcgen.WeaveChangeSet) (err error) {
 	start := time.Now()
 	// On any failure, record outcome='failed' + error on the change set
 	// WITHOUT marking it processed, so the poller retries it.
 	defer func() {
-		if err == nil {
+		if err == nil || errors.Is(err, errCapturedDraft) {
 			return
 		}
 		dur := int32(time.Since(start).Milliseconds())
@@ -150,6 +161,9 @@ func (m *Materializer) processChangeSet(ctx context.Context, cs sqlcgen.WeaveCha
 	case "release_archived":
 		m.processReleaseArchivedChangeSet(ctx, cs)
 		return nil
+	case changeSetKindDraft:
+	default:
+		return fmt.Errorf("unsupported change set kind %q", cs.Kind)
 	}
 
 	unlock, err := acquireProjectLock(m.baseDir, cs.ProjectID)
@@ -157,6 +171,15 @@ func (m *Materializer) processChangeSet(ctx context.Context, cs sqlcgen.WeaveCha
 		return fmt.Errorf("acquire project lock %s: %w", cs.ProjectID, err)
 	}
 	defer unlock()
+	// A legacy batch may have been fetched just before explicit enrollment.
+	// Recheck under the same filesystem lock used by baseline initialization.
+	enrolled, err := m.capturedDraft(ctx, cs.ProjectID)
+	if err != nil {
+		return err
+	}
+	if enrolled {
+		return errCapturedDraft
+	}
 
 	workDir := filepath.Join(m.baseDir, cs.ProjectID)
 	git := newGitRunner(workDir, m.logger)
@@ -224,11 +247,18 @@ func (m *Materializer) processChangeSet(ctx context.Context, cs sqlcgen.WeaveCha
 	return nil
 }
 
-// Reconcile rebuilds a project's whole tree from current DB and commits any
-// drift. It is the backstop for the scoped hot path: a non-empty result means a
-// closure gap (logged as a warning) that this call has just healed. Runs off
-// the hot path (CLI + nightly sweep).
+// Reconcile delivers retained revisions and verifies the captured Git checkpoint
+// for enrolled projects. Missing refs can be repaired; divergent refs fail.
+// Unenrolled projects retain the legacy whole-tree drift repair. The result is
+// the number of changed files. Used by the CLI and scheduled sweep.
 func (m *Materializer) Reconcile(ctx context.Context, projectID string) (int, error) {
+	enrolled, err := m.capturedDraft(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	if enrolled {
+		return m.reconcileCaptured(ctx, projectID)
+	}
 	releaseLease, err := rebuildlease.Runtime(ctx, m.pool)
 	if err != nil {
 		return 0, err
@@ -239,6 +269,11 @@ func (m *Materializer) Reconcile(ctx context.Context, projectID string) (int, er
 		return 0, fmt.Errorf("acquire project lock %s: %w", projectID, err)
 	}
 	defer unlock()
+	if enrolled, err := m.capturedDraft(ctx, projectID); err != nil {
+		return 0, err
+	} else if enrolled {
+		return 0, fmt.Errorf("capture enabled concurrently; retry reconciliation")
+	}
 
 	workDir := filepath.Join(m.baseDir, projectID)
 	git := newGitRunner(workDir, m.logger)

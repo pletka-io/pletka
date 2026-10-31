@@ -358,9 +358,33 @@ type WeaveConceptListsArchive struct {
 	IsClosed      bool      `json:"is_closed"`
 }
 
+type WeaveDraftAudit struct {
+	ChangeSetID int64  `json:"change_set_id"`
+	ProjectID   string `json:"project_id"`
+	Revision    int64  `json:"revision"`
+	Coverage    string `json:"coverage"`
+}
+
+type WeaveDraftBaseline struct {
+	ProjectID      string    `json:"project_id"`
+	SnapshotDigest string    `json:"snapshot_digest"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 type WeaveDraftBlob struct {
 	Digest string `json:"digest"`
 	Body   []byte `json:"body"`
+}
+
+type WeaveDraftDelivery struct {
+	ProjectID      string             `json:"project_id"`
+	Revision       int64              `json:"revision"`
+	SnapshotDigest string             `json:"snapshot_digest"`
+	ParentCommit   string             `json:"parent_commit"`
+	CommitSha      string             `json:"commit_sha"`
+	TreeSha        string             `json:"tree_sha"`
+	PreparedAt     time.Time          `json:"prepared_at"`
+	AcknowledgedAt pgtype.Timestamptz `json:"acknowledged_at"`
 }
 
 type WeaveDraftEffect struct {

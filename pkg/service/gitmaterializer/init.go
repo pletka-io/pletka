@@ -28,6 +28,13 @@ func (m *Materializer) InitProject(ctx context.Context, projectID string) error 
 }
 
 func (m *Materializer) InitProjectWithOptions(ctx context.Context, projectID string, opts InitProjectOptions) error {
+	enrolled, err := m.capturedDraft(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if enrolled || opts.CaptureDraft {
+		return m.initCapturedDraft(ctx, projectID, opts.CaptureDraft)
+	}
 	releaseLease, err := rebuildlease.Runtime(ctx, m.pool)
 	if err != nil {
 		return err
@@ -40,6 +47,11 @@ func (m *Materializer) InitProjectWithOptions(ctx context.Context, projectID str
 			return fmt.Errorf("acquire project lock %s: %w", projectID, err)
 		}
 		defer unlock()
+	}
+	if enrolled, err := m.capturedDraft(ctx, projectID); err != nil {
+		return err
+	} else if enrolled {
+		return fmt.Errorf("capture enabled concurrently; retry initialization")
 	}
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return fmt.Errorf("create work dir: %w", err)

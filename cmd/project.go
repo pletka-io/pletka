@@ -28,7 +28,12 @@ their overrides) and writes them as canonical YAML into a per-project working
 tree. Produces a single "Initial import" git commit.
 
 This bypasses the change_log outbox — it is a one-shot bootstrap for a project
-that already has data in the database but has not yet been materialized to git.`,
+that already has data in the database but has not yet been materialized to git.
+
+With --capture-draft, explicitly enroll atomic mutations and publish complete
+schema3 content to refs/heads/pletka-draft. Existing HEAD, index and working files
+remain unchanged. All subsequent writes must use the capture transaction boundary.
+Already enrolled projects always resume the captured revision protocol.`,
 		Args: cobra.ExactArgs(1),
 		RunE: runInitGit,
 	}
@@ -52,7 +57,11 @@ round-trip verification work.`,
 		Long: `Rebuilds a project's entire working tree from current database state and
 commits any drift against what is already on disk. This is the off-hot-path
 backstop for the scoped materializer: a non-empty result means it just healed
-a closure gap. Safe to run repeatedly — a clean tree is a no-op.`,
+a closure gap. Safe to run repeatedly — a clean tree is a no-op.
+
+For enrolled projects, deliver retained revisions and verify refs/heads/pletka-draft.
+A missing ref is restored from its recorded checkpoint; an unexpected ref is
+refused. Reconciliation never absorbs current edits into another user's commit.`,
 		Args: cobra.ExactArgs(1),
 		RunE: runReconcile,
 	}
@@ -68,11 +77,14 @@ a closure gap. Safe to run repeatedly — a clean tree is a no-op.`,
 		"directory for the project working tree (default: ./data/git-projects/<projectID>)")
 	initGitCmd.Flags().BoolVar(&initGitSelfContained, "self-contained", false,
 		"include vendor/ snapshots for parent projects and linked ontology sources")
+	initGitCmd.Flags().BoolVar(&initGitCaptureDraft, "capture-draft", false,
+		"enroll guarded mutations and publish schema3 to refs/heads/pletka-draft; requires capture-aware writers")
 	return projectCmd
 }
 
 var initGitOutputDir string
 var initGitSelfContained bool
+var initGitCaptureDraft bool
 
 func runInitGit(cmd *cobra.Command, args []string) error {
 	projectID := args[0]
@@ -97,6 +109,7 @@ func runInitGit(cmd *cobra.Command, args []string) error {
 	mat := gitmaterializer.NewMaterializer(pool, baseDir, log)
 	if err := mat.InitProjectWithOptions(ctx, projectID, gitmaterializer.InitProjectOptions{
 		SelfContained: initGitSelfContained,
+		CaptureDraft:  initGitCaptureDraft,
 	}); err != nil {
 		return fmt.Errorf("init-git: %w", err)
 	}

@@ -397,7 +397,7 @@ func TestCaptureGuardInventoryAndHistoryProtection(t *testing.T) {
 			t.Fatalf("history guard accepted %s", statement)
 		}
 	}
-	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade retained atomic draft history") {
+	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade retained") {
 		t.Fatalf("capture downgrade guard: %v", err)
 	}
 	if _, err := s.Get(ctx, "DC", 1); err != nil {
@@ -443,5 +443,47 @@ func TestCaptureLostContextFailsBeforeWaitingOnOwner(t *testing.T) {
 	var pgerr *pgconn.PgError
 	if !errors.As(err, &pgerr) || pgerr.ConstraintName != "draft_capture_required" {
 		t.Fatalf("unscoped callback did not fail at boundary: %v", err)
+	}
+}
+
+func TestCaptureScopeVerifiesIsolationAndNestedOptions(t *testing.T) {
+	pool, _, _ := setup(t)
+	ctx := t.Context()
+	weak, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = txscope.Within(ctx, pool, weak, func(context.Context) error { t.Fatal("unverified isolation borrowed"); return nil })
+	_ = weak.Rollback(ctx)
+	if err == nil {
+		t.Fatal("read committed scope accepted")
+	}
+	owner, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Rollback(ctx) //nolint:errcheck
+	err = txscope.Within(ctx, pool, owner, func(bound context.Context) error {
+		if _, err := txscope.New(pool).BeginTx(bound, pgx.TxOptions{IsoLevel: pgx.Serializable}); err == nil {
+			t.Fatal("isolation change accepted")
+		}
+		child, err := txscope.New(pool).BeginTx(bound, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+		if err != nil {
+			return err
+		}
+		if _, err := child.Exec(bound, `INSERT INTO weave_fields(id,project_id,path_elements) VALUES('CHILD','DC','[]')`); err != nil {
+			return err
+		}
+		return child.Rollback(bound)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM weave_fields WHERE id='CHILD'`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("child rollback escaped: %d %v", count, err)
 	}
 }

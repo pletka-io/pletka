@@ -366,6 +366,7 @@ all 22captured tables, including cascades; no slice is responsible for rememberi
 to emit a complete portable patch. The existing domain audit remains an intent log.
 
 Delayed writers take retained `Receipt.Patch()` values. Global context refresh has
-its own attributed operation. Normal traffic is not enrolled until coordinated Git
-baseline and recovery support lands. See
+its own attributed operation. [Coordinated Git delivery](../reference/captured-draft-delivery.md) now owns
+baselines and recovery. Normal traffic still requires capture-aware request wiring
+and explicit enrollment. See
 [ADR-0020](../decisions/0020-draft-mutations-own-their-capture.md).

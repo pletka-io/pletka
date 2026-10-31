@@ -257,3 +257,9 @@ capture/change-log owners bind transaction scopes. Do not reconstruct a user pat
 from current fragments, bypass enrolled writes for bulk/restore, or refresh external
 policy under a user's message. See
 [ADR-0020](../../docs-oss/decisions/0020-draft-mutations-own-their-capture.md).
+
+Captured draft publication consumes retained receipts only. Enrollment in production
+code belongs to the coordinated materializer initializer; Init, Reconcile and the
+poller use one checkpoint protocol and the dedicated automation ref. Do not add a
+hot-table/current-state repair under a pending operation. See
+[ADR-0021](../../docs-oss/decisions/0021-captured-draft-git-delivery.md).

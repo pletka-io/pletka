@@ -25,6 +25,8 @@ const defaultsOntologyPrefix = "defaults"
 
 type InitProjectOptions struct {
 	SelfContained bool
+	// CaptureDraft explicitly enrolls and initializes ordered schema3 delivery.
+	CaptureDraft bool
 }
 
 type vendorState struct {

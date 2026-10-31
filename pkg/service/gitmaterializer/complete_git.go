@@ -25,30 +25,8 @@ type completeGitBlob struct {
 func readCompleteGit(ctx context.Context, git *gitRunner, rev string) (projectbundle.ImportedProject, projectbundle.Catalog, error) {
 	var empty projectbundle.ImportedProject
 	var catalog projectbundle.Catalog
-	listing, err := git.runOut(ctx, nil, "ls-tree", "-r", "-l", "-z", rev)
-	if err != nil {
-		return empty, catalog, err
-	}
 	limits := projectbundle.DefaultLimits()
-	entries := []completeGitBlob{}
-	var total int64
-	for _, entry := range strings.Split(listing, "\x00") {
-		if entry == "" {
-			continue
-		}
-		meta, path, ok := strings.Cut(entry, "\t")
-		fields := strings.Fields(meta)
-		if !ok || len(fields) != 4 || fields[1] != "blob" || (fields[0] != "100644" && fields[0] != "100755") {
-			return empty, catalog, fmt.Errorf("complete Git tree requires regular files")
-		}
-		size, err := strconv.ParseInt(fields[3], 10, 64)
-		if err != nil || size < 0 || size > limits.MaxBytes || total > limits.MaxBytes-size-int64(len(path)) || len(entries) >= limits.MaxFiles {
-			return empty, catalog, fmt.Errorf("complete Git tree exceeds input budget")
-		}
-		total += size + int64(len(path))
-		entries = append(entries, completeGitBlob{path: path, oid: fields[2], size: size})
-	}
-	files, err := readCompleteBlobs(ctx, git, entries)
+	files, err := readCompleteGitFiles(ctx, git, rev)
 	if err != nil {
 		return empty, catalog, err
 	}
@@ -60,6 +38,35 @@ func readCompleteGit(ctx context.Context, git *gitRunner, rev string) (projectbu
 	}
 	catalog, err = projectbundle.DecodeCatalog(imported.Snapshot(), overlay, limits.MaxBytes)
 	return imported, catalog, err
+}
+
+// readCompleteGitFiles loads exact bounded regular blobs without interpreting an overlay.
+func readCompleteGitFiles(ctx context.Context, git *gitRunner, rev string) (projectbundle.Files, error) {
+	listing, err := git.runOut(ctx, nil, "ls-tree", "-r", "-l", "-z", rev)
+	if err != nil {
+		return nil, err
+	}
+	limits := projectbundle.DefaultLimits()
+	entries := []completeGitBlob{}
+	var total int64
+	for _, entry := range strings.Split(listing, "\x00") {
+		if entry == "" {
+			continue
+		}
+		meta, path, ok := strings.Cut(entry, "\t")
+		fields := strings.Fields(meta)
+		if !ok || len(fields) != 4 || fields[1] != "blob" || (fields[0] != "100644" && fields[0] != "100755") {
+			return nil, fmt.Errorf("complete Git tree requires regular files")
+		}
+		size, err := strconv.ParseInt(fields[3], 10, 64)
+		if err != nil || size < 0 || size > limits.MaxBytes || total > limits.MaxBytes-size-int64(len(path)) || len(entries) >= limits.MaxFiles {
+			return nil, fmt.Errorf("complete Git tree exceeds input budget")
+		}
+		total += size + int64(len(path))
+		entries = append(entries, completeGitBlob{path: path, oid: fields[2], size: size})
+	}
+	files, err := readCompleteBlobs(ctx, git, entries)
+	return files, err
 }
 
 // One subprocess streams all pre-budgeted blobs. Git archive is unsuitable:

@@ -42,8 +42,9 @@ Global input writes cannot be hidden inside one project's mutation.
 ## Consequences and limits
 
 Enrollment is opt-in. Migration 042 enrolls nothing, and the legacy poller excludes
-enrolled projects. Coordinated baseline initialization, reconciliation, Git ref
-CAS and crash recovery must land before enabling this for normal traffic. The
+enrolled projects. Coordinated baseline initialization, reconciliation, Git ref CAS and crash recovery
+are implemented by [ADR-0021](0021-captured-draft-git-delivery.md). Capture-aware
+request writers and performance qualification remain necessary before rollout. The
 capture API supplies no automatic retry for an ambiguous client acknowledgement.
 
 The initial implementation assembles the full project per mutation and retains

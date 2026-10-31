@@ -1,7 +1,8 @@
 # Atomic draft capture
 
 `service/draftcapture` is the central mutation boundary for enrolled projects.
-It does not yet enable the schema3 draft Git writer or enroll normal API traffic.
+[Captured delivery](captured-draft-delivery.md) implements the schema3 draft Git
+writer. Normal API traffic is not enrolled automatically.
 The immutable release writer remains independent.
 
 ## Operation contract
@@ -31,7 +32,8 @@ advance commit together. Failed capture or patch validation rolls everything bac
 
 A scoped read session sees the owner's own writes and closes only its borrowed
 reader lifetime. A nested store transaction is a savepoint; it cannot commit the
-outer transaction. Nested transaction options are rejected. Override locks reuse
+outer transaction. Scope binding verifies repeatable-read isolation. Nested requests for the same
+isolation use savepoints; transaction option changes are rejected. Override locks reuse
 the owner connection and last through its commit. A context used after callback
 return, or with a different pool, rejects. Do not share a pgx transaction across
 concurrent callback goroutines. Failed operations are not retried automatically.
@@ -62,13 +64,13 @@ special bypass. Retained history has no garbage collector yet.
 
 ## Delivery boundary
 
-The legacy audit poll excludes enrolled projects. This prevents two writer
-protocols from competing, but means enrollment must wait for the coordinated new
-baseline and delivery workflow. Pending older audits, a Git commit acknowledged
-late, staged/unstaged user changes, and recovery after a failed ref update are
-requirements of that workflow, not solved by capture alone.
+The legacy draft audit poll excludes enrolled projects; their retained revisions
+are delivered by the [captured Git protocol](captured-draft-delivery.md). Release
+and release-archival jobs remain eligible. Use coordinated initialization to
+establish the baseline and explicit legacy audit coverage before normal delivery.
+The durable journal separates prepared commits, published refs and acknowledged
+revisions. Retries use exact retained inputs and never a current-state rebuild
+under the pending user's message.
 
-A full current-state rebuild must never be committed under an individual user's
-mutation message. An explicit baseline operation and a per-project revision
-checkpoint will identify the state represented in Git. See
-[ADR-0020](../decisions/0020-draft-mutations-own-their-capture.md).
+See [ADR-0020](../decisions/0020-draft-mutations-own-their-capture.md) and
+[ADR-0021](../decisions/0021-captured-draft-git-delivery.md).

@@ -10,6 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
 type key struct{}
@@ -19,7 +21,8 @@ type scope struct {
 	closed atomic.Bool
 }
 
-// Within binds tx for the callback only. The caller owns commit/rollback. A
+// Within verifies repeatable-read isolation and binds tx for the callback only.
+// The caller owns commit/rollback. A
 // different pool or nested owner fails; nested stores use Begin savepoints.
 func Within(ctx context.Context, pool *pgxpool.Pool, tx pgx.Tx, fn func(context.Context) error) error {
 	if pool == nil || tx == nil || fn == nil {
@@ -27,6 +30,13 @@ func Within(ctx context.Context, pool *pgxpool.Pool, tx pgx.Tx, fn func(context.
 	}
 	if ctx.Value(key{}) != nil {
 		return fmt.Errorf("transaction scope already has an owner")
+	}
+	isolation, err := sqlcgen.New(tx).WeaveTransactionIsolation(ctx)
+	if err != nil {
+		return err
+	}
+	if isolation != "repeatable read" {
+		return fmt.Errorf("transaction scope requires repeatable read")
 	}
 	s := &scope{pool: pool, tx: tx}
 	defer func() { s.closed.Store(true) }()
@@ -96,7 +106,8 @@ func (d *DB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 // Begin starts a child savepoint when scoped, otherwise a pool transaction.
 func (d *DB) Begin(ctx context.Context) (pgx.Tx, error) { return d.BeginTx(ctx, pgx.TxOptions{}) }
 
-// BeginTx starts a pool transaction; scoped calls require zero options and use a savepoint.
+// BeginTx starts a pool transaction. Scoped calls use a savepoint; an explicit
+// repeatable-read request matches the verified owner, while changes are rejected.
 func (d *DB) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
 	tx, scoped, err := Current(ctx, d.pool)
 	if err != nil {
@@ -105,7 +116,7 @@ func (d *DB) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
 	if !scoped {
 		return d.pool.BeginTx(ctx, opts)
 	}
-	if opts != (pgx.TxOptions{}) {
+	if opts != (pgx.TxOptions{}) && opts != (pgx.TxOptions{IsoLevel: pgx.RepeatableRead}) {
 		return nil, fmt.Errorf("nested store cannot change transaction options")
 	}
 	return tx.Begin(ctx)

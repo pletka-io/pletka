@@ -304,3 +304,16 @@ func loadSnapshot(ctx context.Context, q *sqlcgen.Queries, digest string) (proje
 	}
 	return value.Snapshot(), nil
 }
+
+// Baseline returns the retained enrollment snapshot, regardless of later edits.
+func (s *Service) Baseline(ctx context.Context, project string) (projectsnapshot.CompleteProject, error) {
+	if s == nil || s.pool == nil {
+		return projectsnapshot.CompleteProject{}, fmt.Errorf("draft capture is not configured")
+	}
+	q := sqlcgen.New(s.pool)
+	row, err := q.WeaveDraftBaseline(ctx, project)
+	if err != nil {
+		return projectsnapshot.CompleteProject{}, err
+	}
+	return loadSnapshot(ctx, q, row.SnapshotDigest)
+}
