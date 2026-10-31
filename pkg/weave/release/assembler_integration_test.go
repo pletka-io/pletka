@@ -182,6 +182,7 @@ func TestProjectAssemblerLosslessPagesAndCutParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkCompleteBundle(t, before)
 	compareEntityAssembly(ctx, t, pool, project, auth.Draft(), before)
 	beforeID, err := before.Root()
 	if err != nil {
@@ -213,6 +214,7 @@ func TestProjectAssemblerLosslessPagesAndCutParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkCompleteBundle(t, released)
 	compareEntityAssembly(ctx, t, regional, project, auth.Release("9.0.1"), released)
 	releasedID, err := released.Root()
 	if err != nil {
@@ -262,6 +264,7 @@ func TestProjectAssemblerPreservesLegacySourceEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkCompleteBundle(t, value)
 	id, err := value.Root()
 	if err != nil {
 		t.Fatal(err)

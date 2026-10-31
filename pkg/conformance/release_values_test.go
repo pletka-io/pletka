@@ -21,7 +21,7 @@ func TestPortableReleaseValuesHaveNoRuntimeCapabilities(t *testing.T) {
 		"github.com/pletka-io/pletka/pkg/releasecontent":    true,
 		"github.com/pletka-io/pletka/pkg/releasedescriptor": true,
 	}
-	for _, dir := range []string{"ontologyartifact", "ontologyevidence", "releasecontent", "releasedescriptor", "namespace", "projectsnapshot"} {
+	for _, dir := range []string{"ontologyartifact", "ontologyevidence", "releasecontent", "releasedescriptor", "namespace", "projectsnapshot", "projectbundle"} {
 		for _, path := range goFilesUnder(t, filepath.Join(repoRoot(t), "pkg", dir)) {
 			if strings.HasSuffix(path, "_test.go") {
 				continue
@@ -37,7 +37,8 @@ func TestPortableReleaseValuesHaveNoRuntimeCapabilities(t *testing.T) {
 				}
 				// The namespace helper uses only pure values and an internal mutex.
 				namespaceHelper := dir == "namespace" && (name == "sort" || name == "errors" || name == "sync")
-				if !allowed[name] && !namespaceHelper {
+				bundleHelper := dir == "projectbundle" && (name == "unicode/utf8" || name == "github.com/pletka-io/pletka/pkg/projectsnapshot")
+				if !allowed[name] && !namespaceHelper && !bundleHelper {
 					t.Errorf("%s imports %s outside the pure release value boundary", path, name)
 				}
 			}

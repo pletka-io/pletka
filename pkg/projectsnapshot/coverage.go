@@ -15,7 +15,7 @@ type Section struct {
 }
 
 const (
-	pendingPortable = "pending: canonical encoding and restore (S4)"
+	portableEncoding = "projectbundle schema3 encoding/decoding; storage restore pending S4"
 )
 
 // Coverage returns fresh section/column mappings. The reviewed capture ledger and
@@ -30,7 +30,7 @@ func Coverage() []Section {
 			Columns:     []string{columnProjectID, columnContextEntityType, columnContextEntityID, columnEntityType, columnSourceProjectID, columnSourceEntityID, columnSourceVersion, "adopted_at", columnCreatedByID, columnVersionNumber},
 			JSONColumns: []string{},
 			Loader:      "readsession.ContentReader.ContentAdoptions",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_categories_archive",
@@ -40,7 +40,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, columnCreatedAt, columnUpdatedAt, columnSemanticID, columnSystemName, columnUIName, columnDescription, columnStatus, columnProjectID, "canonical_order", columnDeprecated, columnVersionNumber},
 			JSONColumns: []string{columnUIName, columnDescription},
 			Loader:      "readsession.ContentReader.ContentCategories",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_collection_placements_archive",
@@ -50,7 +50,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, columnProjectID, "model_id", columnCategoryID, "collection_id", "is_required", "min_occurs", "max_occurs", "is_hidden", columnCreatedAt, columnUpdatedAt, columnVersionNumber},
 			JSONColumns: []string{},
 			Loader:      "override.Reader.ContentPlacements",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_collections_archive",
@@ -60,7 +60,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, columnCreatedAt, columnUpdatedAt, columnSystemName, columnUIName, columnDescription, columnStatus, columnProjectID, columnOntologyScope, "collection_number", "canonical_collection_order", columnStagingID, columnDeprecated, "default_category_id", columnVersionNumber},
 			JSONColumns: []string{columnUIName, columnDescription, columnOntologyScope},
 			Loader:      "collection.Reader.ContentCollections",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        sectionConceptBroader,
@@ -70,7 +70,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, "concept_id", "broader_id", "scheme_id", columnPosition, columnVersionNumber, columnCreatedAt},
 			JSONColumns: []string{},
 			Loader:      "vocabulary.ContentReader.ContentBroader",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        sectionConceptListEntries,
@@ -80,7 +80,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, "concept_list_id", "vocabulary_entry_id", columnPosition, "custom_label", columnCreatedAt, columnUpdatedAt, columnVersionNumber},
 			JSONColumns: []string{"custom_label"},
 			Loader:      "vocabulary.ContentReader.ContentConceptEntries",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_concept_lists_archive",
@@ -90,7 +90,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, columnCreatedAt, columnUpdatedAt, columnSemanticID, columnSystemName, columnUIName, columnDescription, columnStatus, columnProjectID, "list_type", columnVocabularyID, columnVersionNumber, "is_closed"},
 			JSONColumns: []string{columnUIName, columnDescription},
 			Loader:      "vocabulary.ContentReader.ContentConceptLists",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_entity_forks_archive",
@@ -100,7 +100,7 @@ func Coverage() []Section {
 			Columns:     []string{columnProjectID, columnEntityType, columnForkEntityID, columnSourceProjectID, columnSourceEntityID, columnSourceVersion, "forked_at", columnCreatedByID, columnVersionNumber},
 			JSONColumns: []string{},
 			Loader:      "readsession.ContentReader.ContentForks",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        sectionExampleValues,
@@ -110,7 +110,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, columnExampleID, columnOverrideID, columnFieldID, columnPartOfCollectionID, "occurrence_index", "value_kind", "value_payload", "text_value", "number_value", "date_value", "uri_value", "concept_uri", columnLinkedExampleID, "slot_path", columnCreatedAt, columnUpdatedAt, columnVersionNumber},
 			JSONColumns: []string{"value_payload"},
 			Loader:      "example.ContentReader.ContentExampleValues",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_examples_archive",
@@ -120,7 +120,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, columnProjectID, columnEntityType, columnEntityID, "title", columnDescription, columnStatus, columnCreatedAt, columnUpdatedAt, columnVersionNumber},
 			JSONColumns: []string{"title", columnDescription},
 			Loader:      "example.ContentReader.ContentExamples",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        sectionFieldOverrides,
@@ -130,7 +130,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, columnFieldID, columnProjectID, columnEntityType, columnEntityID, columnPosition, "collection_order", "display_name", columnDescription, "collection_name", columnCategoryID, columnPartOfCollectionID, "expected_value_type", "set_value", "is_required", "min_occurs", "max_occurs", "is_hidden", "visibility", columnStagingID, columnCreatedAt, columnUpdatedAt, "content_hash", columnVersionNumber, columnSetValueEntryID},
 			JSONColumns: []string{"display_name", columnDescription, "collection_name"},
 			Loader:      "override.Reader.ContentOverrides",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_fields_archive",
@@ -140,7 +140,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, columnCreatedAt, columnUpdatedAt, columnSemanticID, columnSystemName, columnUIName, columnDescription, columnStatus, columnProjectID, columnOntologyScope, "ontology_path", "path_elements", "expected_value_type", "examples", columnStagingID, columnDeprecated, columnVersionNumber, "subfield_paths"},
 			JSONColumns: []string{columnUIName, columnDescription, columnOntologyScope, "path_elements", "examples", "subfield_paths"},
 			Loader:      "readsession.ContentReader.ContentFields",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_models_archive",
@@ -150,7 +150,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, columnCreatedAt, columnUpdatedAt, columnSystemName, columnUIName, columnDescription, columnStatus, columnProjectID, columnOntologyScope, columnStagingID, columnDeprecated, columnVersionNumber, "model_type"},
 			JSONColumns: []string{columnUIName, columnDescription, columnOntologyScope},
 			Loader:      "readsession.ContentReader.ContentModels",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        sectionReleaseNamespaceBindings,
@@ -160,7 +160,7 @@ func Coverage() []Section {
 			Columns:     []string{columnReleaseProjectID, columnVersionNumber, columnID, columnCreatedAt, columnUpdatedAt, "airtable_raw", "airtable_context", "airtable_ref", columnSemanticID, "long_semantic_id", columnSystemName, columnUIName, columnDescription, "uri", columnProjectID, "prefix", "namespace", "weight", "source", "ontology_id"},
 			JSONColumns: []string{"airtable_raw", "airtable_context", columnUIName, columnDescription},
 			Loader:      "readsession.ContentReader.ContentNamespaces",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        sectionOverrideRefs,
@@ -170,7 +170,7 @@ func Coverage() []Section {
 			Columns:     []string{columnOverrideID, columnRefType, "target_id", columnSemanticID, columnPosition, columnProjectID, columnVersionNumber},
 			JSONColumns: []string{},
 			Loader:      "override.Reader.ContentOverrideRefs",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_project_actors_archive",
@@ -180,7 +180,7 @@ func Coverage() []Section {
 			Columns:     []string{columnProjectID, columnActorID, "role", columnCreatedAt, columnVersionNumber},
 			JSONColumns: []string{},
 			Loader:      "readsession.ContentReader.ContentProjectActors",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_project_attributions_archive",
@@ -190,7 +190,7 @@ func Coverage() []Section {
 			Columns:     []string{columnProjectID, columnActorID, "kind", columnPosition, "note", columnCreatedAt, columnVersionNumber},
 			JSONColumns: []string{},
 			Loader:      "readsession.ContentReader.ContentAttributions",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_project_inheritance_archive",
@@ -200,7 +200,7 @@ func Coverage() []Section {
 			Columns:     []string{columnProjectID, columnParentProjectID, "is_primary", "canonical_order", "adopted_at", columnVersionNumber, "source_mode", columnSourceVersion},
 			JSONColumns: []string{},
 			Loader:      "readsession.ContentReader.ContentInheritance",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_project_ontology_versions_archive",
@@ -210,7 +210,7 @@ func Coverage() []Section {
 			Columns:     []string{columnProjectID, "ontology_version_id", "added_at", "added_by_id", "is_primary", "usage_notes", columnVersionNumber},
 			JSONColumns: []string{},
 			Loader:      "readsession.ContentReader.ContentOntologyLinks",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        sectionProjects,
@@ -220,7 +220,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, columnCreatedAt, columnUpdatedAt, columnSystemName, columnUIName, columnDescription, columnStatus, "namespace", columnParentProjectID, columnStagingID, columnOwnerID, "visibility", columnDeprecated, "license", "readme", "topics", "base_url", columnCreatedByID, columnVersionNumber, "concept_namespace", "effective_concept_namespace", "enforce_concept_lists"},
 			JSONColumns: []string{columnUIName, columnDescription, "readme"},
 			Loader:      "readsession.ContentReader.ContentProjects",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        "weave_vocabularies_archive",
@@ -230,7 +230,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, columnProjectID, columnSemanticID, columnSystemName, columnUIName, columnDescription, columnStatus, "connector_type", "base_uri", "config", columnDeprecated, columnCreatedAt, columnUpdatedAt, columnVersionNumber},
 			JSONColumns: []string{columnUIName, columnDescription, "config"},
 			Loader:      "vocabulary.ContentReader.ContentVocabularies",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 		{
 			Name:        sectionVocabularyEntries,
@@ -240,7 +240,7 @@ func Coverage() []Section {
 			Columns:     []string{columnID, columnVocabularyID, "uri", "label", "scope_note", "broader_uri", "broader_path", "broader_path_items", "external_id", columnCreatedAt, columnUpdatedAt, columnVersionNumber},
 			JSONColumns: []string{"label", "scope_note", "broader_path", "broader_path_items"},
 			Loader:      "vocabulary.ContentReader.ContentVocabularyEntries",
-			Portable:    pendingPortable,
+			Portable:    portableEncoding,
 		},
 	}
 }

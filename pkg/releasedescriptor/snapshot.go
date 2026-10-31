@@ -44,6 +44,22 @@ func (s Snapshot) ProjectID() string { return s.doc.ProjectID }
 // Version returns its release identity, or empty for an explicitly bound draft.
 func (s Snapshot) Version() string { return s.doc.Version }
 
+// Document returns a detached portable representation of this context. Every
+// actor and module is retained, including entries not used by a presentation.
+func (s Snapshot) Document() Document {
+	d := s.doc
+	d.Actors = make(map[string]Actor, len(s.doc.Actors))
+	for id, actor := range s.doc.Actors {
+		d.Actors[id] = actor
+	}
+	d.ProjectModules = make(map[string]string, len(s.doc.ProjectModules))
+	for id, module := range s.doc.ProjectModules {
+		d.ProjectModules[id] = module
+	}
+	d.OntologyModules = s.OntologyModules()
+	return d
+}
+
 // UnavailableError reports missing historical evidence, without live substitution.
 type UnavailableError struct{ ProjectID, Version string }
 
