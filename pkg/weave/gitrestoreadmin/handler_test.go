@@ -212,3 +212,7 @@ func (stubRunner) HydrateOverrides(ctx context.Context, plan *gitmaterializer.Re
 func (stubRunner) HydrateProvenance(ctx context.Context, plan *gitmaterializer.RestorePlan) error {
 	return nil
 }
+
+func (r stubRunner) HydrateComplete(ctx context.Context, plan *gitmaterializer.RestorePlan) error {
+	return nil
+}

@@ -96,12 +96,17 @@ func TestServiceRun(t *testing.T) {
 // (before vendored, not merely before overrides), released only once
 // provenance has run.
 type orderRecordingRunner struct {
-	calls *[]string
+	complete bool
+	calls    *[]string
 }
 
 func (r orderRecordingRunner) Prepare(rootDir, targetProjectID string) (*gitmaterializer.RestorePlan, error) {
 	*r.calls = append(*r.calls, "prepare")
-	return &gitmaterializer.RestorePlan{ProjectID: targetProjectID}, nil
+	plan := &gitmaterializer.RestorePlan{ProjectID: targetProjectID}
+	if r.complete {
+		plan.Complete = &gitmaterializer.CompleteRestore{}
+	}
+	return plan, nil
 }
 func (r orderRecordingRunner) HydrateVendored(ctx context.Context, plan *gitmaterializer.RestorePlan) error {
 	*r.calls = append(*r.calls, "vendored")
@@ -205,5 +210,26 @@ func TestServiceCreate_BlocksUnsafeRetarget(t *testing.T) {
 	}
 	if fields := ve.ValidationFields(); len(fields["target_project_id"]) == 0 {
 		t.Fatalf("expected target_project_id validation, got %#v", fields)
+	}
+}
+
+func (r orderRecordingRunner) HydrateComplete(ctx context.Context, plan *gitmaterializer.RestorePlan) error {
+	*r.calls = append(*r.calls, "complete")
+	return nil
+}
+
+func TestServiceRunCompleteUsesOneAtomicRunner(t *testing.T) {
+	store := &stubStore{get: &Job{ID: "job-1", SnapshotPath: "/tmp/snapshot", TargetProjectID: "TPC", Status: JobStatusPending, Preview: &PreviewResult{ProjectID: "TPC", PreservesHistory: true}}}
+	var calls []string
+	svc := NewService(store, nil, orderRecordingRunner{calls: &calls, complete: true}, nil)
+	job, err := svc.Run(context.Background(), "job-1")
+	if err != nil || job.Status != JobStatusCompleted {
+		t.Fatalf("complete import failed: %v", err)
+	}
+	if len(calls) != 2 || calls[0] != "prepare" || calls[1] != "complete" {
+		t.Fatalf("nested lock or legacy phase used: %v", calls)
+	}
+	if !retargetUnsupported(job.Preview, "other") {
+		t.Fatal("complete history retarget permitted")
 	}
 }

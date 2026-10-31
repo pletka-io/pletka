@@ -1071,6 +1071,13 @@ type WeaveProjectSemanticReference struct {
 	Reference     json.RawMessage `json:"reference"`
 }
 
+type WeaveProjectWorkspaceImport struct {
+	ProjectID           string    `json:"project_id"`
+	Digest              string    `json:"digest"`
+	ImportedAt          time.Time `json:"imported_at"`
+	DetachedStagingRefs int64     `json:"detached_staging_refs"`
+}
+
 type WeaveProjectsArchive struct {
 	ID                        string          `json:"id"`
 	CreatedAt                 time.Time       `json:"created_at"`
@@ -1139,6 +1146,14 @@ type WeaveReleaseDescriptor struct {
 	ProjectID     string          `json:"project_id"`
 	VersionNumber string          `json:"version_number"`
 	Document      json.RawMessage `json:"document"`
+}
+
+type WeaveReleaseImport struct {
+	ProjectID     string          `json:"project_id"`
+	VersionNumber string          `json:"version_number"`
+	Document      json.RawMessage `json:"document"`
+	ImportedAt    time.Time       `json:"imported_at"`
+	ImportXid     interface{}     `json:"import_xid"`
 }
 
 type WeaveReleaseMetadataFence struct {

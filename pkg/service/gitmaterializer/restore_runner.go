@@ -40,6 +40,9 @@ func (m *Materializer) HydrateRestorePlan(ctx context.Context, plan *RestorePlan
 	if plan == nil {
 		return fmt.Errorf("hydrate restore plan: missing plan")
 	}
+	if plan.Complete != nil {
+		return m.HydrateCompleteRestore(ctx, plan)
+	}
 	projectID := strings.TrimSpace(plan.ProjectID)
 	if projectID == "" {
 		return fmt.Errorf("hydrate restore plan: missing project id")
@@ -92,6 +95,13 @@ func (m *Materializer) HydrateVendored(ctx context.Context, plan *RestorePlan) e
 }
 
 func PrepareRestorePlan(rootDir, targetProjectID string) (*RestorePlan, error) {
+	schema, err := projectFileSchema(rootDir)
+	if err != nil {
+		return nil, err
+	}
+	if schema == 3 {
+		return prepareCompleteRestore(rootDir, strings.TrimSpace(targetProjectID))
+	}
 	snapshot, err := LoadProjectSnapshot(rootDir)
 	if err != nil {
 		if strings.TrimSpace(targetProjectID) == "" {

@@ -37,11 +37,8 @@ func Restore(ctx context.Context, pool *pgxpool.Pool, artifacts []Artifact) (err
 			err = &restoreConflict{cause: err}
 		}
 	}()
-	q := sqlcgen.New(tx)
-	for _, a := range ordered {
-		if err := q.WeaveRestoreOntologyArtifact(ctx, sqlcgen.WeaveRestoreOntologyArtifactParams{Artifact: a.JSON, Digest: a.Digest}); err != nil {
-			return err
-		}
+	if err := restoreOrdered(ctx, tx, ordered); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }
@@ -108,4 +105,23 @@ func orderArtifacts(artifacts []Artifact) ([]Artifact, error) {
 		}
 	}
 	return out, nil
+}
+
+// RestoreTx restores exact publications inside the caller's repeatable-read
+// transaction. The caller owns commit/rollback; no active policy is selected.
+func RestoreTx(ctx context.Context, tx pgx.Tx, artifacts []Artifact) error {
+	ordered, err := orderArtifacts(artifacts)
+	if err != nil {
+		return err
+	}
+	return restoreOrdered(ctx, tx, ordered)
+}
+func restoreOrdered(ctx context.Context, tx pgx.Tx, ordered []Artifact) error {
+	q := sqlcgen.New(tx)
+	for _, a := range ordered {
+		if err := q.WeaveRestoreOntologyArtifact(ctx, sqlcgen.WeaveRestoreOntologyArtifactParams{Artifact: a.JSON, Digest: a.Digest}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

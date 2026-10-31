@@ -3,6 +3,7 @@ package gitmaterializer
 import "sort"
 
 type RestorePreview struct {
+	PreservesHistory     bool                          `json:"preserves_history,omitempty"`
 	SnapshotPath         string                        `json:"snapshot_path"`
 	ProjectID            string                        `json:"project_id"`
 	ModulePath           string                        `json:"module_path,omitempty"`
@@ -31,6 +32,11 @@ type RestorePreviewOntology struct {
 }
 
 type RestorePreviewCounts struct {
+	Examples            int `json:"examples"`
+	Vocabularies        int `json:"vocabularies"`
+	ConceptLists        int `json:"concept_lists"`
+	Placements          int `json:"placements"`
+	Credits             int `json:"credits"`
 	Categories          int `json:"categories"`
 	Fields              int `json:"fields"`
 	Models              int `json:"models"`
@@ -51,11 +57,14 @@ type RestorePreviewOperationStat struct {
 }
 
 func PreviewRestoreSnapshot(rootDir string) (*RestorePreview, error) {
-	snapshot, err := LoadProjectSnapshot(rootDir)
+	plan, err := PrepareRestorePlan(rootDir, "")
 	if err != nil {
 		return nil, err
 	}
-	return BuildRestorePreview(snapshot, BuildRestorePlan(snapshot)), nil
+	if plan.Complete != nil {
+		return completeRestorePreview(plan)
+	}
+	return BuildRestorePreview(plan.Snapshot, plan), nil
 }
 
 func BuildRestorePreview(snapshot *ProjectSnapshot, plan *RestorePlan) *RestorePreview {

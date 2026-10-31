@@ -72,6 +72,7 @@ func TestProjectAssemblerOntologySelectionSharesSnapshotWithContent(t *testing.T
 	}
 	checkCompleteBundle(t, value)
 	checkCompleteBundle(t, released)
+	checkHistoryImport(ctx, t, pool, released)
 	id, err := value.Root()
 	if err != nil {
 		t.Fatal(err)
@@ -157,8 +158,14 @@ func TestProjectOntologyLinkActorMigrationDoesNotInventHistory(t *testing.T) {
 	ctx, pool, svc := seedLegacyRebuild(t, false)
 	db := stdlib.OpenDB(*pool.Config().ConnConfig)
 	defer db.Close()
-	if err := database.MigrateDown(db); err != nil {
+	latest, err := database.LatestMigrationVersion()
+	if err != nil {
 		t.Fatal(err)
+	}
+	for version := latest; version >= 40; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
 	}
 	mustExec(t, pool, `INSERT INTO weave_actors(id,type,slug,display_name) VALUES ('legacy-link-author','person','author','Historical author')`)
 	mustExec(t, pool, `UPDATE weave_project_ontology_versions SET added_by_id='legacy-link-author'`)

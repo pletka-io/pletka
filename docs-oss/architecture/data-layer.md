@@ -393,8 +393,9 @@ and unresolved assessments without reparsing RDF, changing active policy or
 issuing publication/completion markers. `Factory.ReadImported` reads only this
 retained imported evidence by exact origin and digest; local release readers
 remain separate. Project/module schema 2 transports the snapshot in a fixed file.
-This is an ontology transport guarantee; complete structural project restore
-remains pending. See [ADR-0018](../decisions/0018-transported-ontology-evidence-keeps-its-origin.md).
+This is an ontology transport guarantee; complete project restore uses the
+separate migration041 path below. See
+[ADR-0018](../decisions/0018-transported-ontology-evidence-keeps-its-origin.md).
 
 Migration 038 avoids reparsing full ontology bodies for each term and repeated
 reference. Capture builds a compact matching inventory once and assesses each
@@ -409,3 +410,19 @@ imports. Invalid evidence rolls back before an import key is retained. Capture
 and import reuse the same reference normalization and matching projection. The
 downgrade guard also protects exact transported body text from older capture
 functions that would normalize it.
+
+Migration 041 restores complete schema3 project history with immutable import
+provenance. `projectrestore.Restore` owns root-first advisory locks and one
+repeatable-read transaction across ontology helpers, original source/root archives
+and working copies. Named queries invoke storage functions that check original
+receipt hashes, typed row equality, source/evidence closure and finalization before
+commit. JSON columns travel as nullable JSON text so SQL NULL and JSON null remain
+distinct. Imported finalization retains historical descriptors instead of reading
+today's actor profiles or hot project rows. Existing local capture checks remain.
+
+Normal bound archive readers load imported releases. `Session.Origin` exposes the
+local import event separately from the original capture receipt and frozen export
+bytes. Exact retries preserve later draft edits; different existing targets fail.
+Draft status, staging attachments, current global/default policy and sequence
+behavior are specified in
+[ADR-0019](../decisions/0019-imported-project-history-keeps-its-origin.md).
