@@ -142,7 +142,7 @@ func TestProjectValuesCoverEveryReviewedColumnAndPreserveTypes(t *testing.T) {
 	}
 }
 
-func TestOnlyAssemblerConstructsCompleteProjectValues(t *testing.T) {
+func TestOnlyAssemblerAndPortableDecoderConstructCompleteProjectValues(t *testing.T) {
 	root := repoRoot(t)
 	for _, path := range goFilesUnder(t, root) {
 		rel := mustRel(t, root, path)
@@ -173,6 +173,11 @@ func TestOnlyAssemblerConstructsCompleteProjectValues(t *testing.T) {
 		}
 		ast.Inspect(file, func(n ast.Node) bool {
 			if selector, ok := n.(*ast.SelectorExpr); ok && (selector.Sel.Name == "NewComplete" || selector.Sel.Name == "NewFragment") {
+				// The pure format-3 decoder reconstructs untrusted imported values
+				// through the same structural checks, never a storage certificate.
+				if rel == "pkg/projectbundle/decode.go" && selector.Sel.Name == "NewComplete" {
+					return true
+				}
 				if name, ok := selector.X.(*ast.Ident); ok && aliases[name.Name] {
 					t.Errorf("%s constructs complete content outside assembly", rel)
 				}

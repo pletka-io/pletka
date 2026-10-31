@@ -70,6 +70,8 @@ func TestProjectAssemblerOntologySelectionSharesSnapshotWithContent(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkCompleteBundle(t, value)
+	checkCompleteBundle(t, released)
 	id, err := value.Root()
 	if err != nil {
 		t.Fatal(err)

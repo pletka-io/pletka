@@ -125,6 +125,10 @@ func loadProjectSnapshot(rootDir string, includeVendor bool) (*ProjectSnapshot, 
 		return nil, fmt.Errorf("load project manifest: %w", err)
 	}
 
+	if manifest.SchemaVersion != 1 && manifest.SchemaVersion != 2 {
+		return nil, fmt.Errorf("unsupported legacy project schema %d; complete snapshots require LoadCompleteProjectBundle", manifest.SchemaVersion)
+	}
+
 	mod, err := readOptionalYAMLFile[PletkaModFile](filepath.Join(rootDir, "pletka.mod"))
 	if err != nil {
 		return nil, fmt.Errorf("load pletka.mod: %w", err)

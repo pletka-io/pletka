@@ -4,14 +4,17 @@
 assembler in [ADR-0012](../decisions/0012-whole-project-reads-belong-to-an-assembler.md).
 Its construction, field coverage and complete-project database assembly through
 `pkg/service/projectread` are implemented, including bounded entity loading and
-pure contextual composition. Git encoding/restore and generator wiring follow
-separately. Existing export DTOs do not become complete by wrapping them.
+pure contextual composition. The [portable codec](project-bundle-format.md) now
+encodes and decodes all captured values; storage restore, Git writer migration
+and generator wiring follow separately. Existing export DTOs do not become complete by wrapping them.
 
 ## Construction
 
-Only assembly infrastructure constructs `CompleteProject`. The conformance guard
-allows `NewComplete` and `NewFragment` in this package and `pkg/service/projectread`, with test-only
-fixtures exempt. Consumers receive the finished value. Its zero value is invalid;
+Assembly infrastructure constructs `CompleteProject`. The conformance guard
+allows `NewComplete` and `NewFragment` in this package and `pkg/service/projectread`,
+with test-only fixtures exempt. The pure `projectbundle/decode.go` also calls
+`NewComplete` to validate imported values, returned as `ImportedProject`; it
+cannot create a locally certified release. Consumers receive the finished value. Its zero value is invalid;
 `EntityFragment` is a different type and cannot satisfy a complete-project API.
 These are value contracts, not an authentication or database provenance mechanism.
 The bound assembler must authorize sources and load every input on one session.
@@ -44,8 +47,8 @@ schema model. All 272 current archive columns are retained; there are no additio
 value-level exclusions. JSON validation covers every byte column, checked by the
 same ratchet. Do not mechanically regenerate the capture ledger from these values.
 
-Each section names its implemented bound loader; portable encoding/restore remains
-pending. The [assembly bindings](../../pkg/service/projectread/coverage.go)
+Each section names its implemented bound loader and portable codec. Storage
+restoration remains a separate S4 gate. The [assembly bindings](../../pkg/service/projectread/coverage.go)
 register all 22 sections, including tables, owning slice, mapper files and queries.
 Eleven sections use collection, override, vocabulary and example readers. Eleven
 use temporary session adapters with named replacement APIs and S6 removal tasks.
@@ -181,4 +184,6 @@ field parity, same-session consistency during edits, concrete transitive source
 isolation, authorization, legacy/published evidence separation, bounded/complete
 fragment parity and detached composition after closing the database pool.
 The older PostgreSQL value fixture remains a separate constructor compatibility
-check; consumer migrations and portable round-tripping still need their own proof.
+check. Database-backed bundle tests now compare every captured row and its
+interpretation evidence after portable round-tripping, including published and
+legacy source graphs. Storage restoration and consumer migrations remain pending.
