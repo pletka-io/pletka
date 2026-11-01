@@ -3,6 +3,7 @@ package projectsnapshot
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -36,7 +37,6 @@ type graph struct {
 }
 
 type project struct {
-	data         string
 	evidence     Evidence
 	dependencies []Identity
 	members      map[localKey]Identity
@@ -49,7 +49,7 @@ type nodeKey struct {
 	section, key string
 }
 type record struct {
-	data   string
+	data   []byte
 	fields map[string]json.RawMessage
 }
 
@@ -94,29 +94,20 @@ func (g *graph) addProject(in ProjectInput) error {
 	if in.Counts == nil || in.Dependencies == nil || in.Membership == nil {
 		return fmt.Errorf("project coverage and dependency inventories must be loaded")
 	}
-	data, err := json.Marshal(in.Content)
-	if err != nil {
-		return fmt.Errorf("detach project content: %w", err)
-	}
-	var sections map[string][]json.RawMessage
-	if err := json.Unmarshal(data, &sections); err != nil {
-		return err
-	}
-	if len(in.Counts) != len(Coverage()) || len(sections) != len(Coverage()) {
+	if len(in.Counts) != len(Coverage()) {
 		return fmt.Errorf("project section coverage differs from value contract")
 	}
-	p := &project{data: string(data), evidence: in.Evidence, dependencies: slices.Clone(in.Dependencies), members: map[localKey]Identity{}, rows: map[string][]nodeKey{}}
-	counts := make(map[string]int64, len(sections))
-	for _, section := range Coverage() {
-		rows := sections[section.Name]
+	p := &project{evidence: in.Evidence, dependencies: slices.Clone(in.Dependencies), members: map[localKey]Identity{}, rows: map[string][]nodeKey{}}
+	counts := make(map[string]int64, len(in.Counts))
+	if err := visitContent(&in.Content, func(section Section, rows reflect.Value) error {
 		count, ok := in.Counts[section.Name]
-		if rows == nil || !ok || count != int64(len(rows)) {
+		if rows.IsNil() || !ok || count != int64(rows.Len()) {
 			return fmt.Errorf("section %s is unloaded or truncated", section.Name)
 		}
 		counts[section.Name] = count
-		if err := g.addRows(id, p, section, rows); err != nil {
-			return err
-		}
+		return g.addRows(id, p, section, rows)
+	}); err != nil {
+		return err
 	}
 	if len(in.Content.Projects) != 1 || in.Content.Projects[0].ID != id.project {
 		return fmt.Errorf("project metadata is absent or belongs to another project")
@@ -279,9 +270,7 @@ func (c CompleteProject) Content(id Identity) (Content, error) {
 	if c.graph == nil || c.graph.projects[id] == nil {
 		return Content{}, fmt.Errorf("project is outside complete value")
 	}
-	var data Content
-	err := json.Unmarshal([]byte(c.graph.projects[id].data), &data)
-	return data, err
+	return c.graph.content(id, nil)
 }
 
 // Evidence returns only the selected project's immutable interpretation context.
@@ -305,13 +294,12 @@ func (c CompleteProject) Namespaces(id Identity) (namespace.Registry, error) {
 	return namespace.NewRegistry(bindings), nil
 }
 
-func (g *graph) addRows(id Identity, p *project, section Section, rows []json.RawMessage) error {
-	for _, raw := range rows {
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &fields); err != nil {
+func (g *graph) addRows(id Identity, p *project, section Section, rows reflect.Value) error {
+	for i := range rows.Len() {
+		r, err := freezeRow(rows.Index(i))
+		if err != nil {
 			return err
 		}
-		r := record{data: string(raw), fields: fields}
 		if err := r.checkJSON(section); err != nil {
 			return err
 		}

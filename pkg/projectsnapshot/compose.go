@@ -123,7 +123,7 @@ func (f EntityFragment) contextGroup(context Identity, groups map[groupKey]*Cont
 			return nil, err
 		}
 		g.Category = &CategoryRecord{}
-		if err := json.Unmarshal([]byte(f.graph.nodes[node].data), g.Category); err != nil {
+		if err := json.Unmarshal(f.graph.nodes[node].data, g.Category); err != nil {
 			return nil, err
 		}
 		g.CategorySource = node.source
@@ -134,7 +134,7 @@ func (f EntityFragment) contextGroup(context Identity, groups map[groupKey]*Cont
 			return nil, err
 		}
 		g.Collection = &CollectionRecord{}
-		if err := json.Unmarshal([]byte(f.graph.nodes[node].data), g.Collection); err != nil {
+		if err := json.Unmarshal(f.graph.nodes[node].data, g.Collection); err != nil {
 			return nil, err
 		}
 		g.CollectionSource = node.source
@@ -161,7 +161,7 @@ func (f EntityFragment) composeField(context Identity, o OverrideRecord, base ma
 		return ContextField{}, err
 	}
 	field := ContextField{Source: EntityKey{Source: node.source, Kind: kindField, ID: o.FieldID}, Override: o, Effective: o, Refs: []ContextRef{}}
-	if err := json.Unmarshal([]byte(f.graph.nodes[node].data), &field.Body); err != nil {
+	if err := json.Unmarshal(f.graph.nodes[node].data, &field.Body); err != nil {
 		return ContextField{}, err
 	}
 	// Existing resolution takes type from the body and all display/cardinality
@@ -211,7 +211,7 @@ func (f EntityFragment) composeRef(context Identity, r OverrideRefRecord) (Conte
 	var name struct {
 		UIName []byte `json:"ui_name"`
 	}
-	if err := json.Unmarshal([]byte(f.graph.nodes[node].data), &name); err != nil {
+	if err := json.Unmarshal(f.graph.nodes[node].data, &name); err != nil {
 		return ContextRef{}, err
 	}
 	ref.Name = name.UIName
@@ -219,7 +219,7 @@ func (f EntityFragment) composeRef(context Identity, r OverrideRefRecord) (Conte
 		return ref, nil
 	}
 	var list ConceptListRecord
-	if err := json.Unmarshal([]byte(f.graph.nodes[node].data), &list); err != nil {
+	if err := json.Unmarshal(f.graph.nodes[node].data, &list); err != nil {
 		return ContextRef{}, err
 	}
 	ref.IsClosed = list.IsClosed
@@ -237,7 +237,7 @@ func (f EntityFragment) composeRef(context Identity, r OverrideRefRecord) (Conte
 			return ContextRef{}, err
 		}
 		choice := ConceptChoice{Membership: member, Source: EntityKey{Source: entry.source, Kind: kindVocabularyEntry, ID: member.VocabularyEntryID}}
-		if err := json.Unmarshal([]byte(f.graph.nodes[entry].data), &choice.Entry); err != nil {
+		if err := json.Unmarshal(f.graph.nodes[entry].data, &choice.Entry); err != nil {
 			return ContextRef{}, err
 		}
 		ref.Concepts = append(ref.Concepts, choice)

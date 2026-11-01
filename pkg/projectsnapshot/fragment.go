@@ -1,7 +1,6 @@
 package projectsnapshot
 
 import (
-	"encoding/json"
 	"fmt"
 )
 
@@ -177,23 +176,7 @@ func (f EntityFragment) Content(id Identity) (Content, error) {
 	if f.graph == nil || !f.projects[id] {
 		return Content{}, fmt.Errorf("project is outside entity fragment")
 	}
-	sections := map[string][]json.RawMessage{}
-	for _, section := range Coverage() {
-		rows := []json.RawMessage{}
-		for _, key := range f.graph.projects[id].rows[section.Name] {
-			if f.selected[key] {
-				rows = append(rows, json.RawMessage(f.graph.nodes[key].data))
-			}
-		}
-		sections[section.Name] = rows
-	}
-	raw, err := json.Marshal(sections)
-	if err != nil {
-		return Content{}, err
-	}
-	var content Content
-	err = json.Unmarshal(raw, &content)
-	return content, err
+	return f.graph.content(id, func(key nodeKey) bool { return f.selected[key] })
 }
 
 // Evidence retains the selected project's original interpretation context. It

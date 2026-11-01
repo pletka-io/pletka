@@ -1,8 +1,8 @@
 package projectsnapshot
 
 import (
-	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 )
@@ -54,22 +54,13 @@ func (s Selection) Include(kind, id string) (bool, error) {
 // field/override requests may be absent; final graph validation applies the stale
 // value exception only when either body is absent.
 func RequiredEntities(c Content) (Selection, error) {
-	raw, err := json.Marshal(c)
-	if err != nil {
-		return nil, err
-	}
-	var sections map[string][]json.RawMessage
-	if err := json.Unmarshal(raw, &sections); err != nil {
-		return nil, err
-	}
 	out := Selection{}
-	for _, section := range Coverage() {
-		for _, data := range sections[section.Name] {
-			var fields map[string]json.RawMessage
-			if err := json.Unmarshal(data, &fields); err != nil {
-				return nil, err
+	err := visitContent(&c, func(section Section, rows reflect.Value) error {
+		for i := range rows.Len() {
+			r, err := freezeRow(rows.Index(i))
+			if err != nil {
+				return err
 			}
-			r := record{fields: fields}
 			refs := r.references(section.Name)
 			if selectable(section.Kind) {
 				refs = append(refs, reference{kind: section.Kind, column: columnID})
@@ -104,10 +95,14 @@ func RequiredEntities(c Content) (Selection, error) {
 					continue
 				}
 				if _, err := out.Include(ref.kind, id); err != nil {
-					return nil, err
+					return err
 				}
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }

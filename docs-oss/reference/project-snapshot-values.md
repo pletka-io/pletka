@@ -67,8 +67,14 @@ and `Date` preserve text and infinities. Database loaders emit finite timestamps
 as UTC `YYYY-MM-DDTHH:MM:SS.ffffffZ` and dates as `YYYY-MM-DD`, with a ` BC` suffix
 for years before the common era. These projections do not depend on session
 timezone or `DateStyle`. These scalar types do not infer or repair historical defaults.
-The private JSON/base64 buffer freeze is an implementation detail, not a wire
-format or a replacement for canonical node serialization.
+The private JSON/base64 row freeze is an implementation detail, not a wire
+format or a replacement for canonical node serialization. A central codec visits
+the typed `Content` fields against `Coverage()` and rejects a missing, duplicate
+or mismatched section. Construction retains owned row buffers and their field
+indexes; it does not retain a second whole-project JSON envelope. Getters decode
+rows directly into detached typed sections. Fragment selection, closure discovery
+and draft patching use the same codec, including exact byte comparison for patch
+preconditions. Semantic validation still receives every selected section.
 
 Input pointers/bytes and returned content are detached. Project and fragment
 identity lists have stable ordering. Row arrays preserve the supplied order;

@@ -426,8 +426,14 @@ func TestCapturedDraftUpgradeKeepsOriginalBaselineAndAuditCoverage(t *testing.T)
 	defer db.Close()
 	// Create the actual pre-delivery state, where capture existed without a Git
 	// baseline or exact audit-to-revision links.
-	if err := database.MigrateDown(db); err != nil {
+	latest, err := database.LatestMigrationVersion()
+	if err != nil {
 		t.Fatal(err)
+	}
+	for version := latest; version > 42; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
 	}
 	baseline, err := f.capture.Enroll(ctx, "CG")
 	if err != nil {

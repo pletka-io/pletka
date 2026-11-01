@@ -68,8 +68,8 @@ func pathElements(raw []byte) ([]json.RawMessage, error) {
 
 func (g *graph) checkInterpretation(id Identity) error {
 	p := g.projects[id]
-	var content Content
-	if err := json.Unmarshal([]byte(p.data), &content); err != nil {
+	content, err := g.content(id, nil)
+	if err != nil {
 		return err
 	}
 	elements, err := SemanticElements(content)

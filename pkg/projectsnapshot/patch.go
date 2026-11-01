@@ -1,6 +1,7 @@
 package projectsnapshot
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -102,7 +103,7 @@ func patchRows(base CompleteProject, patch DraftPatch) (Content, map[string]int6
 	}
 	for key, row := range before {
 		old, exists := base.graph.nodes[key]
-		if !exists || old.data != row.data {
+		if !exists || !bytes.Equal(old.data, row.data) {
 			return Content{}, nil, fmt.Errorf("patch before row differs from baseline in %s (%s)", key.section, key.key)
 		}
 	}
@@ -140,44 +141,34 @@ func patchRows(base CompleteProject, patch DraftPatch) (Content, map[string]int6
 		}
 		sections[section.Name], counts[section.Name] = rows, int64(len(rows))
 	}
-	raw, err := json.Marshal(sections)
-	if err != nil {
-		return Content{}, nil, err
-	}
-	var content Content
-	err = json.Unmarshal(raw, &content)
+	content, err := decodeContent(func(section string) []json.RawMessage { return sections[section] })
 	return content, counts, err
 }
 
 func patchRecords(id Identity, content Content) (map[nodeKey]record, error) {
-	raw, err := json.Marshal(content)
-	if err != nil {
-		return nil, err
-	}
-	var sections map[string][]json.RawMessage
-	if err := json.Unmarshal(raw, &sections); err != nil {
-		return nil, err
-	}
 	out := map[nodeKey]record{}
-	for _, section := range Coverage() {
-		for _, raw := range sections[section.Name] {
-			var fields map[string]json.RawMessage
-			if err := json.Unmarshal(raw, &fields); err != nil {
-				return nil, err
+	err := visitContent(&content, func(section Section, rows reflect.Value) error {
+		for i := range rows.Len() {
+			row, err := freezeRow(rows.Index(i))
+			if err != nil {
+				return err
 			}
-			row := record{data: string(raw), fields: fields}
 			if err := row.checkJSON(section); err != nil {
-				return nil, err
+				return err
 			}
 			key, err := row.key(id, section)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			if _, duplicate := out[key]; duplicate {
-				return nil, fmt.Errorf("duplicate patch row in %s", section.Name)
+				return fmt.Errorf("duplicate patch row in %s", section.Name)
 			}
 			out[key] = row
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }

@@ -59,6 +59,15 @@ avoiding a combined copy for every reference. Both registries remain complete;
 conflicting aliases still produce ambiguity. Allocation profiles should distinguish
 these temporary copies from retained graph memory and serialized-byte budgets.
 
+Structural snapshot freezing serializes each typed row once and owns that buffer
+privately. Complete and fragment getters decode rows directly without assembling
+or storing another whole-project JSON envelope. The shared codec checks every
+section against the coverage registry; input and output pointers/bytes remain
+independent, including during concurrent reads. Removing whole-project copies
+reduces temporary allocation but does not bound ontology decoding, graph indexes,
+database transport or buffered export memory. Measure cumulative allocation and
+peak RSS separately after any codec change.
+
 Captured dependency reads validate the complete source closure, current source
 authorization and every member's source pin before checking archived bodies.
 One query per nonempty retained inventory finds the first missing member in

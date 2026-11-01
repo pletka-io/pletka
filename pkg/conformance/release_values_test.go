@@ -38,10 +38,17 @@ func TestPortableReleaseValuesHaveNoRuntimeCapabilities(t *testing.T) {
 				// The namespace helper uses only pure values and an internal mutex.
 				namespaceHelper := dir == "namespace" && (name == "sort" || name == "errors" || name == "sync")
 				bundleHelper := dir == "projectbundle" && (name == "unicode/utf8" || name == "github.com/pletka-io/pletka/pkg/projectsnapshot")
-				// The pure patcher compares all fields of opaque retained evidence,
-				// including future additions, without exposing reflection to callers.
-				patchEquality := dir == "projectsnapshot" && filepath.Base(path) == "patch.go" && name == "reflect"
-				if !allowed[name] && !namespaceHelper && !bundleHelper && !patchEquality {
+				// The row codec visits every typed section against Coverage; patching
+				// also compares all fields of opaque retained evidence. Reflection
+				// stays private and adds no runtime I/O or lookup capability.
+				valueReflection := false
+				if dir == "projectsnapshot" && name == "reflect" {
+					switch filepath.Base(path) {
+					case "rows.go", "project.go", "selection.go", "patch.go":
+						valueReflection = true
+					}
+				}
+				if !allowed[name] && !namespaceHelper && !bundleHelper && !valueReflection {
 					t.Errorf("%s imports %s outside the pure release value boundary", path, name)
 				}
 			}
