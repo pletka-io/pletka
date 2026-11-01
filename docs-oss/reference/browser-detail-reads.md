@@ -61,8 +61,9 @@ The existing SKOS exporter combines selected list entries with live hierarchy
 edges. Release detail pages therefore omit its link until that exporter consumes
 retained input. Its working-view link remains available.
 
-Project-page summaries, credits, ontology summaries and paginated inventories
-remain separate migrations. List pages must use bounded scoped queries, not a
+Project-page metadata, credits and ontology summaries now use their own
+[bounded summary input](project-summary-reads.md). Paginated inventories and
+adoption closure remain separate migrations. List pages must use bounded scoped queries, not a
 complete-project capture. The temporary session-bound field-usage facet should
 move into the field reader when that slice's remaining ordinary operations are
 converted. Large-project performance qualification and capture-aware mutation

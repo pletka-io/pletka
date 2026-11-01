@@ -478,3 +478,9 @@ same transaction. Neither a fragment's row count nor a separate live lookup can
 substitute for that aggregate. The `readsession/browser.go` binding is registered
 with the query-access ratchet; its draft/archive SQL facets remain separate.
 See [browser detail reads](../reference/browser-detail-reads.md).
+
+Project page summaries use bound aggregate queries, archived credit descriptors
+and compact projections of immutable ontology evidence. Header and summary source
+operations close their session before rendering. Draft references are batched and
+matched against each exact source body; release usage comes from retained evidence.
+See [project summaries](../reference/project-summary-reads.md).

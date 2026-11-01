@@ -26,7 +26,6 @@ import (
 	"github.com/pletka-io/pletka/pkg/service/projectread"
 	"github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/actorlabels"
-	"github.com/pletka-io/pletka/pkg/weave/attribution"
 	"github.com/pletka-io/pletka/pkg/weave/detailview"
 	"github.com/pletka-io/pletka/pkg/weave/field"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
@@ -126,14 +125,13 @@ func buildSweepRouter(t *testing.T, pool *pgxpool.Pool) http.Handler {
 	// equivalent chain (auth.WithProjectVersionContext ->
 	// auth.RequireProjectRead -> auth.ResolveContentVersion).
 	projectpage.Mount(router, projectpage.Host{
-		Logger:           slog.Default(),
-		Weave:            weaveStore,
-		LinkedOntologies: sweepLinkedOntologies{},
-		Releases:         release.NewService(release.NewPostgresStore(pool), pool, slog.Default()),
-		Attributions:     attribution.NewPostgresStore(pool),
-		ActorLabels:      actorlabels.NewPostgresReader(pool),
-		I18n:             i18nMgr,
-		Publication:      pub,
+		Logger:      slog.Default(),
+		Weave:       weaveStore,
+		Source:      source,
+		Releases:    release.NewService(release.NewPostgresStore(pool), pool, slog.Default()),
+		ActorLabels: actorlabels.NewPostgresReader(pool),
+		I18n:        i18nMgr,
+		Publication: pub,
 	})
 
 	// search surface: search.Mount installs its own equivalent chain
@@ -146,15 +144,6 @@ func buildSweepRouter(t *testing.T, pool *pgxpool.Pool) http.Handler {
 	})
 
 	return router
-}
-
-// sweepLinkedOntologies is a no-op stand-in for projectpage.LinkedOntologyReader
-// — the page-schema handler only needs the interface satisfied, not real
-// ontology linkage data, to prove version threading.
-type sweepLinkedOntologies struct{}
-
-func (sweepLinkedOntologies) LinkedOntologies(context.Context, string) ([]domain.LinkedOntology, error) {
-	return nil, nil
 }
 
 func newSweepI18n(t *testing.T) i18n.Manager {

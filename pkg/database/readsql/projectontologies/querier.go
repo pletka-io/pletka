@@ -10,6 +10,10 @@ import (
 )
 
 type Querier interface {
+	BrowserMatchOntologyReferences(ctx context.Context, arg BrowserMatchOntologyReferencesParams) ([]BrowserMatchOntologyReferencesRow, error)
+	BrowserOntologyUsage(ctx context.Context, arg BrowserOntologyUsageParams) ([]BrowserOntologyUsageRow, error)
+	BrowserOwnOntologySummaries(ctx context.Context, arg BrowserOwnOntologySummariesParams) ([]BrowserOwnOntologySummariesRow, error)
+	BrowserSummaryEvidence(ctx context.Context, arg BrowserSummaryEvidenceParams) (bool, error)
 	ProjectOntologyArtifacts(ctx context.Context, arg ProjectOntologyArtifactsParams) ([]ProjectOntologyArtifactsRow, error)
 	ProjectOntologyInventory(ctx context.Context, arg ProjectOntologyInventoryParams) (bool, error)
 	ProjectOntologyReferences(ctx context.Context, arg ProjectOntologyReferencesParams) (json.RawMessage, error)

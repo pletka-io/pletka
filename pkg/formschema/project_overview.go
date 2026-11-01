@@ -41,10 +41,13 @@ type ProjectOverviewItem struct {
 	// Per-kind usage counters for the "ontologies" widget. Renders as
 	// "Classes 4/20 | Properties 10/50" — used count out of total. Set
 	// only on ontology rows; other widgets ignore them.
-	ClassesUsed     int `json:"classes_used,omitempty"`
-	ClassesTotal    int `json:"classes_total,omitempty"`
-	PropertiesUsed  int `json:"properties_used,omitempty"`
-	PropertiesTotal int `json:"properties_total,omitempty"`
+	SourceURL        string             `json:"source_url,omitempty"`
+	UsageNote        domain.Localizable `json:"usage_note,omitempty"`
+	UsageUnavailable bool               `json:"usage_unavailable,omitempty"`
+	ClassesUsed      int                `json:"classes_used,omitempty"`
+	ClassesTotal     int                `json:"classes_total,omitempty"`
+	PropertiesUsed   int                `json:"properties_used,omitempty"`
+	PropertiesTotal  int                `json:"properties_total,omitempty"`
 
 	// URL turns the item's value into an anchor. Used by the
 	// "info-sidebar" widget to render quick-link items that jump
@@ -57,14 +60,16 @@ type ProjectOverviewItem struct {
 
 // OntologyInfo holds display data for a project's linked ontology version.
 type OntologyInfo struct {
-	Name           string        `json:"name"`
-	Version        string        `json:"version"`
-	URI            string        `json:"uri"`
-	ClassCount     int           `json:"class_count"`
-	PropertyCount  int           `json:"property_count"`
-	ClassesUsed    int           `json:"classes_used"`
-	PropertiesUsed int           `json:"properties_used"`
-	Origin         domain.Origin `json:"origin"`
+	SourceURL        string
+	UsageUnavailable bool          `json:"usage_unavailable,omitempty"`
+	Name             string        `json:"name"`
+	Version          string        `json:"version"`
+	URI              string        `json:"uri"`
+	ClassCount       int           `json:"class_count"`
+	PropertyCount    int           `json:"property_count"`
+	ClassesUsed      int           `json:"classes_used"`
+	PropertiesUsed   int           `json:"properties_used"`
+	Origin           domain.Origin `json:"origin"`
 }
 
 // CreditsGroup is one kind-bucket (Authors / Funders / Adopters) on
@@ -186,16 +191,24 @@ func BuildProjectOverviewSchema(
 				}
 			}
 			ontoItems = append(ontoItems, ProjectOverviewItem{
-				Label:           domain.Translations{"en": o.Name},
-				Value:           o.Version,
-				Subline:         subline,
-				ClassesUsed:     o.ClassesUsed,
-				ClassesTotal:    o.ClassCount,
-				PropertiesUsed:  o.PropertiesUsed,
-				PropertiesTotal: o.PropertyCount,
-				Icon:            "cube",
-				Color:           "indigo",
-				Origin:          o.Origin,
+				Label:     domain.Translations{"en": o.Name},
+				Value:     o.Version,
+				Subline:   subline,
+				SourceURL: o.SourceURL,
+				UsageNote: func() domain.Localizable {
+					if o.UsageUnavailable {
+						return i18n.L("project_overview.usage_unavailable", "Usage unavailable for unresolved legacy references")
+					}
+					return nil
+				}(),
+				UsageUnavailable: o.UsageUnavailable,
+				ClassesUsed:      o.ClassesUsed,
+				ClassesTotal:     o.ClassCount,
+				PropertiesUsed:   o.PropertiesUsed,
+				PropertiesTotal:  o.PropertyCount,
+				Icon:             "cube",
+				Color:            "indigo",
+				Origin:           o.Origin,
 			})
 		}
 		sections = append(sections, ProjectOverviewSection{

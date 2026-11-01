@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -10,16 +11,25 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/browserinput"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/frontendrefs"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/session"
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
+	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	weaveroutes "github.com/pletka-io/pletka/pkg/weave/routes"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
 )
 
+// HeaderSource returns detached selected metadata for a project shell.
+type HeaderSource interface {
+	Header(context.Context, auth.ReadScope, string) (browserinput.ProjectHeader, error)
+}
+
 // Host is the narrow dependency surface needed to mount project shell pages.
 type Host struct {
+	Source   HeaderSource
 	Logger   *slog.Logger
 	Renderer *weavetemplates.Renderer
 	Weave    domain.WeaveStore
@@ -36,6 +46,9 @@ type Host struct {
 }
 
 func (h Host) Validate() error {
+	if h.Source == nil {
+		return fmt.Errorf("project pages host missing bounded header source")
+	}
 	if h.Renderer == nil {
 		return fmt.Errorf("project pages host missing renderer")
 	}
@@ -58,6 +71,7 @@ func (h Host) logger() *slog.Logger {
 // ProjectPages renders the parallel chi-first schema-driven island wrappers.
 // Only formschema/page-schema based islands belong here.
 type ProjectPages struct {
+	source        HeaderSource
 	logger        *slog.Logger
 	renderer      *weavetemplates.Renderer
 	weave         domain.WeaveStore
@@ -73,6 +87,7 @@ func NewProjectPages(
 	i18nManager i18n.Manager,
 	sessionManager *session.Manager,
 	latestRelease auth.LatestReleaseReader,
+	source HeaderSource,
 ) *ProjectPages {
 	return &ProjectPages{
 		logger:        logger,
@@ -81,6 +96,7 @@ func NewProjectPages(
 		i18n:          i18nManager,
 		session:       sessionManager,
 		latestRelease: latestRelease,
+		source:        source,
 	}
 }
 
@@ -96,6 +112,7 @@ func Mount(r chi.Router, host Host) error {
 		host.I18n,
 		host.Session,
 		host.LatestRelease,
+		host.Source,
 	).Mount(r)
 	return nil
 }
@@ -151,13 +168,41 @@ func (h *ProjectPages) ProjectDetailPage(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	projectName := project.UIName.Get(lang, project.ID)
 	schemaURL := "/projects/" + project.ID + "/page-schema"
 	version, err := auth.ResolveProjectVersion(ctx, h.latestRelease, project, r.URL.Query().Get("version"))
 	if err != nil {
 		h.renderer.RespondInternalError(w, r, h.renderer.ErrorContext(r, lang), err)
 		return
 	}
+	scope := auth.Draft()
+	if version != "" {
+		scope = auth.Release(version)
+	}
+	if h.source == nil {
+		errresp.Internal(w, r, fmt.Errorf("project page requires bounded header source"))
+		return
+	}
+	if !auth.FromContext(ctx).Can(auth.ProjectRead, auth.ProjectResource(project), nil) {
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
+		return
+	}
+	header, err := h.source.Header(ctx, scope, project.ID)
+	if err == nil && (header.Record.ID != project.ID || header.Record.VersionNumber != version) {
+		err = fmt.Errorf("project header returned a different selection")
+	}
+	if err == nil {
+		project, err = header.Project()
+	}
+	if err != nil {
+		e := apierror.FromError(err)
+		if e.Code == apierror.CodeInternal {
+			errresp.Internal(w, r, err)
+		} else {
+			errresp.Error(w, r, e.Status, string(e.Code), e.Message)
+		}
+		return
+	}
+	projectName := project.UIName.Get(lang, project.ID)
 	if version != "" {
 		schemaURL += "?version=" + url.QueryEscape(version)
 	}

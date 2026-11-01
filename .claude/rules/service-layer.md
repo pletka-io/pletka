@@ -246,6 +246,10 @@ its own complete validation contract before it may produce this evidence.
   DTOs for raw editing data, or inferring inverse usage from a partial fragment.
   Use the mandatory bounded source and its same-session aggregate; see
   [browser detail reads](../../docs-oss/reference/browser-detail-reads.md).
+- Project-page schemas reading display metadata from the auth context or loading
+  a whole project for counts. Use the mandatory bounded summary/header source;
+  keep current permissions separate. See
+  [project summaries](../../docs-oss/reference/project-summary-reads.md).
 - A handler emitting `http.Error`/`http.NotFound` instead of `weaverouter.Error`/`apierror.Write`
 - A read method outside a `Reader` in a versioned slice
 - A SQL string literal outside named `.sql` files under `pkg/database/queries/` — see `database-patterns.md`

@@ -56,8 +56,10 @@ consumer context. New clients should use the project-qualified routes.
 
 These routes migrate generator selection and browser derivative links. Browser
 detail content now uses its [own bounded raw projection](browser-detail-reads.md).
-Project summaries and paginated inventories remain separate migrations. List
-pages must use bounded scoped queries rather than loading an entire project.
+Project metadata, credits and ontology summaries use a
+[bounded summary input](project-summary-reads.md). Paginated inventories and
+adoption closure remain separate migrations; list pages must use bounded scoped
+queries rather than loading an entire project.
 No Lua runtime or draft-capture enrollment is enabled by this change.
 
 See [the generator boundary decision](../decisions/0022-generators-consume-detached-inputs.md)

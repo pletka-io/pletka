@@ -13,11 +13,17 @@ import (
 // The browser's projection and all its shared helpers are value-only. New
 // request, session or store access belongs in the source or capability layer.
 func TestBrowserProjectionOnlyImportsValues(t *testing.T) {
+	checkBrowserProjection(t, "detailview")
+	checkBrowserProjection(t, "projectpage")
+}
+
+func checkBrowserProjection(t *testing.T, pkg string) {
+	t.Helper()
 	allowed := map[string]bool{"encoding/json": true, "fmt": true, "net/url": true, "slices": true, "sort": true, "strings": true, "time": true}
-	for _, suffix := range []string{"browserinput", "domain", "projectsnapshot", "i18n"} {
+	for _, suffix := range []string{"browserinput", "domain", "projectsnapshot", "i18n", "formschema"} {
 		allowed["github.com/pletka-io/pletka/pkg/"+suffix] = true
 	}
-	for _, file := range goFilesUnder(t, filepath.Join(repoRoot(t), "pkg/weave/detailview")) {
+	for _, file := range goFilesUnder(t, filepath.Join(repoRoot(t), "pkg/weave", pkg)) {
 		if !strings.HasPrefix(filepath.Base(file), "projection") || strings.HasSuffix(file, "_test.go") {
 			continue
 		}

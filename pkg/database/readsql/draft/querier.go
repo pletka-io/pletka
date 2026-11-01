@@ -6,10 +6,16 @@ package draft
 
 import (
 	"context"
+	"encoding/json"
 )
 
 type Querier interface {
 	BrowserFieldUsage(ctx context.Context, arg BrowserFieldUsageParams) (BrowserFieldUsageRow, error)
+	BrowserMatchOntologyReferences(ctx context.Context, arg BrowserMatchOntologyReferencesParams) ([]BrowserMatchOntologyReferencesRow, error)
+	BrowserOntologyReferences(ctx context.Context, projectID string) ([]json.RawMessage, error)
+	BrowserOwnOntologySummaries(ctx context.Context, arg BrowserOwnOntologySummariesParams) ([]BrowserOwnOntologySummariesRow, error)
+	BrowserProjectCounts(ctx context.Context, projectID string) (BrowserProjectCountsRow, error)
+	BrowserProjectCredits(ctx context.Context, arg BrowserProjectCreditsParams) ([]BrowserProjectCreditsRow, error)
 	CollectionCategories(ctx context.Context, projectID string) ([]CollectionCategoriesRow, error)
 	CollectionCounts(ctx context.Context, arg CollectionCountsParams) ([]CollectionCountsRow, error)
 	CollectionScopeClasses(ctx context.Context, projectID string) ([]string, error)

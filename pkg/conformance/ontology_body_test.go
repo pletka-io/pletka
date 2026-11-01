@@ -23,7 +23,7 @@ func TestOntologyReleaseReaderHasOnlyPublishedCapability(t *testing.T) {
 
 func TestProjectOntologyReaderHasOnlyCapturedCapability(t *testing.T) {
 	checkOntologyCapability(t, "readsession/ontologies.go", "read_project_ontologies",
-		[]string{"weave_releases", "weave_release_ontology_dependencies", "weave_ontology_releases", "weave_project_ontology_versions_archive", "weave_release_ontology_references"},
+		[]string{"weave_releases", "weave_release_ontology_dependencies", "weave_ontology_releases", "weave_project_ontology_versions_archive", "weave_release_ontology_references", "weave_legacy_ontology_snapshots"},
 		[]string{"project_id = @project_id", "version_number = @version"})
 }
 
@@ -97,7 +97,7 @@ func checkOntologyCapability(t *testing.T, reader, queries string, tablesAllowed
 			t.Errorf("%s contains a write", path)
 		}
 		for _, match := range tables.FindAllStringSubmatch(sql, -1) {
-			if !slices.Contains(tablesAllowed, match[1]) {
+			if !slices.Contains(tablesAllowed, match[1]) && !declaredReadAlias(sql, match[1]) {
 				t.Errorf("%s reads mutable table %s", path, match[1])
 			}
 		}
@@ -115,4 +115,12 @@ func TestLegacyOntologySnapshotReaderHasOnlyRetainedCapability(t *testing.T) {
 
 func TestImportedOntologySnapshotReaderHasOnlyRetainedCapability(t *testing.T) {
 	checkOntologyCapability(t, "ontologysnapshot/imported_reader.go", "read_imported_ontology_snapshot", []string{"weave_imported_legacy_ontology_snapshots"}, []string{"project_id = @project_id", "version_number = @version", "digest = @digest"})
+}
+
+// CTE aliases and the built-in array expansion are not mutable relation reads.
+func declaredReadAlias(sql, name string) bool {
+	if name == "unnest" && regexp.MustCompile(`(?i)(?:FROM|JOIN)\s+unnest\s*\(`).MatchString(sql) {
+		return true
+	}
+	return regexp.MustCompile(`(?i)(?:WITH|,)\s+` + regexp.QuoteMeta(name) + `\s+AS\s*\(`).MatchString(sql)
 }

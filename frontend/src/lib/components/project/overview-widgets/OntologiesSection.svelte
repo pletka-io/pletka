@@ -25,7 +25,7 @@
               {/if}
               {#if inheritedFrom}
                 <a
-                  href={`/projects/${inheritedFrom}`}
+                  href={onto.source_url}
                   class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100"
                   title="Inherited from {inheritedFrom}"
                 >
@@ -33,16 +33,19 @@
                 </a>
               {/if}
             </div>
+            {#if onto.usage_note}
+              <div class="text-xs text-gray-500 mt-0.5">{tr(onto.usage_note, lang)}</div>
+            {/if}
             {#if onto.subline}
               <div class="text-xs text-gray-500 mt-0.5 break-all font-mono">{onto.subline}</div>
             {/if}
           </div>
           <div class="flex-shrink-0 flex items-baseline gap-3 text-xs text-gray-500">
             {#if onto.classes_total !== undefined && onto.classes_total > 0}
-              <span><span class="font-medium text-gray-700">{onto.classes_used ?? 0}/{onto.classes_total}</span> classes</span>
+              <span><span class="font-medium text-gray-700">{#if !onto.usage_unavailable}{onto.classes_used ?? 0}/{/if}{onto.classes_total}</span> classes</span>
             {/if}
             {#if onto.properties_total !== undefined && onto.properties_total > 0}
-              <span><span class="font-medium text-gray-700">{onto.properties_used ?? 0}/{onto.properties_total}</span> properties</span>
+              <span><span class="font-medium text-gray-700">{#if !onto.usage_unavailable}{onto.properties_used ?? 0}/{/if}{onto.properties_total}</span> properties</span>
             {/if}
           </div>
         </div>

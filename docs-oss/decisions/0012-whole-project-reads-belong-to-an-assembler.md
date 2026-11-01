@@ -153,7 +153,13 @@ session, not inferred from a partial fragment. Current access and action policy
 remain outside the pure projection. Consumer composition and source definition
 are explicit, with pinned source links and no empty-result fallback. Existing UI
 schemas remain in use. See the [browser contract](../reference/browser-detail-reads.md)
-for operational surfaces and remaining summary/list migrations.
+for operational surfaces and remaining inventory/closure migrations.
+
+Project page/overview schemas and HTML headers now use a separate
+[bounded summary/header source](../reference/project-summary-reads.md). It returns
+owned aggregates, retained credits and compact ontology metadata on one session;
+it never assembles the whole project or loads full ontology bodies. Current
+authorization remains separate from captured display data.
 
 ## Original decision (2026-10-23; qualified by the amendment)
 

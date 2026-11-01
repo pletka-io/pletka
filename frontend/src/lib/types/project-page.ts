@@ -225,6 +225,9 @@ export interface ProjectOverviewItem {
   /** Optional sub-line rendered below the main label/value (ontologies widget). */
   subline?: string;
   /** Per-kind usage counters (ontologies widget — used vs total). */
+  source_url?: string;
+  usage_note?: Translations;
+  usage_unavailable?: boolean;
   classes_used?: number;
   classes_total?: number;
   properties_used?: number;

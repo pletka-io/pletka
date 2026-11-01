@@ -382,3 +382,10 @@ its own attributed operation. [Coordinated Git delivery](../reference/captured-d
 baselines and recovery. Normal traffic still requires capture-aware request wiring
 and explicit enrollment. See
 [ADR-0020](../decisions/0020-draft-mutations-own-their-capture.md).
+
+Project pages require the browser summary/header source, preserving the existing
+schema builders while separating selected display metadata from current access
+policy. Counts, credit actors and ontology summaries share one read session.
+The pure overview projection has no handler/store capability; adoption closure
+and paginated inventories remain separate conversions. See
+[project summaries](../reference/project-summary-reads.md).

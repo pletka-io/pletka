@@ -294,6 +294,7 @@ func buildProjectPagesHost(
 	i18nManager i18n.Manager,
 	sessionManager *session.Manager,
 	publicationReader *publication.Reader,
+	source weavepages.HeaderSource,
 ) weavepages.Host {
 	return weavepages.Host{
 		Logger:        logger,
@@ -302,6 +303,7 @@ func buildProjectPagesHost(
 		I18n:          i18nManager,
 		Session:       sessionManager,
 		LatestRelease: publicationReader,
+		Source:        source,
 	}
 }
 
@@ -419,36 +421,23 @@ func buildProjectPageHost(
 	pool *pgxpool.Pool,
 	weave domain.WeaveStore,
 	logger *slog.Logger,
-	changeLog domain.ChangeLogRunner,
 	languages []formschema.LanguageInfo,
 	langResolver projectpage.LangResolver,
 	i18nManager i18n.Manager,
-	ontologyReader projectontologyversion.OntologyReader,
-	ontologyVersionReader projectontologyversion.OntologyVersionReader,
 	publicationReader *publication.Reader,
-	examplesMaxNestingDepth int,
 	releases projectpage.ReleaseReader,
+	source projectpage.Source,
 ) projectpage.Host {
-	povSvc := projectontologyversion.NewService(
-		projectontologyversion.NewPostgresStore(pool),
-		weave.Projects(),
-		ontologyReader,
-		ontologyVersionReader,
-		logger,
-		changeLog,
-	)
 	return projectpage.Host{
-		Logger:           logger,
-		Weave:            weave,
-		LinkedOntologies: povSvc,
-		Releases:         releases,
-		Examples:         example.NewService(example.NewPostgresStore(pool), weave, example.WithMaxNestingDepth(examplesMaxNestingDepth)),
-		Attributions:     attribution.NewPostgresStore(pool),
-		ActorLabels:      actorlabels.NewPostgresReader(pool),
-		Languages:        languages,
-		LangResolver:     langResolver,
-		I18n:             i18nManager,
-		Publication:      publicationReader,
+		Logger:       logger,
+		Weave:        weave,
+		Source:       source,
+		Releases:     releases,
+		ActorLabels:  actorlabels.NewPostgresReader(pool),
+		Languages:    languages,
+		LangResolver: langResolver,
+		I18n:         i18nManager,
+		Publication:  publicationReader,
 	}
 }
 

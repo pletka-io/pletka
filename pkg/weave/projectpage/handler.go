@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/browserinput"
 	pkgdomain "github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
@@ -23,47 +24,26 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/release"
 )
 
-// LinkedOntologyReader is the cross-slice reader for "what ontology
-// versions does this project have linked", populated with names + version
-// strings + class/property counts. Satisfied by
-// projectontologyversion.Service in production; stubbed in tests.
-//
-// The interface lives here (not on pkg/domain) so projectpage owns its
-// own narrow contract rather than dragging in the larger slice surface.
-type LinkedOntologyReader interface {
-	LinkedOntologies(ctx context.Context, projectID string) ([]pkgdomain.LinkedOntology, error)
-}
-
 type ReleaseReader interface {
 	ListByProject(ctx context.Context, projectID string) ([]release.Release, error)
 }
 
-type ExampleReader interface {
-	List(ctx context.Context, scope auth.ReadScope, projectID string, opts ...pkgdomain.QueryOption) ([]*pkgdomain.Example, int64, error)
-}
-
-// AttributionReader is the narrow read surface projectpage uses to
-// fold project credits into the overview schema. Satisfied by the
-// attribution slice's Store (and any test fake). Lives here for the
-// same reason as LinkedOntologyReader above — projectpage owns its
-// own narrow contract per ADR-0001.
-type AttributionReader interface {
-	ListForProject(ctx context.Context, projectID string) ([]pkgdomain.Attribution, error)
+// Source returns all display content after closing its bound read session.
+type Source interface {
+	Summary(context.Context, auth.ReadScope, string) (browserinput.ProjectSummary, error)
 }
 
 type LangResolver func(*http.Request) string
 
 type Host struct {
-	Logger           *slog.Logger
-	Weave            pkgdomain.WeaveStore
-	LinkedOntologies LinkedOntologyReader
-	Releases         ReleaseReader
-	Examples         ExampleReader
-	Attributions     AttributionReader
-	ActorLabels      actorlabels.Reader
-	Languages        []formschema.LanguageInfo
-	LangResolver     LangResolver
-	I18n             i18n.Manager
+	Logger       *slog.Logger
+	Weave        pkgdomain.WeaveStore
+	Source       Source
+	Releases     ReleaseReader
+	ActorLabels  actorlabels.Reader
+	Languages    []formschema.LanguageInfo
+	LangResolver LangResolver
+	I18n         i18n.Manager
 	// Publication derives the project's unreleased-changes rollup for the
 	// header badge. Optional; nil leaves the count zero.
 	Publication *publication.Reader
@@ -74,14 +54,11 @@ func (h Host) Validate() error {
 	if h.Weave == nil {
 		missing = append(missing, "Weave")
 	}
-	if h.LinkedOntologies == nil {
-		missing = append(missing, "LinkedOntologies")
+	if h.Source == nil {
+		missing = append(missing, "Source")
 	}
 	if h.Releases == nil {
 		missing = append(missing, "Releases")
-	}
-	if h.Attributions == nil {
-		missing = append(missing, "Attributions")
 	}
 	if h.ActorLabels == nil {
 		missing = append(missing, "ActorLabels")
@@ -93,15 +70,13 @@ func (h Host) Validate() error {
 }
 
 type Handler struct {
-	logger           *slog.Logger
-	weave            pkgdomain.WeaveStore
-	linkedOntologies LinkedOntologyReader
-	releases         ReleaseReader
-	examples         ExampleReader
-	attributions     AttributionReader
-	actorLabels      actorlabels.Reader
-	languages        []formschema.LanguageInfo
-	langResolver     LangResolver
+	logger       *slog.Logger
+	weave        pkgdomain.WeaveStore
+	source       Source
+	releases     ReleaseReader
+	actorLabels  actorlabels.Reader
+	languages    []formschema.LanguageInfo
+	langResolver LangResolver
 	// i18n walks LocalizedText nodes inside schema responses so labels
 	// resolve to Translations maps the frontend can pick from with tr()
 	// — schema-driven UI rule (.claude/rules/ui-patterns.md).
@@ -113,26 +88,22 @@ type Handler struct {
 func NewHandler(
 	logger *slog.Logger,
 	weaveStore pkgdomain.WeaveStore,
-	linkedOntologies LinkedOntologyReader,
+	source Source,
 	releases ReleaseReader,
-	examples ExampleReader,
-	attributions AttributionReader,
 	actorLabels actorlabels.Reader,
 	languages []formschema.LanguageInfo,
 	langResolver LangResolver,
 	i18nMgr i18n.Manager,
 ) *Handler {
 	return &Handler{
-		logger:           logger,
-		weave:            weaveStore,
-		linkedOntologies: linkedOntologies,
-		releases:         releases,
-		examples:         examples,
-		attributions:     attributions,
-		actorLabels:      actorLabels,
-		languages:        languages,
-		langResolver:     langResolver,
-		i18n:             i18nMgr,
+		logger:       logger,
+		weave:        weaveStore,
+		source:       source,
+		releases:     releases,
+		actorLabels:  actorLabels,
+		languages:    languages,
+		langResolver: langResolver,
+		i18n:         i18nMgr,
 	}
 }
 
@@ -143,10 +114,8 @@ func Mount(r chi.Router, host Host) {
 	h := NewHandler(
 		host.Logger,
 		host.Weave,
-		host.LinkedOntologies,
+		host.Source,
 		host.Releases,
-		host.Examples,
-		host.Attributions,
 		host.ActorLabels,
 		host.Languages,
 		host.LangResolver,
@@ -180,107 +149,6 @@ func (h *Handler) Mount(r chi.Router) {
 	r.With(projectRead...).Get("/projects/{projectID:[A-Z0-9]+}/adoptions-tab-schema", h.ProjectAdoptionsTabSchema)
 	r.With(projectRead...).Get("/projects/{projectID:[A-Z0-9]+}/adoptions/{sourceProjectID}/{sourceEntityID}/closure", h.ProjectAdoptionClosure)
 	r.With(projectRead...).Get("/projects/{projectID:[A-Z0-9]+}/release-tab-schema", h.ProjectReleaseTabSchema)
-}
-
-func (h *Handler) ProjectPageSchema(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	projectID := chi.URLParam(r, "projectID")
-	if projectID == "" {
-		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project ID is required")
-		return
-	}
-
-	project := auth.ProjectFromContext(ctx)
-	if project == nil {
-		h.logger.Error("project missing from request context", "id", projectID)
-		errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
-		return
-	}
-
-	statsMap, err := h.weave.Projects().StatsForProjects(ctx, []string{projectID})
-	if err != nil {
-		h.logger.Error("failed to compute project stats", "id", projectID, "err", err)
-		errresp.InternalWith(w, r, err, "failed to load project stats")
-		return
-	}
-	stats := statsMap[projectID]
-	if stats == nil {
-		stats = &pkgdomain.WeaveProjectStats{}
-	}
-	releaseItems, err := h.releases.ListByProject(ctx, projectID)
-	if err != nil {
-		h.logger.Debug("failed to load releases for page-schema", "project", projectID, "err", err)
-	}
-	exampleCount := 0
-	// Previously this counted examples only on the draft, because the example
-	// slice had no version awareness and a release would have shown live
-	// counts. It is scope-bound now, so a release reports the examples that
-	// release carries -- which is the whole point of archiving them.
-	if h.examples != nil {
-		if _, total, err := h.examples.List(ctx, auth.ReadScopeFromContext(ctx), projectID, pkgdomain.WithLimit(1)); err != nil {
-			h.logger.Debug("failed to load examples for page-schema", "project", projectID, "err", err)
-		} else {
-			exampleCount = int(total)
-		}
-	}
-	conceptListCount := 0
-	if lists, err := h.weave.ConceptLists().List(ctx, projectID); err != nil {
-		h.logger.Debug("failed to load concept lists for page-schema", "project", projectID, "err", err)
-	} else {
-		conceptListCount = len(lists)
-	}
-	adoptionOpts := []pkgdomain.QueryOption{pkgdomain.WithProjectID(projectID)}
-	if version := auth.ProjectVersionFromContext(ctx); version != "" {
-		adoptionOpts = append(adoptionOpts, pkgdomain.WithVersion(version))
-	}
-	adoptionItems, err := h.weave.Adoptions().List(ctx, adoptionOpts...)
-	if err != nil {
-		h.logger.Debug("failed to load adoptions for page-schema", "project", projectID, "err", err)
-	}
-
-	lang := h.currentLang(r)
-	resolved, rerr := h.weave.Projects().ResolvedOntologyVersions(ctx, project.ID, pkgdomain.ResolvedOntologyVersionOpts{})
-	if rerr != nil {
-		h.logger.Debug("failed to resolve ontology versions for page-schema warnings", "project", project.ID, "err", rerr)
-	}
-	setup := formschema.ProjectSetupState{HasOntology: len(resolved) > 0}
-	res := auth.ProjectResource(project)
-	snap := auth.FromContext(ctx)
-	warnings := formschema.ComputeProjectWarnings(project.ID, setup, snap, res)
-
-	// Unreleased-changes rollup for the header badge — live view only
-	// (a release view shows the frozen snapshot, no "unreleased" notion).
-	unreleased := 0
-	if h.publication != nil && auth.ProjectVersionFromContext(ctx) == "" {
-		if rollup, rErr := h.publication.ProjectRollup(ctx, projectID); rErr != nil {
-			h.logger.Debug("project publication rollup", "project", projectID, "err", rErr)
-		} else {
-			unreleased = rollup.Unreleased()
-		}
-	}
-
-	schema := formschema.BuildProjectPageSchema(
-		project,
-		int(stats.ModelCount),
-		int(stats.CollectionCount),
-		int(stats.FieldCount),
-		exampleCount,
-		conceptListCount,
-		len(adoptionItems),
-		len(releaseItems),
-		unreleased,
-		snap.Can(auth.ProjectEdit, res, nil),
-		snap.IsProjectMember(res),
-		warnings,
-		lang,
-		h.languages,
-		auth.ProjectVersionFromContext(ctx),
-	)
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(schema); err != nil {
-		h.logger.Error("failed to encode project page schema", "project", projectID, "error", err)
-	}
 }
 
 // ProjectAdoptionsTabSchema drives the Adoptions tab's bill-of-
@@ -894,78 +762,6 @@ func addVersion(raw, currentVersion string) string {
 	q.Set("version", currentVersion)
 	u.RawQuery = q.Encode()
 	return u.String()
-}
-
-func (h *Handler) ProjectOverviewSchema(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	projectID := chi.URLParam(r, "projectID")
-	if projectID == "" {
-		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project ID is required")
-		return
-	}
-
-	project := auth.ProjectFromContext(ctx)
-	if project == nil {
-		h.logger.Error("project missing from request context", "id", projectID)
-		errresp.Error(w, r, http.StatusNotFound, "not_found", "project not found")
-		return
-	}
-
-	statsMap, err := h.weave.Projects().StatsForProjects(ctx, []string{projectID})
-	if err != nil {
-		h.logger.Error("failed to compute project stats", "id", projectID, "err", err)
-		errresp.InternalWith(w, r, err, "failed to load project stats")
-		return
-	}
-	stats := statsMap[projectID]
-	if stats == nil {
-		stats = &pkgdomain.WeaveProjectStats{}
-	}
-
-	linkedOntologies, err := h.linkedOntologies.LinkedOntologies(ctx, projectID)
-	if err != nil {
-		h.logger.Debug("failed to load linked ontologies", "project", projectID, "err", err)
-	}
-	ontoInfos := make([]formschema.OntologyInfo, 0, len(linkedOntologies))
-	for _, o := range linkedOntologies {
-		ontoInfos = append(ontoInfos, formschema.OntologyInfo{
-			Name:           o.Name,
-			Version:        o.Version,
-			URI:            o.URI,
-			ClassCount:     o.ClassCount,
-			PropertyCount:  o.PropertyCount,
-			ClassesUsed:    o.ClassesUsed,
-			PropertiesUsed: o.PropertiesUsed,
-			Origin:         o.Origin,
-		})
-	}
-
-	var attributions []pkgdomain.Attribution
-	if h.attributions != nil {
-		rows, attribErr := h.attributions.ListForProject(ctx, projectID)
-		if attribErr != nil {
-			h.logger.Debug("failed to load project attributions", "project", projectID, "err", attribErr)
-		} else {
-			attributions = rows
-		}
-	}
-
-	schema := formschema.BuildProjectOverviewSchema(
-		project,
-		int(stats.ModelCount),
-		int(stats.CollectionCount),
-		int(stats.FieldCount),
-		int(stats.CategoryCount),
-		ontoInfos,
-		attributions,
-		h.currentLang(r),
-		h.languages,
-	)
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(schema); err != nil {
-		h.logger.Error("failed to encode project overview schema", "project", projectID, "error", err)
-	}
 }
 
 func (h *Handler) currentLang(r *http.Request) string {

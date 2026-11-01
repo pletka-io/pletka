@@ -11,9 +11,11 @@ import (
 	"testing"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/browserinput"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/i18n/backend"
+	"github.com/pletka-io/pletka/pkg/projectsnapshot"
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
 )
@@ -64,7 +66,7 @@ func newTestProjectPages(t *testing.T, reader auth.LatestReleaseReader) *Project
 		t.Fatalf("NewRenderer() error = %v", err)
 	}
 
-	return NewProjectPages(slog.Default(), renderer, nil, i18nMgr, nil, reader)
+	return NewProjectPages(slog.Default(), renderer, nil, i18nMgr, nil, reader, testHeaderSource{})
 }
 
 func requestWithProjectContext(target string, project *domain.Project, snap *auth.AuthSnapshot) *http.Request {
@@ -171,4 +173,10 @@ func TestProjectDetailPage_AnonymousPublicViewer_NoRelease_ServesHot(t *testing.
 	if !strings.Contains(body, `data-prop-schema-url="/projects/TPC/page-schema"`) {
 		t.Fatalf("no-release schema-url should be version-less: %s", body)
 	}
+}
+
+type testHeaderSource struct{}
+
+func (testHeaderSource) Header(_ context.Context, scope auth.ReadScope, project string) (browserinput.ProjectHeader, error) {
+	return browserinput.ProjectHeader{Record: projectsnapshot.ProjectRecord{ID: project, VersionNumber: scope.Version(), UIName: []byte(`{"en":"Selected title"}`)}}, nil
 }

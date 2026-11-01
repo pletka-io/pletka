@@ -11,6 +11,8 @@ import (
 
 type Querier interface {
 	BrowserFieldUsage(ctx context.Context, arg BrowserFieldUsageParams) (BrowserFieldUsageRow, error)
+	BrowserProjectCounts(ctx context.Context, arg BrowserProjectCountsParams) (BrowserProjectCountsRow, error)
+	BrowserProjectCredits(ctx context.Context, arg BrowserProjectCreditsParams) ([]BrowserProjectCreditsRow, error)
 	CollectionCategories(ctx context.Context, arg CollectionCategoriesParams) ([]CollectionCategoriesRow, error)
 	CollectionCounts(ctx context.Context, arg CollectionCountsParams) ([]CollectionCountsRow, error)
 	CollectionScopeClasses(ctx context.Context, arg CollectionScopeClassesParams) ([]string, error)
