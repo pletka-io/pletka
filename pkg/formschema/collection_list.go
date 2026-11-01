@@ -13,6 +13,7 @@ func BuildCollectionEntityListSchema(projectID, lang string, languages []Languag
 		Title:             i18n.L("common.collections", "Collections"),
 		DataURL:           fmt.Sprintf("/projects/%s/collections", projectID),
 		DataKey:           "collections",
+		DetailURLField:    inventoryDetailURLField,
 		DetailURLTemplate: fmt.Sprintf("/projects/%s/collections/{id}", projectID),
 		ProjectID:         projectID,
 		EmptyState: &EmptyState{

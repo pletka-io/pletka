@@ -695,6 +695,7 @@
             rowLayout={schema.row_layout}
             viewMode={currentViewMode}
             detailUrlTemplate={schema.detail_url_template}
+            detailUrlField={schema.detail_url_field}
             editUrlTemplate={schema.edit_url_template}
             projectId={schema.project_id}
             {releaseVersion}

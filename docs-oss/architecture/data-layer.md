@@ -484,3 +484,10 @@ and compact projections of immutable ontology evidence. Header and summary sourc
 operations close their session before rendering. Draft references are batched and
 matched against each exact source body; release usage comes from retained evidence.
 See [project summaries](../reference/project-summary-reads.md).
+
+Browser inventories use scope-bound draft/archive SELECT facets for compact
+relation data and filtered sort indexes. They merge exact owned/adopted/reference
+membership before hydrating the requested page; receipt closures follow selected
+source sessions. No complete-project or ontology-body load is needed. Explicit
+limits, source authorization and required-content failures are part of the
+[project inventory contract](../reference/project-inventory-reads.md).

@@ -25,7 +25,6 @@ import (
 	"github.com/pletka-io/pletka/pkg/service/browserread"
 	"github.com/pletka-io/pletka/pkg/service/projectread"
 	"github.com/pletka-io/pletka/pkg/weave"
-	"github.com/pletka-io/pletka/pkg/weave/actorlabels"
 	"github.com/pletka-io/pletka/pkg/weave/detailview"
 	"github.com/pletka-io/pletka/pkg/weave/field"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
@@ -94,7 +93,12 @@ func buildSweepRouter(t *testing.T, pool *pgxpool.Pool) http.Handler {
 	fieldSub.Use(auth.WithProjectVersionContext)
 	fieldSub.Use(auth.WithProjectResource(weaveStore))
 	fieldSub.Use(auth.ResolveContentVersion(pub))
+	source, err := browserread.New(readsession.NewFactory(pool).WithSourceAuthorization(auth.CheckProjectRead), projectread.DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
 	field.Mount(fieldSub, field.Host{
+		Inventory:   source,
 		Service:     field.NewService(fieldStore, nil, nil, nil, weaveStore.Projects(), nil, nil, nil, nil, nil),
 		Projects:    weaveStore.Projects(),
 		Publication: pub,
@@ -106,10 +110,7 @@ func buildSweepRouter(t *testing.T, pool *pgxpool.Pool) http.Handler {
 	// auth.ResolveContentVersion), see detailview/handler.go Handler.Mount.
 	i18nMgr := newSweepI18n(t)
 	renderer := newSweepRenderer(t, i18nMgr)
-	source, err := browserread.New(readsession.NewFactory(pool).WithSourceAuthorization(auth.CheckProjectRead), projectread.DefaultOptions())
-	if err != nil {
-		t.Fatal(err)
-	}
+
 	if err := detailview.Mount(router, detailview.Host{
 		Source:      source,
 		Weave:       weaveStore,
@@ -129,7 +130,6 @@ func buildSweepRouter(t *testing.T, pool *pgxpool.Pool) http.Handler {
 		Weave:       weaveStore,
 		Source:      source,
 		Releases:    release.NewService(release.NewPostgresStore(pool), pool, slog.Default()),
-		ActorLabels: actorlabels.NewPostgresReader(pool),
 		I18n:        i18nMgr,
 		Publication: pub,
 	})

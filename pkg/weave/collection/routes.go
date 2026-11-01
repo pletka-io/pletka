@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/browserhttp"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/weave/publication"
@@ -49,6 +50,7 @@ func (h *Handler) Mount(r chi.Router) {
 }
 
 type Host struct {
+	Inventory    browserhttp.Source
 	Service      *Service
 	Projects     auth.ProjectReader
 	Logger       *slog.Logger
@@ -59,6 +61,9 @@ type Host struct {
 }
 
 func (h Host) Validate() error {
+	if h.Inventory == nil {
+		return fmt.Errorf("collection host missing required dependencies: Inventory")
+	}
 	if h.Service == nil {
 		return fmt.Errorf("collection host missing required dependencies: Service")
 	}
@@ -74,6 +79,6 @@ func Mount(r chi.Router, host Host) {
 	}
 	r.Use(auth.RequireProjectRead(host.Projects))
 	h := NewHandler(host.Service, host.Logger, host.Languages, host.LangResolver, host.I18n)
-	h.pub = host.Publication
+	h.inventory = browserhttp.Handler{Source: host.Inventory, I18n: host.I18n, Lang: h.lang, Publication: host.Publication}
 	h.Mount(r)
 }

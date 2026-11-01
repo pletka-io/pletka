@@ -25,7 +25,7 @@
   }
 
   const itemId = $derived(item.id || item.ID || '');
-  const detailUrl = $derived(props.detailUrlTemplate ? buildUrl(props.detailUrlTemplate, itemId) : '');
+  const detailUrl = $derived(props.detailUrlField ? String(props.item[props.detailUrlField] || '') : (props.detailUrlTemplate ? buildUrl(props.detailUrlTemplate, itemId) : ''));
   const visibleActions = $derived((props.rowActions ?? []).filter((action) => evalVisibleWhen(action.visible_when, item)));
 
   const title = $derived(getTranslated(item[layout.title_field], 'Unnamed'));

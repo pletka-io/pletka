@@ -13,6 +13,7 @@ func BuildFieldEntityListSchema(projectID, lang string, languages []LanguageInfo
 		Title:             i18n.L("field.list.title", "Fields"),
 		DataURL:           fmt.Sprintf("/projects/%s/fields", projectID),
 		DataKey:           "fields",
+		DetailURLField:    inventoryDetailURLField,
 		DetailURLTemplate: fmt.Sprintf("/projects/%s/fields/{id}", projectID),
 		ProjectID:         projectID,
 		EmptyState: &EmptyState{

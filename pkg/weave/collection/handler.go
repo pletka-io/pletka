@@ -6,23 +6,23 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/browserhttp"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
-	"github.com/pletka-io/pletka/pkg/weave/publication"
 )
 
 type LangResolver func(r *http.Request) string
 
 type Handler struct {
+	inventory browserhttp.Handler
 	svc       *Service
 	log       *slog.Logger
 	languages []formschema.LanguageInfo
@@ -31,8 +31,6 @@ type Handler struct {
 	// is the first such node) — schema-driven UI rule, see
 	// .claude/rules/ui-patterns.md.
 	i18n i18n.Manager
-	// pub derives per-row publication state. Optional; nil leaves it unset.
-	pub *publication.Reader
 }
 
 func NewHandler(svc *Service, log *slog.Logger, languages []formschema.LanguageInfo, lang LangResolver, i18nMgr i18n.Manager) *Handler {
@@ -50,289 +48,7 @@ func NewHandler(svc *Service, log *slog.Logger, languages []formschema.LanguageI
 // ---------------------------------------------------------------------------
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
-	if projectID == "" {
-		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project ID is required")
-		return
-	}
-
-	search := r.URL.Query().Get("search")
-	originFilter := parseOriginKinds(r.URL.Query().Get("origin_kind"))
-	sortBy := r.URL.Query().Get("sort_by")
-	if sortBy == "" {
-		sortBy = "ui_name"
-	}
-	sortDir := r.URL.Query().Get("sort_dir")
-
-	page := 1
-	perPage := 50
-	if v, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && v > 0 {
-		page = v
-	}
-	if v, err := strconv.Atoi(r.URL.Query().Get("per_page")); err == nil && v > 0 {
-		perPage = v
-		if perPage > 1000 {
-			perPage = 1000
-		}
-	}
-
-	opts := []domain.QueryOption{
-		domain.WithOrderBy(sortBy, sortDir == "desc"),
-		domain.WithLimit(10000),
-	}
-	if search != "" {
-		opts = append(opts, domain.WithSearch(search))
-	}
-	if sc := strings.TrimSpace(r.URL.Query().Get("scope_class")); sc != "" {
-		opts = append(opts, domain.WithFilter("scope_class", sc))
-	}
-	if cat := strings.TrimSpace(r.URL.Query().Get("category_id")); cat != "" {
-		opts = append(opts, domain.WithFilter("category_id", cat))
-	}
-
-	collections, _, err := h.svc.List(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, opts...)
-	if err != nil {
-		h.writeServiceError(w, r, err)
-		return
-	}
-	forkedOrigins, err := h.svc.ForkOriginsForProject(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID)
-	if err != nil {
-		h.writeServiceError(w, r, err)
-		return
-	}
-	// Receipt-adopted collections — UNION with local rows. Task 3a.
-	adoptedCollections, adoptedOrigins, err := h.svc.ListAdoptedExplicit(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID)
-	if err != nil {
-		h.writeServiceError(w, r, err)
-		return
-	}
-	// Reference-adopted collections — task 3b. Collections referenced
-	// via part_of_collection_id by overrides in this project but living
-	// in another project.
-	referenceAdoptedCollections, err := h.svc.ListAdoptedByReference(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID)
-	if err != nil {
-		h.writeServiceError(w, r, err)
-		return
-	}
-	referencedIDs := make(map[string]bool, len(referenceAdoptedCollections))
-	for _, c := range referenceAdoptedCollections {
-		referencedIDs[c.ID] = true
-	}
-
-	type item struct {
-		ID                       string              `json:"id"`
-		SemanticID               string              `json:"semantic_id,omitempty"`
-		SystemName               string              `json:"system_name,omitempty"`
-		UIName                   domain.Translations `json:"ui_name,omitempty"`
-		Description              domain.Translations `json:"description,omitempty"`
-		Status                   string              `json:"status"`
-		ProjectID                string              `json:"project_id"`
-		OriginalProjectID        string              `json:"original_project_id,omitempty"`
-		Deprecated               bool                `json:"deprecated"`
-		Owned                    bool                `json:"owned"`
-		CanDeprecate             bool                `json:"can_deprecate"`
-		CanActivate              bool                `json:"can_activate"`
-		FieldCount               int                 `json:"field_count,omitempty"`
-		OntologyScope            string              `json:"ontology_scope,omitempty"`
-		ScopeClassCode           string              `json:"scope_class_code,omitempty"`
-		DefaultCategoryID        string              `json:"default_category_id,omitempty"`
-		CollectionNumber         int                 `json:"collection_number,omitempty"`
-		CanonicalCollectionOrder int                 `json:"canonical_collection_order,omitempty"`
-		Origin                   domain.Origin       `json:"origin"`
-		OriginKind               string              `json:"origin_kind"`
-		// OriginLabel is a LocalizedText so EntityListBadge.svelte can
-		// render via tr() with no domain wording baked into the frontend.
-		// Resolved by h.i18n.Resolve before encode.
-		OriginLabel i18n.LocalizedText `json:"origin_label,omitempty"`
-	}
-	items := make([]item, 0, len(collections)+len(adoptedCollections))
-	rowFor := func(c *domain.Collection, origin domain.Origin, notReferenced bool) item {
-		row := item{
-			ID:                       c.ID,
-			SemanticID:               c.SemanticID,
-			SystemName:               c.SystemName,
-			UIName:                   c.UIName,
-			Description:              c.Description,
-			Status:                   string(c.Status),
-			ProjectID:                c.ProjectID,
-			Deprecated:               c.Deprecated,
-			OntologyScope:            c.OntologyScope.PrefixedName(),
-			ScopeClassCode:           c.OntologyScope.ShortCode(),
-			CollectionNumber:         c.CollectionNumber,
-			CanonicalCollectionOrder: c.CanonicalCollectionOrder,
-			Origin:                   origin,
-			OriginKind:               string(origin.Kind),
-			OriginLabel:              originListLabel(origin, notReferenced),
-		}
-		if c.DefaultCategoryID != nil {
-			row.DefaultCategoryID = *c.DefaultCategoryID
-		}
-		row.Owned = c.ProjectID == projectID
-		row.CanDeprecate = row.Owned && !c.Deprecated
-		row.CanActivate = row.Owned && c.Deprecated
-		if origin.Kind == domain.OriginForked {
-			row.OriginalProjectID = origin.SourceProjectID
-		}
-		return row
-	}
-	seenIDs := make(map[string]bool, len(collections))
-	for _, c := range collections {
-		origin := domain.OwnOrigin()
-		if forked, ok := forkedOrigins[c.ID]; ok {
-			origin = forked
-		}
-		if len(originFilter) > 0 && !originFilter[origin.Kind] {
-			continue
-		}
-		seenIDs[c.ID] = true
-		items = append(items, rowFor(c, origin, false))
-	}
-	// Append receipt-adopted collections, dedup against local rows.
-	// Local wins per Q4 (explicit-dominates). Receipt rows whose ID is
-	// not in the reference set get the "not yet referenced" Q10 note.
-	for _, c := range adoptedCollections {
-		if seenIDs[c.ID] {
-			continue
-		}
-		origin := adoptedOrigins[c.ID]
-		if origin.Kind == "" {
-			origin = domain.AdoptedOrigin(c.ProjectID, c.ID)
-		}
-		if len(originFilter) > 0 && !originFilter[origin.Kind] {
-			continue
-		}
-		seenIDs[c.ID] = true
-		items = append(items, rowFor(c, origin, !referencedIDs[c.ID]))
-	}
-	// Append reference-adopted collections — task 3b. Same dedup; any
-	// row already tagged Own/Adapted/AdoptedExplicit keeps its stronger
-	// state.
-	for _, c := range referenceAdoptedCollections {
-		if seenIDs[c.ID] {
-			continue
-		}
-		origin := domain.Origin{
-			Kind:            domain.OriginAdoptedReference,
-			SourceProjectID: c.ProjectID,
-			SourceEntityID:  c.ID,
-		}
-		if len(originFilter) > 0 && !originFilter[origin.Kind] {
-			continue
-		}
-		items = append(items, rowFor(c, origin, false))
-	}
-	total := int64(len(items))
-	items = paginateItems(items, page, perPage)
-
-	// Attach field-composition counts for the page in one batch query.
-	if len(items) > 0 {
-		ids := make([]string, 0, len(items))
-		for i := range items {
-			ids = append(ids, items[i].ID)
-		}
-		if counts, cErr := h.svc.BatchCompositionCounts(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, ids); cErr != nil {
-			h.log.Warn("collection composition counts", "project", projectID, "err", cErr)
-		} else {
-			for i := range items {
-				if c, ok := counts[items[i].ID]; ok {
-					items[i].FieldCount = c.FieldCount
-				}
-			}
-		}
-		publication.Attach(r.Context(), h.pub, h.log, projectID, "collection", ids, func(i int) *string { return &items[i].Status })
-	}
-
-	// Walk-resolve LocalizedText nodes inside the row payload so the
-	// wire format matches the schema-driven UI contract (Translations
-	// map per row, frontend picks via tr()).
-	if h.i18n != nil {
-		h.i18n.Resolve(&items, h.lang(r))
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"collections": items,
-		"total":       total,
-		"page":        page,
-		"per_page":    perPage,
-	})
-}
-
-func parseOriginKinds(raw string) map[domain.OriginKind]bool {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-	out := map[domain.OriginKind]bool{}
-	for _, part := range strings.Split(raw, ",") {
-		switch kind := domain.OriginKind(strings.TrimSpace(part)); kind {
-		case domain.OriginOwn, domain.OriginForked, domain.OriginAdopted, domain.OriginAdoptedReference:
-			out[kind] = true
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// originListLabel returns the row-badge label as a LocalizedText.
-// notReferenced is only meaningful for OriginAdopted (Q10 'not yet
-// referenced' surfaces when a receipt exists but no override in the
-// current project points at the entity yet). Mirror of
-// model.originListLabel — kept in sync.
-func originListLabel(origin domain.Origin, notReferenced bool) i18n.LocalizedText {
-	source := origin.SourceProjectID
-	if origin.SourceEntityID != "" {
-		if source != "" {
-			source += " · "
-		}
-		source += origin.SourceEntityID
-	}
-	switch origin.Kind {
-	case domain.OriginForked:
-		if source == "" {
-			return i18n.L("common.origin_state.adapted", "Adapted")
-		}
-		return i18n.LF("common.origin_state.adapted_from", "Adapted from {source}", map[string]string{"source": source})
-	case domain.OriginAdopted:
-		if notReferenced {
-			if source == "" {
-				return i18n.L("common.origin_state.adopted_unused", "Adopted · not yet referenced")
-			}
-			return i18n.LF("common.origin_state.adopted_unused_from", "Adopted from {source} · not yet referenced", map[string]string{"source": source})
-		}
-		if source == "" {
-			return i18n.L("common.origin_state.adopted", "Adopted")
-		}
-		return i18n.LF("common.origin_state.adopted_from", "Adopted from {source}", map[string]string{"source": source})
-	case domain.OriginAdoptedReference:
-		if source == "" {
-			return i18n.L("common.origin_state.adopted_reference", "Adopted (by reference)")
-		}
-		return i18n.LF("common.origin_state.adopted_reference_from", "Adopted by reference from {source}", map[string]string{"source": source})
-	case domain.OriginInherited:
-		if source == "" {
-			return i18n.L("common.origin_state.inherited", "Inherited")
-		}
-		return i18n.LF("common.origin_state.inherited_from", "Inherited from {source}", map[string]string{"source": source})
-	case domain.OriginOwn:
-		return i18n.L("common.origin_state.own", "Own")
-	default:
-		return i18n.LocalizedText{}
-	}
-}
-
-func paginateItems[T any](items []T, page, perPage int) []T {
-	if perPage <= 0 {
-		return items
-	}
-	start := (page - 1) * perPage
-	if start < 0 || start >= len(items) {
-		return []T{}
-	}
-	end := start + perPage
-	if end > len(items) {
-		end = len(items)
-	}
-	return items[start:end]
+	h.inventory.List(w, r, "collection")
 }
 
 func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
@@ -384,39 +100,13 @@ func (h *Handler) Fork(w http.ResponseWriter, r *http.Request) {
 // by collections in the project, in the {"options":[...]} envelope
 // expected by the entity-list lazy-options loader.
 func (h *Handler) ScopeClassesOptions(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
-	classes, err := h.svc.ScopeClasses(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID)
-	if err != nil {
-		h.writeServiceError(w, r, err)
-		return
-	}
-	options := make([]map[string]any, 0, len(classes))
-	for _, c := range classes {
-		options = append(options, map[string]any{
-			"value": c,
-			"label": map[string]string{"en": c},
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"options": options})
+	h.inventory.Filters(w, r, "collection", "scope")
 }
 
 // CategoriesOptions returns the distinct categories assigned to
 // collections in the project, in the {"options":[...]} envelope.
 func (h *Handler) CategoriesOptions(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
-	cats, err := h.svc.CategoriesUsed(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID)
-	if err != nil {
-		h.writeServiceError(w, r, err)
-		return
-	}
-	options := make([]map[string]any, 0, len(cats))
-	for _, c := range cats {
-		options = append(options, map[string]any{
-			"value": c.ID,
-			"label": c.UIName,
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"options": options})
+	h.inventory.Filters(w, r, "collection", "category")
 }
 
 // ---------------------------------------------------------------------------

@@ -104,6 +104,8 @@ export interface EntityListSchema {
   data_url: string;
   data_key: string;
   detail_url_template: string;
+  /** Optional per-row URL, already bound to the selected content context. */
+  detail_url_field?: string;
   edit_url_template?: string;
   project_id: string;
 

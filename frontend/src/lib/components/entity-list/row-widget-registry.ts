@@ -16,6 +16,7 @@ export interface RowWidgetProps {
   rowLayout: EntityRowLayout;
   viewMode: string;
   detailUrlTemplate: string;
+  detailUrlField?: string;
   editUrlTemplate?: string;
   projectId: string;
   releaseVersion?: string;

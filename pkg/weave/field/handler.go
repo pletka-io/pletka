@@ -5,18 +5,15 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/pletka-io/pletka/pkg/browserhttp"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
-	"github.com/pletka-io/pletka/pkg/weave/publication"
 )
 
 // LangResolver returns the caller's preferred UI language for a request.
@@ -24,6 +21,7 @@ type LangResolver func(r *http.Request) string
 
 // Handler exposes the field slice's read endpoints.
 type Handler struct {
+	inventory browserhttp.Handler
 	svc       *Service
 	log       *slog.Logger
 	languages []formschema.LanguageInfo
@@ -31,9 +29,6 @@ type Handler struct {
 	// i18n walks LocalizedText nodes inside the row payload (origin_label)
 	// — schema-driven UI rule (.claude/rules/ui-patterns.md).
 	i18n i18n.Manager
-	// pub derives per-row publication state (draft/published/modified/new).
-	// Optional; nil leaves the field unset.
-	pub *publication.Reader
 }
 
 // NewHandler constructs a Handler. nil log → slog.Default; nil lang → "en".
@@ -51,427 +46,24 @@ func NewHandler(svc *Service, log *slog.Logger, languages []formschema.LanguageI
 // Endpoints
 // ---------------------------------------------------------------------------
 
-// fieldListItem mirrors the legacy handler's flattened JSON shape so the
-// migration is JSON-shape-compatible for frontend consumers.
-type fieldListItem struct {
-	ID                string               `json:"id"`
-	SemanticID        string               `json:"semantic_id,omitempty"`
-	SystemName        string               `json:"system_name,omitempty"`
-	UIName            domain.Translations  `json:"ui_name,omitempty"`
-	Description       domain.Translations  `json:"description,omitempty"`
-	Status            string               `json:"status"`
-	ProjectID         string               `json:"project_id"`
-	Deprecated        bool                 `json:"deprecated"`
-	Owned             bool                 `json:"owned"`
-	CanDeprecate      bool                 `json:"can_deprecate"`
-	CanActivate       bool                 `json:"can_activate"`
-	CreatedAt         time.Time            `json:"created_at"`
-	UpdatedAt         time.Time            `json:"updated_at"`
-	OntologyScope     string               `json:"ontology_scope,omitempty"`
-	ScopeClassCode    string               `json:"scope_class_code,omitempty"`
-	ExpectedValueType string               `json:"expected_value_type,omitempty"`
-	PathElements      []domain.PathElement `json:"path_elements,omitempty"`
-	CategoryID        string               `json:"category_id,omitempty"`
-	// Usage counts (batch-computed for the page): models/collections using this
-	// field in this project, the number of OTHER projects that use it, and an
-	// in-use flag that gates the delete action.
-	ModelCount        int           `json:"model_count,omitempty"`
-	CollectionCount   int           `json:"collection_count,omitempty"`
-	OtherProjectCount int           `json:"other_project_count,omitempty"`
-	InUse             bool          `json:"in_use,omitempty"`
-	Origin            domain.Origin `json:"origin"`
-	OriginKind        string        `json:"origin_kind"`
-	// OriginLabel is a LocalizedText so EntityListBadge.svelte renders
-	// via tr() with no domain wording in the frontend.
-	OriginLabel i18n.LocalizedText `json:"origin_label,omitempty"`
-}
-
-func flattenField(f *domain.Field, projectID string) fieldListItem {
-	scope, scopeCode := "", ""
-	if f.OntologyScope.LocalName != "" {
-		scope = f.OntologyScope.PrefixedName()
-		scopeCode = f.OntologyScope.ShortCode()
-	}
-	owned := f.ProjectID == projectID
-	return fieldListItem{
-		ID:                f.ID,
-		SemanticID:        f.SemanticID,
-		SystemName:        f.SystemName,
-		UIName:            f.UIName,
-		Description:       f.Description,
-		Status:            string(f.Status),
-		ProjectID:         f.ProjectID,
-		Deprecated:        f.Deprecated,
-		Owned:             owned,
-		CanDeprecate:      owned && !f.Deprecated,
-		CanActivate:       owned && f.Deprecated,
-		CreatedAt:         f.CreatedAt,
-		UpdatedAt:         f.UpdatedAt,
-		OntologyScope:     scope,
-		ScopeClassCode:    scopeCode,
-		ExpectedValueType: f.ExpectedValueType,
-		PathElements:      f.PathElements,
-	}
-}
-
 // List handles GET /projects/{projectID}/fields. Paginated + searchable
 // list rendered as fieldListItem JSON.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
-	if projectID == "" {
-		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project ID is required")
-		return
-	}
-
-	search := r.URL.Query().Get("search")
-	scopeFilter := parseScopeFilter(r.URL.Query().Get("ontology_scope"))
-	categoryFilter := parseScopeFilter(r.URL.Query().Get("category_id"))
-	sortBy := r.URL.Query().Get("sort_by")
-	if sortBy == "" {
-		sortBy = "ui_name"
-	}
-	sortDir := r.URL.Query().Get("sort_dir")
-
-	page := 1
-	perPage := 50
-	if v, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && v > 0 {
-		page = v
-	}
-	if v, err := strconv.Atoi(r.URL.Query().Get("per_page")); err == nil && v > 0 {
-		perPage = v
-		if perPage > 1000 {
-			perPage = 1000
-		}
-	}
-
-	opts := []domain.QueryOption{
-		domain.WithOrderBy(sortBy, sortDir == "desc"),
-		domain.WithSearchColumns("ui_name", "description"),
-	}
-	if search != "" {
-		opts = append(opts, domain.WithSearch(search))
-	}
-	// Scope + category filters are post-fetch (matches the model +
-	// collection pattern). When a filter is active we pull a wide
-	// window from SQL and slice in-memory so totals reflect the
-	// filtered set; without filter we paginate at SQL level for cheap
-	// row counts.
-	hasPostFilter := len(scopeFilter) > 0 || len(categoryFilter) > 0
-	if hasPostFilter {
-		opts = append(opts, domain.WithLimit(10000))
-	} else {
-		opts = append(opts, domain.WithLimit(perPage), domain.WithOffset((page-1)*perPage))
-	}
-
-	fields, total, err := h.svc.List(r.Context(), projectID, opts...)
-	if err != nil {
-		h.writeServiceError(w, r, err)
-		return
-	}
-
-	// Resolve base-override category assignments once so we can both
-	// post-filter and surface the category on each row.
-	var categoryByField map[string]string
-	if hasPostFilter || true {
-		assignments, aErr := h.svc.ListBaseFieldCategoryAssignments(r.Context(), projectID)
-		if aErr != nil {
-			h.log.Warn("load field category assignments", "project", projectID, "err", aErr)
-		} else {
-			categoryByField = assignments
-		}
-	}
-
-	if hasPostFilter {
-		filtered := fields[:0]
-		for _, f := range fields {
-			if len(scopeFilter) > 0 && !scopeFilter[f.OntologyScope.PrefixedName()] {
-				continue
-			}
-			if len(categoryFilter) > 0 {
-				cat := categoryByField[f.ID]
-				if cat == "" || !categoryFilter[cat] {
-					continue
-				}
-			}
-			filtered = append(filtered, f)
-		}
-		fields = filtered
-		total = int64(len(fields))
-		// Page-slice the filtered set.
-		start := (page - 1) * perPage
-		if start > len(fields) {
-			start = len(fields)
-		}
-		end := start + perPage
-		if end > len(fields) {
-			end = len(fields)
-		}
-		fields = fields[start:end]
-	}
-
-	// Receipt-adopted fields — task 3a. List fetched in full (no
-	// pagination) since adoptions are typically a small set; merged into
-	// the items slice below and total adjusted.
-	adoptedFields, adoptedOrigins, aErr := h.svc.ListAdoptedExplicit(r.Context(), projectID)
-	if aErr != nil {
-		h.writeServiceError(w, r, aErr)
-		return
-	}
-	// Reference-adopted fields — task 3b. Fields living in another
-	// project that this project's overrides reference via field_id.
-	referenceAdoptedFields, refErr := h.svc.ListAdoptedByReference(r.Context(), projectID)
-	if refErr != nil {
-		h.writeServiceError(w, r, refErr)
-		return
-	}
-	referencedIDs := make(map[string]bool, len(referenceAdoptedFields))
-	for _, f := range referenceAdoptedFields {
-		referencedIDs[f.ID] = true
-	}
-	originFilter := parseOriginKinds(r.URL.Query().Get("origin_kind"))
-
-	items := make([]fieldListItem, 0, len(fields)+len(adoptedFields))
-	seen := make(map[string]bool, len(fields))
-	for _, f := range fields {
-		row := flattenField(f, projectID)
-		if categoryByField != nil {
-			row.CategoryID = categoryByField[f.ID]
-		}
-		row.Origin = domain.OwnOrigin()
-		row.OriginKind = string(row.Origin.Kind)
-		row.OriginLabel = originListLabel(row.Origin, false)
-		if len(originFilter) > 0 && !originFilter[row.Origin.Kind] {
-			continue
-		}
-		seen[f.ID] = true
-		items = append(items, row)
-	}
-	// Append receipt-adopted, dedup on entity ID (local wins per Q4).
-	// Receipt rows whose ID is not in the reference set get the
-	// "not yet referenced" Q10 note.
-	for _, f := range adoptedFields {
-		if seen[f.ID] {
-			continue
-		}
-		origin := adoptedOrigins[f.ID]
-		if origin.Kind == "" {
-			origin = domain.AdoptedOrigin(f.ProjectID, f.ID)
-		}
-		if len(originFilter) > 0 && !originFilter[origin.Kind] {
-			continue
-		}
-		row := flattenField(f, projectID)
-		if categoryByField != nil {
-			row.CategoryID = categoryByField[f.ID]
-		}
-		row.Origin = origin
-		row.OriginKind = string(origin.Kind)
-		row.OriginLabel = originListLabel(origin, !referencedIDs[f.ID])
-		seen[f.ID] = true
-		items = append(items, row)
-		total++
-	}
-	// Append reference-adopted, dedup against own + receipt-adopted —
-	// explicit-dominates per Q4.
-	for _, f := range referenceAdoptedFields {
-		if seen[f.ID] {
-			continue
-		}
-		origin := domain.Origin{
-			Kind:            domain.OriginAdoptedReference,
-			SourceProjectID: f.ProjectID,
-			SourceEntityID:  f.ID,
-		}
-		if len(originFilter) > 0 && !originFilter[origin.Kind] {
-			continue
-		}
-		row := flattenField(f, projectID)
-		if categoryByField != nil {
-			row.CategoryID = categoryByField[f.ID]
-		}
-		row.Origin = origin
-		row.OriginKind = string(origin.Kind)
-		row.OriginLabel = originListLabel(origin, false)
-		items = append(items, row)
-		total++
-	}
-
-	// Attach per-row usage counts in one batch query (no N+1). Best-effort:
-	// a failure logs and leaves the counts zero rather than failing the list.
-	if len(items) > 0 {
-		ids := make([]string, 0, len(items))
-		for i := range items {
-			ids = append(ids, items[i].ID)
-		}
-		if counts, cErr := h.svc.BatchUsageCounts(r.Context(), projectID, ids); cErr != nil {
-			h.log.Warn("field usage counts", "project", projectID, "err", cErr)
-		} else {
-			for i := range items {
-				if c, ok := counts[items[i].ID]; ok {
-					items[i].ModelCount = c.ModelCount
-					items[i].CollectionCount = c.CollectionCount
-					items[i].OtherProjectCount = c.OtherProjectCount
-					items[i].InUse = c.InUse
-				}
-			}
-		}
-		publication.Attach(r.Context(), h.pub, h.log, projectID, "field", ids, func(i int) *string { return &items[i].Status })
-	}
-
-	// Walk-resolve LocalizedText nodes (origin_label) per current lang.
-	if h.i18n != nil {
-		h.i18n.Resolve(&items, h.lang(r))
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"fields":   items,
-		"total":    total,
-		"page":     page,
-		"per_page": perPage,
-	})
-}
-
-// parseOriginKinds accepts the four-state list filter values (Q5):
-// own, forked, adopted, adopted_reference.
-func parseOriginKinds(raw string) map[domain.OriginKind]bool {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-	out := map[domain.OriginKind]bool{}
-	for _, part := range strings.Split(raw, ",") {
-		switch kind := domain.OriginKind(strings.TrimSpace(part)); kind {
-		case domain.OriginOwn, domain.OriginForked, domain.OriginAdopted, domain.OriginAdoptedReference:
-			out[kind] = true
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// originListLabel returns the row-badge label as a LocalizedText —
-// mirror of model + collection list labels. notReferenced applies only
-// to OriginAdopted (Q10 'not yet referenced').
-func originListLabel(origin domain.Origin, notReferenced bool) i18n.LocalizedText {
-	source := origin.SourceProjectID
-	if origin.SourceEntityID != "" {
-		if source != "" {
-			source += " · "
-		}
-		source += origin.SourceEntityID
-	}
-	switch origin.Kind {
-	case domain.OriginForked:
-		if source == "" {
-			return i18n.L("common.origin_state.adapted", "Adapted")
-		}
-		return i18n.LF("common.origin_state.adapted_from", "Adapted from {source}", map[string]string{"source": source})
-	case domain.OriginAdopted:
-		if notReferenced {
-			if source == "" {
-				return i18n.L("common.origin_state.adopted_unused", "Adopted · not yet referenced")
-			}
-			return i18n.LF("common.origin_state.adopted_unused_from", "Adopted from {source} · not yet referenced", map[string]string{"source": source})
-		}
-		if source == "" {
-			return i18n.L("common.origin_state.adopted", "Adopted")
-		}
-		return i18n.LF("common.origin_state.adopted_from", "Adopted from {source}", map[string]string{"source": source})
-	case domain.OriginAdoptedReference:
-		if source == "" {
-			return i18n.L("common.origin_state.adopted_reference", "Adopted (by reference)")
-		}
-		return i18n.LF("common.origin_state.adopted_reference_from", "Adopted by reference from {source}", map[string]string{"source": source})
-	case domain.OriginInherited:
-		if source == "" {
-			return i18n.L("common.origin_state.inherited", "Inherited")
-		}
-		return i18n.LF("common.origin_state.inherited_from", "Inherited from {source}", map[string]string{"source": source})
-	case domain.OriginOwn:
-		return i18n.L("common.origin_state.own", "Own")
-	default:
-		return i18n.LocalizedText{}
-	}
-}
-
-// parseScopeFilter splits a comma-joined ontology_scope query param
-// into a set keyed by prefixed name (e.g. "crm:E21_Person"). Empty
-// returns nil so the post-fetch filter short-circuits.
-func parseScopeFilter(raw string) map[string]bool {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	out := map[string]bool{}
-	for _, p := range strings.Split(raw, ",") {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out[p] = true
-		}
-	}
-	return out
+	h.inventory.List(w, r, "field")
 }
 
 // OntologyScopesFilter handles GET /projects/{projectID}/fields/filters/ontology-scopes.
 // Returns the distinct ontology scopes present on this project's
 // fields, in the FilterOption shape the entity-list schema expects.
 func (h *Handler) OntologyScopesFilter(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
-	if projectID == "" {
-		apierror.Write(w, r, apierror.BadRequest("project ID is required"))
-		return
-	}
-	fields, _, err := h.svc.List(r.Context(), projectID, domain.WithLimit(10000))
-	if err != nil {
-		h.writeServiceError(w, r, err)
-		return
-	}
-	seen := map[string]struct{}{}
-	scopes := make([]string, 0)
-	for _, f := range fields {
-		s := f.OntologyScope.PrefixedName()
-		if s == "" {
-			continue
-		}
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		scopes = append(scopes, s)
-	}
-	options := make([]map[string]any, 0, len(scopes))
-	for _, s := range scopes {
-		options = append(options, map[string]any{
-			"value": s,
-			"label": map[string]string{"en": s},
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"options": options})
+	h.inventory.Filters(w, r, "field", "scope")
 }
 
 // CategoriesFilter handles GET /projects/{projectID}/fields/filters/categories.
 // Returns the distinct categories assigned to base field overrides in
 // the project, in the {"options":[...]} envelope.
 func (h *Handler) CategoriesFilter(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
-	if projectID == "" {
-		apierror.Write(w, r, apierror.BadRequest("project ID is required"))
-		return
-	}
-	cats, err := h.svc.ListBaseFieldCategories(r.Context(), projectID)
-	if err != nil {
-		h.writeServiceError(w, r, err)
-		return
-	}
-	options := make([]map[string]any, 0, len(cats))
-	for _, c := range cats {
-		options = append(options, map[string]any{
-			"value": c.ID,
-			"label": c.UIName,
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"options": options})
+	h.inventory.Filters(w, r, "field", "category")
 }
 
 // Detail handles GET /projects/{projectID}/fields/api/{fieldID}.

@@ -6,18 +6,22 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
+const inventoryDetailURLField = "current_url"
+
 // EntityListSchema is the top-level response from the entity list schema API.
 // It describes how to render a browse-oriented entity list with search, filters,
 // sorting, and rich row layout.
 type EntityListSchema struct {
-	EntityType        string             `json:"entity_type"`
-	Title             domain.Localizable `json:"title"`
-	EmptyState        *EmptyState        `json:"empty_state,omitempty"`
-	DataURL           string             `json:"data_url"`
-	DataKey           string             `json:"data_key"`
-	DetailURLTemplate string             `json:"detail_url_template,omitempty"`
-	EditURLTemplate   string             `json:"edit_url_template,omitempty"`
-	ProjectID         string             `json:"project_id"`
+	EntityType string             `json:"entity_type"`
+	Title      domain.Localizable `json:"title"`
+	EmptyState *EmptyState        `json:"empty_state,omitempty"`
+	DataURL    string             `json:"data_url"`
+	DataKey    string             `json:"data_key"`
+	// DetailURLField names an optional per-row URL already bound to the selected context.
+	DetailURLField    string `json:"detail_url_field,omitempty"`
+	DetailURLTemplate string `json:"detail_url_template,omitempty"`
+	EditURLTemplate   string `json:"edit_url_template,omitempty"`
+	ProjectID         string `json:"project_id"`
 
 	// Toolbar
 	Search      *SearchConfig  `json:"search,omitempty"`

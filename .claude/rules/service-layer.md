@@ -277,3 +277,10 @@ code belongs to the coordinated materializer initializer; Init, Reconcile and th
 poller use one checkpoint protocol and the dedicated automation ref. Do not add a
 hot-table/current-state repair under a pending operation. See
 [ADR-0021](../../docs-oss/decisions/0021-captured-draft-git-delivery.md).
+
+Model/collection/field list and filter handlers must delegate to `browserhttp`'s
+required inventory source; conformance protects this rule. Do not append foreign
+rows or enrich names/counts from a legacy store after pagination. Adoption cards
+and closure drilldowns consume `browserread.Source.Adoptions`, including retained
+actors and exact source pins. See
+[project inventory reads](../../docs-oss/reference/project-inventory-reads.md).

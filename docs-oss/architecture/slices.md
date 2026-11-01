@@ -389,3 +389,10 @@ policy. Counts, credit actors and ontology summaries share one read session.
 The pure overview projection has no handler/store capability; adoption closure
 and paginated inventories remain separate conversions. See
 [project summaries](../reference/project-summary-reads.md).
+
+Project model/collection/field inventory handlers and their filter endpoints now
+require the shared `browserhttp.Source`. They delegate to one HTTP boundary and
+receive detached `browserinput.Inventory` values from `service/browserread`.
+Project adoption cards/drilldowns use the same source's retained receipt graph.
+Do not reassemble owned/adopted/reference lists through legacy slice stores.
+See [project inventory reads](../reference/project-inventory-reads.md).

@@ -10,6 +10,7 @@
     item,
     rowLayout,
     detailUrlTemplate,
+    detailUrlField,
     editUrlTemplate,
     projectId,
     releaseVersion = '',
@@ -22,6 +23,7 @@
     item: Record<string, any>;
     rowLayout: EntityRowLayout;
     detailUrlTemplate: string;
+    detailUrlField?: string;
     editUrlTemplate?: string;
     projectId: string;
     releaseVersion?: string;
@@ -73,7 +75,7 @@
   }
 
   let itemId = $derived(item.id || item.ID || '');
-  let detailUrl = $derived(detailUrlTemplate ? appendVersion(buildUrl(detailUrlTemplate, itemId)) : '');
+  let detailUrl = $derived(detailUrlField ? String(item[detailUrlField] || '') : (detailUrlTemplate ? appendVersion(buildUrl(detailUrlTemplate, itemId)) : ''));
   let editUrl = $derived(editUrlTemplate ? appendVersion(buildUrl(editUrlTemplate, itemId)) : '');
   let canEdit = $derived(() => {
     const itemProjectId = item.project_id || '';

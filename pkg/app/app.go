@@ -261,7 +261,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	vocabularyHost := buildVocabularyHost(opts.Pool, weaveStore, logger, languages, langResolver, opts.VocabularyServiceURL)
 	entitySchemaHost := buildEntitySchemaHost(weaveStore, logger, languages, langResolver, i18nManager, organizationHost, publicationReader)
 	releaseHost := buildReleaseHost(opts.Pool, logger, languages, langResolver, opts.ModuleHost, opts.OntologyHost)
-	projectPageHost := buildProjectPageHost(opts.Pool, weaveStore, logger, languages, langResolver, i18nManager, publicationReader, releaseHost.Service, browserSource)
+	projectPageHost := buildProjectPageHost(weaveStore, logger, languages, langResolver, i18nManager, publicationReader, releaseHost.Service, browserSource)
 	draftsHost := buildDraftsHost(weaveStore, logger)
 	settingsHost := buildSettingsHost(opts.Pool, weaveStore, logger, languages, opts.VocabularyServiceURL)
 	ontologySvc, ontologyAdminHost, ontologyAPIHost, ontologyPagesHost := buildOntologyHosts(
@@ -297,6 +297,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		ontologyBus,
 	)
 	fieldHost, modelHost, collectionHost, overrideSvc := buildCoreEntityHosts(coreEntityDeps{
+		Inventory: browserSource,
 		Pool:      opts.Pool,
 		Weave:     weaveStore,
 		Logger:    logger,

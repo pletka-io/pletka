@@ -48,3 +48,8 @@ func TestSummaryRejectsSelectionMismatchAndCannotSupplyAuthorization(t *testing.
 		t.Fatal("accepted a source with a different selection")
 	}
 }
+
+func (s *countingSummarySource) Adoptions(context.Context, auth.ReadScope, string) (browserinput.Adoptions, error) {
+	s.calls++
+	return browserinput.Adoptions{}, nil
+}

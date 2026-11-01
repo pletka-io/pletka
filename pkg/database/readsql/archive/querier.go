@@ -11,6 +11,10 @@ import (
 
 type Querier interface {
 	BrowserFieldUsage(ctx context.Context, arg BrowserFieldUsageParams) (BrowserFieldUsageRow, error)
+	BrowserInventoryCategories(ctx context.Context, arg BrowserInventoryCategoriesParams) ([]BrowserInventoryCategoriesRow, error)
+	BrowserInventoryIndex(ctx context.Context, arg BrowserInventoryIndexParams) (BrowserInventoryIndexRow, error)
+	BrowserInventoryRelations(ctx context.Context, arg BrowserInventoryRelationsParams) ([]BrowserInventoryRelationsRow, error)
+	BrowserInventoryRows(ctx context.Context, arg BrowserInventoryRowsParams) ([]BrowserInventoryRowsRow, error)
 	BrowserProjectCounts(ctx context.Context, arg BrowserProjectCountsParams) (BrowserProjectCountsRow, error)
 	BrowserProjectCredits(ctx context.Context, arg BrowserProjectCreditsParams) ([]BrowserProjectCreditsRow, error)
 	CollectionCategories(ctx context.Context, arg CollectionCategoriesParams) ([]CollectionCategoriesRow, error)

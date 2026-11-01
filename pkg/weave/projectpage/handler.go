@@ -18,7 +18,6 @@ import (
 	pkgdomain "github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/i18n"
-	"github.com/pletka-io/pletka/pkg/weave/actorlabels"
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/publication"
 	"github.com/pletka-io/pletka/pkg/weave/release"
@@ -31,6 +30,7 @@ type ReleaseReader interface {
 // Source returns all display content after closing its bound read session.
 type Source interface {
 	Summary(context.Context, auth.ReadScope, string) (browserinput.ProjectSummary, error)
+	Adoptions(context.Context, auth.ReadScope, string) (browserinput.Adoptions, error)
 }
 
 type LangResolver func(*http.Request) string
@@ -40,7 +40,6 @@ type Host struct {
 	Weave        pkgdomain.WeaveStore
 	Source       Source
 	Releases     ReleaseReader
-	ActorLabels  actorlabels.Reader
 	Languages    []formschema.LanguageInfo
 	LangResolver LangResolver
 	I18n         i18n.Manager
@@ -60,9 +59,6 @@ func (h Host) Validate() error {
 	if h.Releases == nil {
 		missing = append(missing, "Releases")
 	}
-	if h.ActorLabels == nil {
-		missing = append(missing, "ActorLabels")
-	}
 	if len(missing) > 0 {
 		return fmt.Errorf("projectpage host missing required dependencies: %s", strings.Join(missing, ", "))
 	}
@@ -74,7 +70,6 @@ type Handler struct {
 	weave        pkgdomain.WeaveStore
 	source       Source
 	releases     ReleaseReader
-	actorLabels  actorlabels.Reader
 	languages    []formschema.LanguageInfo
 	langResolver LangResolver
 	// i18n walks LocalizedText nodes inside schema responses so labels
@@ -90,7 +85,6 @@ func NewHandler(
 	weaveStore pkgdomain.WeaveStore,
 	source Source,
 	releases ReleaseReader,
-	actorLabels actorlabels.Reader,
 	languages []formschema.LanguageInfo,
 	langResolver LangResolver,
 	i18nMgr i18n.Manager,
@@ -100,7 +94,6 @@ func NewHandler(
 		weave:        weaveStore,
 		source:       source,
 		releases:     releases,
-		actorLabels:  actorLabels,
 		languages:    languages,
 		langResolver: langResolver,
 		i18n:         i18nMgr,
@@ -116,7 +109,6 @@ func Mount(r chi.Router, host Host) {
 		host.Weave,
 		host.Source,
 		host.Releases,
-		host.ActorLabels,
 		host.Languages,
 		host.LangResolver,
 		host.I18n,
@@ -219,154 +211,6 @@ type ProjectAdoptionTabItem struct {
 	FieldCount            int    `json:"field_count"`
 	FieldCountDirect      int    `json:"field_count_direct"`
 	ClosureURLTemplate    string `json:"closure_url_template,omitempty"`
-}
-
-func (h *Handler) ProjectAdoptionsTabSchema(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	projectID := chi.URLParam(r, "projectID")
-	if projectID == "" {
-		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project ID is required")
-		return
-	}
-
-	// Filter to explicit project-context receipts per Q-C of the
-	// adoption UX review. context_entity_type='project' AND
-	// entity_type IN (model, collection, field) gives the rows the
-	// curator created via the Adopt button — skipping auto-receipts
-	// from Adapt (context = model/collection) and the parent-
-	// inheritance category copy (entity_type='category').
-	opts := []pkgdomain.QueryOption{
-		pkgdomain.WithProjectID(projectID),
-		pkgdomain.WithFilter("context_entity_type", "project"),
-		pkgdomain.WithFilter("context_entity_id", projectID),
-	}
-	currentVersion := auth.ProjectVersionFromContext(ctx)
-	if currentVersion != "" {
-		opts = append(opts, pkgdomain.WithVersion(currentVersion))
-	}
-	allAdoptions, err := h.weave.Adoptions().List(ctx, opts...)
-	if err != nil {
-		h.logger.Error("failed to load project adoptions", "project", projectID, "err", err)
-		errresp.InternalWith(w, r, err, "failed to load adoptions")
-		return
-	}
-	adoptions := allAdoptions[:0]
-	for _, a := range allAdoptions {
-		switch a.EntityType {
-		case "model", "collection", "field":
-			adoptions = append(adoptions, a)
-		}
-	}
-
-	actorNames := h.actorNames(ctx, adoptions)
-
-	items := make([]ProjectAdoptionTabItem, 0, len(adoptions))
-	for _, adoption := range adoptions {
-		item := ProjectAdoptionTabItem{
-			EntityType:         adoption.EntityType,
-			SourceProjectID:    adoption.SourceProjectID,
-			SourceEntityID:     adoption.SourceEntityID,
-			CurrentURL:         addVersion(currentProjectEntityURL(projectID, adoption.EntityType, adoption.SourceEntityID), currentVersion),
-			SourceURL:          projectEntityURL(adoption.EntityType, adoption.SourceEntityID),
-			AdoptedAt:          adoption.AdoptedAt,
-			CreatedBy:          actorRef(adoption.CreatedByID, actorNames),
-			Origin:             adoption.Origin,
-			Label:              adoptionLabel(adoption),
-			ClosureURLTemplate: fmt.Sprintf("/projects/%s/adoptions/%s/%s/closure?kind={kind}", projectID, adoption.SourceProjectID, adoption.SourceEntityID),
-		}
-		// Look up the source entity's friendly name so the card header
-		// reads "Person · LAM.9" rather than just "model · LAM.9".
-		// Missing entities (deleted upstream) leave Name nil — Svelte
-		// falls back to the source entity id.
-		switch adoption.EntityType {
-		case "model":
-			if m, err := h.weave.Models().GetByID(ctx, adoption.SourceEntityID); err == nil && m != nil {
-				item.Name = m.UIName
-			}
-		case "collection":
-			if c, err := h.weave.Collections().GetByID(ctx, adoption.SourceEntityID); err == nil && c != nil {
-				item.Name = c.UIName
-			}
-		case "field":
-			if f, err := h.weave.WeaveFields().GetByID(ctx, adoption.SourceEntityID); err == nil && f != nil {
-				item.Name = f.UIName
-			}
-		}
-		// Eager counts per Q-E. Six walker invocations per receipt
-		// (direct + transitive × 3 entity types); at realistic receipt
-		// counts (<10) still inside the page-load budget. Both kinds
-		// ship so the curator can tell receipts apart even when their
-		// transitive closures fully overlap.
-		if ids, err := h.weave.Models().ListReceiptModelClosure(ctx, adoption.SourceEntityID, adoption.EntityType); err == nil {
-			item.ModelCount = len(ids)
-		} else {
-			h.logger.Warn("receipt model closure", "source", adoption.SourceEntityID, "err", err)
-		}
-		if ids, err := h.weave.Models().ListReceiptModelDirect(ctx, adoption.SourceEntityID, adoption.EntityType); err == nil {
-			item.ModelCountDirect = len(ids)
-		} else {
-			h.logger.Warn("receipt model direct", "source", adoption.SourceEntityID, "err", err)
-		}
-		if ids, err := h.weave.Collections().ListReceiptCollectionClosure(ctx, adoption.SourceEntityID, adoption.EntityType); err == nil {
-			item.CollectionCount = len(ids)
-		} else {
-			h.logger.Warn("receipt collection closure", "source", adoption.SourceEntityID, "err", err)
-		}
-		if ids, err := h.weave.Collections().ListReceiptCollectionDirect(ctx, adoption.SourceEntityID, adoption.EntityType); err == nil {
-			item.CollectionCountDirect = len(ids)
-		} else {
-			h.logger.Warn("receipt collection direct", "source", adoption.SourceEntityID, "err", err)
-		}
-		if ids, err := h.weave.WeaveFields().ListReceiptFieldClosure(ctx, adoption.SourceEntityID, adoption.EntityType); err == nil {
-			item.FieldCount = len(ids)
-		} else {
-			h.logger.Warn("receipt field closure", "source", adoption.SourceEntityID, "err", err)
-		}
-		if ids, err := h.weave.WeaveFields().ListReceiptFieldDirect(ctx, adoption.SourceEntityID, adoption.EntityType); err == nil {
-			item.FieldCountDirect = len(ids)
-		} else {
-			h.logger.Warn("receipt field direct", "source", adoption.SourceEntityID, "err", err)
-		}
-		items = append(items, item)
-	}
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].AdoptedAt.Equal(items[j].AdoptedAt) {
-			return items[i].SourceEntityID < items[j].SourceEntityID
-		}
-		return items[i].AdoptedAt.After(items[j].AdoptedAt) // newest first
-	})
-
-	out := ProjectAdoptionsTabSchema{
-		Kind:           "adoptions",
-		ProjectID:      projectID,
-		CurrentVersion: currentVersion,
-		DraftURL:       "/projects/" + projectID,
-		Items:          items,
-		EmptyMessage:   i18n.L("project_page.adoptions_empty", "No adoptions yet."),
-		Labels: ProjectAdoptionsLabels{
-			Title:             i18n.L("project_page.adoptions.title", "Adoptions"),
-			Description:       i18n.L("project_page.adoptions.description", "Explicit receipts you claimed via the Adopt button. Each card lists what that adoption transitively brings into the project — click a count to expand."),
-			From:              i18n.L("project_page.adoptions.from", "from"),
-			SourceLink:        i18n.L("project_page.adoptions.source_link", "source ↗"),
-			AdoptedPrefix:     i18n.L("project_page.adoptions.adopted_prefix", "Adopted"),
-			ByPrefix:          i18n.L("project_page.adoptions.by_prefix", "by"),
-			Models:            i18n.L("common.models", "Models"),
-			Collections:       i18n.L("common.collections", "Collections"),
-			Fields:            i18n.L("common.fields", "Fields"),
-			Loading:           i18n.L("common.loading", "Loading…"),
-			LoadErrorPrefix:   i18n.L("project_page.adoptions.load_error_prefix", "Failed to load:"),
-			SectionEmpty:      i18n.L("project_page.adoptions.section_empty", "Nothing in this section."),
-			SourceColumnLabel: i18n.L("project_page.adoptions.source_column_label", "source"),
-		},
-	}
-	if h.i18n != nil {
-		h.i18n.Resolve(&out, h.currentLang(r))
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(out); err != nil {
-		h.logger.Error("failed to encode adoptions tab schema", "project", projectID, "error", err)
-	}
 }
 
 type ProjectReleaseTabSchema struct {
@@ -498,22 +342,6 @@ func normalizeReleaseDependencySource(mode pkgdomain.DependencySourceMode) pkgdo
 	return pkgdomain.DependencySourceDraft
 }
 
-func groupContextIDs(adoptions []pkgdomain.Adoption, entityType string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0)
-	for _, adoption := range adoptions {
-		if adoption.ContextEntityType != entityType || adoption.ContextEntityID == "" {
-			continue
-		}
-		if _, ok := seen[adoption.ContextEntityID]; ok {
-			continue
-		}
-		seen[adoption.ContextEntityID] = struct{}{}
-		out = append(out, adoption.ContextEntityID)
-	}
-	return out
-}
-
 // ProjectAdoptionClosureItem is a single row in the per-receipt
 // bill-of-materials drill-down. SourceProjectID lets the frontend
 // label "from LA / from SARI" so cross-project deps in the closure
@@ -533,221 +361,6 @@ type ProjectAdoptionClosureResponse struct {
 	Kind  string                       `json:"kind"`
 	Count int                          `json:"count"`
 	Items []ProjectAdoptionClosureItem `json:"items"`
-}
-
-// ProjectAdoptionClosure handles
-//
-//	GET /projects/{projectID}/adoptions/{sourceProjectID}/{sourceEntityID}/closure?kind=models|collections|fields
-//
-// Returns the transitive closure of the requested kind rooted at the
-// receipt's source entity. Used by the Adoptions tab when the curator
-// clicks a count chip to expand one section.
-func (h *Handler) ProjectAdoptionClosure(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	projectID := chi.URLParam(r, "projectID")
-	sourceProjectID := chi.URLParam(r, "sourceProjectID")
-	sourceEntityID := chi.URLParam(r, "sourceEntityID")
-	if projectID == "" || sourceProjectID == "" || sourceEntityID == "" {
-		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "projectID, sourceProjectID, and sourceEntityID are required")
-		return
-	}
-	kind := strings.TrimSpace(r.URL.Query().Get("kind"))
-	switch kind {
-	case "models", "collections", "fields":
-	default:
-		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "kind must be one of models, collections, fields")
-		return
-	}
-
-	// Resolve the seed's entity type from the receipt. Look the row up
-	// directly rather than threading more URL params; same receipt
-	// shape the tab schema reads from.
-	receipts, err := h.weave.Adoptions().List(ctx,
-		pkgdomain.WithProjectID(projectID),
-		pkgdomain.WithFilter("context_entity_type", "project"),
-		pkgdomain.WithFilter("context_entity_id", projectID),
-		pkgdomain.WithFilter("source_project_id", sourceProjectID),
-		pkgdomain.WithFilter("source_entity_id", sourceEntityID),
-	)
-	if err != nil {
-		h.logger.Error("load receipt for closure", "project", projectID, "source", sourceEntityID, "err", err)
-		errresp.InternalWith(w, r, err, "failed to load receipt")
-		return
-	}
-	if len(receipts) == 0 {
-		errresp.Error(w, r, http.StatusNotFound, "not_found", "receipt not found")
-		return
-	}
-	seedKind := receipts[0].EntityType
-	currentVersion := auth.ProjectVersionFromContext(ctx)
-
-	resp := ProjectAdoptionClosureResponse{Kind: kind}
-	switch kind {
-	case "models":
-		ids, err := h.weave.Models().ListReceiptModelClosure(ctx, sourceEntityID, seedKind)
-		if err != nil {
-			h.logger.Error("receipt model closure", "err", err)
-			errresp.InternalWith(w, r, err, "failed to compute closure")
-			return
-		}
-		resp.Items = make([]ProjectAdoptionClosureItem, 0, len(ids))
-		for _, id := range ids {
-			m, err := h.weave.Models().GetByID(ctx, id)
-			if err != nil || m == nil {
-				continue
-			}
-			resp.Items = append(resp.Items, ProjectAdoptionClosureItem{
-				ID: m.ID, SemanticID: m.SemanticID, Name: m.UIName,
-				SourceProjectID: m.ProjectID,
-				CurrentURL:      addVersion(currentProjectEntityURL(projectID, "model", m.ID), currentVersion),
-				SourceURL:       projectEntityURL("model", m.ID),
-			})
-		}
-	case "collections":
-		ids, err := h.weave.Collections().ListReceiptCollectionClosure(ctx, sourceEntityID, seedKind)
-		if err != nil {
-			h.logger.Error("receipt collection closure", "err", err)
-			errresp.InternalWith(w, r, err, "failed to compute closure")
-			return
-		}
-		resp.Items = make([]ProjectAdoptionClosureItem, 0, len(ids))
-		for _, id := range ids {
-			c, err := h.weave.Collections().GetByID(ctx, id)
-			if err != nil || c == nil {
-				continue
-			}
-			resp.Items = append(resp.Items, ProjectAdoptionClosureItem{
-				ID: c.ID, SemanticID: c.SemanticID, Name: c.UIName,
-				SourceProjectID: c.ProjectID,
-				CurrentURL:      addVersion(currentProjectEntityURL(projectID, "collection", c.ID), currentVersion),
-				SourceURL:       projectEntityURL("collection", c.ID),
-			})
-		}
-	case "fields":
-		ids, err := h.weave.WeaveFields().ListReceiptFieldClosure(ctx, sourceEntityID, seedKind)
-		if err != nil {
-			h.logger.Error("receipt field closure", "err", err)
-			errresp.InternalWith(w, r, err, "failed to compute closure")
-			return
-		}
-		resp.Items = make([]ProjectAdoptionClosureItem, 0, len(ids))
-		for _, id := range ids {
-			f, err := h.weave.WeaveFields().GetByID(ctx, id)
-			if err != nil || f == nil {
-				continue
-			}
-			resp.Items = append(resp.Items, ProjectAdoptionClosureItem{
-				ID: f.ID, SemanticID: f.SemanticID, Name: f.UIName,
-				SourceProjectID: f.ProjectID,
-				CurrentURL:      addVersion(currentProjectEntityURL(projectID, "field", f.ID), currentVersion),
-				SourceURL:       projectEntityURL("field", f.ID),
-			})
-		}
-	}
-	resp.Count = len(resp.Items)
-	sort.Slice(resp.Items, func(i, j int) bool {
-		if resp.Items[i].SourceProjectID != resp.Items[j].SourceProjectID {
-			return resp.Items[i].SourceProjectID < resp.Items[j].SourceProjectID
-		}
-		return resp.Items[i].SemanticID < resp.Items[j].SemanticID
-	})
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		h.logger.Error("encode adoption closure", "err", err)
-	}
-}
-
-func (h *Handler) entityNamesByID(ctx context.Context, entityType string, ids []string) map[string]pkgdomain.Translations {
-	out := make(map[string]pkgdomain.Translations, len(ids))
-	if len(ids) == 0 {
-		return out
-	}
-	switch entityType {
-	case "model":
-		for _, id := range ids {
-			item, err := h.weave.Models().GetByID(ctx, id)
-			if err == nil && item != nil {
-				out[id] = item.UIName
-			}
-		}
-	case "collection":
-		for _, id := range ids {
-			item, err := h.weave.Collections().GetByID(ctx, id)
-			if err == nil && item != nil {
-				out[id] = item.UIName
-			}
-		}
-	}
-	return out
-}
-
-func projectEntityURL(entityType, entityID string) string {
-	switch entityType {
-	case "model", "collection", "field", "category":
-		return pkgdomain.ParseSemanticID(entityID).URL()
-	default:
-		return ""
-	}
-}
-
-// currentProjectEntityURL builds the detail URL under the CURRENT
-// project (i.e. the one viewing the adoption receipt), not the source
-// project. Used for the primary "open" link on each adoption row so
-// curators land on the version where overrides + fork live.
-func currentProjectEntityURL(currentProjectID, entityType, entityID string) string {
-	if currentProjectID == "" || entityID == "" {
-		return ""
-	}
-	plural, ok := map[string]string{
-		"model":      "models",
-		"collection": "collections",
-		"field":      "fields",
-		"category":   "categories",
-	}[entityType]
-	if !ok {
-		return ""
-	}
-	return fmt.Sprintf("/projects/%s/%s/%s", currentProjectID, plural, entityID)
-}
-
-func adoptionLabel(adoption pkgdomain.Adoption) pkgdomain.Translations {
-	label := adoption.SourceEntityID
-	if adoption.EntityType != "" {
-		label = adoption.EntityType + " · " + adoption.SourceEntityID
-	}
-	return pkgdomain.Translations{"en": label, "nl": label}
-}
-
-func derefString(v *string) string {
-	if v == nil {
-		return ""
-	}
-	return *v
-}
-
-func (h *Handler) actorNames(ctx context.Context, adoptions []pkgdomain.Adoption) map[string]string {
-	if h.actorLabels == nil {
-		return map[string]string{}
-	}
-	ids := make([]string, 0, len(adoptions))
-	for _, adoption := range adoptions {
-		if adoption.CreatedByID != nil && *adoption.CreatedByID != "" {
-			ids = append(ids, *adoption.CreatedByID)
-		}
-	}
-	return h.actorLabels.LabelsByID(ctx, ids)
-}
-
-func actorRef(id *string, labels map[string]string) pkgdomain.ActorRef {
-	if id == nil || *id == "" {
-		return pkgdomain.ActorRef{}
-	}
-	ref := pkgdomain.ActorRef{ID: *id}
-	if label := labels[*id]; label != "" {
-		ref.Label = label
-	}
-	return ref
 }
 
 func addVersion(raw, currentVersion string) string {

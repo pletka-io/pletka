@@ -25,7 +25,6 @@ import (
 	"github.com/pletka-io/pletka/pkg/service/browserread"
 	"github.com/pletka-io/pletka/pkg/service/projectread"
 	"github.com/pletka-io/pletka/pkg/weave"
-	"github.com/pletka-io/pletka/pkg/weave/actorlabels"
 	"github.com/pletka-io/pletka/pkg/weave/ontology"
 	"github.com/pletka-io/pletka/pkg/weave/pages"
 	"github.com/pletka-io/pletka/pkg/weave/publication"
@@ -117,7 +116,7 @@ INSERT INTO weave_adoptions(project_id,context_entity_type,context_entity_id,ent
 	router := chi.NewRouter()
 	store := summaryAccessOnly{projects: summaryProjectAccess{current: weave.NewPostgresStore(pool).Projects()}}
 	pub := publication.NewReader(pool)
-	Mount(router, Host{Logger: slog.Default(), Weave: store, Source: source, Releases: releases, ActorLabels: actorlabels.NewPostgresReader(pool), I18n: mgr, Publication: pub})
+	Mount(router, Host{Logger: slog.Default(), Weave: store, Source: source, Releases: releases, I18n: mgr, Publication: pub})
 	if err := pages.Mount(router, pages.Host{Weave: store, Source: source, Renderer: renderer, I18n: mgr, LatestRelease: pub}); err != nil {
 		t.Fatal(err)
 	}

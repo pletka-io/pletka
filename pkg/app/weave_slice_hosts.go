@@ -24,7 +24,6 @@ import (
 	"github.com/pletka-io/pletka/pkg/session"
 	weavepkg "github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/actoradmin"
-	"github.com/pletka-io/pletka/pkg/weave/actorlabels"
 	"github.com/pletka-io/pletka/pkg/weave/attribution"
 	"github.com/pletka-io/pletka/pkg/weave/authpages"
 	"github.com/pletka-io/pletka/pkg/weave/category"
@@ -418,7 +417,6 @@ func buildEntitySchemaHost(
 }
 
 func buildProjectPageHost(
-	pool *pgxpool.Pool,
 	weave domain.WeaveStore,
 	logger *slog.Logger,
 	languages []formschema.LanguageInfo,
@@ -433,7 +431,6 @@ func buildProjectPageHost(
 		Weave:        weave,
 		Source:       source,
 		Releases:     releases,
-		ActorLabels:  actorlabels.NewPostgresReader(pool),
 		Languages:    languages,
 		LangResolver: langResolver,
 		I18n:         i18nManager,
@@ -583,6 +580,7 @@ func newServiceVocabularyLister(vocabServiceURL string, client *http.Client) set
 }
 
 type coreEntityDeps struct {
+	Inventory *browserread.Source
 	Pool      *pgxpool.Pool
 	Weave     domain.WeaveStore
 	Logger    *slog.Logger
@@ -648,6 +646,7 @@ func buildCoreEntityHosts(
 
 	pub := publication.NewReader(deps.Pool)
 	return field.Host{
+		Inventory:    deps.Inventory,
 		Service:      fieldSvc,
 		Projects:     projects,
 		Logger:       deps.Logger,
@@ -656,6 +655,7 @@ func buildCoreEntityHosts(
 		I18n:         deps.I18n,
 		Publication:  pub,
 	}, model.Host{
+		Inventory:    deps.Inventory,
 		Service:      modelSvc,
 		Projects:     projects,
 		Logger:       deps.Logger,
@@ -664,6 +664,7 @@ func buildCoreEntityHosts(
 		I18n:         deps.I18n,
 		Publication:  pub,
 	}, collection.Host{
+		Inventory:    deps.Inventory,
 		Service:      collectionSvc,
 		Projects:     projects,
 		Logger:       deps.Logger,
