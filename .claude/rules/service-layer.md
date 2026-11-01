@@ -242,6 +242,10 @@ its own complete validation contract before it may produce this evidence.
 - Two packages building the same entity's schema — collapse to the slice
 - Business logic inside a store method (stores query, services decide)
 - Generators importing loading capabilities or adding readers around the single detached `Source` boundary
+- Browser detail projections importing request/store capabilities, using generator
+  DTOs for raw editing data, or inferring inverse usage from a partial fragment.
+  Use the mandatory bounded source and its same-session aggregate; see
+  [browser detail reads](../../docs-oss/reference/browser-detail-reads.md).
 - A handler emitting `http.Error`/`http.NotFound` instead of `weaverouter.Error`/`apierror.Write`
 - A read method outside a `Reader` in a versioned slice
 - A SQL string literal outside named `.sql` files under `pkg/database/queries/` — see `database-patterns.md`

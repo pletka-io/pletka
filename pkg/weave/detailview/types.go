@@ -48,6 +48,10 @@ type EntityViewMeta struct {
 	// Translations map per field — same as every other localized label.
 	OriginLabel i18n.LocalizedText `json:"origin_label,omitempty"`
 	OriginHelp  i18n.LocalizedText `json:"origin_help,omitempty"`
+	// SourceURL explicitly opens the retained source definition, separately
+	// from the current consumer's composition.
+	SourceURL   string             `json:"source_url,omitempty"`
+	SourceLabel i18n.LocalizedText `json:"source_label,omitempty"`
 	Scope       *ViewScopeInfo     `json:"ontology_scope,omitempty"`
 	CreatedAt   time.Time          `json:"created_at"`
 	UpdatedAt   time.Time          `json:"updated_at"`

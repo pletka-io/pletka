@@ -470,3 +470,11 @@ source. It retains a narrow current-project lookup for authorization only;
 projection and all eight ZIP entries use captured content. Active ontology policy
 is not added to immutable bodies for a display column. See the
 [CSV export contract](../reference/project-csv-export.md).
+
+`service/browserread.Source` uses the same factory/assembler boundary for bounded
+detail pages. Field inverse-usage counts come from a session-bound aggregate over
+the selected project and textual archive version, alongside the fragment in the
+same transaction. Neither a fragment's row count nor a separate live lookup can
+substitute for that aggregate. The `readsession/browser.go` binding is registered
+with the query-access ratchet; its draft/archive SQL facets remain separate.
+See [browser detail reads](../reference/browser-detail-reads.md).

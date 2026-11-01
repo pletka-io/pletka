@@ -46,6 +46,7 @@ func TestPage_PreloadAutocomplete(t *testing.T) {
 		name      string
 		snap      *weaveauth.AuthSnapshot
 		wantCalls int32
+		version   string
 	}{
 		{
 			name: "logged-in user triggers preload",
@@ -56,6 +57,7 @@ func TestPage_PreloadAutocomplete(t *testing.T) {
 			},
 			wantCalls: 1,
 		},
+		{name: "release reader skips current autocomplete", snap: &weaveauth.AuthSnapshot{IsSuperAdmin: true}, version: "1.0.0", wantCalls: 0},
 		{
 			name:      "anonymous user skips preload",
 			snap:      &weaveauth.AuthSnapshot{IsAnonymous: true},
@@ -85,6 +87,7 @@ func TestPage_PreloadAutocomplete(t *testing.T) {
 				ctx := req.Context()
 				ctx = weaveauth.WithProject(ctx, testProject)
 				ctx = weaveauth.WithSnapshot(ctx, tc.snap)
+				ctx = weaveauth.WithProjectVersion(ctx, tc.version)
 				req = req.WithContext(ctx)
 
 				// Call Page; it will fail at the renderer but the preloader

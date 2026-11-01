@@ -8,21 +8,18 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/browserinput"
 	pkgdomain "github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/frontendrefs"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/integrations/registry"
 	"github.com/pletka-io/pletka/pkg/session"
-	weavepkg "github.com/pletka-io/pletka/pkg/weave"
-	"github.com/pletka-io/pletka/pkg/weave/actorlabels"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
@@ -54,6 +51,12 @@ type EnabledIntegrationConfig struct {
 	Label         string
 }
 
+// Source returns a detached bounded selection; implementations finish every
+// content read (including field usage) before returning.
+type Source interface {
+	Detail(context.Context, auth.ReadScope, string, string, string) (browserinput.Detail, error)
+}
+
 // Host is the narrow dependency surface needed to mount detailview routes.
 type Host struct {
 	Logger       *slog.Logger
@@ -61,7 +64,7 @@ type Host struct {
 	I18n         i18n.Manager
 	Session      *session.Manager
 	Renderer     *templates.Renderer
-	Actors       actorlabels.Reader
+	Source       Source
 	Integrations *registry.Registry
 	IntLookup    IntegrationsLookup
 	Preloader    AutocompletePreloader
@@ -81,6 +84,9 @@ type Host struct {
 }
 
 func (h Host) Validate() error {
+	if h.Source == nil {
+		return fmt.Errorf("detailview host missing bounded source")
+	}
 	if h.Weave == nil {
 		return fmt.Errorf("detailview host missing weave store")
 	}
@@ -111,7 +117,7 @@ type Handler struct {
 	i18n         i18n.Manager
 	session      *session.Manager
 	renderer     *templates.Renderer
-	actors       actorlabels.Reader
+	source       Source
 	integrations *registry.Registry
 	intLookup    IntegrationsLookup
 	preloader    AutocompletePreloader
@@ -126,7 +132,7 @@ func NewHandler(
 	i18nManager i18n.Manager,
 	sessionManager *session.Manager,
 	renderer *templates.Renderer,
-	actors actorlabels.Reader,
+	source Source,
 	integrations *registry.Registry,
 	intLookup IntegrationsLookup,
 	preloader AutocompletePreloader,
@@ -139,7 +145,7 @@ func NewHandler(
 		i18n:         i18nManager,
 		session:      sessionManager,
 		renderer:     renderer,
-		actors:       actors,
+		source:       source,
 		integrations: integrations,
 		intLookup:    intLookup,
 		preloader:    preloader,
@@ -159,7 +165,7 @@ func Mount(r chi.Router, host Host) error {
 		host.I18n,
 		host.Session,
 		host.Renderer,
-		host.Actors,
+		host.Source,
 		host.Integrations,
 		host.IntLookup,
 		host.Preloader,
@@ -245,17 +251,24 @@ func (h *Handler) Page(entityType string) http.HandlerFunc {
 		// Warm the autocomplete index in the background so the first
 		// path-builder keystroke hits a hot cache. Skip anonymous users —
 		// they cannot open the path builder anyway.
-		if h.preloader != nil && !snap.IsAnonymous {
+		if h.preloader != nil && !snap.IsAnonymous && activeVersion == "" {
 			h.preloader.PreloadAutocomplete(projectID)
 		}
 
 		lang := h.currentLang(r)
-		projectName := project.UIName.Get(lang, projectID)
-		entityName, entityTypeLabel, err := h.entityPageMeta(ctx, projectID, entityType, entityID, activeVersion, lang)
+		content, err := h.loadDetail(ctx, auth.ReadScopeFromContext(ctx), projectID, entityType, entityID)
 		if err != nil {
-			errresp.Error(w, r, http.StatusNotFound, "not_found", err.Error())
+			e := apierror.FromError(err)
+			if e.Code == apierror.CodeInternal {
+				errresp.Internal(w, r, err)
+			} else {
+				errresp.Error(w, r, e.Status, string(e.Code), e.Message)
+			}
 			return
 		}
+		projectName := content.ProjectName.Get(lang, projectID)
+		entityName := content.Response.Entity.Name.Get(lang, entityID)
+		entityTypeLabel := map[string]string{"model": "Models", "collection": "Collections", "field": "Fields", "concept-list": "Concept lists"}[entityType]
 
 		page := templates.IslandPage{
 			Title:       entityID + " " + entityName + " · " + projectID,
@@ -298,38 +311,12 @@ func (h *Handler) API(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var (
-		resp *Response
-		err  error
-	)
-
-	switch entityType {
-	case "model":
-		resp, err = h.buildModel(ctx, projectID, entityID)
-	case "collection":
-		resp, err = h.buildCollection(ctx, projectID, entityID)
-	case "field":
-		resp, err = h.buildField(ctx, projectID, entityID)
-	case "concept-list":
-		resp, err = h.buildConceptList(ctx, projectID, entityID)
-	default:
-		h.writeAPIError(w, fmt.Sprintf("unsupported entity type: %s", entityType), http.StatusBadRequest)
-		return
-	}
-
+	content, err := h.loadDetail(ctx, auth.ReadScopeFromContext(ctx), projectID, entityType, entityID)
 	if err != nil {
-		if errors.Is(err, errEntityViewNotFound) {
-			// Routine case: the entity doesn't exist, or (release mode)
-			// legitimately isn't part of the resolved release — created
-			// after it, or never released. Not an internal failure.
-			h.writeAPIError(w, "entity not found", http.StatusNotFound)
-			return
-		}
-		h.logger.Error("build detailview response", "entity_type", entityType, "entity_id", entityID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("Failed to build detailview response", err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
-
+	resp := h.decorateDetail(ctx, content)
 	h.writeLocalizedJSON(w, r, http.StatusOK, resp)
 }
 
@@ -345,87 +332,21 @@ func (h *Handler) StatsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var stats pkgdomain.ModelViewStats
-	var err error
-
-	switch entityType {
-	case "model":
-		var view *pkgdomain.ModelView
-		view, err = h.weave.ModelView(ctx, entityID, projectID)
-		if err == nil {
-			stats = view.Stats
-		}
-	case "collection":
-		var rawFields []pkgdomain.ResolvedField
-		rawFields, err = h.weave.CollectionView(ctx, entityID, projectID)
-		if err == nil {
-			// Hidden fields must not be counted in
-			// the read-only Stats tab either — same filter buildCollection
-			// applies before grouping (handler.go ~line 694).
-			fields := filterVisibleFields(rawFields)
-			grouped := make(map[string][]pkgdomain.ResolvedField)
-			for _, f := range fields {
-				grouped[f.CategoryID] = append(grouped[f.CategoryID], f)
-			}
-			sections := make([]ViewSection, 0, len(grouped))
-			for catID, catFields := range grouped {
-				name := pkgdomain.Translations{"en": catID}
-				if catID == "" {
-					name = pkgdomain.Translations{"en": "Uncategorized"}
-				}
-				sections = append(sections, ViewSection{
-					ID:   catID,
-					Name: name,
-					Items: []ViewItem{{
-						Fields: convertFields(catFields, ViewRefs{}, projectID, auth.ProjectVersionFromContext(ctx)),
-					}},
-				})
-			}
-			stats = computeCollectionStats(fields, sections)
-		}
-	case "field":
-		// Field stats are usage signals — how many models / collections
-		// in this project reference this field, plus the total override
-		// row count. Frontend StatsTab branches on
-		// entity_type to render the right card set.
-		var counts pkgdomain.FieldUsageCounts
-		counts, err = h.weave.WeaveFields().CountUsage(ctx, entityID, projectID)
-		if err == nil {
-			stats = pkgdomain.ModelViewStats{
-				ModelsUsing:        counts.ModelsUsing,
-				CollectionsUsing:   counts.CollectionsUsing,
-				FieldOverrideCount: counts.OverrideRowCount,
-			}
-		}
-	default:
-		h.writeAPIError(w, fmt.Sprintf("unsupported entity type: %s", entityType), http.StatusBadRequest)
+	if entityType != "model" && entityType != "collection" && entityType != "field" {
+		apierror.Write(w, r, apierror.BadRequest("unsupported statistics entity type"))
 		return
 	}
-
+	content, err := h.loadDetail(ctx, auth.ReadScopeFromContext(ctx), projectID, entityType, entityID)
 	if err != nil {
-		h.logger.Error("build detailview stats", "entity_type", entityType, "entity_id", entityID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to compute stats", err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
-
-	h.writeJSON(w, http.StatusOK, stats)
+	h.writeJSON(w, http.StatusOK, content.Stats)
 }
 
-// ReuseAPI serves the reuse list for an entity — the models and
-// collections in the project that reference it. Today supports field
-// and collection. Models are deferred (overlaps with
-// the model-in-context graph).
-//
-// Same-project only today. Cross-project reuse arrives later via the
-// explicit-adoption / parent-inheritance plans; this endpoint will
-// extend its payload (e.g. a `projects` slice) when those land. The
-// URL stays stable; frontend keeps reading from
-// capabilities.reuse_url.
-//
-// Response shape is always {models, collections} — collection-reuse
-// only fills `models` (collections never include other collections),
-// `collections` stays empty. Frontend ReuseTab branches on entity
-// type for column labels.
+// ReuseAPI serves current global usage after validating working-view membership.
+// A release cannot select the historical state of unrelated consuming projects,
+// so released views omit this capability and direct versioned requests fail.
 func (h *Handler) ReuseAPI(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := chi.URLParam(r, "projectID")
@@ -434,6 +355,15 @@ func (h *Handler) ReuseAPI(w http.ResponseWriter, r *http.Request) {
 
 	if projectID == "" || entityType == "" || entityID == "" {
 		h.writeAPIError(w, "projectID, entityType, and entityID are required", http.StatusBadRequest)
+		return
+	}
+
+	if auth.ReadScopeFromContext(ctx).IsRelease() {
+		apierror.Write(w, r, apierror.BadRequest("global reuse is available only in the working view"))
+		return
+	}
+	if _, err := h.loadDetail(ctx, auth.ReadScopeFromContext(ctx), projectID, entityType, entityID); err != nil {
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 
@@ -468,14 +398,6 @@ func (h *Handler) ReuseAPI(w http.ResponseWriter, r *http.Request) {
 // surface as 400 Bad Request; every other BuildReuse error is a store
 // failure the caller surfaces as 500.
 var errUnsupportedReuseEntityType = errors.New("reuse not supported for entity type")
-
-// errEntityViewNotFound marks a buildModel/buildCollection/buildField
-// failure the caller (API) should surface as 404, not 500 — the routine
-// case of viewing an entity that doesn't exist, or (in release mode)
-// legitimately isn't part of the resolved release: created after it, or
-// never released. Every other build* error is a store failure and stays
-// 500.
-var errEntityViewNotFound = errors.New("entity not found")
 
 // reuseUsageError wraps a ListUsage failure inside BuildReuse with enough
 // context (slog op name + id field key) for the HTTP handler to log with the
@@ -624,48 +546,8 @@ func partitionFieldUsage(ctx context.Context, weave pkgdomain.WeaveStore, projec
 	return sec
 }
 
-// entityPageMeta resolves the page-shell title/breadcrumb name for an
-// entity. It is version-aware for model/collection/field: when version is
-// non-empty (release mode) it goes through the same version-aware header
-// getters (getModelHeader/getCollectionHeader/getFieldHeader) that
-// buildModel/buildCollection/buildField use for the response body, so the
-// page shell (title, breadcrumb) never shows a draft name the body would
-// 404 or replace with the released name. A nil result from the
-// version-aware getter is treated like not-found, matching the body's 404
-// — it must never fall back to the unversioned draft row. version == ""
-// (hot/editor) is unchanged. concept-list has no archive/versioned store
-// yet (see buildConceptList), so it stays unversioned here too.
-func (h *Handler) entityPageMeta(ctx context.Context, projectID, entityType, entityID, version, lang string) (name, label string, err error) {
-	switch entityType {
-	case "model":
-		m, e := h.getModelHeader(ctx, projectID, entityID, version)
-		if e != nil || m == nil {
-			return "", "", fmt.Errorf("model not found")
-		}
-		return m.UIName.Get(lang, entityID), "Models", nil
-	case "collection":
-		c, e := h.getCollectionHeader(ctx, projectID, entityID, version)
-		if e != nil || c == nil {
-			return "", "", fmt.Errorf("collection not found")
-		}
-		return c.UIName.Get(lang, entityID), "Collections", nil
-	case "field":
-		f, e := h.getFieldHeader(ctx, projectID, entityID, version)
-		if e != nil || f == nil {
-			return "", "", fmt.Errorf("field not found")
-		}
-		return f.UIName.Get(lang, entityID), "Fields", nil
-	case "concept-list":
-		list, e := h.weave.ConceptLists().GetByID(ctx, entityID)
-		if e != nil || list == nil {
-			return "", "", fmt.Errorf("concept list not found")
-		}
-		return list.UIName.Get(lang, entityID), "Concept lists", nil
-	default:
-		return "", "", fmt.Errorf("unsupported entity type")
-	}
-}
-
+// breadcrumbs uses the selected project/entity display names supplied by the
+// bounded projection and preserves the selection in navigation links.
 func (h *Handler) breadcrumbs(projectID, projectName, entityType, entityTypeLabel, entityName, activeVersion string) []templates.Breadcrumb {
 	proj := withVersion(fmt.Sprintf("%s/%s", weaveroutes.ProjectBase, projectID), activeVersion)
 	// Pivots always carry their Href — the active one is rendered with
@@ -693,731 +575,6 @@ func (h *Handler) breadcrumbs(projectID, projectName, entityType, entityTypeLabe
 	}
 }
 
-// getModelHeader loads the model header. When version is non-empty it
-// reads the archived model at that release, scoped to projectID, falling
-// back to the hot (hot/unscoped) row when nothing was archived under this
-// project — the case for a cross-project adopted/inherited model, whose
-// read-only view is always rendered from its owning project's live state
-// (see buildModel's overrideScope comment). version == "" is unchanged
-// (hot GetByID), matching pre-Task-4b behavior exactly.
-func (h *Handler) getModelHeader(ctx context.Context, projectID, modelID, version string) (*pkgdomain.Model, error) {
-	if version == "" {
-		return h.weave.Models().GetByID(ctx, modelID)
-	}
-	m, err := h.weave.Models().GetByIDVersion(ctx, projectID, modelID, version)
-	if err != nil {
-		return nil, err
-	}
-	if m != nil {
-		return m, nil
-	}
-	// No archive row under this project at this version. Distinguish the
-	// two reasons GetByIDVersion can return nil: (a) a cross-project
-	// adopted/inherited model, archived under its OWNING project, not the
-	// route project — fall back to hot, read-only, same as buildModel's
-	// overrideScope handling; (b) a model that legitimately owns this
-	// project but was created after the release / never released — there
-	// is no archive row anywhere, and falling back to hot would leak the
-	// draft under a "Viewing release X" response. Only (a) falls back.
-	hot, err := h.weave.Models().GetByID(ctx, modelID)
-	if err != nil {
-		return nil, err
-	}
-	if hot != nil && hot.ProjectID != projectID {
-		return hot, nil
-	}
-	return nil, nil
-}
-
-// getCollectionHeader is getModelHeader's sibling for collections.
-func (h *Handler) getCollectionHeader(ctx context.Context, projectID, collectionID, version string) (*pkgdomain.Collection, error) {
-	if version == "" {
-		return h.weave.Collections().GetByID(ctx, collectionID)
-	}
-	c, err := h.weave.Collections().GetByIDVersion(ctx, projectID, collectionID, version)
-	if err != nil {
-		return nil, err
-	}
-	if c != nil {
-		return c, nil
-	}
-	// See getModelHeader for why the fallback is gated on cross-project
-	// ownership rather than firing unconditionally.
-	hot, err := h.weave.Collections().GetByID(ctx, collectionID)
-	if err != nil {
-		return nil, err
-	}
-	if hot != nil && hot.ProjectID != projectID {
-		return hot, nil
-	}
-	return nil, nil
-}
-
-// getFieldHeader is getModelHeader's sibling for fields.
-func (h *Handler) getFieldHeader(ctx context.Context, projectID, fieldID, version string) (*pkgdomain.Field, error) {
-	if version == "" {
-		return h.weave.WeaveFields().GetByID(ctx, fieldID)
-	}
-	f, err := h.weave.WeaveFields().GetByIDVersion(ctx, projectID, fieldID, version)
-	if err != nil {
-		return nil, err
-	}
-	if f != nil {
-		return f, nil
-	}
-	// See getModelHeader for why the fallback is gated on cross-project
-	// ownership rather than firing unconditionally.
-	hot, err := h.weave.WeaveFields().GetByID(ctx, fieldID)
-	if err != nil {
-		return nil, err
-	}
-	if hot != nil && hot.ProjectID != projectID {
-		return hot, nil
-	}
-	return nil, nil
-}
-
-// getFieldBaseOverride loads the field's base override at the request's
-// scope. A nil result under a release scope is a legitimate "no base
-// override was archived at that version" and never a reason to fall back to
-// the working state.
-func (h *Handler) getFieldBaseOverride(ctx context.Context, scope auth.ReadScope, fieldID, projectID string) (*pkgdomain.FieldOverride, error) {
-	return h.weave.Overrides().GetBase(ctx, scope, fieldID, projectID)
-}
-
-func (h *Handler) buildModel(ctx context.Context, projectID, modelID string) (*Response, error) {
-	projectResource := h.projectResource(ctx, projectID)
-	canEdit := h.canEditProject(ctx, projectID)
-	activeVersion := auth.ProjectVersionFromContext(ctx)
-	forkedOrigins, err := weavepkg.ForkOriginsForProject(ctx, h.weave, projectID, "model")
-	if err != nil {
-		return nil, fmt.Errorf("list model forks: %w", err)
-	}
-	adoptedOrigins, err := weavepkg.AdoptionOriginsForProject(ctx, h.weave, projectID, "model")
-	if err != nil {
-		return nil, fmt.Errorf("list model adoptions: %w", err)
-	}
-	model, err := h.getModelHeader(ctx, projectID, modelID, activeVersion)
-	if err != nil {
-		return nil, fmt.Errorf("get model: %w", err)
-	}
-	if model == nil {
-		return nil, fmt.Errorf("model not found: %s: %w", modelID, errEntityViewNotFound)
-	}
-	// Cross-project adopted/inherited entities have no current-project
-	// overrides until Adapt is invoked. Building the view in the
-	// current project's scope would return zero fields. Resolve in the
-	// model's owning project's scope so the curator sees what the
-	// adopted entity actually looks like upstream (read-only). Once
-	// the entity is Adapted, model.ProjectID == projectID and this
-	// branch is a no-op.
-	overrideScope := projectID
-	if model.ProjectID != "" && model.ProjectID != projectID {
-		overrideScope = model.ProjectID
-	}
-	view, err := h.weave.ModelView(ctx, modelID, overrideScope)
-	if err != nil {
-		return nil, fmt.Errorf("build model view: %w", err)
-	}
-
-	refs := ViewRefs{
-		Categories:  make(map[string]ViewRefEntry),
-		Collections: make(map[string]ViewRefEntry),
-		Models:      make(map[string]ViewRefEntry),
-	}
-
-	var sections []ViewSection
-	for _, cat := range view.Categories {
-		refs.Categories[cat.ID] = ViewRefEntry{Name: cat.Name, Order: cat.Position, URL: withVersion(pkgdomain.ParseSemanticID(cat.ID).URL(), activeVersion)}
-		var items []ViewItem
-		for _, coll := range cat.Collections {
-			// A collection group hidden at placement level is
-			// fully removed from the read-only view (same policy as hidden
-			// fields). The override editor still receives it.
-			if coll.Placement != nil && coll.Placement.IsHidden {
-				continue
-			}
-			refs.Collections[coll.ID] = ViewRefEntry{Name: coll.Name, URL: withVersion(pkgdomain.ParseSemanticID(coll.ID).URL(), activeVersion)}
-			// Hidden fields are dropped before FieldCount is
-			// derived so the read-only view never renders or counts them.
-			fields := convertFields(filterVisibleFields(coll.Fields), refs, projectID, activeVersion)
-			// SourceURL: skip the synthetic 'Direct Fields' bucket
-			// (collectionWidget returns "field-group" for that one) — it
-			// has no standalone detail page.
-			sourceURL := ""
-			if coll.ID != "" && collectionWidget(coll.ID) == "collection-group" {
-				sourceURL = withVersion(pkgdomain.ParseSemanticID(coll.ID).URL(), activeVersion)
-			}
-			items = append(items, ViewItem{
-				Widget:       collectionWidget(coll.ID),
-				ID:           coll.ID,
-				Name:         coll.Name,
-				FieldCount:   len(fields),
-				Fields:       fields,
-				SharedPrefix: coll.SharedPathPrefix,
-				Placement:    coll.Placement,
-				SourceURL:    sourceURL,
-			})
-		}
-		sections = append(sections, ViewSection{
-			Widget:         "category-group",
-			ID:             cat.ID,
-			Name:           cat.Name,
-			CanonicalOrder: cat.Position,
-			Items:          items,
-		})
-	}
-
-	sortSectionsByOrder(sections)
-	entityOrigin := weavepkg.ResolveReuseOrigin(forkedOrigins, adoptedOrigins, projectID, model.ProjectID, model.ID)
-	// Upgrade inherited → adopted_reference when the current project's
-	// overrides reference this model. Matches the four-state taxonomy
-	// from the list rule (task 3b) so the provenance card on the detail
-	// page reads consistently with the list-row badge.
-	if entityOrigin.Kind == pkgdomain.OriginInherited {
-		if refModels, err := h.weave.Models().ListReferenceAdopted(ctx, projectID); err == nil {
-			for _, m := range refModels {
-				if m.ID == model.ID {
-					entityOrigin = pkgdomain.Origin{
-						Kind:            pkgdomain.OriginAdoptedReference,
-						SourceProjectID: model.ProjectID,
-						SourceEntityID:  model.ID,
-					}
-					break
-				}
-			}
-		}
-	}
-	entityEditable := canEdit && (entityOrigin.Kind == pkgdomain.OriginOwn || entityOrigin.Kind == pkgdomain.OriginForked)
-	adoptURL := ""
-	forkURL := ""
-	if canEdit && activeVersion == "" {
-		switch entityOrigin.Kind {
-		case pkgdomain.OriginInherited:
-			adoptURL = fmt.Sprintf("/projects/%s/models/%s/adopt", projectID, modelID)
-		case pkgdomain.OriginAdopted:
-			forkURL = fmt.Sprintf("/projects/%s/models/%s/fork", projectID, modelID)
-		}
-	}
-	adoptions, err := h.adoptionItemsForContext(ctx, projectID, "model", modelID, activeVersion)
-	if err != nil {
-		return nil, fmt.Errorf("list model adoptions: %w", err)
-	}
-	// In use = referenced as a value target by a field in any project
-	// (weave_override_refs) — the same relationship the model Reuse tab shows.
-	// An in-use model gates to Deprecate-only; the delete endpoint also refuses
-	// with 409 as a server-side backstop.
-	modelInUse := false
-	if usage, uErr := h.weave.Models().ListUsage(ctx, modelID); uErr == nil {
-		modelInUse = len(usage.Models) > 0 || len(usage.Collections) > 0
-	}
-	modelDeleteURL, modelDeprecateURL, modelActivateURL := lifecycleCaps(entityEditable, modelInUse, activeVersion, fmt.Sprintf("/projects/%s/models/%s", projectID, modelID), model.Deprecated)
-	return &Response{
-		Entity: EntityViewMeta{
-			ID:               model.ID,
-			Type:             "model",
-			Name:             model.UIName,
-			Description:      model.Description,
-			SystemName:       model.SystemName,
-			Status:           string(model.Status),
-			PublicationState: h.pubState(ctx, projectID, "model", modelID, activeVersion),
-			Deprecated:       model.Deprecated,
-			Origin:           entityOrigin,
-			OriginLabel:      originDetailLabel(entityOrigin),
-			OriginHelp:       originDetailHelp(entityOrigin),
-			Scope:            &ViewScopeInfo{LocalName: model.OntologyScope.LocalName, Prefix: model.OntologyScope.Prefix},
-			CreatedAt:        model.CreatedAt,
-			UpdatedAt:        model.UpdatedAt,
-			ModelType:        model.ModelType,
-		},
-		Capabilities: ViewCapabilities{
-			Editable:          entityEditable,
-			CanAddFields:      entityEditable,
-			CanReorder:        entityEditable,
-			SaveURL:           capabilityURL(entityEditable, withVersion(fmt.Sprintf("/projects/%s/models/%s/overrides", projectID, modelID), activeVersion)),
-			MetadataURL:       capabilityURL(entityEditable, withVersion(fmt.Sprintf("/projects/%s/form-schema/model?mode=edit&entity_id=%s", projectID, modelID), activeVersion)),
-			AdoptURL:          adoptURL,
-			AdoptLabel:        i18n.L("common.capabilities.adopt", "Adopt"),
-			ForkURL:           forkURL,
-			ForkLabel:         i18n.L("common.capabilities.adapt", "Adapt to edit"),
-			ForkPending:       i18n.L("common.capabilities.adapt_pending", "Adapting…"),
-			SearchFieldsURL:   withVersion(fmt.Sprintf("/projects/%s/fields/search", projectID), activeVersion),
-			ExamplesSchemaURL: capabilityURL(activeVersion == "", withVersion(fmt.Sprintf("/projects/%s/entity-list-schema/example?entity_type=model&entity_id=%s", projectID, modelID), activeVersion)),
-			ReuseURL:          withVersion(fmt.Sprintf("%s/%s/entity-view/model/%s/reuse", weaveroutes.ProjectBase, projectID, modelID), activeVersion),
-			Derivatives:       h.derivativesFor(ctx, auth.FromContext(ctx), projectResource, "models", modelID, activeVersion),
-			DeleteURL:         modelDeleteURL,
-			DeprecateURL:      modelDeprecateURL,
-			ActivateURL:       modelActivateURL,
-		},
-		ViewMode:  ViewModeDetailed,
-		Sections:  sections,
-		Adoptions: adoptions,
-		Refs:      refs,
-		StatsURL:  withVersion(fmt.Sprintf("%s/%s/entity-view/model/%s/stats", weaveroutes.ProjectBase, projectID, modelID), activeVersion),
-		Release:   releaseView(projectID, activeVersion, h.hasProjectEdit(ctx, projectID)),
-	}, nil
-}
-
-func (h *Handler) buildCollection(ctx context.Context, projectID, collectionID string) (*Response, error) {
-	projectResource := h.projectResource(ctx, projectID)
-	canEdit := h.canEditProject(ctx, projectID)
-	activeVersion := auth.ProjectVersionFromContext(ctx)
-	forkedOrigins, err := weavepkg.ForkOriginsForProject(ctx, h.weave, projectID, "collection")
-	if err != nil {
-		return nil, fmt.Errorf("list collection forks: %w", err)
-	}
-	adoptedOrigins, err := weavepkg.AdoptionOriginsForProject(ctx, h.weave, projectID, "collection")
-	if err != nil {
-		return nil, fmt.Errorf("list collection adoptions: %w", err)
-	}
-	collection, err := h.getCollectionHeader(ctx, projectID, collectionID, activeVersion)
-	if err != nil {
-		return nil, fmt.Errorf("get collection: %w", err)
-	}
-	if collection == nil {
-		return nil, fmt.Errorf("collection not found: %s: %w", collectionID, errEntityViewNotFound)
-	}
-
-	// Cross-project read-only view — see buildModel for the rationale.
-	collOverrideScope := projectID
-	if collection.ProjectID != "" && collection.ProjectID != projectID {
-		collOverrideScope = collection.ProjectID
-	}
-	resolvedFields, err := h.weave.CollectionView(ctx, collectionID, collOverrideScope)
-	if err != nil {
-		return nil, fmt.Errorf("build collection view: %w", err)
-	}
-	categories, err := h.weave.WeaveCategories().List(ctx, pkgdomain.WithProjectID(projectID))
-	if err != nil {
-		return nil, fmt.Errorf("list categories: %w", err)
-	}
-	categoryOrigins, err := weavepkg.CategoryAdoptionOriginsBySystemName(ctx, h.weave, projectID, categories)
-	if err != nil {
-		return nil, fmt.Errorf("list category adoptions: %w", err)
-	}
-
-	categoryMap := make(map[string]*categoryInfo, len(categories))
-	for _, cat := range categories {
-		origin := pkgdomain.OwnOrigin()
-		if adopted, ok := categoryOrigins[cat.SystemName]; ok {
-			origin = adopted
-		}
-		categoryMap[cat.ID] = &categoryInfo{name: cat.UIName, order: cat.CanonicalOrder, origin: origin}
-	}
-
-	// Hidden fields are dropped before grouping so the
-	// read-only view never renders or counts them (and a category made up
-	// entirely of hidden fields emits no section at all).
-	grouped := make(map[string][]pkgdomain.ResolvedField)
-	for _, f := range filterVisibleFields(resolvedFields) {
-		grouped[f.CategoryID] = append(grouped[f.CategoryID], f)
-	}
-
-	refs := ViewRefs{
-		Categories:  make(map[string]ViewRefEntry),
-		Collections: make(map[string]ViewRefEntry),
-		Models:      make(map[string]ViewRefEntry),
-	}
-
-	sections := make([]ViewSection, 0)
-	for catID, fields := range grouped {
-		catName := pkgdomain.Translations{"en": catID}
-		catOrder := 0
-		if info, ok := categoryMap[catID]; ok {
-			catName = info.name
-			catOrder = info.order
-		}
-		catOrigin := pkgdomain.OriginFromSemanticID(projectID, catID)
-		if info, ok := categoryMap[catID]; ok && info.origin.Kind != "" {
-			catOrigin = info.origin
-		}
-		refs.Categories[catID] = ViewRefEntry{
-			Name:   catName,
-			Order:  catOrder,
-			URL:    withVersion(pkgdomain.ParseSemanticID(catID).URL(), activeVersion),
-			Origin: catOrigin,
-		}
-		convertedFields := convertFields(fields, refs, projectID, activeVersion)
-		// This section always renders as widget "field-group" — the same
-		// "direct fields" branch the frontend uses for the model page's
-		// __direct__ bucket (see group-kind.ts isDirectFieldGroup). These
-		// category buckets share only a display category, not an ontology
-		// root, so — same as the model view direct bucket — no shared
-		// prefix is hoisted here; each field renders its own full path.
-		sections = append(sections, ViewSection{
-			Widget:         "category-group",
-			ID:             catID,
-			Name:           catName,
-			CanonicalOrder: catOrder,
-			Items: []ViewItem{{
-				Widget:     "field-group",
-				ID:         collectionID,
-				FieldCount: len(convertedFields),
-				Fields:     convertedFields,
-			}},
-		})
-	}
-
-	sortSectionsByOrder(sections)
-	entityOrigin := weavepkg.ResolveReuseOrigin(forkedOrigins, adoptedOrigins, projectID, collection.ProjectID, collection.ID)
-	// Upgrade inherited → adopted_reference when the current project's
-	// overrides reference this collection — see model detail builder.
-	if entityOrigin.Kind == pkgdomain.OriginInherited {
-		if refColls, err := h.weave.Collections().ListReferenceAdopted(ctx, projectID); err == nil {
-			for _, c := range refColls {
-				if c.ID == collection.ID {
-					entityOrigin = pkgdomain.Origin{
-						Kind:            pkgdomain.OriginAdoptedReference,
-						SourceProjectID: collection.ProjectID,
-						SourceEntityID:  collection.ID,
-					}
-					break
-				}
-			}
-		}
-	}
-	entityEditable := canEdit && (entityOrigin.Kind == pkgdomain.OriginOwn || entityOrigin.Kind == pkgdomain.OriginForked)
-	forkURL := ""
-	if canEdit && activeVersion == "" && entityOrigin.Kind == pkgdomain.OriginAdopted {
-		forkURL = fmt.Sprintf("/projects/%s/collections/%s/fork", projectID, collectionID)
-	}
-	adoptions, err := h.adoptionItemsForContext(ctx, projectID, "collection", collectionID, activeVersion)
-	if err != nil {
-		return nil, fmt.Errorf("list collection context adoptions: %w", err)
-	}
-	// In use = bundled by a model (part_of_collection) OR targeted as a field
-	// value type across any project (weave_override_refs collection_model) —
-	// same two paths the reuse tab shows. Either blocks delete.
-	collInUse := false
-	if usage, uErr := h.weave.Collections().ListUsage(ctx, collectionID, projectID); uErr == nil {
-		collInUse = len(usage) > 0
-	}
-	if !collInUse {
-		if target, uErr := h.weave.Models().ListUsage(ctx, collectionID); uErr == nil {
-			collInUse = len(target.Models) > 0 || len(target.Collections) > 0
-		}
-	}
-	collDeleteURL, collDeprecateURL, collActivateURL := lifecycleCaps(entityEditable, collInUse, activeVersion, fmt.Sprintf("/projects/%s/collections/%s", projectID, collectionID), collection.Deprecated)
-	return &Response{
-		Entity: EntityViewMeta{
-			ID:               collection.ID,
-			Type:             "collection",
-			Name:             collection.UIName,
-			Description:      collection.Description,
-			SystemName:       collection.SystemName,
-			Status:           string(collection.Status),
-			PublicationState: h.pubState(ctx, projectID, "collection", collectionID, activeVersion),
-			Deprecated:       collection.Deprecated,
-			Origin:           entityOrigin,
-			OriginLabel:      originDetailLabel(entityOrigin),
-			OriginHelp:       originDetailHelp(entityOrigin),
-			Scope:            &ViewScopeInfo{LocalName: collection.OntologyScope.LocalName, Prefix: collection.OntologyScope.Prefix},
-			CreatedAt:        collection.CreatedAt,
-			UpdatedAt:        collection.UpdatedAt,
-		},
-		Capabilities: ViewCapabilities{
-			Editable:        entityEditable,
-			CanAddFields:    entityEditable,
-			CanReorder:      entityEditable,
-			SaveURL:         capabilityURL(entityEditable, withVersion(fmt.Sprintf("/projects/%s/collections/%s/overrides", projectID, collectionID), activeVersion)),
-			MetadataURL:     capabilityURL(entityEditable, withVersion(fmt.Sprintf("/projects/%s/form-schema/collection?mode=edit&entity_id=%s", projectID, collectionID), activeVersion)),
-			ForkURL:         forkURL,
-			ForkLabel:       i18n.L("common.capabilities.adapt", "Adapt to edit"),
-			ForkPending:     i18n.L("common.capabilities.adapt_pending", "Adapting…"),
-			SearchFieldsURL: withVersion(fmt.Sprintf("/projects/%s/fields/search", projectID), activeVersion),
-			Derivatives:     h.derivativesFor(ctx, auth.FromContext(ctx), projectResource, "collections", collectionID, activeVersion),
-			ReuseURL:        withVersion(fmt.Sprintf("%s/%s/entity-view/collection/%s/reuse", weaveroutes.ProjectBase, projectID, collectionID), activeVersion),
-			DeleteURL:       collDeleteURL,
-			DeprecateURL:    collDeprecateURL,
-			ActivateURL:     collActivateURL,
-		},
-		ViewMode:  ViewModeDetailed,
-		Sections:  sections,
-		Adoptions: adoptions,
-		Refs:      refs,
-		StatsURL:  withVersion(fmt.Sprintf("%s/%s/entity-view/collection/%s/stats", weaveroutes.ProjectBase, projectID, collectionID), activeVersion),
-		Release:   releaseView(projectID, activeVersion, h.hasProjectEdit(ctx, projectID)),
-	}, nil
-}
-
-func (h *Handler) buildField(ctx context.Context, projectID, fieldID string) (*Response, error) {
-	projectResource := h.projectResource(ctx, projectID)
-	canEdit := h.canEditProject(ctx, projectID)
-	activeVersion := auth.ProjectVersionFromContext(ctx)
-	forkedOrigins, err := weavepkg.ForkOriginsForProject(ctx, h.weave, projectID, "field")
-	if err != nil {
-		return nil, fmt.Errorf("list field forks: %w", err)
-	}
-	adoptedOrigins, err := weavepkg.AdoptionOriginsForProject(ctx, h.weave, projectID, "field")
-	if err != nil {
-		return nil, fmt.Errorf("list field adoptions: %w", err)
-	}
-	field, err := h.getFieldHeader(ctx, projectID, fieldID, activeVersion)
-	if err != nil {
-		return nil, fmt.Errorf("get field: %w", err)
-	}
-	if field == nil {
-		return nil, fmt.Errorf("field not found: %s: %w", fieldID, errEntityViewNotFound)
-	}
-
-	refs := ViewRefs{
-		Categories:  make(map[string]ViewRefEntry),
-		Collections: make(map[string]ViewRefEntry),
-		Models:      make(map[string]ViewRefEntry),
-	}
-
-	// CategoryID + SetValue moved to weave_field_overrides (base
-	// override row, entity_type='') in migration 027. Read them from
-	// there for the entity-view response. When activeVersion is set,
-	// read the archived base row so the override-derived fields match
-	// the resolved release, not the hot draft.
-	categoryID := ""
-	setValue := ""
-	base, err := h.getFieldBaseOverride(ctx, auth.ReadScopeFromContext(ctx), fieldID, projectID)
-	if err != nil {
-		return nil, fmt.Errorf("get field base override: %w", err)
-	}
-	if base != nil {
-		categoryID = base.CategoryID
-		setValue = base.SetValue
-	}
-	if categoryID != "" {
-		catOrigin := pkgdomain.OriginFromSemanticID(projectID, categoryID)
-		if cat, err := h.weave.WeaveCategories().GetByID(ctx, categoryID); err == nil && cat != nil {
-			if origins, err := weavepkg.CategoryAdoptionOriginsBySystemName(ctx, h.weave, projectID, []*pkgdomain.Category{cat}); err == nil {
-				if adopted, ok := origins[cat.SystemName]; ok {
-					catOrigin = adopted
-				}
-			}
-		}
-		refs.Categories[categoryID] = ViewRefEntry{
-			URL:    withVersion(pkgdomain.ParseSemanticID(categoryID).URL(), activeVersion),
-			Origin: catOrigin,
-		}
-	}
-
-	entityOrigin := weavepkg.ResolveReuseOrigin(forkedOrigins, adoptedOrigins, projectID, field.ProjectID, field.ID)
-	// Upgrade inherited → adopted_reference when the current project's
-	// overrides reference this field — same logic as model + collection
-	// detail builders.
-	if entityOrigin.Kind == pkgdomain.OriginInherited {
-		if refFields, err := h.weave.WeaveFields().ListReferenceAdopted(ctx, projectID); err == nil {
-			for _, f := range refFields {
-				if f.ID == field.ID {
-					entityOrigin = pkgdomain.Origin{
-						Kind:            pkgdomain.OriginAdoptedReference,
-						SourceProjectID: field.ProjectID,
-						SourceEntityID:  field.ID,
-					}
-					break
-				}
-			}
-		}
-	}
-	entityEditable := canEdit && (entityOrigin.Kind == pkgdomain.OriginOwn || entityOrigin.Kind == pkgdomain.OriginForked)
-	fieldInUse := false
-	if uc, uErr := h.weave.WeaveFields().CountUsage(ctx, fieldID, projectID); uErr == nil {
-		fieldInUse = uc.ModelsUsing+uc.CollectionsUsing > 0
-	}
-	fieldDeleteURL, fieldDeprecateURL, fieldActivateURL := lifecycleCaps(entityEditable, fieldInUse, activeVersion, fmt.Sprintf("/projects/%s/fields/%s", projectID, fieldID), field.Deprecated)
-	return &Response{
-		Entity: EntityViewMeta{
-			ID:                field.ID,
-			Type:              "field",
-			Name:              field.UIName,
-			Description:       field.Description,
-			SystemName:        field.SystemName,
-			Status:            string(field.Status),
-			PublicationState:  h.pubState(ctx, projectID, "field", fieldID, activeVersion),
-			Deprecated:        field.Deprecated,
-			Origin:            entityOrigin,
-			OriginLabel:       originDetailLabel(entityOrigin),
-			OriginHelp:        originDetailHelp(entityOrigin),
-			Scope:             &ViewScopeInfo{LocalName: field.OntologyScope.LocalName, Prefix: field.OntologyScope.Prefix},
-			CreatedAt:         field.CreatedAt,
-			UpdatedAt:         field.UpdatedAt,
-			OntologyPath:      field.OntologyPath(),
-			PathElements:      field.PathElements,
-			ExpectedValueType: field.ExpectedValueType,
-			SetValue:          setValue,
-			CategoryID:        categoryID,
-		},
-		Capabilities: ViewCapabilities{
-			Editable:        entityEditable,
-			MetadataURL:     capabilityURL(entityEditable, withVersion(fmt.Sprintf("/projects/%s/form-schema/field?mode=edit&entity_id=%s", projectID, fieldID), activeVersion)),
-			SearchFieldsURL: withVersion(fmt.Sprintf("/projects/%s/fields/search", projectID), activeVersion),
-			Derivatives:     h.derivativesFor(ctx, auth.FromContext(ctx), projectResource, "fields", fieldID, activeVersion),
-			DeleteURL:       fieldDeleteURL,
-			DeprecateURL:    fieldDeprecateURL,
-			ActivateURL:     fieldActivateURL,
-			ReuseURL:        withVersion(fmt.Sprintf("%s/%s/entity-view/field/%s/reuse", weaveroutes.ProjectBase, projectID, fieldID), activeVersion),
-		},
-		ViewMode: ViewModeDetailed,
-		Sections: []ViewSection{},
-		Refs:     refs,
-		StatsURL: withVersion(fmt.Sprintf("%s/%s/entity-view/field/%s/stats", weaveroutes.ProjectBase, projectID, fieldID), activeVersion),
-		Release:  releaseView(projectID, activeVersion, h.hasProjectEdit(ctx, projectID)),
-	}, nil
-}
-
-func (h *Handler) buildConceptList(ctx context.Context, projectID, conceptListID string) (*Response, error) {
-	activeVersion := auth.ProjectVersionFromContext(ctx)
-	canEdit := h.canEditProject(ctx, projectID)
-	list, err := h.weave.ConceptLists().GetByID(ctx, conceptListID)
-	if err != nil {
-		return nil, fmt.Errorf("get concept list: %w", err)
-	}
-	if list == nil || list.ProjectID != projectID {
-		return nil, fmt.Errorf("concept list not found: %s", conceptListID)
-	}
-
-	vocabularyID := ""
-	vocabularyLabel := ""
-	sourceName := ""
-	hasRemoteSource := false
-	var sourceVocabulary *pkgdomain.VocabularyRef
-	if list.VocabularyID != nil && *list.VocabularyID != "" {
-		vocabularyID = *list.VocabularyID
-		vocab, err := h.weave.Vocabularies().GetVocabulary(ctx, vocabularyID)
-		if err != nil {
-			return nil, fmt.Errorf("get concept list vocabulary: %w", err)
-		}
-		if vocab != nil {
-			vocabularyLabel = vocab.UIName.Get("en", vocab.SystemName)
-			if vocabularyLabel == "" {
-				vocabularyLabel = vocab.ID
-			}
-			sourceName = vocabularyLabel
-			// Remote authority (vs local/none): the add UI names it and
-			// searches it; otherwise it goes straight to local term creation.
-			if ct := vocab.ConnectorType; ct != "" && ct != "local" {
-				hasRemoteSource = true
-			}
-			sourceVocabulary = &pkgdomain.VocabularyRef{
-				ID:         vocab.ID,
-				SemanticID: vocab.SemanticID,
-				SystemName: vocab.SystemName,
-				Name:       vocab.UIName,
-				BaseURI:    vocab.BaseURI,
-			}
-		}
-	}
-
-	rows, err := h.weave.ConceptLists().ListEntries(ctx, conceptListID)
-	if err != nil {
-		return nil, fmt.Errorf("list concept list entries: %w", err)
-	}
-	entries := make([]ConceptListEntryView, 0, len(rows))
-	for _, row := range rows {
-		item := ConceptListEntryView{
-			ID:                row.ID,
-			VocabularyEntryID: row.VocabularyEntryID,
-			CustomLabel:       row.CustomLabel,
-			Position:          row.Position,
-		}
-		entry, err := h.weave.Vocabularies().GetEntry(ctx, row.VocabularyEntryID)
-		if err != nil {
-			return nil, fmt.Errorf("get vocabulary entry %s: %w", row.VocabularyEntryID, err)
-		}
-		if entry != nil {
-			item.URI = entry.URI
-			item.Label = entry.Label
-			item.ScopeNote = entry.ScopeNote
-			item.ExternalID = entry.ExternalID
-			item.BroaderURI = entry.BroaderURI
-			item.BroaderPathItems = entry.BroaderPath
-		}
-		entries = append(entries, item)
-	}
-
-	listType := ""
-	listTypeURI := ""
-	listTypeLabel := ""
-	var parentTerm *pkgdomain.VocabularyEntryRef
-	if list.ListType != nil {
-		listType = *list.ListType
-		entry, err := h.weave.Vocabularies().GetEntry(ctx, *list.ListType)
-		if err != nil {
-			return nil, fmt.Errorf("get concept list type entry %s: %w", *list.ListType, err)
-		}
-		if entry != nil {
-			listTypeURI = entry.URI
-			listTypeLabel = entry.Label.Get("en", "")
-			if listTypeLabel == "" {
-				listTypeLabel = entry.URI
-			}
-			parentTerm = &pkgdomain.VocabularyEntryRef{
-				ID:           entry.ID,
-				VocabularyID: entry.VocabularyID,
-				URI:          entry.URI,
-				Label:        entry.Label,
-				ScopeNote:    entry.ScopeNote,
-				BroaderURI:   entry.BroaderURI,
-				ExternalID:   entry.ExternalID,
-			}
-		}
-	}
-
-	// Delete lives on the detail page's "More actions" kebab, mirroring the
-	// list row action and the other entity detail views. Offered only when the
-	// list is editable and not viewed under a release. A list bound to a field
-	// still shows it, but the DELETE endpoint refuses with in_use (409) as the
-	// server-side backstop — the frontend surfaces that message.
-	// ponytail: not gated on in_use here (no bindings-count reader on the
-	// store); add that gate when a ConceptListStore usage method exists.
-	deleteURL := ""
-	if canEdit && activeVersion == "" {
-		deleteURL = fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s", projectID, list.ID)
-	}
-
-	return &Response{
-		Entity: EntityViewMeta{
-			ID:               list.ID,
-			Type:             "concept-list",
-			Name:             list.UIName,
-			Description:      list.Description,
-			SystemName:       list.SystemName,
-			Status:           string(list.Status),
-			Origin:           pkgdomain.OriginFromSemanticID(projectID, list.ID),
-			CreatedAt:        list.CreatedAt,
-			UpdatedAt:        list.UpdatedAt,
-			ListType:         listType,
-			VocabularyID:     vocabularyID,
-			VocabularyLabel:  vocabularyLabel,
-			EntryCount:       len(entries),
-			ListTypeURI:      listTypeURI,
-			ParentTermURI:    listTypeURI,
-			ListTypeLabel:    listTypeLabel,
-			ParentTerm:       parentTerm,
-			SourceVocabulary: sourceVocabulary,
-		},
-		Capabilities: ViewCapabilities{
-			Editable:    canEdit,
-			DeleteURL:   deleteURL,
-			MetadataURL: capabilityURL(canEdit, withVersion(fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/form-schema", projectID, list.ID), activeVersion)),
-			ConceptList: &ConceptListCap{
-				SearchEntriesURL:   capabilityURL(canEdit, withVersion(fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/source-entries/search", projectID, list.ID), activeVersion)),
-				AddEntryURL:        capabilityURL(canEdit, withVersion(fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/entries", projectID, list.ID), activeVersion)),
-				UpdateEntryURL:     capabilityURL(canEdit, withVersion(fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/entries/{id}", projectID, list.ID), activeVersion)),
-				RemoveEntryURL:     capabilityURL(canEdit, withVersion(fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/entries/{id}", projectID, list.ID), activeVersion)),
-				ReorderURL:         capabilityURL(canEdit, withVersion(fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/entries/reorder", projectID, list.ID), activeVersion)),
-				IsClosed:           list.IsClosed,
-				CreateTermURL:      capabilityURL(canEdit, fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/terms", projectID, list.ID)),
-				SealURL:            capabilityURL(canEdit, fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/sealed", projectID, list.ID)),
-				BroaderURLTemplate: capabilityURL(canEdit, fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/terms/{conceptID}/broader", projectID, list.ID)),
-				SourceName:         sourceName,
-				HasRemoteSource:    hasRemoteSource,
-				SkosURL:            fmt.Sprintf("/api/v2/projects/%s/concept-lists/%s/skos", projectID, list.ID),
-			},
-		},
-		ViewMode: ViewModeDetailed,
-		Sections: []ViewSection{},
-		Entries:  entries,
-		Refs:     ViewRefs{},
-		Release:  releaseView(projectID, activeVersion, h.hasProjectEdit(ctx, projectID)),
-	}, nil
-}
-
 func (h *Handler) currentLang(r *http.Request) string {
 	if h.session != nil {
 		if lang := h.session.Language(r.Context()); lang != "" {
@@ -1430,28 +587,7 @@ func (h *Handler) currentLang(r *http.Request) string {
 	return "en"
 }
 
-func (h *Handler) canEditProject(ctx context.Context, projectID string) bool {
-	if auth.ProjectVersionFromContext(ctx) != "" {
-		return false
-	}
-	resource := auth.ProjectResourceFromContext(ctx)
-	if resource.ID == "" {
-		project, err := h.weave.Projects().GetByID(ctx, projectID)
-		if err != nil || project == nil {
-			return false
-		}
-		resource = auth.ProjectResource(project)
-	}
-	return auth.FromContext(ctx).Can(auth.ProjectEdit, resource, nil)
-}
-
-// hasProjectEdit reports the viewer's raw ProjectEdit capability, without
-// canEditProject's release-mode short-circuit. Entity content (fields on a
-// model, rows in a collection, ...) is never editable while viewing a
-// specific release, so canEditProject correctly forces false whenever a
-// version is pinned — but the release banner's "return to draft" link is
-// exactly the affordance an editor needs while looking at that pinned
-// version, so it must gate on the underlying capability instead.
+// hasProjectEdit uses current permissions even while selected content is read-only.
 func (h *Handler) hasProjectEdit(ctx context.Context, projectID string) bool {
 	return auth.FromContext(ctx).Can(auth.ProjectEdit, h.projectResource(ctx, projectID), nil)
 }
@@ -1485,83 +621,6 @@ func lifecycleCaps(editable, inUse bool, activeVersion, base string, deprecated 
 		deprecate = base + "/deprecate"
 	}
 	return del, deprecate, activate
-}
-
-func (h *Handler) adoptionItemsForContext(ctx context.Context, projectID, contextEntityType, contextEntityID, activeVersion string) ([]AdoptionItem, error) {
-	opts := []pkgdomain.QueryOption{
-		pkgdomain.WithProjectID(projectID),
-		pkgdomain.WithFilter("context_entity_type", contextEntityType),
-		pkgdomain.WithFilter("context_entity_id", contextEntityID),
-	}
-	if activeVersion != "" {
-		opts = append(opts, pkgdomain.WithVersion(activeVersion))
-	}
-	adoptions, err := h.weave.Adoptions().List(ctx, opts...)
-	if err != nil {
-		return nil, err
-	}
-	actorNames := h.actorNames(ctx, adoptions)
-	items := make([]AdoptionItem, 0, len(adoptions))
-	for _, adoption := range adoptions {
-		items = append(items, AdoptionItem{
-			EntityType:      adoption.EntityType,
-			SourceProjectID: adoption.SourceProjectID,
-			SourceEntityID:  adoption.SourceEntityID,
-			SourceURL:       projectEntityURL(adoption.EntityType, adoption.SourceEntityID),
-			AdoptedAt:       adoption.AdoptedAt,
-			CreatedBy:       actorRef(adoption.CreatedByID, actorNames),
-			Origin:          adoption.Origin,
-			Label:           adoptionLabel(adoption),
-		})
-	}
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].EntityType != items[j].EntityType {
-			return items[i].EntityType < items[j].EntityType
-		}
-		return items[i].SourceEntityID < items[j].SourceEntityID
-	})
-	return items, nil
-}
-
-func (h *Handler) actorNames(ctx context.Context, adoptions []pkgdomain.Adoption) map[string]string {
-	if h.actors == nil {
-		return map[string]string{}
-	}
-	ids := make([]string, 0, len(adoptions))
-	for _, adoption := range adoptions {
-		if adoption.CreatedByID != nil && *adoption.CreatedByID != "" {
-			ids = append(ids, *adoption.CreatedByID)
-		}
-	}
-	return h.actors.LabelsByID(ctx, ids)
-}
-
-func actorRef(id *string, labels map[string]string) pkgdomain.ActorRef {
-	if id == nil || *id == "" {
-		return pkgdomain.ActorRef{}
-	}
-	ref := pkgdomain.ActorRef{ID: *id}
-	if label := labels[*id]; label != "" {
-		ref.Label = label
-	}
-	return ref
-}
-
-func projectEntityURL(entityType, entityID string) string {
-	switch entityType {
-	case "model", "collection", "field", "category":
-		return pkgdomain.ParseSemanticID(entityID).URL()
-	default:
-		return ""
-	}
-}
-
-func adoptionLabel(adoption pkgdomain.Adoption) pkgdomain.Translations {
-	label := adoption.SourceEntityID
-	if adoption.EntityType != "" {
-		label = adoption.EntityType + " · " + adoption.SourceEntityID
-	}
-	return pkgdomain.Translations{"en": label, "nl": label}
 }
 
 // projectResource loads projectID and returns the auth.Resource that
@@ -1831,20 +890,6 @@ func asciiTreeURLFor(snap *auth.AuthSnapshot, r auth.Resource, kind, base, activ
 	return withVersion(base+"/ascii-tree", activeVersion)
 }
 
-func withVersion(raw, activeVersion string) string {
-	if activeVersion == "" {
-		return raw
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	q := u.Query()
-	q.Set("version", activeVersion)
-	u.RawQuery = q.Encode()
-	return u.String()
-}
-
 func requestPathWithVersion(r *http.Request, activeVersion string) string {
 	if activeVersion == "" {
 		return r.URL.Path
@@ -1910,375 +955,3 @@ func (h *Handler) writeAPIError(w http.ResponseWriter, msg string, status int) {
 // family (common.origin_help.*). Kept in pkg/weave/detailview so the
 // detail-view package owns its full schema — no leakage to the slice
 // handlers.
-func originDetailLabel(origin pkgdomain.Origin) i18n.LocalizedText {
-	source := origin.SourceProjectID
-	if origin.SourceEntityID != "" {
-		if source != "" {
-			source += " · "
-		}
-		source += origin.SourceEntityID
-	}
-	switch origin.Kind {
-	case pkgdomain.OriginForked:
-		if source == "" {
-			return i18n.L("common.origin_state.adapted", "Adapted")
-		}
-		return i18n.LF("common.origin_state.adapted_from", "Adapted from {source}", map[string]string{"source": source})
-	case pkgdomain.OriginAdopted:
-		if source == "" {
-			return i18n.L("common.origin_state.adopted", "Adopted")
-		}
-		return i18n.LF("common.origin_state.adopted_from", "Adopted from {source}", map[string]string{"source": source})
-	case pkgdomain.OriginAdoptedReference:
-		if source == "" {
-			return i18n.L("common.origin_state.adopted_reference", "Adopted (by reference)")
-		}
-		return i18n.LF("common.origin_state.adopted_reference_from", "Adopted by reference from {source}", map[string]string{"source": source})
-	case pkgdomain.OriginInherited:
-		if source == "" {
-			return i18n.L("common.origin_state.inherited", "Inherited")
-		}
-		return i18n.LF("common.origin_state.inherited_from", "Inherited from {source}", map[string]string{"source": source})
-	case pkgdomain.OriginOwn:
-		return i18n.L("common.origin_state.own", "Own")
-	default:
-		return i18n.LocalizedText{}
-	}
-}
-
-func originDetailHelp(origin pkgdomain.Origin) i18n.LocalizedText {
-	switch origin.Kind {
-	case pkgdomain.OriginInherited:
-		return i18n.L("common.origin_help.inherited", "This entity is available through parent inheritance. Adopt it to pin the upstream version into this project.")
-	case pkgdomain.OriginAdopted:
-		return i18n.L("common.origin_help.adopted", "This entity is pinned from upstream and stays read-only here. Adapt it to make local changes without changing the source.")
-	case pkgdomain.OriginAdoptedReference:
-		return i18n.L("common.origin_help.adopted_reference", "This entity is referenced by overrides in this project but has no explicit receipt. Adopt it for a deliberate claim, or Adapt it to make local changes.")
-	case pkgdomain.OriginForked:
-		return i18n.L("common.origin_help.adapted", "This is your local editable copy. Upstream provenance is still kept so you can trace where it came from.")
-	default:
-		return i18n.LocalizedText{}
-	}
-}
-
-type statEntry struct {
-	name  string
-	count int
-}
-
-type categoryInfo struct {
-	name   pkgdomain.Translations
-	order  int
-	origin pkgdomain.Origin
-}
-
-// filterVisibleFields drops fields marked IsHidden before they're rendered
-// into the read-only detail/browse contract. Applied before
-// any derived computation — field counts, ComputeSharedPathPrefix — so
-// those stay consistent with what's actually rendered. The override EDITOR
-// (pkg/weave/project/override_read.go) intentionally does not use this: it
-// keeps showing hidden fields (strikethrough + Hidden badge) so curators
-// can unhide them.
-func filterVisibleFields(fields []pkgdomain.ResolvedField) []pkgdomain.ResolvedField {
-	visible := make([]pkgdomain.ResolvedField, 0, len(fields))
-	for _, f := range fields {
-		if f.IsHidden {
-			continue
-		}
-		visible = append(visible, f)
-	}
-	return visible
-}
-
-func convertFields(fields []pkgdomain.ResolvedField, refs ViewRefs, projectID, activeVersion string) []ViewField {
-	result := make([]ViewField, 0, len(fields))
-	for _, f := range fields {
-		result = append(result, convertField(f, refs, projectID, activeVersion))
-	}
-	return result
-}
-
-func convertField(f pkgdomain.ResolvedField, refs ViewRefs, projectID, activeVersion string) ViewField {
-	if refs.Models == nil {
-		refs.Models = make(map[string]ViewRefEntry)
-	}
-	if refs.Collections == nil {
-		refs.Collections = make(map[string]ViewRefEntry)
-	}
-	for _, ref := range f.ResourceModels {
-		ref.URL = withVersionForProject(ref.URL, projectID, activeVersion)
-		if _, ok := refs.Models[ref.ID]; !ok {
-			refs.Models[ref.ID] = ViewRefEntry{
-				Name:   ref.Name,
-				URL:    ref.URL,
-				Origin: pkgdomain.OriginFromSemanticID(projectID, ref.SemanticID),
-			}
-		}
-	}
-	for _, ref := range f.CollectionModels {
-		ref.URL = withVersionForProject(ref.URL, projectID, activeVersion)
-		if _, ok := refs.Collections[ref.ID]; !ok {
-			refs.Collections[ref.ID] = ViewRefEntry{
-				Name:   ref.Name,
-				URL:    ref.URL,
-				Origin: pkgdomain.OriginFromSemanticID(projectID, ref.SemanticID),
-			}
-		}
-	}
-	for _, ref := range f.ConceptLists {
-		ref.URL = withVersionForProject(ref.URL, projectID, activeVersion)
-	}
-	// SourceFieldURL / SourceCollectionURL — schema-driven click-through
-	// to the standalone source detail. The frontend never
-	// constructs these URLs (api-patterns.md). Built via SemanticID.URL()
-	// which encodes the owning project's prefix, so inherited entities
-	// link to their source project.
-	sourceFieldURL := withVersionForProject(pkgdomain.ParseSemanticID(f.SemanticID).URL(), projectID, activeVersion)
-	sourceCollectionURL := ""
-	if f.PartOfCollectionID != "" {
-		sourceCollectionURL = withVersionForProject(pkgdomain.ParseSemanticID(f.PartOfCollectionID).URL(), projectID, activeVersion)
-	}
-	return ViewField{
-		Widget:              "field-override",
-		OverrideID:          f.OverrideID,
-		FieldID:             f.ID,
-		FieldSemanticID:     f.SemanticID,
-		FieldSystemName:     f.SystemName,
-		Origin:              pkgdomain.OriginFromProject(projectID, f.ProjectID),
-		Position:            f.Position,
-		DisplayName:         f.DisplayName,
-		Description:         f.Description,
-		ExpectedValueType:   f.ExpectedValueType,
-		SetValue:            f.SetValue,
-		IsRequired:          f.IsRequired,
-		IsHidden:            f.IsHidden,
-		OntologyPath:        f.OntologyPath,
-		PathElements:        f.PathElements,
-		ResourceModelRefs:   versionRefsForProject(f.ResourceModels, projectID, activeVersion),
-		CollectionModelRefs: versionRefsForProject(f.CollectionModels, projectID, activeVersion),
-		ConceptListRefs:     versionRefsForProject(f.ConceptLists, projectID, activeVersion),
-		CategoryID:          f.CategoryID,
-		CollectionID:        f.PartOfCollectionID,
-		SourceFieldURL:      sourceFieldURL,
-		SourceCollectionURL: sourceCollectionURL,
-	}
-}
-
-func withVersionForProject(raw, projectID, activeVersion string) string {
-	if activeVersion == "" || raw == "" {
-		return raw
-	}
-	prefix := fmt.Sprintf("/projects/%s/", projectID)
-	if !strings.HasPrefix(raw, prefix) {
-		return raw
-	}
-	return withVersion(raw, activeVersion)
-}
-
-func versionRefsForProject(refs []pkgdomain.EntityRef, projectID, activeVersion string) []pkgdomain.EntityRef {
-	if len(refs) == 0 {
-		return refs
-	}
-	out := make([]pkgdomain.EntityRef, len(refs))
-	copy(out, refs)
-	for i := range out {
-		out[i].URL = withVersionForProject(out[i].URL, projectID, activeVersion)
-	}
-	return out
-}
-
-func computeCollectionStats(fields []pkgdomain.ResolvedField, sections []ViewSection) pkgdomain.ModelViewStats {
-	required := 0
-	valueTypeCounts := make(map[string]int)
-	for _, f := range fields {
-		if f.IsRequired {
-			required++
-		}
-		if f.ExpectedValueType != "" {
-			valueTypeCounts[f.ExpectedValueType]++
-		}
-	}
-	catBreakdown, fieldBreakdown, fieldScopeBreakdown, classBreakdown, propBreakdown, scopesCount := computeCollectionBreakdowns(fields, sections)
-	return pkgdomain.ModelViewStats{
-		TotalFields:          len(fields),
-		TotalCategories:      len(sections),
-		RequiredFields:       required,
-		OptionalFields:       len(fields) - required,
-		ValueTypeCounts:      valueTypeCounts,
-		ScopesCount:          scopesCount,
-		CategoriesBreakdown:  catBreakdown,
-		FieldsBreakdown:      fieldBreakdown,
-		FieldScopesBreakdown: fieldScopeBreakdown,
-		ClassesBreakdown:     classBreakdown,
-		PropertiesBreakdown:  propBreakdown,
-	}
-}
-
-func computeCollectionBreakdowns(fields []pkgdomain.ResolvedField, sections []ViewSection) (
-	catBreakdown, fieldBreakdown, fieldScopeBreakdown, classBreakdown, propBreakdown []pkgdomain.StatItem,
-	scopesCount int,
-) {
-	catItems := make([]pkgdomain.StatItem, 0, len(sections))
-	maxCatCount := 0
-	for _, s := range sections {
-		count := 0
-		for _, item := range s.Items {
-			count += len(item.Fields)
-		}
-		if count > maxCatCount {
-			maxCatCount = count
-		}
-		catItems = append(catItems, pkgdomain.StatItem{ID: s.ID, Name: s.Name.Get("en", s.ID), Count: count})
-	}
-	for i := range catItems {
-		if maxCatCount > 0 {
-			catItems[i].Percentage = (catItems[i].Count * 100) / maxCatCount
-		}
-	}
-	sort.Slice(catItems, func(i, j int) bool {
-		return catItems[i].Count > catItems[j].Count
-	})
-	if len(catItems) > 0 {
-		catBreakdown = catItems
-	}
-
-	fieldCounts := make(map[string]statEntry)
-	fieldScopes := make(map[string]int)
-	classUsage := make(map[string]statEntry)
-	propUsage := make(map[string]statEntry)
-
-	for _, f := range fields {
-		fc := fieldCounts[f.ID]
-		fc.count++
-		if fc.name == "" {
-			fc.name = f.DisplayName.Get("en", f.SemanticID)
-		}
-		fieldCounts[f.ID] = fc
-
-		firstClass := true
-		seenClasses := make(map[string]bool)
-		seenProps := make(map[string]bool)
-
-		for _, elem := range f.PathElements {
-			key := elem.LocalName
-			if elem.Prefix != "" {
-				key = elem.Prefix + ":" + elem.LocalName
-			}
-
-			switch elem.Type {
-			case "class":
-				if !seenClasses[key] {
-					seenClasses[key] = true
-					e := classUsage[key]
-					e.count++
-					if e.name == "" {
-						e.name = elem.LocalName
-					}
-					classUsage[key] = e
-				}
-				if firstClass {
-					firstClass = false
-					fieldScopes[key]++
-				}
-			case "property":
-				if !seenProps[key] {
-					seenProps[key] = true
-					e := propUsage[key]
-					e.count++
-					if e.name == "" {
-						e.name = elem.LocalName
-					}
-					propUsage[key] = e
-				}
-			}
-		}
-	}
-
-	scopesCount = len(fieldScopes)
-
-	fieldBreakdown = buildStatItems(fieldCounts)
-	fieldScopeBreakdown = buildStatItemsFromCounts(fieldScopes)
-	classBreakdown = buildStatItems(classUsage)
-	propBreakdown = buildStatItems(propUsage)
-
-	return
-}
-
-func buildStatItems(m map[string]statEntry) []pkgdomain.StatItem {
-	if len(m) == 0 {
-		return nil
-	}
-
-	maxCount := 0
-	for _, v := range m {
-		if v.count > maxCount {
-			maxCount = v.count
-		}
-	}
-
-	items := make([]pkgdomain.StatItem, 0, len(m))
-	for id, v := range m {
-		pct := 0
-		if maxCount > 0 {
-			pct = (v.count * 100) / maxCount
-		}
-		items = append(items, pkgdomain.StatItem{
-			ID:         id,
-			Name:       v.name,
-			Count:      v.count,
-			Percentage: pct,
-		})
-	}
-
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].Count > items[j].Count
-	})
-
-	return items
-}
-
-func buildStatItemsFromCounts(m map[string]int) []pkgdomain.StatItem {
-	if len(m) == 0 {
-		return nil
-	}
-
-	maxCount := 0
-	for _, c := range m {
-		if c > maxCount {
-			maxCount = c
-		}
-	}
-
-	items := make([]pkgdomain.StatItem, 0, len(m))
-	for name, count := range m {
-		pct := 0
-		if maxCount > 0 {
-			pct = (count * 100) / maxCount
-		}
-		items = append(items, pkgdomain.StatItem{
-			ID:         name,
-			Name:       name,
-			Count:      count,
-			Percentage: pct,
-		})
-	}
-
-	sort.Slice(items, func(i, j int) bool {
-		return items[i].Count > items[j].Count
-	})
-
-	return items
-}
-
-func sortSectionsByOrder(sections []ViewSection) {
-	sort.Slice(sections, func(i, j int) bool {
-		return sections[i].CanonicalOrder < sections[j].CanonicalOrder
-	})
-}
-
-func collectionWidget(collectionID string) string {
-	if collectionID == "__direct__" || collectionID == "" {
-		return "field-group"
-	}
-	return "collection-group"
-}

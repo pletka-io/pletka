@@ -323,7 +323,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	)
 	generatorService := buildGeneratorService(generatorSource, generatorRenderers)
 	visualizationHost := buildVisualizationHost(weaveStore, logger, generatorService, publicationReader)
-	detailViewHost := buildDetailViewHost(opts.Pool, logger, templateRenderer, weaveStore, i18nManager, sessionManager, opts.IntegrationRegistry, ontologySvc, hasFormat, publicationReader)
+	detailViewHost := buildDetailViewHost(opts.Pool, logger, templateRenderer, weaveStore, i18nManager, sessionManager, opts.IntegrationRegistry, ontologySvc, hasFormat, publicationReader, buildBrowserSource(opts))
 	categoryHost, categoryService := buildCategoryHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver)
 	errPageHost := buildErrorPageHost(templateRenderer, i18nManager, langResolver)
 	weaverouter.Mount(handler, buildProjectMiddlewareHost(weaveStore, publicationReader), errPageHost, weaverouter.Options{

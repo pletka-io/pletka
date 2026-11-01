@@ -145,6 +145,16 @@ consumer packages and their helpers, so pure serializers cannot acquire database
 access and transitional adapters cannot become permanent hidden fallback paths.
 The original rationale follows, qualified by both amendments.
 
+## Amendment: bounded browser details (2026-11-01)
+
+The browser's model, collection, field and concept-list detail projections now
+consume detached bounded inputs. Field inverse counts are queried in the same
+session, not inferred from a partial fragment. Current access and action policy
+remain outside the pure projection. Consumer composition and source definition
+are explicit, with pinned source links and no empty-result fallback. Existing UI
+schemas remain in use. See the [browser contract](../reference/browser-detail-reads.md)
+for operational surfaces and remaining summary/list migrations.
+
 ## Original decision (2026-10-23; qualified by the amendment)
 
 There are **two read shapes**, and they get different abstractions.

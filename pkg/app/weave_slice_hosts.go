@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/service/browserread"
 	"github.com/pletka-io/pletka/pkg/service/generatorread"
 	"github.com/pletka-io/pletka/pkg/service/projectread"
 
@@ -315,6 +316,7 @@ func buildDetailViewHost(
 	preloader weavedetailview.AutocompletePreloader,
 	hasFormat func(generators.Format) bool,
 	publicationReader *publication.Reader,
+	source weavedetailview.Source,
 ) weavedetailview.Host {
 	return weavedetailview.Host{
 		Logger:       logger,
@@ -322,7 +324,7 @@ func buildDetailViewHost(
 		I18n:         i18nManager,
 		Session:      sessionManager,
 		Renderer:     templates,
-		Actors:       actorlabels.NewPostgresReader(pool),
+		Source:       source,
 		Integrations: integrations,
 		IntLookup:    detailViewIntegrationsLookup{store: hub.NewPostgresStore(pool)},
 		Preloader:    preloader,
@@ -795,4 +797,14 @@ func buildExampleHost(
 		Languages:    languages,
 		LangResolver: langResolver,
 	}
+}
+
+func buildBrowserSource(opts Options) *browserread.Source {
+	options := projectread.DefaultOptions()
+	options.Hosts.Project, options.Hosts.Ontology = opts.ModuleHost, opts.OntologyHost
+	source, err := browserread.New(readsession.NewFactory(opts.Pool).WithSourceAuthorization(auth.CheckProjectRead), options)
+	if err != nil {
+		panic(err)
+	}
+	return source
 }

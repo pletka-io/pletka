@@ -186,6 +186,12 @@ only. `ProjectFromContext` must not supply historical page content: load that
 through the selected read boundary. The same current-access rule applies to
 captured source projects.
 
+Browser detail handlers receive one mandatory bounded source. Their pure schema
+projection takes detached `browserinput.Detail`, including field usage from the
+same session, and has no store or request capability. Headers, composition,
+provenance, concept entries and statistics share that input. Current action
+decoration stays separate. See [browser detail reads](../reference/browser-detail-reads.md).
+
 HTTP, page, visualization and MCP boundaries share `auth.ResolveProjectVersion`.
 A lookup failure stops the request; a successful result saying there is no
 release is a separate visibility-policy case. Optional version capabilities,

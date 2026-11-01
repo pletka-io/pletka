@@ -48,7 +48,7 @@ func (g *graph) entity(kind, id string) (EntityFragment, error) {
 	}
 	root, err := g.resolve(g.root, kind, id)
 	if err != nil {
-		return EntityFragment{}, err
+		return EntityFragment{}, &missingEntityError{kind: kind, id: id, cause: err}
 	}
 	f := EntityFragment{graph: g, root: EntityKey{Source: root.source, Kind: kind, ID: id}, selected: map[nodeKey]bool{}, projects: map[Identity]bool{}}
 	queue := []nodeKey{root}
@@ -71,6 +71,17 @@ func (g *graph) entity(kind, id string) (EntityFragment, error) {
 	}
 	return f, nil
 }
+
+type missingEntityError struct {
+	kind, id string
+	cause    error
+}
+
+func (e *missingEntityError) Error() string {
+	return fmt.Sprintf("%s %s is not in the selected project", e.kind, e.id)
+}
+func (e *missingEntityError) Unwrap() error  { return e.cause }
+func (*missingEntityError) IsNotFound() bool { return true }
 
 // Consumer base overrides are not children of a foreign field globally. Add
 // them only for selected fields visible in contexts this fragment actually uses.
@@ -131,6 +142,19 @@ func (f EntityFragment) Root() (EntityKey, error) {
 		return EntityKey{}, fmt.Errorf("entity fragment is uninitialized")
 	}
 	return f.root, nil
+}
+
+// Resolve identifies an already selected entity through a retained context's
+// membership. It cannot discover additional rows or choose a different release.
+func (f EntityFragment) Resolve(context Identity, kind, id string) (EntityKey, error) {
+	if f.graph == nil || !f.projects[context] {
+		return EntityKey{}, fmt.Errorf("resolution context is outside fragment")
+	}
+	key, err := f.selectedEntity(context, kind, id)
+	if err != nil {
+		return EntityKey{}, err
+	}
+	return EntityKey{Source: key.source, Kind: kind, ID: id}, nil
 }
 
 // Projects returns only projects needed by this fragment, in stable order.

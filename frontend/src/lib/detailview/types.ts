@@ -41,6 +41,9 @@ export interface EntityViewMeta {
   /** Orthogonal to status — a draft or published entity can be deprecated. */
   deprecated?: boolean;
   origin: OriginInfo;
+  /** Exact retained source definition, separate from consumer composition. */
+  source_url?: string;
+  source_label?: Translations;
   ontology_scope?: ViewScopeInfo;
   created_at: string;
   updated_at: string;

@@ -54,11 +54,11 @@ Old `/gen/{kind}/{id}/{format}` URLs remain owner-relative aliases. They discove
 the owner from a live entity, so they cannot identify deleted roots or a foreign
 consumer context. New clients should use the project-qualified routes.
 
-These routes migrate generator selection and browser derivative links. The
-browser's detail content, project summaries and paginated inventories have their
-own remaining read migrations. List pages must use bounded scoped queries rather
-than loading an entire project. No Lua runtime or draft-capture enrollment is
-enabled by this change.
+These routes migrate generator selection and browser derivative links. Browser
+detail content now uses its [own bounded raw projection](browser-detail-reads.md).
+Project summaries and paginated inventories remain separate migrations. List
+pages must use bounded scoped queries rather than loading an entire project.
+No Lua runtime or draft-capture enrollment is enabled by this change.
 
 See [the generator boundary decision](../decisions/0022-generators-consume-detached-inputs.md)
 and [current authorization](../decisions/0005-pletka-auth-boundary.md).

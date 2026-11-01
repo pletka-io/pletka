@@ -9,6 +9,7 @@ import (
 )
 
 type Querier interface {
+	BrowserFieldUsage(ctx context.Context, arg BrowserFieldUsageParams) (BrowserFieldUsageRow, error)
 	CollectionCategories(ctx context.Context, projectID string) ([]CollectionCategoriesRow, error)
 	CollectionCounts(ctx context.Context, arg CollectionCountsParams) ([]CollectionCountsRow, error)
 	CollectionScopeClasses(ctx context.Context, projectID string) ([]string, error)

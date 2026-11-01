@@ -17,10 +17,13 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/i18n"
 	"github.com/pletka-io/pletka/pkg/i18n/backend"
 	"github.com/pletka-io/pletka/pkg/ids"
+	"github.com/pletka-io/pletka/pkg/service/browserread"
+	"github.com/pletka-io/pletka/pkg/service/projectread"
 	"github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/actorlabels"
 	"github.com/pletka-io/pletka/pkg/weave/attribution"
@@ -104,7 +107,12 @@ func buildSweepRouter(t *testing.T, pool *pgxpool.Pool) http.Handler {
 	// auth.ResolveContentVersion), see detailview/handler.go Handler.Mount.
 	i18nMgr := newSweepI18n(t)
 	renderer := newSweepRenderer(t, i18nMgr)
+	source, err := browserread.New(readsession.NewFactory(pool).WithSourceAuthorization(auth.CheckProjectRead), projectread.DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := detailview.Mount(router, detailview.Host{
+		Source:      source,
 		Weave:       weaveStore,
 		I18n:        i18nMgr,
 		Renderer:    renderer,

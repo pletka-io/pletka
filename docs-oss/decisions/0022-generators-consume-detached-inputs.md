@@ -71,7 +71,8 @@ the complete-project source (amendment below). Standalone current ontology expor
 and browser inventory still need migration.
 Project-qualified generator routes now support released roots absent from live
 tables. Legacy owner-relative aliases still require live owner discovery. Browser
-detail content, project summaries and paginated inventories remain separate work.
+details use a separate [raw bounded projection](../reference/browser-detail-reads.md);
+project summaries and paginated inventories remain separate work.
 This decision does not enable capture-aware mutations on normal HTTP/MCP traffic.
 
 The [HTTP route contract](../reference/generator-routes.md) describes explicit

@@ -643,6 +643,11 @@
                     {#if provenanceHelp()}
                       <div class="mt-1 text-sm {palette.help}">{provenanceHelp()}</div>
                     {/if}
+                    {#if viewState.response?.entity.source_url}
+                      <a class="mt-2 inline-block text-sm font-medium underline {palette.title}" href={viewState.response.entity.source_url}>
+                        {tr(viewState.response.entity.source_label, getUILang())}
+                      </a>
+                    {/if}
                   </div>
                   {#if !viewState.response?.capabilities?.editable && viewState.response?.capabilities?.fork_url}
                     <button
