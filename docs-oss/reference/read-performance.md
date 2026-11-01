@@ -59,6 +59,20 @@ avoiding a combined copy for every reference. Both registries remain complete;
 conflicting aliases still produce ambiguity. Allocation profiles should distinguish
 these temporary copies from retained graph memory and serialized-byte budgets.
 
+Local-context consistency digests stream the existing JSON representation directly
+into SHA256, excluding embedded sources exactly as before. This avoids retaining
+another encoded context just to hash it. The codec uses the pinned Go toolchain's
+standard-library JSON streaming API with `encoding/json` compatibility options;
+original artifacts, body bytes and their exact-byte digests remain unchanged.
+
+Evidence decoding streams into fresh private values. Legacy JSON error reporting
+would prevalidate and buffer the entire input, so it is disabled on the streaming
+success path. If that path fails, the original decoder processes the same bytes
+into a fresh target to preserve its error and acceptance behavior. Trailing input
+is checked, and failed preparation returns no capability. This never changes the
+selected evidence or reads another store. Large individual strings and retained
+decoded values still allocate memory; streaming is not a heap or RSS bound.
+
 Structural snapshot freezing serializes each typed row once and owns that buffer
 privately. Complete and fragment getters decode rows directly without assembling
 or storing another whole-project JSON envelope. The shared codec checks every

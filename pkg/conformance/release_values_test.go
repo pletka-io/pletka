@@ -48,7 +48,10 @@ func TestPortableReleaseValuesHaveNoRuntimeCapabilities(t *testing.T) {
 						valueReflection = true
 					}
 				}
-				if !allowed[name] && !namespaceHelper && !bundleHelper && !valueReflection {
+				// Streaming uses the same v1 options as encoding/json, over owned
+				// strings and a hash. The codec exposes no I/O capability to callers.
+				evidenceCodec := dir == "ontologyevidence" && filepath.Base(path) == "codec.go" && name == "encoding/json/v2"
+				if !allowed[name] && !namespaceHelper && !bundleHelper && !valueReflection && !evidenceCodec {
 					t.Errorf("%s imports %s outside the pure release value boundary", path, name)
 				}
 			}

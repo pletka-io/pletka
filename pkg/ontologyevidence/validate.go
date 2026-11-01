@@ -18,7 +18,8 @@ func decodeDocument(data, digest string) (Document, error) {
 	if hash(data) != digest {
 		return d, fmt.Errorf("legacy snapshot digest mismatch")
 	}
-	if err := json.Unmarshal([]byte(data), &d); err != nil {
+	d, err := decodeJSON[Document](data)
+	if err != nil {
 		return d, err
 	}
 	if _, err := NewOrigin(d.ProjectID, d.Version); err != nil || d.FormatVersion != 1 {
@@ -71,13 +72,11 @@ func (p *Preparer) validate(a Artifact) (Prepared, error) {
 			if err := validateAssessments(context, bodies); err != nil {
 				return Prepared{}, err
 			}
-			local := context
-			local.Sources = nil
-			encoded, err := json.Marshal(local)
+			digest, err := localDigest(context)
 			if err != nil {
 				return Prepared{}, err
 			}
-			entries[origin].localDigest = hash(string(encoded))
+			entries[origin].localDigest = digest
 			entries[origin].checked = true
 		}
 		if err := v.dependencies(context); err != nil {

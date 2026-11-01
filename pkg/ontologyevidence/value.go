@@ -196,7 +196,8 @@ func decodeBody(b Body) (bodyDocument, error) {
 	if hash(b.BodyJSON) != b.Digest {
 		return d, fmt.Errorf("ontology body format or digest mismatch")
 	}
-	if err := json.Unmarshal([]byte(b.BodyJSON), &d); err != nil {
+	d, err := decodeJSON[bodyDocument](b.BodyJSON)
+	if err != nil {
 		return d, err
 	}
 	if d.FormatVersion != 1 || d.Ontology.ID != b.OntologyID || d.Version.ID != b.VersionID || d.Version.OntologyID != b.OntologyID {
