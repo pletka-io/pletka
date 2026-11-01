@@ -9,7 +9,6 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/pletka-io/pletka/pkg/domain"
 )
@@ -221,10 +220,10 @@ type OntologyRow struct {
 	OntologyURI   string
 	VersionIRI    string
 	IsPrimary     bool
-	IsActive      bool
+	IsActive      *bool
 	ClassCount    int64
 	PropertyCount int64
-	AddedAt       time.Time
+	AddedAt       string
 	UsageNotes    string
 }
 
@@ -375,10 +374,10 @@ func WriteOntologies(w io.Writer, ontologies []OntologyRow) error {
 			o.OntologyURI,
 			o.VersionIRI,
 			strconv.FormatBool(o.IsPrimary),
-			strconv.FormatBool(o.IsActive),
+			formatOptionalBool(o.IsActive),
 			strconv.FormatInt(o.ClassCount, 10),
 			strconv.FormatInt(o.PropertyCount, 10),
-			o.AddedAt.Format(time.RFC3339),
+			o.AddedAt,
 			o.UsageNotes,
 		}
 		if err := cw.Write(row); err != nil {
@@ -388,4 +387,12 @@ func WriteOntologies(w io.Writer, ontologies []OntologyRow) error {
 
 	cw.Flush()
 	return cw.Error()
+}
+
+// Blank means active policy was not retained by this artifact format.
+func formatOptionalBool(v *bool) string {
+	if v == nil {
+		return ""
+	}
+	return strconv.FormatBool(*v)
 }

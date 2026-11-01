@@ -1,22 +1,21 @@
-// Package csvexport renders per-project CSV downloads of the weave
-// data model: fields, models, collections, categories, the three
-// override flavours, and linked ontologies. Plus a "Download All"
-// zip and a small HTML index page listing the export types.
+// Package csvexport renders member-only verification CSVs for one explicitly
+// selected draft or release: owned fields, models, collections, categories,
+// three raw override contexts, and directly linked ontology metadata.
 //
-// The slice was previously pkg/service/csvexport; relocating it here
-// drops the GORM *repository.Repositories dependency and the legacy
-// shared template render path. Everything reads through
-// domain.WeaveStore now, and the index page is rendered from a
-// self-contained gohtml template embedded in the package.
+// Source captures one complete projectsnapshot value through the shared read
+// boundary. Build and CSV/ZIP serialization are pure. Current project access
+// is separate from all selected content, names, references and ontology evidence.
+// Downloads are fully prepared before response headers; missing release content
+// returns the canonical error instead of substituting current rows.
 //
-// Routes:
+// Routes under /projects/{projectID}/exports:
 //
-//	GET /projects/{projectID}/downloads             — HTML index of export types
-//	GET /projects/{projectID}/downloads/all.zip     — every CSV bundled
-//	GET /projects/{projectID}/downloads/{type}.csv  — one CSV per type
+// GET /          — HTML index with selected project metadata
+// GET /all.zip   — all eight CSVs from one capture
+// GET /{type}.csv — one selected file
 //
-// The CSV export was used during the airtable → weave migration to
-// validate the new tables row-for-row against the legacy export.
-// Keeping it alive here means later migrations get the same validation
-// surface for free.
+// Omitted version deliberately selects draft; ?version selects a concrete
+// release. The existing CSV columns remain a verification format, not lossless
+// project transport. Authored paths and raw overrides are not merged semantic
+// views. Unknown historical active-ontology policy is blank, never read live.
 package csvexport

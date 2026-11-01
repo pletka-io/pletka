@@ -8,8 +8,10 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/i18n"
+	"github.com/pletka-io/pletka/pkg/projectsnapshot"
 	"github.com/pletka-io/pletka/pkg/session"
 )
 
@@ -20,50 +22,34 @@ func sprintfArgs(format string, args ...any) string {
 //go:embed downloads.gohtml
 var templateFS embed.FS
 
-// OntologyVersionLookup resolves an ontology-version row by ID. The
-// ontology slice satisfies it via its Service; this slice keeps a
-// narrow contract instead of pulling in the full reader interface.
-type OntologyVersionLookup interface {
-	GetByID(ctx context.Context, id string) (*domain.OntologyVersion, error)
+// Source loads one complete detached selection. The configured assembler source
+// owns the read transaction and source authorization; exporters cannot load rows.
+type Source interface {
+	Project(context.Context, auth.ReadScope, string) (projectsnapshot.CompleteProject, error)
 }
 
-// OntologyLookup resolves an ontology master row by ID for the
-// "ontology name" column on the linked-ontologies CSV.
-type OntologyLookup interface {
-	GetByID(ctx context.Context, id string) (*domain.Ontology, error)
+// ProjectAccess supplies current project ownership for authorization only.
+// Exported names and metadata always come from Source.
+type ProjectAccess interface {
+	GetByID(context.Context, string) (*domain.Project, error)
 }
 
-// Service is the slice's HTTP entry point. It holds the WeaveStore
-// (the only data dependency now that the legacy GORM Repositories
-// are gone), the ontology readers needed for the linked-ontologies
-// CSV, and the parsed page template.
+// Service keeps current access policy separate from retained export content.
 type Service struct {
-	weave            domain.WeaveStore
-	ontologies       OntologyLookup
-	ontologyVersions OntologyVersionLookup
-	i18n             i18n.Manager
-	session          *session.Manager
-	logger           *slog.Logger
-	tmpl             *template.Template
+	source   Source
+	projects ProjectAccess
+	i18n     i18n.Manager
+	session  *session.Manager
+	logger   *slog.Logger
+	tmpl     *template.Template
 }
 
-// NewService builds the service. Returns an error only if the embedded
-// template fails to parse, which would be a build-time bug.
-//
-// ontologies / ontologyVersions are nullable — when nil, the
-// linked-ontologies export degrades to ID-only rows.
-//
-// i18nManager / sessionManager are nullable — when nil, page labels
-// fall back to English defaults. Pass real instances from deps to get
-// localised UI.
-func NewService(
-	weave domain.WeaveStore,
-	ontologies OntologyLookup,
-	ontologyVersions OntologyVersionLookup,
-	i18nManager i18n.Manager,
-	sessionManager *session.Manager,
-	logger *slog.Logger,
-) (*Service, error) {
+// NewService requires the shared assembly boundary and current authorization
+// lookup. Localization dependencies may be nil for English defaults.
+func NewService(source Source, projects ProjectAccess, i18nManager i18n.Manager, sessionManager *session.Manager, logger *slog.Logger) (*Service, error) {
+	if source == nil || projects == nil {
+		return nil, fmt.Errorf("project CSV requires source and project access")
+	}
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -71,15 +57,7 @@ func NewService(
 	if err != nil {
 		return nil, err
 	}
-	return &Service{
-		weave:            weave,
-		ontologies:       ontologies,
-		ontologyVersions: ontologyVersions,
-		i18n:             i18nManager,
-		session:          sessionManager,
-		logger:           logger,
-		tmpl:             tmpl,
-	}, nil
+	return &Service{source: source, projects: projects, i18n: i18nManager, session: sessionManager, logger: logger, tmpl: tmpl}, nil
 }
 
 // currentLang resolves the active language from the session, falling

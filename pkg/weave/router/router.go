@@ -196,12 +196,10 @@ func Mount(parent chi.Router, projects ProjectMiddlewareHost, errors ErrorPageHo
 	// /projects/{projectID}/exports prefix:
 	//   - csvexport: HTML index + 8 typed project-wide CSVs + all.zip
 	//   - exports:  per-entity CSV at /{kind}/{id}.csv
-	// Both gate on project membership (Phase 1 of the CSV export/
-	// restore plan) and always serve hot: this is the member-only
-	// draft-verification tool, not a release-serving surface (design
-	// spec §5). Mount with LatestRelease cleared so ResolveContentVersion
-	// never installs here, even though `projects` (every other mountSlice
-	// call) carries one.
+	// Both require current project membership. Omitted version deliberately
+	// selects draft for this verification surface; explicit ?version selects
+	// retained release content through WithProjectVersionContext. Do not apply
+	// the public-reader latest-release policy here.
 	exportsProjects := projects
 	exportsProjects.LatestRelease = nil
 	mountSlice(parent, "/projects/{projectID}/exports", exportsProjects, func(r chi.Router) {

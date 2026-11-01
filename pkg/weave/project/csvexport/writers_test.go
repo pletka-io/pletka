@@ -532,10 +532,10 @@ func TestWriteOntologies(t *testing.T) {
 				OntologyURI:   "http://www.cidoc-crm.org/cidoc-crm/",
 				VersionIRI:    "http://www.cidoc-crm.org/cidoc-crm/7.1.3",
 				IsPrimary:     true,
-				IsActive:      true,
+				IsActive:      func() *bool { v := true; return &v }(),
 				ClassCount:    84,
 				PropertyCount: 168,
-				AddedAt:       addedAt,
+				AddedAt:       addedAt.Format(time.RFC3339),
 				UsageNotes:    "Primary ontology for cultural heritage",
 			},
 		}

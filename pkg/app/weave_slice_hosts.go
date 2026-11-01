@@ -689,13 +689,10 @@ func buildExportHosts(
 	logger *slog.Logger,
 	i18nManager i18n.Manager,
 	sessionManager *session.Manager,
-	ontologyReader weavecsvexport.OntologyLookup,
-	ontologyVersionReader weavecsvexport.OntologyVersionLookup,
 ) (weavecsvexport.Host, weaveexports.Host) {
 	csvSvc, err := weavecsvexport.NewService(
-		weave,
-		ontologyReader,
-		ontologyVersionReader,
+		source,
+		weave.Projects(),
 		i18nManager,
 		sessionManager,
 		logger,

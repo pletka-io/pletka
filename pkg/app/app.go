@@ -320,8 +320,6 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		logger,
 		i18nManager,
 		sessionManager,
-		ontologyReader,
-		ontologyVersionReader,
 	)
 	generatorService := buildGeneratorService(generatorSource, generatorRenderers)
 	visualizationHost := buildVisualizationHost(weaveStore, logger, generatorService, publicationReader)

@@ -464,3 +464,9 @@ identifier lookup, graph traversal, ontology packaging and rendering; they do no
 open a transaction per model. Source authorization still belongs to the factory.
 The renderer import ratchet forbids new database/service capabilities. See
 [ADR-0022](../decisions/0022-generators-consume-detached-inputs.md).
+
+The separate whole-project CSV verification exporter now reuses this complete
+source. It retains a narrow current-project lookup for authorization only;
+projection and all eight ZIP entries use captured content. Active ontology policy
+is not added to immutable bodies for a display column. See the
+[CSV export contract](../reference/project-csv-export.md).

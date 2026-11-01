@@ -66,8 +66,9 @@ Defensive copying and complete bulk capture cost memory; large-project latency,
 projection reuse and output budgets still need measurement before broad rollout.
 
 The service, entity CSV, visualization/X3ML, integration artifacts, generator CLI
-and Arches packs use the boundary. The separate whole-project CSV/ZIP service,
-standalone current ontology export and browser inventory still need migration.
+and Arches packs use the boundary. The whole-project CSV/ZIP service now shares
+the complete-project source (amendment below). Standalone current ontology export
+and browser inventory still need migration.
 HTTP routing/auth ownership lookup can still depend on live entity rows: complete
 support for browsing deleted released roots requires that separate boundary work.
 This decision does not enable capture-aware mutations on normal HTTP/MCP traffic.
@@ -75,3 +76,13 @@ This decision does not enable capture-aware mutations on normal HTTP/MCP traffic
 See [whole-project assembly](0012-whole-project-reads-belong-to-an-assembler.md),
 [source release selection](0011-cross-project-reads-resolve-at-the-source-release.md)
 and [canonical node identity](0002-canonical-node-identity.md).
+
+## Amendment: whole-project CSV (2026-11-01)
+
+The separate `project/csvexport` verification pipeline now receives the same
+complete-project source. All eight files, ZIP entries and selected names derive
+from one value, while current membership gates access. Serialization never calls
+slice stores or current ontology readers, and responses publish only prepared
+files. The format preserves owned raw rows and authored paths, not generator
+composition. Historical active ontology policy remains unknown when it was not
+captured. See the [CSV contract](../reference/project-csv-export.md).
