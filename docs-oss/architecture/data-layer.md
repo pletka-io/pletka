@@ -498,6 +498,11 @@ and bounded; filtering/pagination stay database-side. Example detail/form reads 
 a bounded assembler fragment and pure projection, preserving stale saved values.
 One form schema and workspace serve both states; the read handler adds a submit
 endpoint only for an authorized owning-draft editor. Selected composition and
-concept choices need no live enrichment. Legacy mutation-time validation remains
-draft-only. Read schemas pin data, filter, form and navigation URLs to the resolved
+concept choices need no live enrichment. Example mutations require a draft scope
+and the same selected projection inside one `txscope.Run` transaction/savepoint;
+the service has no live reader fallback. Parent values and stubs are atomic.
+Migration 044 replaces the hot linked-example FK with selected-target validation
+and explicit own-project link clearing; foreign archived references survive hot
+deletion. See [example mutations](../reference/example-mutations.md).
+Read schemas pin data, filter, form and navigation URLs to the resolved
 release, including default public reads.

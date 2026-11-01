@@ -372,9 +372,16 @@ func TestCaptureGuardInventoryAndHistoryProtection(t *testing.T) {
 	}
 	db := stdlib.OpenDBFromPool(p)
 	defer db.Close()
-	// An unused installation remains reversible.
-	if err := database.MigrateDown(db); err != nil {
+	latest, err := database.LatestMigrationVersion()
+	if err != nil {
 		t.Fatal(err)
+	}
+	// An unused installation can remove both capture and delivery. Target their
+	// versions explicitly so unrelated later migrations cannot satisfy this test.
+	for version := latest; version >= 42; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := database.Migrate(db); err != nil {
 		t.Fatal(err)
@@ -395,6 +402,11 @@ func TestCaptureGuardInventoryAndHistoryProtection(t *testing.T) {
 	} {
 		if _, err := p.Exec(ctx, statement); err == nil {
 			t.Fatalf("history guard accepted %s", statement)
+		}
+	}
+	for version := latest; version > 43; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
 		}
 	}
 	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade retained") {

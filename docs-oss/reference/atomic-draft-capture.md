@@ -38,6 +38,12 @@ the owner connection and last through its commit. A context used after callback
 return, or with a different pool, rejects. Do not share a pgx transaction across
 concurrent callback goroutines. Failed operations are not retried automatically.
 
+`txscope.Run` gives a slice operation the same ownership rules: it opens a
+repeatable-read transaction when unscoped, or a child savepoint under an existing
+owner. [Example mutations](example-mutations.md) use it to retain the operation's
+context/project and keep parent/stub writes atomic. It does not enroll projects
+or replace `draftcapture.Mutate` for enrolled writes.
+
 ## Storage and coverage
 
 Migration 042 defines immutable blobs/manifests, project heads, attributed mutation

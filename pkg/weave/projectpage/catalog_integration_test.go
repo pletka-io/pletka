@@ -150,16 +150,20 @@ func TestCatalogInventoriesAndExampleSchemaRetainRelease(t *testing.T) {
 	store := weave.NewPostgresStore(pool)
 	latest := publication.NewReader(pool)
 	router := chi.NewRouter()
-	// Nil editing-service internals make a live fallback fail this test.
+	// Both schema reads and mutation validation use this same source.
+	mutationBoundary, err := example.NewPostgresMutations(pool, source)
+	if err != nil {
+		t.Fatal(err)
+	}
 	vocabulary.Mount(router, vocabulary.Host{Service: vocabulary.NewService(pool, nil, store), Projects: store.Projects(), Inventory: source, LatestRelease: latest})
 	router.Route("/projects/{projectID}/examples", func(r chi.Router) {
 		r.Use(auth.RequireProjectRead(store.Projects()), auth.WithProjectVersionContext, auth.ResolveContentVersion(latest))
-		example.Mount(r, example.Host{Service: example.NewService(nil, nil), Projects: store.Projects(), Browser: source})
+		example.Mount(r, example.Host{Service: example.NewService(mutationBoundary), Projects: store.Projects(), Browser: source})
 	})
 	// A valid draft read can be read-only independently of release selection.
 	router.Route("/draft/projects/{projectID}/examples", func(r chi.Router) {
 		r.Use(auth.RequireProjectRead(store.Projects()), auth.WithProjectVersionContext)
-		example.Mount(r, example.Host{Service: example.NewService(nil, nil), Projects: store.Projects(), Browser: source})
+		example.Mount(r, example.Host{Service: example.NewService(mutationBoundary), Projects: store.Projects(), Browser: source})
 	})
 	get := func(path string) *httptest.ResponseRecorder {
 		t.Helper()

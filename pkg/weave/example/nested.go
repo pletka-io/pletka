@@ -121,7 +121,7 @@ type resolvedSlot struct {
 type slotResolver struct {
 	ctx         context.Context
 	projectID   string
-	views       ViewReader
+	views       collectionViews
 	maxDepth    int
 	view        *domain.ModelView
 	groups      map[int64]string
@@ -129,27 +129,9 @@ type slotResolver struct {
 	collections map[string][]domain.ResolvedField
 }
 
-func (s *Service) newSlotResolver(ctx context.Context, projectID string, view *domain.ModelView) *slotResolver {
-	return &slotResolver{
-		ctx:         ctx,
-		projectID:   projectID,
-		views:       s.views,
-		maxDepth:    s.maxDepth,
-		view:        view,
-		groups:      groupOfOverride(view),
-		model:       buildFieldByOverride(view),
-		collections: map[string][]domain.ResolvedField{},
-	}
-}
-
-// resolverFor reads modelID's view in projectID and returns the request's
-// slot resolver over it.
-func (s *Service) resolverFor(ctx context.Context, projectID, modelID string) (*slotResolver, error) {
-	view, err := s.views.ModelView(ctx, modelID, projectID)
-	if err != nil {
-		return nil, err
-	}
-	return s.newSlotResolver(ctx, projectID, view), nil
+// collectionViews is implemented by the retained projection, never a live store.
+type collectionViews interface {
+	CollectionView(context.Context, string, string) ([]domain.ResolvedField, error)
 }
 
 // resolve walks path from its anchor to its leaf. The error is only for a
@@ -223,48 +205,18 @@ func (r *slotResolver) inGroup(group string, anchor int64) bool {
 	return coll == r.groups[anchor]
 }
 
-// collectionOwner is satisfied by the real weave store; used to read a
-// container's target collection in the project that owns it, which is often
-// not the example's project (a field pointing at a parent project's
-// collection).
-type collectionOwner interface {
-	Collections() domain.WeaveCollectionStore
-}
-
-// collectionFields returns the (cached) CollectionView of collectionID, read
-// in the collection's owning project. The owner is looked up once per
-// collection, on the cache miss that reads the view.
+// collectionFields caches selected collection definitions. The projection owns
+// their source context; the resolver cannot discover a live owner.
 func (r *slotResolver) collectionFields(collectionID string) ([]domain.ResolvedField, error) {
 	if fields, ok := r.collections[collectionID]; ok {
 		return fields, nil
 	}
-	projectID, err := r.ownerProject(collectionID)
-	if err != nil {
-		return nil, err
-	}
-	fields, err := r.views.CollectionView(r.ctx, collectionID, projectID)
+	fields, err := r.views.CollectionView(r.ctx, collectionID, r.projectID)
 	if err != nil {
 		return nil, fmt.Errorf("collection view %s: %w", collectionID, err)
 	}
 	r.collections[collectionID] = fields
 	return fields, nil
-}
-
-// ownerProject is the project owning collectionID, or the example's project
-// when the views cannot look collections up or the collection is not found.
-func (r *slotResolver) ownerProject(collectionID string) (string, error) {
-	owner, ok := r.views.(collectionOwner)
-	if !ok {
-		return r.projectID, nil
-	}
-	c, err := owner.Collections().GetByID(r.ctx, collectionID)
-	if err != nil {
-		return "", fmt.Errorf("collection %s: %w", collectionID, err)
-	}
-	if c == nil || c.ProjectID == "" {
-		return r.projectID, nil
-	}
-	return c.ProjectID, nil
 }
 
 // Notes expandTarget gives for a container that cannot open.

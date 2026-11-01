@@ -86,13 +86,6 @@ var UnscopedReadAllowlist = map[string]Exemption{
 		Reason:       trulyUnscoped + "Fork origins resolve against live source entities.",
 		ConvertsWith: convModel,
 	},
-	"example.TargetName": {
-		Reason: trulyUnscoped + "Resolves an example's TARGET entity name -- a model or collection -- " +
-			"so a pinned example can show a name changed since the release. It reads no example rows, " +
-			"which is why the example slice's own conversion left it behind: it converts when the slices " +
-			"that own those names do.",
-		ConvertsWith: convModel,
-	},
 	"vocabulary.VocabularyRoots": {
 		Reason:       trulyUnscoped + "Browses a vocabulary's curated roots from live entries.",
 		ConvertsWith: convVocabulary,
@@ -377,9 +370,8 @@ var UnscopedReadAllowlist = map[string]Exemption{
 	// copying whichever file they opened first.
 
 	// --- example -----------------------------------------------------
-	// The example slice has no version awareness at all. Its archives
-	// exist (migration 017) and the release write path fills them; nothing
-	// reads them back.
+	// Reads use the required retained source; mutation validation shares its
+	// selected projection in a single draft transaction. No live-view exceptions.
 
 	// --- field -------------------------------------------------------
 	"field.List": {

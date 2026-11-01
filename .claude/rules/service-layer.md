@@ -101,8 +101,13 @@ append live vocabulary labels, target names, counts or publication status to
 released catalog rows. Example detail/form reads consume detached fragments through
 a source-only handler. Reuse the same example schema/workspace; read-only schemas
 omit the submit endpoint. Do not add a separate release viewer or JSON contract.
-Legacy mutation-time validation rejects release scopes. Schema read URLs retain
-the resolved selection.
+Example mutations require explicit draft scopes and `NewPostgresMutations` wired
+to the same source. The service holds only that boundary; never restore a live
+view/store validator fallback. Parent/stub writes and validation share one
+transaction/savepoint. Every active link needs a selected target even on stale
+slots; a hot-table FK cannot validate a released reference. Schema read URLs
+retain the resolved selection. See
+[example mutations](../../docs-oss/reference/example-mutations.md).
 See [project inventory reads](../../docs-oss/reference/project-inventory-reads.md).
 
 ### Reading another project's content

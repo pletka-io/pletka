@@ -89,8 +89,12 @@ try {
   await click('Edit');
   await waitFor('Array.from(document.querySelectorAll("input,textarea")).some(e=>e.value==="Recorded content")');
   assert.equal(requests.some(r=>/vocabulary-entries|entries\/search/.test(r.url)), false);
+  await evaluate(`(() => {const input=Array.from(document.querySelectorAll('input,textarea')).find(e=>e.value==='Recorded content');input.value='Edited through shared schema';input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await click('Save Example');
+  await waitFor(`fetch('/projects/CATP/examples/CATP.E').then(r=>r.json()).then(record=>record.values?.some(v=>v.value_payload?.string_value==='Edited through shared schema'))`);
+  assert.ok(requests.some(r=>r.method==='PUT' && new URL(r.url).pathname==='/projects/CATP/examples/CATP.E'));
   assert.deepEqual(runtimeErrors, []);
-  console.log('Browser PASS: shared workspace, release values/concept labels, no mutation controls or live enrichment, draft editing controls and values.');
+  console.log('Browser PASS: shared workspace, release values/concept labels, no mutation controls or live enrichment, draft editing controls/values and a real save through the same schema.');
   await call('Browser.close');
 } finally {
   socket?.close();

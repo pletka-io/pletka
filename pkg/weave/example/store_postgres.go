@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
@@ -71,8 +72,27 @@ func (s *postgresStore) UpdateWithValues(ctx context.Context, ex *domain.Example
 }
 
 func (s *postgresStore) Delete(ctx context.Context, id string) error {
-	_, err := txscope.New(s.pool).Exec(ctx, `DELETE FROM weave_examples WHERE id = $1`, id)
-	return err
+	tx, err := txscope.New(s.pool).Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = tx.Rollback(cleanup)
+	}()
+	q := sqlcgen.New(tx)
+	if err := q.WeaveClearOwnedExampleLinks(ctx, id); err != nil {
+		return err
+	}
+	count, err := q.WeaveDeleteExample(ctx, id)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return exampleNotFound{}
+	}
+	return tx.Commit(ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -220,29 +240,6 @@ func (r *reader) ListValues(ctx context.Context, exampleID string) ([]domain.Exa
 		out = append(out, v)
 	}
 	return out, rows.Err()
-}
-
-func (s *postgresStore) ConceptURIAllowedForLists(ctx context.Context, uri string, conceptListIDs []string) (bool, error) {
-	if strings.TrimSpace(uri) == "" || len(conceptListIDs) == 0 {
-		return true, nil
-	}
-	var allowed bool
-	// A field bound to a control list accepts only that list's own entries —
-	// open or sealed. open/sealed governs whether the list can still grow, not
-	// which values a field accepts; the value must always be a member (#3599).
-	err := txscope.New(s.pool).QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM weave_concept_lists cl
-			JOIN weave_vocabulary_entries ve
-			  ON ve.uri = $1
-			JOIN weave_concept_list_entries cle
-			  ON cle.concept_list_id = cl.id
-			 AND cle.vocabulary_entry_id = ve.id
-			WHERE (cl.id = ANY($2::text[]) OR cl.semantic_id = ANY($2::text[]))
-		)
-	`, uri, conceptListIDs).Scan(&allowed)
-	return allowed, err
 }
 
 func insertValues(ctx context.Context, tx pgx.Tx, exampleID string, values []domain.ExampleValue) error {

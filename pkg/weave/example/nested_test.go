@@ -12,21 +12,21 @@ import (
 )
 
 func TestNewServiceMaxNestingDepthDefault(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{})
+	svc := newTestService(newFakeStore(), fakeViews{})
 	if svc.maxDepth != defaultMaxNestingDepth {
 		t.Fatalf("maxDepth = %d, want default %d", svc.maxDepth, defaultMaxNestingDepth)
 	}
 }
 
 func TestNewServiceMaxNestingDepthOption(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{}, WithMaxNestingDepth(3))
+	svc := newTestService(newFakeStore(), fakeViews{}, WithMaxNestingDepth(3))
 	if svc.maxDepth != 3 {
 		t.Fatalf("maxDepth = %d, want 3", svc.maxDepth)
 	}
 }
 
 func TestNewServiceMaxNestingDepthOptionZeroKeepsDefault(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{}, WithMaxNestingDepth(0))
+	svc := newTestService(newFakeStore(), fakeViews{}, WithMaxNestingDepth(0))
 	if svc.maxDepth != defaultMaxNestingDepth {
 		t.Fatalf("maxDepth = %d, want default %d", svc.maxDepth, defaultMaxNestingDepth)
 	}
@@ -66,7 +66,7 @@ func nestedViews() fakeViews {
 	}
 }
 
-func createNested(svc *Service, values ...domain.ExampleValue) (*ExampleRecord, error) {
+func createNested(svc *testService, values ...domain.ExampleValue) (*ExampleRecord, error) {
 	return svc.Create(context.Background(), "P1", CreateInput{EntityType: domain.ExampleEntityTypeModel, EntityID: "M1", Values: values})
 }
 
@@ -105,7 +105,7 @@ func TestContainerPath(t *testing.T) {
 
 func TestSlotResolverResolvesNestedLeaf(t *testing.T) {
 	views := nestedViews()
-	svc := NewService(newFakeStore(), views)
+	svc := newTestService(newFakeStore(), views)
 	r := svc.newSlotResolver(context.Background(), "P1", views.models["M1"])
 	got, err := r.resolve("C1:0/302:0/601:0")
 	if err != nil {
@@ -122,7 +122,7 @@ func TestSlotResolverResolvesNestedLeaf(t *testing.T) {
 
 func TestServiceCreateStoresNestedValue(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, nestedViews())
+	svc := newTestService(store, nestedViews())
 	// 602 is required in every TimeSpan instance (B.3 task 3), so the
 	// instance carries it to stay valid.
 	rec, err := createNested(svc, stringValue("C1:0/302:0/601:0", "F601", "1650"), stringValue("C1:0/302:0/602:0", "F602", "1660"))
@@ -140,11 +140,11 @@ func TestServiceCreateStoresNestedValue(t *testing.T) {
 
 func TestServiceNestedDepthTwoAndCap(t *testing.T) {
 	const path = "C1:0/302:0/603:0/701:0"
-	if _, err := createNested(NewService(newFakeStore(), nestedViews()), stringValue(path, "F701", "x")); err != nil {
+	if _, err := createNested(newTestService(newFakeStore(), nestedViews()), stringValue(path, "F701", "x")); err != nil {
 		t.Fatalf("Create() at depth 2 with default cap: error = %v", err)
 	}
 	store := newFakeStore()
-	capped := NewService(store, nestedViews(), WithMaxNestingDepth(1))
+	capped := newTestService(store, nestedViews(), WithMaxNestingDepth(1))
 	_, err := createNested(capped, stringValue(path, "F701", "x"))
 	if err == nil || !strings.Contains(err.Error(), "Nesting limit reached") {
 		t.Fatalf("Create() with cap 1: err = %v, want nesting limit error", err)
@@ -170,7 +170,7 @@ func TestServiceNestedDepthTwoAndCap(t *testing.T) {
 func TestServiceNestedUnknownInnerOverride(t *testing.T) {
 	const path = "C1:0/302:0/999:0"
 	store := newFakeStore()
-	svc := NewService(store, nestedViews())
+	svc := newTestService(store, nestedViews())
 	if _, err := createNested(svc, stringValue(path, "F999", "x")); err == nil {
 		t.Fatal("Create() error = nil, want an error for an inner override outside the collection")
 	}
@@ -197,7 +197,7 @@ func TestServiceNestedUnknownInnerOverride(t *testing.T) {
 }
 
 func TestServiceCreateRejectsInvalidContainers(t *testing.T) {
-	svc := NewService(newFakeStore(), nestedViews())
+	svc := newTestService(newFakeStore(), nestedViews())
 	for path, want := range map[string]string{
 		"C1:0/21:0/601:0":  "not a Collection field",
 		"C1:0/303:0/601:0": "No target collection set",
@@ -212,7 +212,7 @@ func TestServiceCreateRejectsInvalidContainers(t *testing.T) {
 
 func TestServiceCreateMaterializesStubInNestedCollection(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, nestedViews())
+	svc := newTestService(store, nestedViews())
 	v := stubValue("", "Rembrandt")
 	v.OverrideID, v.FieldID, v.SlotPath = 0, "F604", "C1:0/302:0/604:0"
 	rec, err := createNested(svc, v)
@@ -264,7 +264,7 @@ func issuesFor(issues []domain.ExampleIssue, code string, overrideID int64) []do
 
 // getStored stores values verbatim (no normalization) and reads them back
 // through Get, the lenient path.
-func getStored(t *testing.T, svc *Service, store *fakeStore, values ...domain.ExampleValue) *ExampleRecord {
+func getStored(t *testing.T, svc *testService, store *fakeStore, values ...domain.ExampleValue) *ExampleRecord {
 	t.Helper()
 	ex := &domain.Example{ID: "EX1", ProjectID: "P1", EntityType: domain.ExampleEntityTypeModel, EntityID: "M1"}
 	if err := store.CreateWithValues(context.Background(), ex, values); err != nil {
@@ -278,7 +278,7 @@ func getStored(t *testing.T, svc *Service, store *fakeStore, values ...domain.Ex
 }
 
 func TestServiceCompactsNestedInstances(t *testing.T) {
-	rec, err := createNested(NewService(newFakeStore(), nestedViews()),
+	rec, err := createNested(newTestService(newFakeStore(), nestedViews()),
 		stringValue("C1:0/302:0/601:0", "F601", "1650"),
 		stringValue("C1:0/302:3/601:0", "F601", "1700"),
 	)
@@ -292,7 +292,7 @@ func TestServiceCompactsNestedInstances(t *testing.T) {
 }
 
 func TestServiceNestedRequiredPerInstance(t *testing.T) {
-	rec, err := createNested(NewService(newFakeStore(), nestedViews()),
+	rec, err := createNested(newTestService(newFakeStore(), nestedViews()),
 		stringValue("C1:0/302:0/601:0", "F601", "1650"),
 		stringValue("C1:0/302:0/602:0", "F602", "1660"),
 		stringValue("C1:0/302:1/601:0", "F601", "1700"),
@@ -305,7 +305,7 @@ func TestServiceNestedRequiredPerInstance(t *testing.T) {
 		t.Fatalf("missing_required_value on 602 = %+v, want one error at C1:0/302:1", got)
 	}
 
-	rec, err = createNested(NewService(newFakeStore(), nestedViews()), stringValue("C1:0/21:0", "F21", "x"))
+	rec, err = createNested(newTestService(newFakeStore(), nestedViews()), stringValue("C1:0/21:0", "F21", "x"))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -320,7 +320,7 @@ func TestServiceNestedContainerCardinality(t *testing.T) {
 	views := nestedViews()
 	one := 1
 	nestedModelField(views, 302).MaxOccurs = &one
-	rec, err := createNested(NewService(newFakeStore(), views),
+	rec, err := createNested(newTestService(newFakeStore(), views),
 		stringValue("C1:0/302:0/602:0", "F602", "a"),
 		stringValue("C1:0/302:1/602:0", "F602", "b"),
 	)
@@ -334,7 +334,7 @@ func TestServiceNestedContainerCardinality(t *testing.T) {
 
 	views = nestedViews()
 	nestedModelField(views, 302).IsRequired = true
-	rec, err = createNested(NewService(newFakeStore(), views), stringValue("C1:0/21:0", "F21", "x"))
+	rec, err = createNested(newTestService(newFakeStore(), views), stringValue("C1:0/21:0", "F21", "x"))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -343,7 +343,7 @@ func TestServiceNestedContainerCardinality(t *testing.T) {
 		t.Fatalf("missing_required_value on 302 = %+v, want one at C1:0", got)
 	}
 
-	rec, err = createNested(NewService(newFakeStore(), views), stringValue("C1:0/302:0/602:0", "F602", "a"))
+	rec, err = createNested(newTestService(newFakeStore(), views), stringValue("C1:0/302:0/602:0", "F602", "a"))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -353,7 +353,7 @@ func TestServiceNestedContainerCardinality(t *testing.T) {
 }
 
 func TestServiceCompactsGroupAndNestedLevels(t *testing.T) {
-	rec, err := createNested(NewService(newFakeStore(), nestedViews()),
+	rec, err := createNested(newTestService(newFakeStore(), nestedViews()),
 		stringValue("C1:1/302:2/601:0", "F601", "1650"),
 		stringValue("C1:1/302:2/603:4/701:0", "F701", "n"),
 	)
@@ -371,7 +371,7 @@ func TestServiceCompactsGroupAndNestedLevels(t *testing.T) {
 // is left exactly where it is stored.
 func TestServiceStaleNestedValueDoesNotCountOrMove(t *testing.T) {
 	store := newFakeStore()
-	rec := getStored(t, NewService(store, nestedViews()), store,
+	rec := getStored(t, newTestService(store, nestedViews()), store,
 		stringValue("C1:1/21:0", "F21", "x"),
 		stringValue("C1:3/302:2/999:0", "F999", "stale"),
 	)
@@ -381,7 +381,7 @@ func TestServiceStaleNestedValueDoesNotCountOrMove(t *testing.T) {
 	}
 
 	store = newFakeStore()
-	rec = getStored(t, NewService(store, nestedViews()), store,
+	rec = getStored(t, newTestService(store, nestedViews()), store,
 		stringValue("C1:0/302:0/999:0", "F999", "stale"),
 		stringValue("C1:0/302:1/602:0", "F602", "1700"),
 	)
@@ -397,7 +397,7 @@ func TestServiceRequiredContainerWithoutTargetNotMissing(t *testing.T) {
 	views := nestedViews()
 	nestedModelField(views, 303).IsRequired = true
 	nestedModelField(views, 303).MinOccurs = 1
-	rec, err := createNested(NewService(newFakeStore(), views), stringValue("C1:0/21:0", "F21", "x"))
+	rec, err := createNested(newTestService(newFakeStore(), views), stringValue("C1:0/21:0", "F21", "x"))
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -417,14 +417,14 @@ func TestServiceRequiredContainerPastCapNotMissing(t *testing.T) {
 	}
 	views := nestedViews()
 	views.collections["LAC6"][2].IsRequired = true // 603 -> LAC1
-	rec, err := createNested(NewService(newFakeStore(), views), values...)
+	rec, err := createNested(newTestService(newFakeStore(), views), values...)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if got := issuesFor(rec.Validation.Issues, "missing_required_value", 603); len(got) != 1 || got[0].GroupPath != "C1:0/302:0" {
 		t.Fatalf("default cap: missing_required_value on 603 = %+v, want one at C1:0/302:0", got)
 	}
-	rec, err = createNested(NewService(newFakeStore(), views, WithMaxNestingDepth(1)), values...)
+	rec, err = createNested(newTestService(newFakeStore(), views, WithMaxNestingDepth(1)), values...)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -433,7 +433,7 @@ func TestServiceRequiredContainerPastCapNotMissing(t *testing.T) {
 	}
 }
 
-func nestedFormSchema(t *testing.T, svc *Service, mode, exampleID string) *ExampleFormSchema {
+func nestedFormSchema(t *testing.T, svc *testService, mode, exampleID string) *ExampleFormSchema {
 	t.Helper()
 	schema, err := svc.BuildFormSchema(context.Background(), auth.Draft(), "P1", mode, string(domain.ExampleEntityTypeModel), "M1", exampleID, "en", nil)
 	if err != nil {
@@ -471,7 +471,7 @@ func overrideIDs(fields []ExampleFormField) []int64 {
 }
 
 func TestBuildFormSchemaNestedTemplate(t *testing.T) {
-	schema := nestedFormSchema(t, NewService(newFakeStore(), nestedViews()), formschema.ModeCreate, "")
+	schema := nestedFormSchema(t, newTestService(newFakeStore(), nestedViews()), formschema.ModeCreate, "")
 	f := formField(t, schema, 302)
 	if f.Widget != widgetNestedCollection || f.Occurrences != nil || f.NestedInstances != nil {
 		t.Fatalf("302 = widget %q occurrences %+v instances %+v, want nested-collection without either", f.Widget, f.Occurrences, f.NestedInstances)
@@ -499,7 +499,7 @@ func TestBuildFormSchemaNestedTemplate(t *testing.T) {
 		t.Fatalf("601 nested = %+v, want none", n.Fields[0].Nested)
 	}
 
-	capped := nestedFormSchema(t, NewService(newFakeStore(), nestedViews(), WithMaxNestingDepth(1)), formschema.ModeCreate, "")
+	capped := nestedFormSchema(t, newTestService(newFakeStore(), nestedViews(), WithMaxNestingDepth(1)), formschema.ModeCreate, "")
 	inner = formField(t, capped, 302).Nested.Fields[2].Nested
 	if inner == nil || inner.Expandable || inner.Note != noteNestingLimit || len(inner.Fields) != 0 {
 		t.Fatalf("capped 603 nested = %+v, want not expandable with nesting limit note", inner)
@@ -508,7 +508,7 @@ func TestBuildFormSchemaNestedTemplate(t *testing.T) {
 
 func TestBuildFormSchemaNestedInstances(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, nestedViews())
+	svc := newTestService(store, nestedViews())
 	rec, err := createNested(svc,
 		stringValue("C1:0/302:0/601:0", "F601", "1650"),
 		stringValue("C1:0/302:0/602:0", "F602", "1660"),
@@ -552,7 +552,7 @@ func TestBuildFormSchemaNestedDepthTwoAndContainerIssues(t *testing.T) {
 	one := 1
 	nestedModelField(views, 302).MaxOccurs = &one
 	store := newFakeStore()
-	svc := NewService(store, views)
+	svc := newTestService(store, views)
 	rec, err := createNested(svc,
 		stringValue("C1:0/302:0/602:0", "F602", "a"),
 		stringValue("C1:0/302:1/602:0", "F602", "b"),
@@ -585,7 +585,7 @@ func TestBuildFormSchemaContainerWithoutTarget(t *testing.T) {
 	views := nestedViews()
 	nestedModelField(views, 303).IsRequired = true
 	nestedModelField(views, 303).MinOccurs = 1
-	schema := nestedFormSchema(t, NewService(newFakeStore(), views), formschema.ModeCreate, "")
+	schema := nestedFormSchema(t, newTestService(newFakeStore(), views), formschema.ModeCreate, "")
 	f := formField(t, schema, 303)
 	if f.Widget != widgetNestedCollection || f.Nested == nil || f.Nested.Expandable || f.Nested.Note != noteNoTarget || f.Nested.Fields != nil {
 		t.Fatalf("303 = widget %q nested %+v, want not expandable with note", f.Widget, f.Nested)
@@ -604,7 +604,7 @@ func TestServiceGetPlacesValueWithoutSlotPath(t *testing.T) {
 	store := newFakeStore()
 	v := stringValue("", "F21", "x")
 	v.OverrideID = 21
-	rec := getStored(t, NewService(store, nestedViews()), store, v)
+	rec := getStored(t, newTestService(store, nestedViews()), store, v)
 	if got := rec.Values[0].SlotPath; got != "C1:0/21:0" {
 		t.Fatalf("slot path = %q, want C1:0/21:0", got)
 	}
@@ -613,79 +613,23 @@ func TestServiceGetPlacesValueWithoutSlotPath(t *testing.T) {
 	}
 }
 
-// ownedViews wraps fakeViews with the weave store's Collections() lookup:
-// owners maps a collection id to its owning project, and CollectionView in
-// any other project returns no fields, as the real override query does. It
-// records the project every CollectionView call was made with, and counts
-// ModelView and CollectionView calls.
-type ownedViews struct {
+// countingViews records use of the already selected model/collection fixtures.
+type countingViews struct {
 	fakeViews
-	owners      map[string]string
-	projects    map[string][]string
 	modelCalls  int
 	collections map[string]int
 }
 
-func newOwnedViews(owners map[string]string) *ownedViews {
-	return &ownedViews{fakeViews: nestedViews(), owners: owners, projects: map[string][]string{}, collections: map[string]int{}}
+func newCountingViews() *countingViews {
+	return &countingViews{fakeViews: nestedViews(), collections: map[string]int{}}
 }
-
-func (v *ownedViews) ModelView(ctx context.Context, modelID, projectID string) (*domain.ModelView, error) {
+func (v *countingViews) ModelView(ctx context.Context, id, project string) (*domain.ModelView, error) {
 	v.modelCalls++
-	return v.fakeViews.ModelView(ctx, modelID, projectID)
+	return v.fakeViews.ModelView(ctx, id, project)
 }
-
-func (v *ownedViews) CollectionView(ctx context.Context, collectionID, projectID string) ([]domain.ResolvedField, error) {
-	v.projects[collectionID] = append(v.projects[collectionID], projectID)
-	v.collections[collectionID]++
-	if owner, ok := v.owners[collectionID]; ok && owner != projectID {
-		return nil, nil // the override query filters on the owning project
-	}
-	return v.fakeViews.CollectionView(ctx, collectionID, projectID)
-}
-
-func (v *ownedViews) Collections() domain.WeaveCollectionStore {
-	return ownerStore{owners: v.owners}
-}
-
-// ownerStore answers GetByID from owners; every other method panics.
-type ownerStore struct {
-	domain.WeaveCollectionStore
-	owners map[string]string
-}
-
-func (s ownerStore) GetByID(_ context.Context, id string) (*domain.Collection, error) {
-	owner, ok := s.owners[id]
-	if !ok {
-		return nil, nil
-	}
-	c := &domain.Collection{}
-	c.ID, c.ProjectID = id, owner
-	return c, nil
-}
-
-// A container's target collection owned by another project (LA) is read in
-// that project, not the example's (P1).
-func TestServiceReadsNestedCollectionInOwningProject(t *testing.T) {
-	views := newOwnedViews(map[string]string{"LAC6": "LA"})
-	rec, err := createNested(NewService(newFakeStore(), views),
-		stringValue("C1:0/302:0/601:0", "F601", "1650"),
-		stringValue("C1:0/302:0/602:0", "F602", "1660"),
-	)
-	if err != nil {
-		t.Fatalf("Create() error = %v", err)
-	}
-	if !rec.Validation.Valid {
-		t.Fatalf("issues = %+v, want valid", rec.Validation.Issues)
-	}
-	for _, p := range views.projects["LAC6"] {
-		if p != "LA" {
-			t.Fatalf("CollectionView(LAC6) projects = %v, want only LA", views.projects["LAC6"])
-		}
-	}
-	if len(views.projects["LAC6"]) == 0 {
-		t.Fatal("CollectionView(LAC6) never called")
-	}
+func (v *countingViews) CollectionView(ctx context.Context, id, project string) ([]domain.ResolvedField, error) {
+	v.collections[id]++
+	return v.fakeViews.CollectionView(ctx, id, project)
 }
 
 // A target collection without fields cannot open: the container is not
@@ -695,7 +639,7 @@ func TestServiceTargetWithoutFieldsNotExpandable(t *testing.T) {
 	views.collections["LAC6"] = nil
 	nestedModelField(views, 302).IsRequired = true
 	nestedModelField(views, 302).MinOccurs = 1
-	svc := NewService(newFakeStore(), views)
+	svc := newTestService(newFakeStore(), views)
 	f := formField(t, nestedFormSchema(t, svc, formschema.ModeCreate, ""), 302)
 	if f.Nested == nil || f.Nested.Expandable || f.Nested.Note != "Target collection has no fields" {
 		t.Fatalf("302 nested = %+v, want not expandable with note", f.Nested)
@@ -714,9 +658,9 @@ func TestServiceTargetWithoutFieldsNotExpandable(t *testing.T) {
 // One slot resolver per request: a Create, and an edit-mode form build,
 // read the model view once and each collection view once.
 func TestServiceOneResolverPerRequest(t *testing.T) {
-	views := newOwnedViews(nil)
+	views := newCountingViews()
 	store := newFakeStore()
-	svc := NewService(store, views)
+	svc := newTestService(store, views)
 	stub := stubValue("", "Rembrandt")
 	stub.OverrideID, stub.FieldID, stub.SlotPath = 0, "F604", "C1:0/302:0/604:0"
 	rec, err := createNested(svc,
@@ -745,7 +689,7 @@ func TestServiceBadNestedPathCreatesNoStubDraft(t *testing.T) {
 	store := newFakeStore()
 	stub := stubValue("", "Rembrandt")
 	stub.OverrideID, stub.FieldID, stub.SlotPath = 0, "F604", "C1:0/302:0/604:0"
-	_, err := createNested(NewService(store, nestedViews()), stub, stringValue("C1:0/302:0/999:0", "F999", "x"))
+	_, err := createNested(newTestService(store, nestedViews()), stub, stringValue("C1:0/302:0/999:0", "F999", "x"))
 	if err == nil || !strings.Contains(err.Error(), "does not resolve") {
 		t.Fatalf("Create() error = %v, want an unresolvable slot_path error", err)
 	}
@@ -758,7 +702,7 @@ func TestServiceBadNestedPathCreatesNoStubDraft(t *testing.T) {
 // issue visible: it goes to the form's top-level issues.
 func TestBuildFormSchemaUnplacedValueIssueGoesToTop(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, nestedViews(), WithMaxNestingDepth(1))
+	svc := newTestService(store, nestedViews(), WithMaxNestingDepth(1))
 	getStored(t, svc, store, stringValue("C1:0/302:0/603:0/701:0", "F701", "x"))
 	schema := nestedFormSchema(t, svc, formschema.ModeEdit, "EX1")
 	found := false

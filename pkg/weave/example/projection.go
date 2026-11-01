@@ -52,14 +52,10 @@ func ProjectRead(ctx context.Context, input browserinput.Detail, maxDepth int, l
 	if kind != modelKind && kind != "collection" {
 		return nil, nil, fmt.Errorf("example schema requires a model, collection or example")
 	}
-	view, err := p.modelView(kind, id)
+	resolver, err := p.resolver(ctx, kind, id, maxDepth)
 	if err != nil {
 		return nil, nil, err
 	}
-	if maxDepth <= 0 {
-		maxDepth = defaultMaxNestingDepth
-	}
-	resolver := &slotResolver{ctx: ctx, projectID: p.context.ProjectID(), views: p, maxDepth: maxDepth, view: view, groups: groupOfOverride(view), model: buildFieldByOverride(view), collections: map[string][]domain.ResolvedField{}}
 	var saved []domain.ExampleValue
 	if record != nil {
 		saved = append([]domain.ExampleValue(nil), record.Values...)
@@ -276,4 +272,15 @@ func exampleURL(key projectsnapshot.EntityKey) string {
 		path += "?version=" + url.QueryEscape(key.Source.Version())
 	}
 	return path
+}
+
+func (p *exampleProjection) resolver(ctx context.Context, kind, id string, maxDepth int) (*slotResolver, error) {
+	view, err := p.modelView(kind, id)
+	if err != nil {
+		return nil, err
+	}
+	if maxDepth <= 0 {
+		maxDepth = defaultMaxNestingDepth
+	}
+	return &slotResolver{ctx: ctx, projectID: p.context.ProjectID(), views: p, maxDepth: maxDepth, view: view, groups: groupOfOverride(view), model: buildFieldByOverride(view), collections: map[string][]domain.ResolvedField{}}, nil
 }

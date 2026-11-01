@@ -120,8 +120,9 @@ The schema carries retained concept choices, including an empty list when there
 are none. The workspace/picker does not resolve recorded concept labels through a
 global live vocabulary endpoint. Read-only loading needs only the form schema;
 authorized editing also loads the scoped example inventory for link choices.
-Legacy mutation-time example validation remains draft-only and is a separate
-migration from this read path.
+Mutation-time validation uses the same selected projection through a mandatory
+transaction boundary; parent values and stubs save atomically. See
+[example mutations](example-mutations.md).
 
 Resolved release schemas pin data, filter, form, model-option and navigation URLs,
 including public requests that default to the latest release. Draft links omit
@@ -133,7 +134,7 @@ concept choices, empty consumer composition, stored statuses, stale values,
 linked examples, live deletion, capability gates, default selection, current
 source access and projection after pool closure. An opt-in Chromium test uses
 actual routes and built assets to check the shared workspace, retained labels,
-absent mutation controls/live enrichment and authorized draft editing controls.
+absent mutation controls/live enrichment and a real authorized draft save.
 Run it after building frontend assets with
 `PLETKA_EXAMPLE_BROWSER=1 bash test/integration.sh ./pkg/weave/projectpage -run TestCatalogInventoriesAndExampleSchemaRetainRelease -count=1 -v`.
 

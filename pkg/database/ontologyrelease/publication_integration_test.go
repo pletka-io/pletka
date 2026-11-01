@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -303,10 +304,18 @@ func TestExplicitPublicationRollbackAndSnapshot(t *testing.T) {
 	}
 	defer tx.Rollback(context.Background()) //nolint:errcheck
 	q := sqlcgen.New(tx)
-	if err := ontologybody.Seal(t.Context(), q, bodyRef); err != nil {
+	// Establish the old snapshot before the competing change. Sealing already
+	// takes the global input write lock, so waiting for another writer after
+	// Seal would deadlock this test against our own still-open transaction.
+	if _, err := tx.Exec(t.Context(), `SELECT count(*) FROM weave_ontology_active_versions`); err != nil {
 		t.Fatal(err)
 	}
-	if err := base.store.SetActiveVersion(t.Context(), base.input.Version.OntologyID, newer.input.Version.ID); err != nil {
+	changeCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := base.store.SetActiveVersion(changeCtx, base.input.Version.OntologyID, newer.input.Version.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := ontologybody.Seal(t.Context(), q, bodyRef); err != nil {
 		t.Fatal(err)
 	}
 	if err := ontologyrelease.Capture(t.Context(), q, bodyRef, ontologyrelease.Options{}); err != nil {

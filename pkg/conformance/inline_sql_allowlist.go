@@ -83,7 +83,7 @@ var InlineSQLAllowlist = map[string]InlineSQLExemption{
 	"pkg/weave/category/store_postgres.go":               {Statements: 4, Reason: storeLayerWrongForm, Permanent: false},
 	"pkg/weave/collection/store_postgres.go":             {Statements: 9, Reason: storeLayerWrongForm, Permanent: false},
 	"pkg/weave/errortracking/store.go":                   {Statements: 2, Reason: storeLayerWrongForm, Permanent: false},
-	"pkg/weave/example/store_postgres.go":                {Statements: 10, Reason: storeLayerWrongForm, Permanent: false},
+	"pkg/weave/example/store_postgres.go":                {Statements: 8, Reason: storeLayerWrongForm, Permanent: false},
 	"pkg/weave/field/store_postgres.go":                  {Statements: 13, Reason: storeLayerWrongForm, Permanent: false},
 	"pkg/weave/fork_store.go":                            {Statements: 3, Reason: aggregateStore, Permanent: false},
 	"pkg/weave/generators/sparql/renderer.go":            {Statements: 2, Reason: otherHandWritten, Permanent: false},

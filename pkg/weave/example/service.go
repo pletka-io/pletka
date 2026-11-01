@@ -19,19 +19,13 @@ import (
 // fields that reference a single Model entity.
 const expectedValueTypeModel = "Model"
 
-type ViewReader interface {
-	ModelView(ctx context.Context, modelID, projectID string) (*domain.ModelView, error)
-	CollectionView(ctx context.Context, collectionID, projectID string) ([]domain.ResolvedField, error)
-}
-
 // defaultMaxNestingDepth is how many collection levels an example form opens
 // inside a Collection-typed field when examples.max_nesting_depth is unset.
 const defaultMaxNestingDepth = 2
 
 type Service struct {
-	store    Store
-	views    ViewReader
-	maxDepth int
+	mutations *Mutations
+	maxDepth  int
 }
 
 // ServiceOption configures a Service at construction.
@@ -46,35 +40,10 @@ func WithMaxNestingDepth(n int) ServiceOption {
 	}
 }
 
-type conceptValidator interface {
-	ConceptURIAllowedForLists(ctx context.Context, uri string, conceptListIDs []string) (bool, error)
-}
-
-// modelNamer is satisfied by the real weave store; used to show the target
-// model's display name in the example form instead of its id.
-type modelNamer interface {
-	Models() domain.WeaveModelStore
-}
-
-// TargetName returns the model's display name when the view reader can look
-// it up, else the id.
-func (s *Service) TargetName(ctx context.Context, modelID string) domain.Translations {
-	fallback := domain.Translations{"en": modelID}
-	namer, ok := s.views.(modelNamer)
-	if !ok {
-		return fallback
-	}
-	m, err := namer.Models().GetByID(ctx, modelID)
-	if err != nil || m == nil || len(m.UIName) == 0 {
-		return fallback
-	}
-	return m.UIName
-}
-
 // NewService builds the example service; opts adjust defaults such as the
 // nesting depth cap.
-func NewService(store Store, views ViewReader, opts ...ServiceOption) *Service {
-	s := &Service{store: store, views: views, maxDepth: defaultMaxNestingDepth}
+func NewService(mutations *Mutations, opts ...ServiceOption) *Service {
+	s := &Service{mutations: mutations, maxDepth: defaultMaxNestingDepth}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -210,95 +179,95 @@ type ConceptListSource struct {
 	Entries    []ConceptChoice     `json:"entries"`
 }
 
-func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) (*ExampleRecord, error) {
+// Create validates and persists against one explicit draft transaction.
+func (s *Service) Create(ctx context.Context, scope auth.ReadScope, projectID string, in CreateInput) (*ExampleRecord, error) {
 	if in.EntityType != domain.ExampleEntityTypeModel {
 		return nil, fmt.Errorf("unsupported example target type: %s", in.EntityType)
 	}
 	if strings.TrimSpace(in.EntityID) == "" {
 		return nil, fmt.Errorf("entity_id is required")
 	}
-	ex := &domain.Example{
-		ID:          ids.GenerateULID(),
-		ProjectID:   projectID,
-		EntityType:  in.EntityType,
-		EntityID:    in.EntityID,
-		Title:       in.Title,
-		Description: in.Description,
-		Status:      domain.ExampleStatusDraft,
-	}
-	resolver, err := s.resolverFor(ctx, projectID, in.EntityID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.materializeStubs(ctx, resolver, in.Lang, in.Values); err != nil {
-		return nil, err
-	}
-	values, err := normalizeValues(in.Values)
-	if err != nil {
-		return nil, err
-	}
-	report, err := s.validateValues(ctx, resolver, values, true)
-	if err != nil {
-		return nil, err
-	}
-	report.ExampleID = ex.ID
-	ex.Status = deriveStatus(values, report)
-	for i := range values {
-		values[i].ExampleID = ex.ID
-	}
-	if err := s.store.CreateWithValues(ctx, ex, values); err != nil {
-		return nil, err
-	}
-	return &ExampleRecord{Example: ex, Values: values, Validation: report}, nil
+	ex := &domain.Example{ID: ids.GenerateULID(), ProjectID: projectID, EntityType: in.EntityType, EntityID: in.EntityID, Title: in.Title, Description: in.Description, Status: domain.ExampleStatusDraft}
+	return s.save(ctx, scope, projectID, ex, "", in.Values, in.Lang, nil, nil)
 }
 
-// draftReader is the reader a write path uses. A mutation always reads the
-// draft -- you edit what is live, never an archived release -- so naming it
-// once here keeps every write site honest without repeating the argument.
-func (s *Service) draftReader() (Reader, error) { return s.store.At(auth.Draft()) }
+// Update replaces values using one selected snapshot and atomic save.
+func (s *Service) Update(ctx context.Context, scope auth.ReadScope, projectID, exampleID string, in UpdateInput) (*ExampleRecord, error) {
+	return s.save(ctx, scope, projectID, nil, exampleID, in.Values, in.Lang, in.Title, in.Description)
+}
 
-func (s *Service) Update(ctx context.Context, projectID, exampleID string, in UpdateInput) (*ExampleRecord, error) {
-	dr, err := s.draftReader()
+func (s *Service) save(ctx context.Context, scope auth.ReadScope, projectID string, created *domain.Example, exampleID string, submitted []domain.ExampleValue, lang string, title, description *domain.Translations) (*ExampleRecord, error) {
+	var result *ExampleRecord
+	err := s.mutate(ctx, scope, projectID, func(m mutation) error {
+		ex := created
+		if ex == nil {
+			var err error
+			ex, err = m.example(exampleID)
+			if err != nil {
+				return err
+			}
+			if ex == nil {
+				return exampleNotFound{}
+			}
+		}
+		if title != nil {
+			ex.Title = *title
+		}
+		if description != nil {
+			ex.Description = *description
+		}
+		resolver, validator, err := m.prepare(string(ex.EntityType), ex.EntityID, s.maxDepth)
+		if err != nil {
+			return err
+		}
+		// Normalization and stub IDs belong to this attempt, not the caller's input.
+		values := append([]domain.ExampleValue(nil), submitted...)
+		if err := materializeStubs(m, resolver, lang, values); err != nil {
+			return err
+		}
+		values, err = normalizeValues(values)
+		if err != nil {
+			return err
+		}
+		report, err := validator.validateValues(ctx, resolver, values, true)
+		if err != nil {
+			return err
+		}
+		report.ExampleID = ex.ID
+		ex.Status = deriveStatus(values, report)
+		for i := range values {
+			values[i].ExampleID = ex.ID
+		}
+		if created != nil {
+			err = m.create(ex, values)
+		} else {
+			err = m.update(ex, values)
+		}
+		if err != nil {
+			return err
+		}
+		result = &ExampleRecord{Example: ex, Values: values, Validation: report}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	ex, err := dr.GetByID(ctx, exampleID)
-	if err != nil {
-		return nil, err
+	return result, nil
+}
+
+func (s *Service) mutate(ctx context.Context, scope auth.ReadScope, project string, fn func(mutation) error) error {
+	if err := requireDraftEditing(scope); err != nil {
+		return err
 	}
-	if ex == nil || ex.ProjectID != projectID {
-		return nil, fmt.Errorf("example not found")
+	if s == nil || s.mutations == nil || s.mutations.run == nil {
+		return fmt.Errorf("example mutations require a boundary")
 	}
-	if in.Title != nil {
-		ex.Title = *in.Title
-	}
-	if in.Description != nil {
-		ex.Description = *in.Description
-	}
-	resolver, err := s.resolverFor(ctx, projectID, ex.EntityID)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.materializeStubs(ctx, resolver, in.Lang, in.Values); err != nil {
-		return nil, err
-	}
-	values, err := normalizeValues(in.Values)
-	if err != nil {
-		return nil, err
-	}
-	report, err := s.validateValues(ctx, resolver, values, true)
-	if err != nil {
-		return nil, err
-	}
-	report.ExampleID = ex.ID
-	ex.Status = deriveStatus(values, report)
-	for i := range values {
-		values[i].ExampleID = ex.ID
-	}
-	if err := s.store.UpdateWithValues(ctx, ex, values); err != nil {
-		return nil, err
-	}
-	return &ExampleRecord{Example: ex, Values: values, Validation: report}, nil
+	return s.mutations.run(ctx, project, fn)
+}
+
+// Delete removes only an owned draft example through the mutation boundary.
+func (s *Service) Delete(ctx context.Context, scope auth.ReadScope, project, exampleID string) error {
+	return s.mutate(ctx, scope, project, func(m mutation) error { return m.delete(exampleID) })
 }
 
 // stubCandidate is a validated "reference by label" value awaiting draft
@@ -325,13 +294,9 @@ type stubCandidate struct {
 // nested path elsewhere in the request fails before any draft exists. Only
 // then does a second pass create the drafts and link them.
 //
-// ponytail: an unlinked draft can still be left by a DB error on the parent
-// save, or by a write rejected after this point for a reason other than an
-// unresolvable path (wrong or duplicate group segment, a slot_path that
-// contradicts override_id/occurrence_index): stubs are created before the
-// parent is saved and are not rolled back; they are drafts and harmless. Wrap in one transaction
-// if that ever bites.
-func (s *Service) materializeStubs(ctx context.Context, resolver *slotResolver, lang string, values []domain.ExampleValue) error {
+// The mutation boundary owns the parent and every stub in one transaction.
+// A later validation, persistence or outer capture failure rolls them all back.
+func materializeStubs(m mutation, resolver *slotResolver, lang string, values []domain.ExampleValue) error {
 	lang = strings.TrimSpace(lang)
 	if lang == "" {
 		lang = "en"
@@ -380,7 +345,10 @@ func (s *Service) materializeStubs(ctx context.Context, resolver *slotResolver, 
 				Title:      domain.Translations{lang: c.label},
 				Status:     domain.ExampleStatusDraft,
 			}
-			if err := s.store.CreateWithValues(ctx, stub, nil); err != nil {
+			if err := m.stubTarget(c.target); err != nil {
+				return err
+			}
+			if err := m.create(stub, nil); err != nil {
 				return fmt.Errorf("create draft example for %s: %w", c.target, err)
 			}
 			id = stub.ID
@@ -430,105 +398,6 @@ func resolveStubTarget(field domain.ResolvedField, p *domain.ExampleValuePayload
 		return "", fmt.Errorf("field %s: model %s is not an allowed target", field.ID, target)
 	}
 	return target, nil
-}
-
-// Get returns one example with its values, read at scope. A release scope
-// reads the archived example; a draft scope reads the live one. The caller
-// names the scope -- the service never resolves one.
-func (s *Service) Get(ctx context.Context, scope auth.ReadScope, projectID, exampleID string) (*ExampleRecord, error) {
-	record, _, err := s.get(ctx, scope, projectID, exampleID)
-	return record, err
-}
-
-// get is Get, also returning the slot resolver it validated with so the
-// edit form reuses its cached views.
-func (s *Service) get(ctx context.Context, scope auth.ReadScope, projectID, exampleID string) (*ExampleRecord, *slotResolver, error) {
-	if err := requireDraftEditing(scope); err != nil {
-		return nil, nil, err
-	}
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, nil, err
-	}
-	ex, err := r.GetByID(ctx, exampleID)
-	if err != nil {
-		return nil, nil, err
-	}
-	if ex == nil || ex.ProjectID != projectID {
-		return nil, nil, fmt.Errorf("example not found")
-	}
-	values, err := r.ListValues(ctx, exampleID)
-	if err != nil {
-		return nil, nil, err
-	}
-	resolver, err := s.resolverFor(ctx, projectID, ex.EntityID)
-	if err != nil {
-		return nil, nil, err
-	}
-	report, err := s.validateValues(ctx, resolver, values, false)
-	if err != nil {
-		return nil, nil, err
-	}
-	report.ExampleID = ex.ID
-	return &ExampleRecord{Example: ex, Values: values, Validation: report}, resolver, nil
-}
-
-func (s *Service) Delete(ctx context.Context, projectID, exampleID string) error {
-	dr, err := s.draftReader()
-	if err != nil {
-		return err
-	}
-	ex, err := dr.GetByID(ctx, exampleID)
-	if err != nil {
-		return err
-	}
-	if ex == nil || ex.ProjectID != projectID {
-		return fmt.Errorf("example not found")
-	}
-	return s.store.Delete(ctx, exampleID)
-}
-
-// List returns a project's examples at scope, plus the total matching the
-// filters. A release that archived no examples returns an empty slice,
-// never a fallback to the draft.
-func (s *Service) List(ctx context.Context, scope auth.ReadScope, projectID string, opts ...domain.QueryOption) ([]*domain.Example, int64, error) {
-	r, err := s.store.At(scope)
-	if err != nil {
-		return nil, 0, err
-	}
-	opts = append([]domain.QueryOption{domain.WithProjectID(projectID)}, opts...)
-	return r.List(ctx, opts...)
-}
-
-// BuildFormSchema retains the legacy draft-only editing resolver.
-//
-// Deprecated: HTTP reads use the mandatory detached source and ProjectRead.
-func (s *Service) BuildFormSchema(ctx context.Context, scope auth.ReadScope, projectID, mode, targetType, targetID, exampleID, lang string, languages []formschema.LanguageInfo) (*ExampleFormSchema, error) {
-	if err := requireDraftEditing(scope); err != nil {
-		return nil, err
-	}
-	if mode == "" {
-		mode = formschema.ModeCreate
-	}
-	switch mode {
-	case formschema.ModeCreate:
-		if targetType != string(domain.ExampleEntityTypeModel) || strings.TrimSpace(targetID) == "" {
-			return nil, fmt.Errorf("target_type=model and target_id are required")
-		}
-		resolver, err := s.resolverFor(ctx, projectID, targetID)
-		if err != nil {
-			return nil, err
-		}
-		return s.buildModelFormSchema(ctx, resolver, "", targetID, nil, lang, languages)
-	case formschema.ModeEdit:
-		record, resolver, err := s.get(ctx, scope, projectID, exampleID)
-		if err != nil {
-			return nil, err
-		}
-		return s.buildModelFormSchema(ctx, resolver, record.Example.ID, record.Example.EntityID, record, lang, languages)
-	default:
-		return nil, fmt.Errorf("unsupported form mode: %s", mode)
-	}
 }
 
 func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, issuesByKey map[string][]domain.ExampleIssue, groupPath string) ExampleFormField {
@@ -769,28 +638,6 @@ func deriveStatus(values []domain.ExampleValue, report domain.ExampleValidationR
 	return domain.ExampleStatusHasIssues
 }
 
-// validateModelValues validates leniently, as Get does, with a resolver of
-// its own: a value whose stored group no longer matches its override's
-// current group is left in place rather than rejected. See validateValues.
-func (s *Service) validateModelValues(ctx context.Context, projectID, modelID string, values []domain.ExampleValue) (domain.ExampleValidationReport, error) {
-	resolver, err := s.resolverFor(ctx, projectID, modelID)
-	if err != nil {
-		return domain.ExampleValidationReport{}, err
-	}
-	return s.validateValues(ctx, resolver, values, false)
-}
-
-// validateValues validates values against modelID's current view. strict
-// controls placeInGroups: Create/Update pass true and reject a value whose
-// slot_path names the wrong group for its field. Get and other reads pass
-// false (via validateModelValues) so a field moved to a different group (or
-// to/from direct) since the value was saved does not make the example
-// unreadable; such a value is left untouched, excluded from group/field
-// counts and compaction, and reported as a moved_group_value warning
-// instead. Every slot path is resolved through the request's slot resolver
-// (the model's current view), nested ones through their container's target
-// collection (see checkValue).
-
 // movedGroupValueIssue reports a value whose stored group segment no longer
 // matches its override's current group: left as is by validateValues, out
 // of group/field counts, and surfaced as a warning instead of dropped
@@ -895,26 +742,6 @@ func groupCardinalityIssues(collectionID string, pl *domain.CollectionPlacement,
 		out[i].CollectionID = &id
 	}
 	return out
-}
-
-func (s *Service) conceptURIAllowed(ctx context.Context, uri string, refs []domain.EntityRef) (bool, error) {
-	validator, ok := s.store.(conceptValidator)
-	if !ok {
-		return true, nil
-	}
-	ids := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		if strings.TrimSpace(ref.ID) != "" {
-			ids = append(ids, ref.ID)
-		}
-		if strings.TrimSpace(ref.SemanticID) != "" && ref.SemanticID != ref.ID {
-			ids = append(ids, ref.SemanticID)
-		}
-	}
-	if len(ids) == 0 {
-		return true, nil
-	}
-	return validator.ConceptURIAllowedForLists(ctx, uri, ids)
 }
 
 func conceptSources(refs []domain.EntityRef) []ConceptListSource {
@@ -1035,7 +862,7 @@ func groupMatches(v domain.ExampleValue, groups map[int64]string) bool {
 // A one-segment path on a grouped field is instance 0 in both modes: rows
 // saved before step B.2 and clients that do not know about groups. A
 // two-segment path must name the group currently holding the field: strict
-// (Create/Update) rejects a mismatch, lenient (Get, via validateModelValues)
+// (Create/Update) rejects a mismatch, lenient (retained read projection)
 // leaves the value exactly as stored so a field moved to another group
 // since it was saved does not make the example unreadable — validateValues
 // reports it as a moved_group_value warning instead. Values on slots the
@@ -1123,8 +950,7 @@ func successMessage(exampleID string) string {
 	return "Example updated successfully"
 }
 
-// Editing validation uses live model views. Released browsing belongs to the
-// retained browser boundary, and cannot enter this service through any caller.
+// Mutation input must be explicit draft; neither zero nor release scopes can write.
 func requireDraftEditing(scope auth.ReadScope) error {
 	if !scope.Valid() || scope.IsRelease() {
 		return fmt.Errorf("example editing validation requires an explicit draft scope")
@@ -1132,14 +958,6 @@ func requireDraftEditing(scope auth.ReadScope) error {
 	return nil
 }
 
-func (s *Service) buildModelFormSchema(ctx context.Context, resolver *slotResolver, exampleID, modelID string, record *ExampleRecord, lang string, languages []formschema.LanguageInfo) (*ExampleFormSchema, error) {
-	schema, err := buildExampleFormSchema(resolver, exampleID, modelID, s.TargetName(ctx, modelID), record, lang, languages)
-	if err != nil {
-		return nil, err
-	}
-	setExampleEndpoint(schema, resolver.projectID, exampleID)
-	return schema, nil
-}
 func setExampleEndpoint(schema *ExampleFormSchema, projectID, exampleID string) {
 
 	if exampleID == "" {
@@ -1153,17 +971,6 @@ func setExampleEndpoint(schema *ExampleFormSchema, projectID, exampleID string) 
 			URL:    fmt.Sprintf("/projects/%s/examples/%s", projectID, exampleID),
 		}
 	}
-}
-
-func (s *Service) validateValues(ctx context.Context, resolver *slotResolver, values []domain.ExampleValue, strict bool) (domain.ExampleValidationReport, error) {
-	checks := valueValidator{conceptAllowed: s.conceptURIAllowed, example: func(ctx context.Context, id string) (*domain.Example, error) {
-		reader, err := s.draftReader()
-		if err != nil {
-			return nil, err
-		}
-		return reader.GetByID(ctx, id)
-	}}
-	return checks.validateValues(ctx, resolver, values, strict)
 }
 
 // Link describes an already selected reference, including its pinned browser URL.

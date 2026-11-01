@@ -104,7 +104,7 @@ func (v fakeViews) CollectionView(_ context.Context, collectionID, _ string) ([]
 
 func TestServiceCreateNormalizesValueKind(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, fakeViews{
+	svc := newTestService(store, fakeViews{
 		models: map[string]*domain.ModelView{
 			"M1": singleFieldModelView(11, "F1", "String", false, 0, nil),
 		},
@@ -163,7 +163,7 @@ func TestServiceBuildFormSchemaGroupsFieldsAndValues(t *testing.T) {
 		},
 	}
 
-	svc := NewService(store, fakeViews{
+	svc := newTestService(store, fakeViews{
 		models: map[string]*domain.ModelView{
 			"M1": {
 				ModelID:   "M1",
@@ -251,7 +251,7 @@ func TestServiceBuildFormSchemaExposesConceptSources(t *testing.T) {
 			URL:        "/projects/SEM/concept-lists/SEM.CL.6",
 		},
 	}
-	svc := NewService(store, fakeViews{
+	svc := newTestService(store, fakeViews{
 		models: map[string]*domain.ModelView{
 			"M1": {
 				ModelID:   "M1",
@@ -297,13 +297,13 @@ func TestServiceBuildFormSchemaExposesConceptSources(t *testing.T) {
 
 func TestValidateModelValuesFlagsWrongKindAndStaleOverride(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, fakeViews{
+	svc := newTestService(store, fakeViews{
 		models: map[string]*domain.ModelView{
 			"M1": singleFieldModelView(11, "F1", "String", false, 0, nil),
 		},
 	})
 
-	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
+	report, err := svc.validateModelValues(context.Background(), []domain.ExampleValue{
 		{
 			SlotPath:        "11:0",
 			OverrideID:      11,
@@ -346,7 +346,7 @@ func TestValidateModelValuesFlagsConceptOutsideAllowedList(t *testing.T) {
 	store.concepts = map[string]bool{"https://vocab.getty.edu/aat/300388277": false}
 	field := resolvedField(11, "F1", "Language", "Concept", false, 0, nil)
 	field.ConceptLists = []domain.EntityRef{{ID: "SEM.CL.6", SemanticID: "SEM.CL.6"}}
-	svc := NewService(store, fakeViews{
+	svc := newTestService(store, fakeViews{
 		models: map[string]*domain.ModelView{
 			"M1": {
 				ModelID:   "M1",
@@ -365,7 +365,7 @@ func TestValidateModelValuesFlagsConceptOutsideAllowedList(t *testing.T) {
 		},
 	})
 
-	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
+	report, err := svc.validateModelValues(context.Background(), []domain.ExampleValue{
 		{
 			OverrideID:      11,
 			FieldID:         "F1",
@@ -474,7 +474,7 @@ func findStub(store *fakeStore, exceptID string) *domain.Example {
 
 func TestServiceCreateMaterializesStubExample(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+	svc := newTestService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
 
 	record, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel,
@@ -518,7 +518,7 @@ func TestServiceCreateMaterializesStubExample(t *testing.T) {
 
 func TestServiceCreateStubDefaultsTitleLangToEnglish(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+	svc := newTestService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
 	record, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 		Values: []domain.ExampleValue{stubValue("M2", "Irises")},
@@ -533,7 +533,7 @@ func TestServiceCreateStubDefaultsTitleLangToEnglish(t *testing.T) {
 
 func TestServiceUpdateMaterializesStubExample(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+	svc := newTestService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
 	created, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 	})
@@ -599,7 +599,7 @@ func TestServiceStubGuards(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			store := newFakeStore()
-			svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": tc.view}})
+			svc := newTestService(store, fakeViews{models: map[string]*domain.ModelView{"M1": tc.view}})
 			_, err := svc.Create(context.Background(), "P1", CreateInput{
 				EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 				Values: []domain.ExampleValue{tc.value},
@@ -616,7 +616,7 @@ func TestServiceStubGuards(t *testing.T) {
 
 func TestServiceStubGuardFailsOnSecondValueStoresNothing(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+	svc := newTestService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
 
 	first := stubValue("", "Van Gogh")
 	second := stubValue("M9", "Bad")
@@ -636,7 +636,7 @@ func TestServiceStubGuardFailsOnSecondValueStoresNothing(t *testing.T) {
 
 func TestServiceStubIgnoresBlankLabelAndExplicitLink(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+	svc := newTestService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
 	linked := &domain.Example{ID: "EX-LINKED", ProjectID: "P1", EntityType: domain.ExampleEntityTypeModel, EntityID: "M2", Status: domain.ExampleStatusDraft}
 	if err := store.CreateWithValues(context.Background(), linked, nil); err != nil {
 		t.Fatal(err)
@@ -666,7 +666,7 @@ func TestServiceStubIgnoresBlankLabelAndExplicitLink(t *testing.T) {
 // linked from both occurrences.
 func TestServiceStubSameLabelTwiceCreatesOneDraft(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
+	svc := newTestService(store, fakeViews{models: map[string]*domain.ModelView{"M1": stubModelView("M2")}})
 	first := stubValue("", "Van Gogh")
 	second := stubValue("M2", "  Van Gogh ") // same target after inference, same label after trimming
 	second.OccurrenceIndex = 1
@@ -694,61 +694,6 @@ func TestServiceStubSameLabelTwiceCreatesOneDraft(t *testing.T) {
 	}
 }
 
-// namingViews is fakeViews plus a Models() reader, mirroring the optional
-// interface the real store satisfies.
-type namingViews struct {
-	fakeViews
-	names map[string]domain.Translations
-}
-
-func (v namingViews) Models() domain.WeaveModelStore { return namingModels{names: v.names} }
-
-type namingModels struct {
-	domain.WeaveModelStore // nil; only GetByID is called
-	names                  map[string]domain.Translations
-}
-
-func (m namingModels) GetByID(_ context.Context, id string) (*domain.Model, error) {
-	name, ok := m.names[id]
-	if !ok {
-		return nil, nil
-	}
-	mod := &domain.Model{}
-	mod.ID = id
-	mod.UIName = name
-	return mod, nil
-}
-
-func TestBuildFormSchemaNamesTargetModel(t *testing.T) {
-	views := namingViews{
-		fakeViews: fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}},
-		names:     map[string]domain.Translations{"M1": {"en": "Physical Thing", "nl": "Fysiek object"}},
-	}
-	svc := NewService(newFakeStore(), views)
-	schema, err := svc.BuildFormSchema(context.Background(), auth.Draft(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
-	if err != nil {
-		t.Fatalf("BuildFormSchema() error = %v", err)
-	}
-	if got := schema.Target.Name["en"]; got != "Physical Thing" {
-		t.Fatalf("target name = %q, want Physical Thing", got)
-	}
-	if got := schema.Target.Name["nl"]; got != "Fysiek object" {
-		t.Fatalf("target name[nl] = %q", got)
-	}
-	// Without a namer the id stays the fallback.
-	plain := NewService(newFakeStore(), views.fakeViews)
-	schema, err = plain.BuildFormSchema(context.Background(), auth.Draft(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
-	if err != nil {
-		t.Fatalf("BuildFormSchema() error = %v", err)
-	}
-	if got := schema.Target.Name["en"]; got != "M1" {
-		t.Fatalf("fallback target name = %q, want M1", got)
-	}
-}
-
-// TestBuildFormSchemaKeepsCollectionOrderIncludingDirectFields: the form
-// emits the direct-fields bucket as a group at its own position rather than
-// always first, matching the model page.
 func TestBuildFormSchemaKeepsCollectionOrderIncludingDirectFields(t *testing.T) {
 	view := &domain.ModelView{ModelID: "M1", ProjectID: "P1", Categories: []domain.CategoryGroup{{
 		ID: "CAT1", Name: domain.Translations{"en": "Names"}, Position: 1,
@@ -758,7 +703,7 @@ func TestBuildFormSchemaKeepsCollectionOrderIncludingDirectFields(t *testing.T) 
 			{ID: "C2", Name: domain.Translations{"en": "Identifier"}, Position: 3, Fields: []domain.ResolvedField{resolvedField(13, "F3", "Identifier", "String", false, 0, nil)}},
 		},
 	}}}
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": view}})
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": view}})
 	schema, err := svc.BuildFormSchema(context.Background(), auth.Draft(), "P1", formschema.ModeCreate, "model", "M1", "", "en", nil)
 	if err != nil {
 		t.Fatalf("BuildFormSchema() error = %v", err)
@@ -783,7 +728,7 @@ func TestBuildFormSchemaKeepsCollectionOrderIncludingDirectFields(t *testing.T) 
 // occurrence_index only; the service derives the depth-one slot path.
 func TestServiceCreateFillsSlotPath(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
+	svc := newTestService(store, fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
 	record, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 		Values: []domain.ExampleValue{
@@ -810,7 +755,7 @@ func TestServiceCreateFillsSlotPath(t *testing.T) {
 // old columns keep working.
 func TestServiceCreateDerivesLeafFromSlotPath(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
+	svc := newTestService(store, fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
 	record, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 		Values: []domain.ExampleValue{
@@ -830,7 +775,7 @@ func TestServiceCreateDerivesLeafFromSlotPath(t *testing.T) {
 }
 
 func TestServiceCreateRejectsMalformedSlotPath(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
 	_, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 		Values: []domain.ExampleValue{{SlotPath: "nope", FieldID: "F1", ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("c")}}},
@@ -844,7 +789,7 @@ func TestServiceCreateRejectsMalformedSlotPath(t *testing.T) {
 // container is not an expandable Collection field on the model (here field
 // slot 1 is unknown) is rejected on write.
 func TestServiceCreateRejectsUnresolvableNestedPath(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
 	_, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 		Values: []domain.ExampleValue{{SlotPath: "C1:0/1:0/11:0", FieldID: "F1", ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("c")}}},
@@ -855,7 +800,7 @@ func TestServiceCreateRejectsUnresolvableNestedPath(t *testing.T) {
 }
 
 func TestServiceCreateRejectsContradictorySlotPath(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}})
 	_, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 		Values: []domain.ExampleValue{{SlotPath: "11:2", OverrideID: 11, OccurrenceIndex: 0, FieldID: "F1", ValueKind: domain.ExampleValueKindString, ValuePayload: domain.ExampleValuePayload{StringValue: ptr("c")}}},
@@ -894,7 +839,7 @@ func stringValue(slotPath, fieldID, text string) domain.ExampleValue {
 }
 
 func TestServiceCreatePlacesGroupedDepthOneValueInInstanceZero(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
 	rec, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 		Values: []domain.ExampleValue{stringValue("21:0", "F2", "a"), stringValue("11:0", "F1", "b")},
@@ -912,7 +857,7 @@ func TestServiceCreatePlacesGroupedDepthOneValueInInstanceZero(t *testing.T) {
 }
 
 func TestServiceCreateKeepsGroupInstancePath(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
 	rec, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 		Values: []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:1/21:0", "F2", "b")},
@@ -931,7 +876,7 @@ func TestServiceCreateKeepsGroupInstancePath(t *testing.T) {
 }
 
 func TestServiceCreateRejectsWrongGroupSegment(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
 	for _, path := range []string{"C9:0/21:0", "C1:0/11:0", "C1:01/21:0"} {
 		fieldID := "F2"
 		if strings.HasSuffix(path, "/11:0") {
@@ -948,7 +893,7 @@ func TestServiceCreateRejectsWrongGroupSegment(t *testing.T) {
 }
 
 func TestServiceCreateRejectsDuplicateSlotPath(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
 	_, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 		Values: []domain.ExampleValue{stringValue("21:0", "F2", "a"), stringValue("C1:0/21:0", "F2", "b")},
@@ -959,11 +904,11 @@ func TestServiceCreateRejectsDuplicateSlotPath(t *testing.T) {
 }
 
 func TestValidateRequiredFieldPerGroupInstance(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil,
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil,
 		resolvedField(21, "F2", "Name", "String", true, 0, nil),
 		resolvedField(22, "F3", "Type", "String", false, 0, nil),
 	)}})
-	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
+	report, err := svc.validateModelValues(context.Background(), []domain.ExampleValue{
 		stringValue("C1:0/21:0", "F2", "a"),
 		stringValue("C1:1/22:0", "F3", "t"),
 	})
@@ -982,8 +927,8 @@ func TestValidateRequiredFieldPerGroupInstance(t *testing.T) {
 }
 
 func TestValidateUntouchedGroupStillReportsRequired(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", true, 0, nil))}})
-	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{stringValue("11:0", "F1", "x")})
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", true, 0, nil))}})
+	report, err := svc.validateModelValues(context.Background(), []domain.ExampleValue{stringValue("11:0", "F1", "x")})
 	if err != nil {
 		t.Fatalf("validate error = %v", err)
 	}
@@ -1001,8 +946,8 @@ func TestValidateUntouchedGroupStillReportsRequired(t *testing.T) {
 func TestValidateGroupPlacementCardinality(t *testing.T) {
 	one := 1
 	maxView := groupedModelView(&domain.CollectionPlacement{MaxOccurs: &one}, resolvedField(21, "F2", "Name", "String", false, 0, nil))
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": maxView}})
-	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": maxView}})
+	report, err := svc.validateModelValues(context.Background(), []domain.ExampleValue{
 		stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:1/21:0", "F2", "b"),
 	})
 	if err != nil {
@@ -1018,8 +963,8 @@ func TestValidateGroupPlacementCardinality(t *testing.T) {
 	}
 
 	minView := groupedModelView(&domain.CollectionPlacement{MinOccurs: 2}, resolvedField(21, "F2", "Name", "String", false, 0, nil))
-	svc = NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": minView}})
-	report, err = svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a")})
+	svc = newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": minView}})
+	report, err = svc.validateModelValues(context.Background(), []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a")})
 	if err != nil {
 		t.Fatalf("validate error = %v", err)
 	}
@@ -1029,9 +974,9 @@ func TestValidateGroupPlacementCardinality(t *testing.T) {
 }
 
 func TestValidateValueIssueCarriesGroupPath(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "Integer", false, 0, nil))}})
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "Integer", false, 0, nil))}})
 	good := domain.ExampleValue{SlotPath: "C1:0/21:0", OverrideID: 21, FieldID: "F2", ValueKind: domain.ExampleValueKindInteger, ValuePayload: domain.ExampleValuePayload{Kind: domain.ExampleValueKindInteger, NumberValue: floatPtr(1)}}
-	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{good, stringValue("C1:1/21:0", "F2", "not a number")})
+	report, err := svc.validateModelValues(context.Background(), []domain.ExampleValue{good, stringValue("C1:1/21:0", "F2", "not a number")})
 	if err != nil {
 		t.Fatalf("validate error = %v", err)
 	}
@@ -1044,7 +989,7 @@ func TestValidateValueIssueCarriesGroupPath(t *testing.T) {
 }
 
 func TestServiceCreateCompactsGroupInstances(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))}})
 	rec, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 		Values: []domain.ExampleValue{
@@ -1071,7 +1016,7 @@ func TestServiceCreateCompactsGroupInstances(t *testing.T) {
 // each entry carrying only that instance's values under its slot_prefix.
 func TestServiceBuildFormSchemaGroupInstancesInIndexOrder(t *testing.T) {
 	store := newFakeStore()
-	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{
+	svc := newTestService(store, fakeViews{models: map[string]*domain.ModelView{
 		"M1": groupedModelView(&domain.CollectionPlacement{MinOccurs: 0}, resolvedField(21, "F2", "Name", "String", false, 0, nil)),
 	}})
 	rec, err := svc.Create(context.Background(), "P1", CreateInput{
@@ -1124,7 +1069,7 @@ func TestServiceBuildFormSchemaGroupInstancesInIndexOrder(t *testing.T) {
 // form for a group with no values still shows the placement's minimum
 // instance count, padded from the next free index.
 func TestServiceBuildFormSchemaPadsInstancesToPlacementMinOccurs(t *testing.T) {
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{
 		"M1": groupedModelView(&domain.CollectionPlacement{MinOccurs: 2}, resolvedField(21, "F2", "Name", "String", false, 0, nil)),
 	}})
 	schema, err := svc.BuildFormSchema(context.Background(), auth.Draft(), "P1", formschema.ModeCreate, string(domain.ExampleEntityTypeModel), "M1", "", "en", nil)
@@ -1152,7 +1097,7 @@ func TestServiceBuildFormSchemaPadsInstancesToPlacementMinOccurs(t *testing.T) {
 func TestServiceBuildFormSchemaGroupMaxOccursIssueOnFirstInstance(t *testing.T) {
 	one := 1
 	store := newFakeStore()
-	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{
+	svc := newTestService(store, fakeViews{models: map[string]*domain.ModelView{
 		"M1": groupedModelView(&domain.CollectionPlacement{MaxOccurs: &one}, resolvedField(21, "F2", "Name", "String", false, 0, nil)),
 	}})
 	rec, err := svc.Create(context.Background(), "P1", CreateInput{
@@ -1196,7 +1141,7 @@ func TestServiceBuildFormSchemaGroupMaxOccursIssueOnFirstInstance(t *testing.T) 
 func TestServiceGetToleratesFieldMovedOutOfGroup(t *testing.T) {
 	store := newFakeStore()
 	groupedView := groupedModelView(nil, resolvedField(21, "F2", "Name", "String", false, 0, nil))
-	svc := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": groupedView}})
+	svc := newTestService(store, fakeViews{models: map[string]*domain.ModelView{"M1": groupedView}})
 	rec, err := svc.Create(context.Background(), "P1", CreateInput{
 		EntityType: domain.ExampleEntityTypeModel, EntityID: "M1",
 		Values: []domain.ExampleValue{stringValue("C1:0/21:0", "F2", "a"), stringValue("C1:1/21:0", "F2", "b")},
@@ -1231,7 +1176,7 @@ func TestServiceGetToleratesFieldMovedOutOfGroup(t *testing.T) {
 			},
 		}},
 	}
-	svc2 := NewService(store, fakeViews{models: map[string]*domain.ModelView{"M1": movedView}})
+	svc2 := newTestService(store, fakeViews{models: map[string]*domain.ModelView{"M1": movedView}})
 
 	got, err := svc2.Get(context.Background(), auth.Draft(), "P1", rec.Example.ID)
 	if err != nil {
@@ -1279,8 +1224,8 @@ func TestServiceGetToleratesFieldMovedOutOfGroup(t *testing.T) {
 func TestValidateStaleValuesDoNotCountAsInstances(t *testing.T) {
 	one := 1
 	view := groupedModelView(&domain.CollectionPlacement{MaxOccurs: &one}, resolvedField(21, "F2", "Name", "String", false, 0, nil))
-	svc := NewService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": view}})
-	report, err := svc.validateModelValues(context.Background(), "P1", "M1", []domain.ExampleValue{
+	svc := newTestService(newFakeStore(), fakeViews{models: map[string]*domain.ModelView{"M1": view}})
+	report, err := svc.validateModelValues(context.Background(), []domain.ExampleValue{
 		stringValue("C1:0/21:0", "F2", "a"),
 		stringValue("C1:1/99:0", "F9", "stale"),
 	})

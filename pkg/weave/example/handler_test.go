@@ -18,8 +18,8 @@ import (
 // JSON envelope ({"code", "error", ...} with a JSON Content-Type), not a
 // plain-text http.Error body.
 func TestHandlerDeleteNotFoundReturnsAPIErrorEnvelope(t *testing.T) {
-	svc := NewService(newFakeStore(), nil)
-	h := NewHandler(svc, nil, nil, nil)
+	svc := newTestService(newFakeStore(), nil)
+	h := NewHandler(svc.Service, nil, nil, nil)
 
 	req := httptest.NewRequestWithContext(auth.WithReadScope(context.Background(), auth.Draft()),
 		http.MethodDelete, "/PROJECT1/examples/missing-id", nil)
@@ -63,7 +63,7 @@ func TestExampleReadsRequireCurrentRootScopeAndSource(t *testing.T) {
 		{"missing root", "", auth.Draft(), 404}, {"wrong root", "OTHER", auth.Draft(), 404}, {"missing scope", "P", auth.ReadScope{}, 500}, {"missing source", "P", auth.Draft(), 500},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := NewHandler(NewService(nil, nil), nil, nil, nil)
+			h := NewHandler(NewService(nil), nil, nil, nil)
 			ctx := auth.WithReadScope(auth.WithProject(t.Context(), &domain.Project{Entity: domain.Entity{ID: tc.project}, Visibility: "public"}), tc.scope)
 			router := chi.NewRouter()
 			router.Get("/projects/{projectID}/examples/{exampleID}", h.Detail)
@@ -79,14 +79,18 @@ func TestExampleReadsRequireCurrentRootScopeAndSource(t *testing.T) {
 	}
 }
 
-func TestEditingServiceCannotValidateReleasedContent(t *testing.T) {
-	svc := NewService(nil, nil)
+func TestMutationServiceRejectsMissingOrReleaseScope(t *testing.T) {
+	svc := NewService(nil)
 	for _, scope := range []auth.ReadScope{{}, auth.Release("1.0.0")} {
-		if _, err := svc.Get(t.Context(), scope, "P", "E"); err == nil {
-			t.Fatal("live validation accepted a non-draft scope")
+		ctx := auth.WithReadScope(t.Context(), scope)
+		if _, err := svc.Create(ctx, scope, "P", CreateInput{EntityType: domain.ExampleEntityTypeModel, EntityID: "M"}); err == nil {
+			t.Fatal("create accepted non-draft scope")
 		}
-		if _, err := svc.BuildFormSchema(t.Context(), scope, "P", "create", "model", "M", "", "en", nil); err == nil {
-			t.Fatal("live form accepted a non-draft scope")
+		if _, err := svc.Update(ctx, scope, "P", "E", UpdateInput{}); err == nil {
+			t.Fatal("update accepted non-draft scope")
+		}
+		if err := svc.Delete(ctx, scope, "P", "E"); err == nil {
+			t.Fatal("delete accepted non-draft scope")
 		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/browserhttp"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
@@ -73,9 +74,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, apierror.BadRequest("invalid json"))
 		return
 	}
-	record, err := h.svc.Create(r.Context(), projectID, in)
+	record, err := h.svc.Create(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, in)
 	if err != nil {
-		apierror.Write(w, r, apierror.BadRequest(err.Error()))
+		writeMutationError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, record)
@@ -93,9 +94,9 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, apierror.BadRequest("invalid json"))
 		return
 	}
-	record, err := h.svc.Update(r.Context(), projectID, exampleID, in)
+	record, err := h.svc.Update(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, exampleID, in)
 	if err != nil {
-		apierror.Write(w, r, apierror.BadRequest(err.Error()))
+		writeMutationError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, record)
@@ -104,8 +105,8 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectID")
 	exampleID := chi.URLParam(r, "exampleID")
-	if err := h.svc.Delete(r.Context(), projectID, exampleID); err != nil {
-		apierror.Write(w, r, apierror.NotFound(err.Error()))
+	if err := h.svc.Delete(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, exampleID); err != nil {
+		writeMutationError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -119,4 +120,14 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// Preserve existing input errors while passing typed source/access/conflict
+// failures through the common envelope.
+func writeMutationError(w http.ResponseWriter, r *http.Request, err error) {
+	out := apierror.FromError(err)
+	if out.Code == apierror.CodeInternal {
+		out = apierror.BadRequest(err.Error())
+	}
+	apierror.Write(w, r, out)
 }

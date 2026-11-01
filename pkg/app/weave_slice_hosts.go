@@ -784,9 +784,13 @@ func buildExampleHost(
 	examplesMaxNestingDepth int,
 	source *browserread.Source,
 ) example.Host {
+	mutations, err := example.NewPostgresMutations(pool, source)
+	if err != nil {
+		panic(err)
+	}
 	return example.Host{
 		Browser:      source,
-		Service:      example.NewService(example.NewPostgresStore(pool), weave, example.WithMaxNestingDepth(examplesMaxNestingDepth)),
+		Service:      example.NewService(mutations, example.WithMaxNestingDepth(examplesMaxNestingDepth)),
 		Projects:     weave.Projects(),
 		Logger:       logger,
 		Languages:    languages,
