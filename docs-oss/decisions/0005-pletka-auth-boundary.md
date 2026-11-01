@@ -34,6 +34,10 @@ they must not define a separate auth model or private capability vocabulary.
   slice owns its workflow.
 - Slices may load the protected domain object and build or attach the relevant
   auth resource.
+- Project access uses current visibility and ownership, including when reading a
+  release. `ProjectFromContext` is current authorization metadata. Selected project
+  content must be loaded separately through the scoped read boundary; an archived
+  public flag or owner is not an access grant.
 - Slices must not define private auth enums, private capability strings, or
   alternative snapshot/resource models.
 - New capabilities are added centrally in `pkg/auth`, then consumed by slices.

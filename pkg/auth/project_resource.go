@@ -10,12 +10,9 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
 )
 
-type projectVersionReader interface {
-	GetByIDVersion(ctx context.Context, id, version string) (*domain.Project, error)
-}
-
 // ProjectReader is the minimal project lookup contract required by
-// project-scoped auth middleware.
+// project-scoped auth middleware. It must return current access metadata,
+// independent of the requested content version.
 type ProjectReader interface {
 	GetByID(ctx context.Context, id string) (*domain.Project, error)
 }
@@ -32,7 +29,8 @@ func WithProject(ctx context.Context, p *domain.Project) context.Context {
 }
 
 // ProjectFromContext returns the domain.Project attached by
-// WithProjectResource for the current request, or nil when no project
+// WithProjectResource for the current request. This is current authorization
+// metadata, not selected release content. Returns nil when no project
 // is in scope (e.g. routes without a {projectID} URL parameter).
 func ProjectFromContext(ctx context.Context) *domain.Project {
 	if p, ok := ctx.Value(projectKey{}).(*domain.Project); ok && p != nil {
@@ -91,17 +89,8 @@ func WithProjectResource(weave domain.WeaveStore) func(http.Handler) http.Handle
 				next.ServeHTTP(w, r)
 				return
 			}
-			version := ProjectVersionFromContext(r.Context())
-			if version == "" {
-				version = r.URL.Query().Get("version")
-			}
 			projects := weave.Projects()
 			project, err := projects.GetByID(r.Context(), projectID)
-			if version != "" {
-				if vr, ok := projects.(projectVersionReader); ok {
-					project, err = vr.GetByIDVersion(r.Context(), projectID, version)
-				}
-			}
 			if err != nil {
 				errresp.InternalWith(w, r, err, "failed to load project")
 				return
@@ -149,16 +138,7 @@ func requireProject(projects ProjectReader, capability Capability) func(http.Han
 				notFound(w, r)
 				return
 			}
-			version := ProjectVersionFromContext(r.Context())
-			if version == "" {
-				version = r.URL.Query().Get("version")
-			}
 			project, err := projects.GetByID(r.Context(), projectID)
-			if version != "" {
-				if vr, ok := projects.(projectVersionReader); ok {
-					project, err = vr.GetByIDVersion(r.Context(), projectID, version)
-				}
-			}
 			if err != nil || project == nil {
 				notFound(w, r)
 				return

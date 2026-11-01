@@ -20,9 +20,8 @@ type Host struct {
 	// loadAndGateProject so a public project's non-editor reader gets the
 	// latest release instead of the hot draft, matching
 	// auth.ResolveContentVersion. A missing reader fails reads that need
-	// a default release. Routes here have no {projectID} URL param, so
-	// auth.ResolveContentVersion can't be installed as router middleware —
-	// the same policy runs inline once the project is resolved.
+	// a default release. Both project-qualified routes and legacy owner-relative
+	// routes use the same policy once the current project is authorized.
 	LatestRelease weaveauth.LatestReleaseReader
 }
 
@@ -37,8 +36,8 @@ func (h Host) Validate() error {
 }
 
 // Mount registers the visualization slice routes on parent.
-// Auth gating runs inside each handler because the URL has no {projectID} for
-// middleware to read.
+// Project-qualified routes preserve the consumer context and work without a live
+// entity row. Legacy /gen routes retain owner discovery for existing links.
 func Mount(parent chi.Router, h Host) {
 	if err := h.Validate(); err != nil {
 		panic(err)
@@ -47,37 +46,43 @@ func Mount(parent chi.Router, h Host) {
 
 	withVersion := parent.With(weaveauth.WithProjectVersionContext)
 
-	withVersion.Get("/gen/models/{modelID}/diagram", handler.GetModelDiagram)
-	withVersion.Get("/gen/models/{modelID}/turtle", handler.GetModelTurtle)
-	withVersion.Get("/gen/models/{modelID}/jsonld", handler.GetModelJSONLD)
-	withVersion.Get("/gen/models/{modelID}/shacl", handler.GetModelSHACL)
-	withVersion.Get("/gen/models/{modelID}/exportgraph", handler.GetModelExportGraph)
-	withVersion.Get("/gen/models/{modelID}/cytoscape", handler.GetModelCytoscape)
-	withVersion.Get("/gen/models/{modelID}/sparql", handler.GetModelSPARQL)
-	withVersion.Get("/gen/models/{modelID}/x3ml-a", handler.GetModelX3MLA)
-	withVersion.Get("/gen/models/{modelID}/x3ml-b", handler.GetModelX3MLB)
-	withVersion.Get("/gen/models/{modelID}/researchspace", handler.GetModelResearchSpace)
-	withVersion.Get("/gen/models/{modelID}/arches", handler.GetModelArches)
-	withVersion.Get("/gen/models/{modelID}/snapshot", handler.GetModelSnapshot)
-	withVersion.Get("/gen/models/{modelID}/ascii-tree", handler.GetModelASCIITree)
+	for _, prefix := range []string{"/projects/{projectID}", ""} {
+		mountRoutes(withVersion, handler, prefix)
+	}
+}
 
-	withVersion.Get("/gen/collections/{collectionID}/diagram", handler.GetCollectionDiagram)
-	withVersion.Get("/gen/collections/{collectionID}/turtle", handler.GetCollectionTurtle)
-	withVersion.Get("/gen/collections/{collectionID}/jsonld", handler.GetCollectionJSONLD)
-	withVersion.Get("/gen/collections/{collectionID}/shacl", handler.GetCollectionSHACL)
-	withVersion.Get("/gen/collections/{collectionID}/exportgraph", handler.GetCollectionExportGraph)
-	withVersion.Get("/gen/collections/{collectionID}/cytoscape", handler.GetCollectionCytoscape)
-	withVersion.Get("/gen/collections/{collectionID}/sparql", handler.GetCollectionSPARQL)
-	withVersion.Get("/gen/collections/{collectionID}/x3ml-a", handler.GetCollectionX3MLA)
-	withVersion.Get("/gen/collections/{collectionID}/x3ml-b", handler.GetCollectionX3MLB)
+func mountRoutes(router chi.Router, handler *Handler, prefix string) {
+	router.Get(prefix+"/gen/models/{modelID}/diagram", handler.GetModelDiagram)
+	router.Get(prefix+"/gen/models/{modelID}/turtle", handler.GetModelTurtle)
+	router.Get(prefix+"/gen/models/{modelID}/jsonld", handler.GetModelJSONLD)
+	router.Get(prefix+"/gen/models/{modelID}/shacl", handler.GetModelSHACL)
+	router.Get(prefix+"/gen/models/{modelID}/exportgraph", handler.GetModelExportGraph)
+	router.Get(prefix+"/gen/models/{modelID}/cytoscape", handler.GetModelCytoscape)
+	router.Get(prefix+"/gen/models/{modelID}/sparql", handler.GetModelSPARQL)
+	router.Get(prefix+"/gen/models/{modelID}/x3ml-a", handler.GetModelX3MLA)
+	router.Get(prefix+"/gen/models/{modelID}/x3ml-b", handler.GetModelX3MLB)
+	router.Get(prefix+"/gen/models/{modelID}/researchspace", handler.GetModelResearchSpace)
+	router.Get(prefix+"/gen/models/{modelID}/arches", handler.GetModelArches)
+	router.Get(prefix+"/gen/models/{modelID}/snapshot", handler.GetModelSnapshot)
+	router.Get(prefix+"/gen/models/{modelID}/ascii-tree", handler.GetModelASCIITree)
 
-	withVersion.Get("/gen/fields/{fieldID}/diagram", handler.GetFieldDiagram)
-	withVersion.Get("/gen/fields/{fieldID}/turtle", handler.GetFieldTurtle)
-	withVersion.Get("/gen/fields/{fieldID}/jsonld", handler.GetFieldJSONLD)
-	withVersion.Get("/gen/fields/{fieldID}/shacl", handler.GetFieldSHACL)
-	withVersion.Get("/gen/fields/{fieldID}/exportgraph", handler.GetFieldExportGraph)
-	withVersion.Get("/gen/fields/{fieldID}/cytoscape", handler.GetFieldCytoscape)
-	withVersion.Get("/gen/fields/{fieldID}/sparql", handler.GetFieldSPARQL)
-	withVersion.Get("/gen/fields/{fieldID}/x3ml-a", handler.GetFieldX3MLA)
-	withVersion.Get("/gen/fields/{fieldID}/x3ml-b", handler.GetFieldX3MLB)
+	router.Get(prefix+"/gen/collections/{collectionID}/diagram", handler.GetCollectionDiagram)
+	router.Get(prefix+"/gen/collections/{collectionID}/turtle", handler.GetCollectionTurtle)
+	router.Get(prefix+"/gen/collections/{collectionID}/jsonld", handler.GetCollectionJSONLD)
+	router.Get(prefix+"/gen/collections/{collectionID}/shacl", handler.GetCollectionSHACL)
+	router.Get(prefix+"/gen/collections/{collectionID}/exportgraph", handler.GetCollectionExportGraph)
+	router.Get(prefix+"/gen/collections/{collectionID}/cytoscape", handler.GetCollectionCytoscape)
+	router.Get(prefix+"/gen/collections/{collectionID}/sparql", handler.GetCollectionSPARQL)
+	router.Get(prefix+"/gen/collections/{collectionID}/x3ml-a", handler.GetCollectionX3MLA)
+	router.Get(prefix+"/gen/collections/{collectionID}/x3ml-b", handler.GetCollectionX3MLB)
+
+	router.Get(prefix+"/gen/fields/{fieldID}/diagram", handler.GetFieldDiagram)
+	router.Get(prefix+"/gen/fields/{fieldID}/turtle", handler.GetFieldTurtle)
+	router.Get(prefix+"/gen/fields/{fieldID}/jsonld", handler.GetFieldJSONLD)
+	router.Get(prefix+"/gen/fields/{fieldID}/shacl", handler.GetFieldSHACL)
+	router.Get(prefix+"/gen/fields/{fieldID}/exportgraph", handler.GetFieldExportGraph)
+	router.Get(prefix+"/gen/fields/{fieldID}/cytoscape", handler.GetFieldCytoscape)
+	router.Get(prefix+"/gen/fields/{fieldID}/sparql", handler.GetFieldSPARQL)
+	router.Get(prefix+"/gen/fields/{fieldID}/x3ml-a", handler.GetFieldX3MLA)
+	router.Get(prefix+"/gen/fields/{fieldID}/x3ml-b", handler.GetFieldX3MLB)
 }

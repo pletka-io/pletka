@@ -3,6 +3,8 @@ package detailview
 import (
 	"context"
 	"encoding/json"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/pletka-io/pletka/pkg/auth"
@@ -66,4 +68,44 @@ func TestDerivativesOmitUnavailableFormats(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestDerivativeLinksPreserveConsumerProjectAndRelease(t *testing.T) {
+	h := &Handler{hasFormat: func(generators.Format) bool { return true }}
+	snap := &auth.AuthSnapshot{IsSuperAdmin: true}
+	for _, kind := range []string{"models", "collections", "fields"} {
+		for _, version := range []string{"", "1.0.0"} {
+			cap := h.derivativesFor(t.Context(), snap, auth.Resource{ScopeType: "project", ID: "CONSUMER"}, kind, "FOREIGN", version)
+			data, err := json.Marshal(cap)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var values map[string]json.RawMessage
+			if err := json.Unmarshal(data, &values); err != nil {
+				t.Fatal(err)
+			}
+			for key, value := range values {
+				if !strings.HasSuffix(key, "_url") || key == "csv_url" {
+					continue
+				}
+				var raw string
+				if err := json.Unmarshal(value, &raw); err != nil {
+					t.Fatal(err)
+				}
+				u, err := url.Parse(raw)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !strings.HasPrefix(u.Path, "/projects/CONSUMER/gen/"+kind+"/FOREIGN/") || u.Query().Get("version") != version {
+					t.Errorf("%s lost consumer selection: %s", key, raw)
+				}
+				if strings.Contains(key, "zip") && u.Query().Get("bundle") != "zip" {
+					t.Errorf("lost bundle option: %s", raw)
+				}
+			}
+		}
+	}
+	if h.derivativesFor(t.Context(), snap, auth.Resource{}, "models", "M", "1.0.0") != nil {
+		t.Fatal("missing consumer project produced owner-relative URLs")
+	}
 }

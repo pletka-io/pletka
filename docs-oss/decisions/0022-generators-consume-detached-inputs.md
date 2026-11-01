@@ -69,9 +69,13 @@ The service, entity CSV, visualization/X3ML, integration artifacts, generator CL
 and Arches packs use the boundary. The whole-project CSV/ZIP service now shares
 the complete-project source (amendment below). Standalone current ontology export
 and browser inventory still need migration.
-HTTP routing/auth ownership lookup can still depend on live entity rows: complete
-support for browsing deleted released roots requires that separate boundary work.
+Project-qualified generator routes now support released roots absent from live
+tables. Legacy owner-relative aliases still require live owner discovery. Browser
+detail content, project summaries and paginated inventories remain separate work.
 This decision does not enable capture-aware mutations on normal HTTP/MCP traffic.
+
+The [HTTP route contract](../reference/generator-routes.md) describes explicit
+consumer routing, current authorization and compatibility aliases.
 
 See [whole-project assembly](0012-whole-project-reads-belong-to-an-assembler.md),
 [source release selection](0011-cross-project-reads-resolve-at-the-source-release.md)

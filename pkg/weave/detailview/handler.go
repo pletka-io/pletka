@@ -1608,7 +1608,12 @@ func (h *Handler) projectResource(ctx context.Context, projectID string) auth.Re
 // snap.Can()" loop. Future plan: move the capability/role mapping
 // from code to TOML / DB so admins can re-tune without redeploying.
 func (h *Handler) derivativesFor(ctx context.Context, snap *auth.AuthSnapshot, projectResource auth.Resource, kind, id, activeVersion string) *DerivativesCap {
-	base := "/gen/" + kind + "/" + id
+	// Keep the consumer context even when the entity belongs to a pinned source.
+	// A release's root need not exist in the live entity tables.
+	if projectResource.ID == "" {
+		return nil
+	}
+	base := "/projects/" + projectResource.ID + "/gen/" + kind + "/" + id
 
 	urlIfCan := func(cap auth.Capability, suffix string) string {
 		if snap.Can(cap, projectResource, nil) {

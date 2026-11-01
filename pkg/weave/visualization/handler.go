@@ -19,10 +19,9 @@ import (
 )
 
 // Handler renders Mermaid diagrams + RDF (Turtle / JSON-LD / SHACL)
-// for individual models and collections. Routes mount under /gen/ and
-// each handler resolves the entity's project then runs the project-
-// read auth check itself (the URL has no {projectID} so middleware
-// gating is not possible).
+// for individual models, collections and fields. Project-qualified routes retain
+// the consumer context; legacy /gen routes discover the owner. Both authorize
+// current project access before selecting content through the generator source.
 type Handler struct {
 	weave         pkgdomain.WeaveStore
 	gens          *generators.Service
@@ -52,7 +51,7 @@ type DiagramResponse struct {
 
 // GetModelDiagram handles GET /gen/models/{modelID}/diagram?mode=...
 func (h *Handler) GetModelDiagram(w http.ResponseWriter, r *http.Request) {
-	model, ctx, ok := h.loadModelAndGate(w, r)
+	model, ctx, ok := h.selectEntityAndGate(w, r, "model")
 	if !ok {
 		return
 	}
@@ -88,7 +87,7 @@ func (h *Handler) GetModelDiagram(w http.ResponseWriter, r *http.Request) {
 
 // GetCollectionDiagram handles GET /gen/collections/{collectionID}/diagram?mode=...
 func (h *Handler) GetCollectionDiagram(w http.ResponseWriter, r *http.Request) {
-	coll, ctx, ok := h.loadCollectionAndGate(w, r)
+	coll, ctx, ok := h.selectEntityAndGate(w, r, "collection")
 	if !ok {
 		return
 	}
@@ -177,7 +176,7 @@ func (h *Handler) GetCollectionExportGraph(w http.ResponseWriter, r *http.Reques
 // is parsed but exercises nothing meaningful for fields. Callers
 // passing the query param still work.
 func (h *Handler) GetFieldDiagram(w http.ResponseWriter, r *http.Request) {
-	field, ctx, ok := h.loadFieldAndGate(w, r)
+	field, ctx, ok := h.selectEntityAndGate(w, r, "field")
 	if !ok {
 		return
 	}
@@ -268,7 +267,7 @@ func (h *Handler) GetFieldSPARQL(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) modelSPARQL(w http.ResponseWriter, r *http.Request) {
-	model, ctx, ok := h.loadModelAndGate(w, r)
+	model, ctx, ok := h.selectEntityAndGate(w, r, "model")
 	if !ok {
 		return
 	}
@@ -287,7 +286,7 @@ func (h *Handler) modelSPARQL(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) collectionSPARQL(w http.ResponseWriter, r *http.Request) {
-	coll, ctx, ok := h.loadCollectionAndGate(w, r)
+	coll, ctx, ok := h.selectEntityAndGate(w, r, "collection")
 	if !ok {
 		return
 	}
@@ -306,7 +305,7 @@ func (h *Handler) collectionSPARQL(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) fieldSPARQL(w http.ResponseWriter, r *http.Request) {
-	field, ctx, ok := h.loadFieldAndGate(w, r)
+	field, ctx, ok := h.selectEntityAndGate(w, r, "field")
 	if !ok {
 		return
 	}
@@ -353,7 +352,7 @@ func (h *Handler) GetFieldX3MLB(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) modelX3ML(w http.ResponseWriter, r *http.Request, format generators.Format) {
-	model, ctx, ok := h.loadModelAndGate(w, r)
+	model, ctx, ok := h.selectEntityAndGate(w, r, "model")
 	if !ok {
 		return
 	}
@@ -363,7 +362,7 @@ func (h *Handler) modelX3ML(w http.ResponseWriter, r *http.Request, format gener
 }
 
 func (h *Handler) collectionX3ML(w http.ResponseWriter, r *http.Request, format generators.Format) {
-	coll, ctx, ok := h.loadCollectionAndGate(w, r)
+	coll, ctx, ok := h.selectEntityAndGate(w, r, "collection")
 	if !ok {
 		return
 	}
@@ -373,7 +372,7 @@ func (h *Handler) collectionX3ML(w http.ResponseWriter, r *http.Request, format 
 }
 
 func (h *Handler) fieldX3ML(w http.ResponseWriter, r *http.Request, format generators.Format) {
-	field, ctx, ok := h.loadFieldAndGate(w, r)
+	field, ctx, ok := h.selectEntityAndGate(w, r, "field")
 	if !ok {
 		return
 	}
@@ -401,7 +400,7 @@ func (h *Handler) serveX3ML(
 	snap, err := build(generators.Options{})
 	if err != nil {
 		h.logger.Error("x3ml snapshot", "project", projectID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	var buf bytes.Buffer
@@ -476,7 +475,7 @@ func firstNonEmpty(values ...string) string {
 // Super-admin only — the Arches integration surface is under active
 // development and gated until the contract stabilises.
 func (h *Handler) GetModelArches(w http.ResponseWriter, r *http.Request) {
-	model, ctx, ok := h.loadModelAndGate(w, r)
+	model, ctx, ok := h.selectEntityAndGate(w, r, "model")
 	if !ok {
 		return
 	}
@@ -506,7 +505,7 @@ func (h *Handler) GetModelArches(w http.ResponseWriter, r *http.Request) {
 // generated path_node / path_node_id. Super-admin only; a verification
 // surface for the node-identity work.
 func (h *Handler) GetModelSnapshot(w http.ResponseWriter, r *http.Request) {
-	model, ctx, ok := h.loadModelAndGate(w, r)
+	model, ctx, ok := h.selectEntityAndGate(w, r, "model")
 	if !ok {
 		return
 	}
@@ -534,7 +533,7 @@ func (h *Handler) GetModelSnapshot(w http.ResponseWriter, r *http.Request) {
 // semantic intermediate is named and how every leaf field is grouped.
 // Super-admin only — same gate as /snapshot and /arches.
 func (h *Handler) GetModelASCIITree(w http.ResponseWriter, r *http.Request) {
-	model, ctx, ok := h.loadModelAndGate(w, r)
+	model, ctx, ok := h.selectEntityAndGate(w, r, "model")
 	if !ok {
 		return
 	}
@@ -558,7 +557,7 @@ func (h *Handler) GetModelASCIITree(w http.ResponseWriter, r *http.Request) {
 // Emits the YAML config ResearchSpace consumes for field discovery /
 // faceting, with one embedded SPARQL SELECT per resolved field.
 func (h *Handler) GetModelResearchSpace(w http.ResponseWriter, r *http.Request) {
-	model, ctx, ok := h.loadModelAndGate(w, r)
+	model, ctx, ok := h.selectEntityAndGate(w, r, "model")
 	if !ok {
 		return
 	}
@@ -598,7 +597,7 @@ func (h *Handler) writeSPARQL(ctx context.Context, w http.ResponseWriter, r *htt
 // mermaid endpoint does. JSON content type; routes through the derivative
 // policy (cytoscape is open, but a future graph format is gated by default).
 func (h *Handler) modelGraph(w http.ResponseWriter, r *http.Request, format generators.Format) {
-	model, ctx, ok := h.loadModelAndGate(w, r)
+	model, ctx, ok := h.selectEntityAndGate(w, r, "model")
 	if !ok {
 		return
 	}
@@ -628,7 +627,7 @@ func (h *Handler) modelGraph(w http.ResponseWriter, r *http.Request, format gene
 }
 
 func (h *Handler) collectionGraph(w http.ResponseWriter, r *http.Request, format generators.Format) {
-	coll, ctx, ok := h.loadCollectionAndGate(w, r)
+	coll, ctx, ok := h.selectEntityAndGate(w, r, "collection")
 	if !ok {
 		return
 	}
@@ -658,7 +657,7 @@ func (h *Handler) collectionGraph(w http.ResponseWriter, r *http.Request, format
 }
 
 func (h *Handler) fieldGraph(w http.ResponseWriter, r *http.Request, format generators.Format) {
-	field, ctx, ok := h.loadFieldAndGate(w, r)
+	field, ctx, ok := h.selectEntityAndGate(w, r, "field")
 	if !ok {
 		return
 	}
@@ -694,7 +693,7 @@ func (h *Handler) fieldGraph(w http.ResponseWriter, r *http.Request, format gene
 // detailview/handler.go's derivativesFor) AND raw-URL access here.
 //
 // The project resource is read from context — set by
-// loadModelAndGate / loadCollectionAndGate / loadFieldAndGate via
+// selectEntityAndGate via
 // auth.WithProject. Returns 404 (not 403) at the call site so we
 // don't leak the existence of the surface to callers without the
 // capability.
@@ -709,7 +708,7 @@ func (h *Handler) canDerivativeFormat(ctx context.Context, format generators.For
 }
 
 func (h *Handler) fieldRDF(w http.ResponseWriter, r *http.Request, format generators.Format, contentType string) {
-	field, ctx, ok := h.loadFieldAndGate(w, r)
+	field, ctx, ok := h.selectEntityAndGate(w, r, "field")
 	if !ok {
 		return
 	}
@@ -734,7 +733,7 @@ func (h *Handler) fieldRDF(w http.ResponseWriter, r *http.Request, format genera
 }
 
 func (h *Handler) modelRDF(w http.ResponseWriter, r *http.Request, format generators.Format, contentType string) {
-	model, ctx, ok := h.loadModelAndGate(w, r)
+	model, ctx, ok := h.selectEntityAndGate(w, r, "model")
 	if !ok {
 		return
 	}
@@ -759,7 +758,7 @@ func (h *Handler) modelRDF(w http.ResponseWriter, r *http.Request, format genera
 }
 
 func (h *Handler) collectionRDF(w http.ResponseWriter, r *http.Request, format generators.Format, contentType string) {
-	coll, ctx, ok := h.loadCollectionAndGate(w, r)
+	coll, ctx, ok := h.selectEntityAndGate(w, r, "collection")
 	if !ok {
 		return
 	}
@@ -783,95 +782,70 @@ func (h *Handler) collectionRDF(w http.ResponseWriter, r *http.Request, format g
 	fmt.Fprint(w, buf.String())
 }
 
-// loadModelAndGate fetches the model, then resolves + gates the project.
-// 404s on any failure to avoid leaking presence of restricted projects.
-//
-// Returns a context with the project attached via auth.WithProject so
-// downstream services that read project visibility from context (e.g.
-// the namespacebinding service used during snapshot building) see the
-// same Resource the gate check just authorised against. Without this,
-// anonymous viewers on a public project passed the gate but tripped
-// over an empty context-Resource deeper in the call chain, surfacing
-// "forbidden: requires project.read".
-func (h *Handler) loadModelAndGate(w http.ResponseWriter, r *http.Request) (*pkgdomain.Model, context.Context, bool) {
-	ctx := r.Context()
-	modelID := chi.URLParam(r, "modelID")
-	if modelID == "" {
-		writeError(w, "model ID is required", http.StatusBadRequest)
-		return nil, ctx, false
-	}
-	model, err := h.weave.Models().GetByID(ctx, modelID)
-	if err != nil || model == nil {
-		writeError(w, "model not found", http.StatusNotFound)
-		return nil, ctx, false
-	}
-	project, ok := h.loadAndGateProject(ctx, model.ProjectID)
-	if !ok {
-		writeError(w, "model not found", http.StatusNotFound)
-		return nil, ctx, false
-	}
-	ctx = auth.WithProject(ctx, project)
-	version, err := h.effectiveVersion(ctx, project)
-	if err != nil {
-		apierror.Write(w, r, apierror.Internal(err))
-		return nil, ctx, false
-	}
-	ctx = auth.WithReadScope(ctx, auth.ScopeForResolvedVersion(version))
-	return model, ctx, true
+// entitySelection carries identity only. The generator source loads and validates
+// content in this consumer project, including captured foreign membership. Routing
+// must not fetch a live entity body or substitute its owner for this context.
+type entitySelection struct {
+	ID, ProjectID string
 }
 
-func (h *Handler) loadCollectionAndGate(w http.ResponseWriter, r *http.Request) (*pkgdomain.Collection, context.Context, bool) {
+func (h *Handler) selectEntityAndGate(w http.ResponseWriter, r *http.Request, kind string) (entitySelection, context.Context, bool) {
 	ctx := r.Context()
-	collectionID := chi.URLParam(r, "collectionID")
-	if collectionID == "" {
-		writeError(w, "collection ID is required", http.StatusBadRequest)
-		return nil, ctx, false
+	selected := entitySelection{ID: chi.URLParam(r, kind+"ID"), ProjectID: chi.URLParam(r, "projectID")}
+	if selected.ID == "" {
+		writeError(w, kind+" ID is required", http.StatusBadRequest)
+		return selected, ctx, false
 	}
-	coll, err := h.weave.Collections().GetByID(ctx, collectionID)
-	if err != nil || coll == nil {
-		writeError(w, "collection not found", http.StatusNotFound)
-		return nil, ctx, false
+	if selected.ProjectID == "" {
+		// Compatibility for old owner-relative /gen links only. New browser
+		// links always identify the consumer project in the route.
+		projectID, err := h.legacyOwner(ctx, kind, selected.ID)
+		if err != nil || projectID == "" {
+			writeError(w, kind+" not found", http.StatusNotFound)
+			return selected, ctx, false
+		}
+		selected.ProjectID = projectID
 	}
-	project, ok := h.loadAndGateProject(ctx, coll.ProjectID)
+	project, ok := h.loadAndGateProject(ctx, selected.ProjectID)
 	if !ok {
-		writeError(w, "collection not found", http.StatusNotFound)
-		return nil, ctx, false
+		writeError(w, kind+" not found", http.StatusNotFound)
+		return selected, ctx, false
 	}
 	ctx = auth.WithProject(ctx, project)
 	version, err := h.effectiveVersion(ctx, project)
 	if err != nil {
 		apierror.Write(w, r, apierror.Internal(err))
-		return nil, ctx, false
+		return selected, ctx, false
 	}
 	ctx = auth.WithReadScope(ctx, auth.ScopeForResolvedVersion(version))
-	return coll, ctx, true
+	return selected, ctx, true
 }
 
-func (h *Handler) loadFieldAndGate(w http.ResponseWriter, r *http.Request) (*pkgdomain.Field, context.Context, bool) {
-	ctx := r.Context()
-	fieldID := chi.URLParam(r, "fieldID")
-	if fieldID == "" {
-		writeError(w, "field ID is required", http.StatusBadRequest)
-		return nil, ctx, false
+// legacyOwner is deliberately isolated from the project-qualified route. These
+// old URLs cannot identify a deleted live entity or a foreign consumer context.
+func (h *Handler) legacyOwner(ctx context.Context, kind, id string) (string, error) {
+	switch kind {
+	case "model":
+		entity, err := h.weave.Models().GetByID(ctx, id)
+		if err != nil || entity == nil {
+			return "", err
+		}
+		return entity.ProjectID, nil
+	case "collection":
+		entity, err := h.weave.Collections().GetByID(ctx, id)
+		if err != nil || entity == nil {
+			return "", err
+		}
+		return entity.ProjectID, nil
+	case "field":
+		entity, err := h.weave.WeaveFields().GetByID(ctx, id)
+		if err != nil || entity == nil {
+			return "", err
+		}
+		return entity.ProjectID, nil
+	default:
+		return "", fmt.Errorf("unsupported generator entity kind %q", kind)
 	}
-	field, err := h.weave.WeaveFields().GetByID(ctx, fieldID)
-	if err != nil || field == nil {
-		writeError(w, "field not found", http.StatusNotFound)
-		return nil, ctx, false
-	}
-	project, ok := h.loadAndGateProject(ctx, field.ProjectID)
-	if !ok {
-		writeError(w, "field not found", http.StatusNotFound)
-		return nil, ctx, false
-	}
-	ctx = auth.WithProject(ctx, project)
-	version, err := h.effectiveVersion(ctx, project)
-	if err != nil {
-		apierror.Write(w, r, apierror.Internal(err))
-		return nil, ctx, false
-	}
-	ctx = auth.WithReadScope(ctx, auth.ScopeForResolvedVersion(version))
-	return field, ctx, true
 }
 
 // loadAndGateProject loads projectID and verifies the caller has

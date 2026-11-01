@@ -60,11 +60,11 @@ func TestReleaseLookupFailureStopsEntityReads(t *testing.T) {
 			var ok bool
 			switch kind {
 			case "model":
-				_, _, ok = h.loadModelAndGate(rr, req)
+				_, _, ok = h.selectEntityAndGate(rr, req, "model")
 			case "collection":
-				_, _, ok = h.loadCollectionAndGate(rr, req)
+				_, _, ok = h.selectEntityAndGate(rr, req, "collection")
 			case "field":
-				_, _, ok = h.loadFieldAndGate(rr, req)
+				_, _, ok = h.selectEntityAndGate(rr, req, "field")
 			}
 			if ok || rr.Code != http.StatusInternalServerError || !errors.Is(slot.Err(), cause) {
 				t.Fatalf("ok=%v, status=%d, cause=%v; want failure with lookup cause", ok, rr.Code, slot.Err())
@@ -351,14 +351,82 @@ func TestDiagramNameComesFromSelectedInput(t *testing.T) {
 
 type unavailableSelection struct {
 	testsnapshot.Source
-	scope auth.ReadScope
-	calls int
+	scope   auth.ReadScope
+	calls   int
+	project string
 }
 
 func (s *unavailableSelection) Entity(_ context.Context, scope auth.ReadScope, project, _ string, id string) (projectsnapshot.EntityFragment, error) {
 	s.scope = scope
 	s.calls++
+	s.project = project
 	return projectsnapshot.EntityFragment{}, &readsession.NotInReleaseError{ProjectID: project, Version: scope.Version(), EntityID: id}
+}
+
+// None of the entity stores exist here: project-qualified routes must go
+// straight from current project access to the scoped content source.
+type projectOnlyStore struct {
+	domain.WeaveStore
+	project domain.Project
+}
+
+func (s projectOnlyStore) Projects() domain.WeaveProjectStore {
+	return testProjectStore{project: s.project}
+}
+
+func TestProjectQualifiedRoutesAllPreserveUnavailableSelection(t *testing.T) {
+	registry, err := generators.NewRegistry(mermaid.NewRenderer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"models", "collections", "fields"} {
+		formats := []string{"diagram", "turtle", "jsonld", "shacl", "exportgraph", "cytoscape", "sparql", "x3ml-a", "x3ml-b"}
+		if kind == "models" {
+			formats = append(formats, "researchspace", "arches", "snapshot", "ascii-tree")
+		}
+		for _, format := range formats {
+			t.Run(kind+"/"+format, func(t *testing.T) {
+				source := &unavailableSelection{}
+				router := chi.NewRouter()
+				Mount(router, Host{
+					Weave:      projectOnlyStore{project: domain.Project{Entity: domain.Entity{ID: "CONSUMER"}}},
+					Generators: generators.NewService(source, registry),
+				})
+				response := httptest.NewRecorder()
+				router.ServeHTTP(response, superAdminRequest(http.MethodGet, "/projects/CONSUMER/gen/"+kind+"/E/"+format+"?version=1.0&bundle=zip"))
+				if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), "not_in_release") {
+					t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+				}
+				if source.calls != 1 || source.project != "CONSUMER" || !source.scope.IsRelease() || source.scope.Version() != "1.0" {
+					t.Fatalf("selection changed or retried: %+v", source)
+				}
+			})
+		}
+	}
+}
+
+func TestProjectQualifiedRoutesGateBeforeContent(t *testing.T) {
+	registry, err := generators.NewRegistry(mermaid.NewRenderer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"models", "collections", "fields"} {
+		for _, project := range []string{"PRIVATE", "MISSING"} {
+			t.Run(kind+"/"+project, func(t *testing.T) {
+				source := &unavailableSelection{}
+				router := chi.NewRouter()
+				Mount(router, Host{
+					Weave:      projectOnlyStore{project: domain.Project{Entity: domain.Entity{ID: "PRIVATE"}, Visibility: "private"}},
+					Generators: generators.NewService(source, registry),
+				})
+				response := httptest.NewRecorder()
+				router.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/projects/"+project+"/gen/"+kind+"/E/diagram?version=1.0", nil))
+				if response.Code != http.StatusNotFound || source.calls != 0 || strings.Contains(response.Body.String(), "not_in_release") {
+					t.Fatalf("content read before current access check: status=%d calls=%d body=%s", response.Code, source.calls, response.Body.String())
+				}
+			})
+		}
+	}
 }
 
 func TestDiagramForwardsReleaseAndPreservesUnavailableError(t *testing.T) {

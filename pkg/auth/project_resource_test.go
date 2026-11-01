@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,8 +25,9 @@ func (f *fakeWeaveStore) Projects() domain.WeaveProjectStore { return &f.project
 
 type fakeProjectStore struct {
 	domain.WeaveProjectStore
-	byID        map[string]*domain.Project
-	byVersionID map[string]*domain.Project
+	byID         map[string]*domain.Project
+	byVersionID  map[string]*domain.Project
+	archiveCalls int
 }
 
 func (f *fakeProjectStore) GetByID(_ context.Context, id string) (*domain.Project, error) {
@@ -33,6 +35,7 @@ func (f *fakeProjectStore) GetByID(_ context.Context, id string) (*domain.Projec
 }
 
 func (f *fakeProjectStore) GetByIDVersion(_ context.Context, id, version string) (*domain.Project, error) {
+	f.archiveCalls++
 	if f.byVersionID == nil {
 		return nil, nil
 	}
@@ -355,44 +358,77 @@ func TestRequireProjectRead_ForbiddenPrivateProjectUsesResponder(t *testing.T) {
 	}
 }
 
-func TestWithProjectResource_UsesArchivedProjectWhenVersionRequested(t *testing.T) {
-	store := &fakeWeaveStore{
-		projects: fakeProjectStore{
-			byID: map[string]*domain.Project{
-				"TPC": {Entity: domain.Entity{ID: "TPC"}, Visibility: "private"},
-			},
-			byVersionID: map[string]*domain.Project{
-				"TPC@1.0.0": {
-					Entity:     domain.Entity{ID: "TPC", VersionNumber: "1.0.0"},
-					Visibility: "public",
-				},
-			},
-		},
-	}
-	r := mountTestRouter(store, func(w http.ResponseWriter, r *http.Request) {
-		p := ProjectFromContext(r.Context())
-		if p == nil {
-			http.Error(w, "missing project", http.StatusInternalServerError)
-			return
+// Selected content may be historical; visibility, organization ownership and
+// project existence are always current. Exercise both context-loading and gating
+// middleware, including a context-selected release without a query parameter.
+func TestProjectMiddlewareUsesCurrentAccessMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		current    *domain.Project
+		archived   *domain.Project
+		snapshot   *AuthSnapshot
+		capability Capability
+		allowed    bool
+	}{
+		{"now private", &domain.Project{Visibility: "private"}, &domain.Project{Visibility: "public"}, nil, ProjectRead, false},
+		{"now public", &domain.Project{Visibility: "public"}, &domain.Project{Visibility: "private"}, nil, ProjectRead, true},
+		{"old owner cannot edit", &domain.Project{OwnerID: "NEW"}, &domain.Project{OwnerID: "OLD"}, &AuthSnapshot{Roles: map[string]string{"org:OLD": "owner"}}, ProjectEdit, false},
+		{"new owner can edit", &domain.Project{OwnerID: "NEW"}, &domain.Project{OwnerID: "OLD"}, &AuthSnapshot{Roles: map[string]string{"org:NEW": "owner"}}, ProjectEdit, true},
+		{"deleted project", nil, &domain.Project{Visibility: "public"}, nil, ProjectRead, false},
+		{"missing historical project", &domain.Project{Visibility: "public"}, nil, nil, ProjectRead, true},
+	} {
+		for _, loader := range []bool{false, true} {
+			for _, query := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/loader=%v/query=%v", tc.name, loader, query), func(t *testing.T) {
+					if tc.current != nil {
+						tc.current.ID = "P"
+					}
+					if tc.archived != nil {
+						tc.archived.ID = "P"
+					}
+					store := &fakeWeaveStore{projects: fakeProjectStore{
+						byID:        map[string]*domain.Project{"P": tc.current},
+						byVersionID: map[string]*domain.Project{"P@1.0.0": tc.archived},
+					}}
+					called := false
+					next := func(w http.ResponseWriter, r *http.Request) {
+						if ProjectFromContext(r.Context()) != tc.current {
+							t.Fatal("context contains archived authorization metadata")
+						}
+						if !FromContext(r.Context()).Can(tc.capability, ProjectResourceFromContext(r.Context()), nil) {
+							w.WriteHeader(http.StatusNotFound)
+							return
+						}
+						called = true
+						w.WriteHeader(http.StatusNoContent)
+					}
+					gate := RequireProjectRead
+					if tc.capability == ProjectEdit {
+						gate = RequireProjectEdit
+					}
+					router := mountProjectGateRouter(&store.projects, gate, next)
+					if loader {
+						router = mountTestRouter(store, next)
+					}
+					ctx := WithSnapshot(context.Background(), tc.snapshot)
+					path := "/projects/P/check"
+					if query {
+						path += "?version=1.0.0"
+					} else {
+						ctx = WithProjectVersion(ctx, "1.0.0")
+					}
+					rr := httptest.NewRecorder()
+					router.ServeHTTP(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, path, nil))
+					want := http.StatusNotFound
+					if tc.allowed {
+						want = http.StatusNoContent
+					}
+					if rr.Code != want || called != tc.allowed || store.projects.archiveCalls != 0 {
+						t.Fatalf("status=%d called=%v archiveCalls=%d; want status=%d called=%v and no archive access", rr.Code, called, store.projects.archiveCalls, want, tc.allowed)
+					}
+				})
+			}
 		}
-		if p.VersionNumber != "1.0.0" {
-			http.Error(w, "wrong version", http.StatusInternalServerError)
-			return
-		}
-		res := ProjectResourceFromContext(r.Context())
-		if res.Visibility != "public" {
-			http.Error(w, "wrong visibility", http.StatusInternalServerError)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), "GET", "/projects/TPC/check?version=1.0.0", nil)
-	r.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%q want 200", rec.Code, rec.Body.String())
 	}
 }
 

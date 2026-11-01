@@ -181,6 +181,10 @@ Read-only draft assembly uses repeatable read. Release creation uses one
 repeatable-read write transaction for release metadata, archived content and
 outbox. Mutation destinations are live, but clone/adopt sources may be released.
 A scope selects content; it does not grant authorization.
+`WithProjectResource` and `RequireProjectRead/Edit` load current project metadata
+only. `ProjectFromContext` must not supply historical page content: load that
+through the selected read boundary. The same current-access rule applies to
+captured source projects.
 
 HTTP, page, visualization and MCP boundaries share `auth.ResolveProjectVersion`.
 A lookup failure stops the request; a successful result saying there is no
