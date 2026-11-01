@@ -152,20 +152,12 @@ type Resolver struct {
 // Resolver validates the entire artifact once, before any definition is served.
 // It does not promote unresolved assessments or change source context routing.
 func (a Artifact) Resolver() (Resolver, error) {
-	d, err := a.Decode()
+	var preparer Preparer
+	p, err := preparer.Prepare(a)
 	if err != nil {
 		return Resolver{}, err
 	}
-	root := Origin{project: d.ProjectID, version: d.Version}
-	contexts := map[Origin]Document{root: d}
-	for _, source := range d.Sources {
-		context, err := decodeDocument(source.JSON, source.Digest)
-		if err != nil {
-			return Resolver{}, err
-		}
-		contexts[Origin{project: context.ProjectID, version: context.Version}] = context
-	}
-	return Resolver{root: root, contexts: contexts}, nil
+	return p.Resolver()
 }
 
 // Resolve uses the already validated context graph and preserves exact

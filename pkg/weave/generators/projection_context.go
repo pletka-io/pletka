@@ -112,7 +112,7 @@ func (p *projection) retainTerms(id projectsnapshot.Identity, c projectsnapshot.
 		return err
 	}
 	if e.Contract() == 2 {
-		legacy, err := e.Legacy()
+		legacy, err := e.LegacyInterpretation()
 		if err != nil {
 			return err
 		}
@@ -156,11 +156,11 @@ func (p *projection) retainOntologies(id projectsnapshot.Identity, e projectsnap
 	}
 	bodies := []retained{}
 	if e.Contract() == 2 {
-		a, err := e.Legacy()
+		a, err := e.LegacyInterpretation()
 		if err != nil {
 			return err
 		}
-		d, err := a.Decode()
+		d, err := a.Document()
 		if err != nil {
 			return err
 		}

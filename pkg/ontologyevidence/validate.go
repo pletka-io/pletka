@@ -7,6 +7,7 @@ import (
 )
 
 type validator struct {
+	preparer *Preparer
 	contexts map[Origin]Document
 	digests  map[Origin]string
 	bodies   map[string]string
@@ -27,43 +28,70 @@ func decodeDocument(data, digest string) (Document, error) {
 }
 
 func validateArtifact(a Artifact) (Document, error) {
-	d, err := decodeDocument(a.JSON, a.Digest)
+	var preparer Preparer
+	p, err := preparer.Prepare(a)
 	if err != nil {
-		return d, err
+		return Document{}, err
 	}
+	// This fresh preparer cannot escape alongside the returned document.
+	return p.value.contexts[p.value.root].document, nil
+}
+
+func (p *Preparer) validate(a Artifact) (Prepared, error) {
+	entry, err := p.context(a)
+	if err != nil {
+		return Prepared{}, err
+	}
+	d := entry.document
 	root := Origin{project: d.ProjectID, version: d.Version}
-	v := validator{contexts: map[Origin]Document{root: d}, digests: map[Origin]string{}, bodies: map[string]string{}}
-	for _, source := range d.Sources {
-		s, err := decodeDocument(source.JSON, source.Digest)
+	entries := map[Origin]*preparedContext{root: entry}
+	v := validator{preparer: p, contexts: map[Origin]Document{root: d}, digests: map[Origin]string{}, bodies: map[string]string{}}
+	for i, source := range d.Sources {
+		entry, err := p.context(Artifact(source))
 		if err != nil {
-			return d, err
+			return Prepared{}, err
 		}
+		s := entry.document
 		o := Origin{project: s.ProjectID, version: s.Version}
 		if _, exists := v.contexts[o]; exists || len(s.Sources) != 0 {
-			return d, fmt.Errorf("duplicate, conflicting or nested source context")
+			return Prepared{}, fmt.Errorf("duplicate, conflicting or nested source context")
 		}
 		v.contexts[o], v.digests[o] = s, source.Digest
+		// Freeze exact equal strings onto the operation's shared storage before
+		// this newly validated root can escape. No exported buffers are shared.
+		d.Sources[i].JSON = entry.artifact.JSON
+		entries[o] = entry
 	}
-	for _, context := range v.contexts {
-		bodies, err := v.inventory(context)
+	for origin, context := range v.contexts {
+		bodies, err := v.inventory(context, !entries[origin].checked)
 		if err != nil {
-			return d, err
+			return Prepared{}, err
 		}
-		if err := validateAssessments(context, bodies); err != nil {
-			return d, err
+		if !entries[origin].checked {
+			if err := validateAssessments(context, bodies); err != nil {
+				return Prepared{}, err
+			}
+			local := context
+			local.Sources = nil
+			encoded, err := json.Marshal(local)
+			if err != nil {
+				return Prepared{}, err
+			}
+			entries[origin].localDigest = hash(string(encoded))
+			entries[origin].checked = true
 		}
 		if err := v.dependencies(context); err != nil {
-			return d, err
+			return Prepared{}, err
 		}
 	}
 	visited := map[Origin]bool{}
 	if err := v.visit(root, visited, map[Origin]bool{}); err != nil {
-		return d, err
+		return Prepared{}, err
 	}
 	if len(visited) != len(v.contexts) {
-		return d, fmt.Errorf("snapshot contains unreferenced source contexts")
+		return Prepared{}, fmt.Errorf("snapshot contains unreferenced source contexts")
 	}
-	return d, nil
+	return Prepared{value: &preparedArtifact{artifact: a, root: root, contexts: entries, resolver: Resolver{root: root, contexts: v.contexts}}}, nil
 }
 
 func (v *validator) visit(o Origin, visited, stack map[Origin]bool) error {
@@ -111,10 +139,10 @@ func (v *validator) dependencies(d Document) error {
 	return nil
 }
 
-func (v *validator) inventory(d Document) ([]bodyDocument, error) {
+func (v *validator) inventory(d Document, freeze bool) ([]bodyDocument, error) {
 	bodies := make([]bodyDocument, 0, len(d.Inventory))
 	previous := ""
-	for _, b := range d.Inventory {
+	for i, b := range d.Inventory {
 		if b.VersionID <= previous || b.OntologyID == "" {
 			return nil, fmt.Errorf("duplicate, unordered or invalid concrete body identity")
 		}
@@ -123,9 +151,12 @@ func (v *validator) inventory(d Document) ([]bodyDocument, error) {
 			return nil, fmt.Errorf("conflicting bytes for concrete ontology version %s", b.VersionID)
 		}
 		v.bodies[b.VersionID] = b.Digest
-		body, err := decodeBody(b)
+		body, err := v.preparer.body(b)
 		if err != nil {
 			return nil, err
+		}
+		if freeze {
+			d.Inventory[i].BodyJSON = v.preparer.bodies[b.Digest].json
 		}
 		var selection struct {
 			ProjectID string `json:"project_id"`

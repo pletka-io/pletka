@@ -21,7 +21,7 @@ type Evidence struct {
 	legacy      releasecontent.Legacy
 	artifact    ontologyevidence.Artifact
 	// Parsed once at construction, private and never exposed or mutated.
-	legacyDocument *ontologyevidence.Document
+	interpretation ontologyevidence.Prepared
 	publications   []ontologyartifact.ProjectArtifact
 	references     []ontologyartifact.TermResolution
 }
@@ -49,22 +49,33 @@ func DraftEvidence(id Identity, descriptors releasedescriptor.Snapshot, publicat
 // LegacyEvidence preserves exact contract 2 input and unresolved assessments.
 // Neither primary flags nor a successful namespace map promote this contract.
 func LegacyEvidence(receipt releasecontent.Legacy, descriptors releasedescriptor.Snapshot, artifact ontologyevidence.Artifact) (Evidence, error) {
+	var preparer ontologyevidence.Preparer
+	prepared, err := preparer.Prepare(artifact)
+	if err != nil {
+		return Evidence{}, err
+	}
+	return LegacyEvidenceFromPrepared(receipt, descriptors, prepared)
+}
+
+// LegacyEvidenceFromPrepared binds an already validated interpretation to its
+// structural receipt and descriptors; a raw document cannot bypass validation.
+func LegacyEvidenceFromPrepared(receipt releasecontent.Legacy, descriptors releasedescriptor.Snapshot, prepared ontologyevidence.Prepared) (Evidence, error) {
 	id, err := Release(receipt.Origin().ProjectID(), receipt.Origin().Version())
 	if err != nil {
 		return Evidence{}, err
 	}
-	document, err := artifact.Decode()
+	ref, err := prepared.Reference()
 	if err != nil {
 		return Evidence{}, err
 	}
-	ref, err := ontologyevidence.NewReference(document.ProjectID, document.Version, artifact.Digest)
+	artifact, err := prepared.Artifact()
 	if err != nil {
 		return Evidence{}, err
 	}
 	if ref != receipt.Ontology() {
 		return Evidence{}, fmt.Errorf("legacy ontology evidence differs from content receipt")
 	}
-	e := Evidence{id: id, contract: 2, legacy: receipt, artifact: artifact, legacyDocument: &document, descriptors: descriptors}
+	e := Evidence{id: id, contract: 2, legacy: receipt, artifact: artifact, interpretation: prepared, descriptors: descriptors}
 	if err := e.checkDescriptors(); err != nil {
 		return Evidence{}, err
 	}
@@ -209,4 +220,12 @@ func (inventory publicationInventory) checkReferences(references []ontologyartif
 		}
 	}
 	return nil
+}
+
+// LegacyInterpretation exposes the immutable capability already bound by assembly.
+func (e Evidence) LegacyInterpretation() (ontologyevidence.Prepared, error) {
+	if e.contract != 2 {
+		return ontologyevidence.Prepared{}, fmt.Errorf("legacy interpretation is unavailable")
+	}
+	return e.interpretation, nil
 }

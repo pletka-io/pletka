@@ -1,7 +1,6 @@
 package ontologyevidence
 
 import (
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -47,21 +46,42 @@ func (b Bundle) Artifacts() []Artifact { return slices.Clone(b.artifacts) }
 // keyed by concrete identity, not owner or version label; source selections
 // remain untouched inside each original artifact. Sort all body locks globally.
 func restoreValues(artifacts []Artifact) ([]Body, []Artifact, error) {
+	var preparer Preparer
+	values := make([]Prepared, 0, len(artifacts))
+	for _, a := range artifacts {
+		value, err := preparer.Prepare(a)
+		if err != nil {
+			return nil, nil, err
+		}
+		values = append(values, value)
+	}
+	return restorePreparedValues(values)
+}
+
+// ValidatePreparedBundle checks cross-artifact body and context consistency
+// without repeating the validation already sealed into each capability.
+func ValidatePreparedBundle(values []Prepared) error {
+	_, _, err := restorePreparedValues(values)
+	return err
+}
+
+func restorePreparedValues(values []Prepared) ([]Body, []Artifact, error) {
 	bodies := map[string]Body{}
 	evidence := map[Origin]Artifact{}
 	contextValues := map[Origin]string{}
 	sourceValues := map[Origin]Source{}
-	for _, a := range artifacts {
-		d, err := a.Decode()
+	for _, value := range values {
+		a, err := value.Artifact()
 		if err != nil {
 			return nil, nil, err
 		}
-		o := Origin{project: d.ProjectID, version: d.Version}
+		d := value.value.contexts[value.value.root].document
+		o := value.value.root
 		if old, exists := evidence[o]; exists && old != a {
 			return nil, nil, fmt.Errorf("conflicting imported snapshots for %s@%s", d.ProjectID, d.Version)
 		}
 		evidence[o] = a
-		contexts, err := restoreContexts(d, sourceValues, contextValues)
+		contexts, err := restoreContexts(value, sourceValues, contextValues)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -98,34 +118,30 @@ func restoreValues(artifacts []Artifact) ([]Body, []Artifact, error) {
 
 // Collect the root and source contexts, checking their identities against all
 // previously collected bundle contexts. This operates only on detached values.
-func restoreContexts(d Document, sourceValues map[Origin]Source, contextValues map[Origin]string) ([]Document, error) {
+func restoreContexts(value Prepared, sourceValues map[Origin]Source, contextValues map[Origin]string) ([]Document, error) {
+	d := value.value.contexts[value.value.root].document
 	contexts := []Document{d}
 	for _, source := range d.Sources {
-		s, err := decodeDocument(source.JSON, source.Digest)
-		if err != nil {
-			return nil, err
+		// These identities/digests were checked against this exact flat closure.
+		var context Document
+		for _, entry := range value.value.contexts {
+			if entry.artifact.Digest == source.Digest {
+				context = entry.document
+				break
+			}
 		}
-		o := Origin{project: s.ProjectID, version: s.Version}
+		o := Origin{project: context.ProjectID, version: context.Version}
 		if old, exists := sourceValues[o]; exists && old != source {
-			return nil, fmt.Errorf("conflicting imported source contexts for %s@%s", s.ProjectID, s.Version)
+			return nil, fmt.Errorf("conflicting imported source contexts for %s@%s", o.project, o.version)
 		}
 		sourceValues[o] = source
-		contexts = append(contexts, s)
+		contexts = append(contexts, context)
 	}
-	for _, context := range contexts {
-		// A root and an embedded source may name the same local context.
-		// Compare its value without the enclosing flat source closure; the
-		// source-to-source comparison above additionally requires exact bytes.
-		o := Origin{project: context.ProjectID, version: context.Version}
-		context.Sources = nil
-		data, err := json.Marshal(context)
-		if err != nil {
-			return nil, err
+	for origin, context := range value.value.contexts {
+		if old, exists := contextValues[origin]; exists && old != context.localDigest {
+			return nil, fmt.Errorf("conflicting imported local contexts for %s@%s", origin.project, origin.version)
 		}
-		if old, exists := contextValues[o]; exists && old != string(data) {
-			return nil, fmt.Errorf("conflicting imported local contexts for %s@%s", context.ProjectID, context.Version)
-		}
-		contextValues[o] = string(data)
+		contextValues[origin] = context.localDigest
 	}
 	return contexts, nil
 }

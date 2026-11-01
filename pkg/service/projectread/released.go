@@ -40,11 +40,11 @@ func releasedEvidence(ctx context.Context, s *readsession.Session) (projectsnaps
 		if err != nil {
 			return projectsnapshot.Evidence{}, err
 		}
-		artifact, err := s.LegacyOntology(ctx)
+		artifact, err := s.LegacyInterpretation(ctx)
 		if err != nil {
 			return projectsnapshot.Evidence{}, err
 		}
-		return projectsnapshot.LegacyEvidence(receipt, d, artifact)
+		return projectsnapshot.LegacyEvidenceFromPrepared(receipt, d, artifact)
 	default:
 		return projectsnapshot.Evidence{}, &readsession.NotInReleaseError{ProjectID: s.ProjectID(), Version: s.Scope().Version(), EntityID: "complete content contract"}
 	}

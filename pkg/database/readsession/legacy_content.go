@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+
 	"github.com/pletka-io/pletka/pkg/database/readsql/archive"
 	"github.com/pletka-io/pletka/pkg/ontologyevidence"
 	"github.com/pletka-io/pletka/pkg/releasecontent"
@@ -44,24 +45,45 @@ func (s *Session) ContentContract(ctx context.Context) (int16, error) {
 
 // LegacyOntology returns detached evidence bound to this session's completed cut.
 func (s *Session) LegacyOntology(ctx context.Context) (ontologyevidence.Artifact, error) {
-	if _, err := s.LegacyContent(ctx); err != nil {
+	value, err := s.LegacyInterpretation(ctx)
+	if err != nil {
 		return ontologyevidence.Artifact{}, err
+	}
+	return value.Artifact()
+}
+
+// LegacyInterpretation returns one validated detached capability. The operation's
+// preparer shares exact source documents and bodies; closed sessions cannot use it.
+func (s *Session) LegacyInterpretation(ctx context.Context) (ontologyevidence.Prepared, error) {
+	if err := s.Check(ctx); err != nil {
+		return ontologyevidence.Prepared{}, err
+	}
+	if s.interpretation != nil {
+		return *s.interpretation, nil
+	}
+	receipt, err := s.LegacyContent(ctx)
+	if err != nil {
+		return ontologyevidence.Prepared{}, err
 	}
 	q, err := s.ArchiveQueries()
 	if err != nil {
-		return ontologyevidence.Artifact{}, err
+		return ontologyevidence.Prepared{}, err
 	}
 	r, err := q.ReleaseLegacyOntologySnapshot(ctx, archive.ReleaseLegacyOntologySnapshotParams{ProjectID: s.projectID, Version: s.scope.Version()})
 	if err != nil {
-		return ontologyevidence.Artifact{}, err
+		return ontologyevidence.Prepared{}, err
 	}
-	a := ontologyevidence.Artifact{JSON: r.Document, Digest: r.Digest}
-	d, err := a.Decode()
+	value, err := s.lifetime.interpretations.Prepare(ontologyevidence.Artifact{JSON: r.Document, Digest: r.Digest})
 	if err != nil {
-		return ontologyevidence.Artifact{}, err
+		return ontologyevidence.Prepared{}, err
 	}
-	if d.ProjectID != s.projectID || d.Version != s.scope.Version() {
-		return ontologyevidence.Artifact{}, fmt.Errorf("legacy ontology evidence differs from bound release")
+	ref, err := value.Reference()
+	if err != nil {
+		return ontologyevidence.Prepared{}, err
 	}
-	return a, nil
+	if ref != receipt.Ontology() {
+		return ontologyevidence.Prepared{}, fmt.Errorf("legacy ontology evidence differs from bound release")
+	}
+	s.interpretation = &value
+	return value, nil
 }

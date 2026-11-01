@@ -25,6 +25,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/database/txscope"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/ontologyevidence"
 )
 
 // Factory creates read-only repeatable-read sessions. It owns transaction setup;
@@ -40,17 +41,21 @@ func NewFactory(pool *pgxpool.Pool) *Factory { return &Factory{pool: pool} }
 // Session is valid only during Factory.Read's callback. It is not safe for
 // concurrent use. Its project and selection cannot be changed by a consumer.
 type Session struct {
-	projectID    string
-	scope        auth.ReadScope
-	draft        *draft.Queries
-	archive      *archive.Queries
-	catalog      *catalog.Queries
-	ontologies   *projectontologies.Queries
-	lifetime     *lifetime
-	dependencies *dependencies
+	projectID      string
+	scope          auth.ReadScope
+	draft          *draft.Queries
+	archive        *archive.Queries
+	catalog        *catalog.Queries
+	ontologies     *projectontologies.Queries
+	lifetime       *lifetime
+	dependencies   *dependencies
+	interpretation *ontologyevidence.Prepared
 }
 
-type lifetime struct{ closed bool }
+type lifetime struct {
+	closed          bool
+	interpretations ontologyevidence.Preparer
+}
 
 // ProjectID returns the only project this session's readers may serve.
 func (s *Session) ProjectID() string { return s.projectID }

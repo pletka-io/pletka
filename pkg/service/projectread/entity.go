@@ -11,10 +11,12 @@ import (
 )
 
 type entityContext struct {
-	session   *readsession.Session
-	input     projectsnapshot.ProjectInput
-	selection projectsnapshot.Selection
-	dirty     bool
+	session    *readsession.Session
+	input      projectsnapshot.ProjectInput
+	selection  projectsnapshot.Selection
+	dirty      bool
+	discovered projectsnapshot.Selection
+	fields     map[string]bool
 }
 
 // Entity loads only the requested structural closure. Interpretation metadata
@@ -76,7 +78,7 @@ func (a *Assembler) entityContexts(ctx context.Context, s *readsession.Session) 
 	}
 	result := make([]*entityContext, 0, len(sessions))
 	for _, bound := range sessions {
-		c := &entityContext{session: bound, selection: projectsnapshot.Selection{}, dirty: true}
+		c := &entityContext{session: bound, selection: projectsnapshot.Selection{}, discovered: projectsnapshot.Selection{}, fields: map[string]bool{}, dirty: true}
 		c.input.Dependencies = []projectsnapshot.Identity{}
 		c.input.Membership = []projectsnapshot.Membership{}
 		deps, err := bound.Dependencies(ctx)
@@ -148,7 +150,7 @@ func requestConsumerDefaults(contexts []*entityContext) error {
 				if source.session.ProjectID() != m.Source.ProjectID() {
 					continue
 				}
-				if slices.ContainsFunc(source.input.Content.Fields, func(f projectsnapshot.FieldRecord) bool { return f.ID == m.ID }) {
+				if source.fields[m.ID] {
 					if err := requestEntity(contexts, i, m.Kind, m.ID); err != nil {
 						return err
 					}
@@ -161,17 +163,26 @@ func requestConsumerDefaults(contexts []*entityContext) error {
 
 func loadEntityClosure(ctx context.Context, contexts []*entityContext, b *budget) error {
 	var err error
+	b.discovery = true
 	for pending := true; pending; {
 		pending = false
 		for _, c := range contexts {
+			// Only this round's rows contribute new closure requests.
+			c.input.Content = projectsnapshot.Content{}
 			if !c.dirty {
 				continue
 			}
 			c.dirty = false
-			b.selection = c.selection
+			b.selection = nextSelection(c.selection, c.discovered)
 			c.input.Content, c.input.Counts, err = loadContent(ctx, c.session, b)
 			if err != nil {
 				return err
+			}
+			if err := discoveredChildren(c.input.Content, c.discovered); err != nil {
+				return err
+			}
+			for _, field := range c.input.Content.Fields {
+				c.fields[field.ID] = true
 			}
 		}
 		for i, c := range contexts {
@@ -199,7 +210,20 @@ func loadEntityClosure(ctx context.Context, contexts []*entityContext, b *budget
 			pending = pending || c.dirty
 		}
 	}
-
+	// Materialize the closed selection once in database order. Discovery never
+	// reads the growing union again, and metadata is fetched only here. Counting
+	// both passes in the budget reflects actual query work, including overlaps.
+	b.discovery = false
+	for _, c := range contexts {
+		b.selection = c.selection
+		c.input.Content, c.input.Counts, err = loadContent(ctx, c.session, b)
+		if err != nil {
+			return err
+		}
+		if err := checkDiscovered(c.input.Content, c.selection); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

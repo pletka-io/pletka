@@ -29,10 +29,35 @@ Retained legacy evidence validates exact body hashes, source contexts and every
 semantic assessment. Equivalent references can share assessment work within one
 immutable context, while each recorded location must still be checked. Generator
 projection uses `Artifact.Resolver()` to validate once for a batch of semantic
-lookups. Its private contexts cannot be edited by consumers and it does not
-promote unresolved evidence. Snapshot evidence also retains its private validated
-document for structural consistency checks. These are internal Go values, not new
-wire formats or global caches.
+lookups. For a complete read operation, `readsession` owns an
+`ontologyevidence.Preparer` shared by its selected source sessions. It validates
+exact document/body bytes once, retaining source-closure and bundle consistency
+checks. A digest alone cannot authorize changed bytes or a different body identity.
+Only successfully validated closures produce a `Prepared` capability.
+
+Snapshot evidence carries that capability through structural checks and generator
+projection. Consumers use `Evidence.LegacyInterpretation()`, then `Document()` or
+`Resolver()`. Returned collections are independent copies; immutable strings and
+private checked contexts can be shared. The capability owns no database access and
+can outlive the read transaction. The preparer/session is single-threaded and
+operation-local; a cached lookup still checks cancellation and session lifetime.
+No unresolved assessment is promoted. Raw `Legacy()`/`Artifact()` remain available
+for exact transport, not repeated interpretation in renderers. Generator boundary
+tests guard that distinction. These are internal Go values, not new wire formats
+or global caches.
+
+Entity assembly discovers dependencies using only newly selected identities in
+each round and queries the sections affected by those selectors. Already returned
+vocabulary child identities do not trigger another discovery read when the central
+registry confirms that they select no additional section. Once the closure stops
+growing, assembly materializes that restricted selection once in database order,
+including metadata. This preserves ordering/collation without merging independently
+ordered pages in Go. It is not a whole-project read/filter fallback. Some rows can
+appear under multiple parent selectors, and discovery rows are read again in the
+final pass; **both passes count toward row and encoded-byte budgets**. A final
+containment check rejects new references outside the discovered selection. An
+exhaustive test compares the discovery registry with draft/archive SQL selectors
+so new sections and selector changes cannot silently bypass discovery.
 
 Regression checks should cover selection, authorization, immutability, ambiguous
 references and draft/release parity. Keep timing thresholds out of small unit

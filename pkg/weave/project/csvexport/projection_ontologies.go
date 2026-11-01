@@ -59,11 +59,11 @@ func ontologyRows(v projectsnapshot.CompleteProject, root projectsnapshot.Identi
 func ontologyBodies(e projectsnapshot.Evidence) (map[string]string, error) {
 	bodies := map[string]string{}
 	if e.Contract() == 2 {
-		a, err := e.Legacy()
+		a, err := e.LegacyInterpretation()
 		if err != nil {
 			return nil, err
 		}
-		doc, err := a.Decode()
+		doc, err := a.Document()
 		if err != nil {
 			return nil, err
 		}

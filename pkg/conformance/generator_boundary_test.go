@@ -39,10 +39,18 @@ func TestGeneratorProjectionHasNoLiveDataCapabilities(t *testing.T) {
 		if strings.HasSuffix(file, "_test.go") {
 			continue
 		}
-		syntax, err := parser.ParseFile(token.NewFileSet(), file, nil, parser.ImportsOnly)
+		syntax, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
+		ast.Inspect(syntax, func(node ast.Node) bool {
+			if call, ok := node.(*ast.CallExpr); ok {
+				if selector, ok := call.Fun.(*ast.SelectorExpr); ok && selector.Sel.Name == "Legacy" {
+					t.Errorf("%s reacquires raw legacy bytes; render from LegacyInterpretation", file)
+				}
+			}
+			return true
+		})
 		for _, imp := range syntax.Imports {
 			name, err := strconv.Unquote(imp.Path.Value)
 			if err != nil {

@@ -196,17 +196,17 @@ func (r record) text(column string) string {
 }
 
 func (g *graph) checkSources() error {
-	legacy := []ontologyevidence.Artifact{}
+	legacy := []ontologyevidence.Prepared{}
 	for _, id := range g.identities() {
 		p := g.projects[id]
 		if err := g.checkProjectSources(id, p); err != nil {
 			return err
 		}
 		if p.evidence.contract == 2 {
-			legacy = append(legacy, p.evidence.artifact)
+			legacy = append(legacy, p.evidence.interpretation)
 		}
 	}
-	if err := ontologyevidence.ValidateBundle(legacy); err != nil {
+	if err := ontologyevidence.ValidatePreparedBundle(legacy); err != nil {
 		return err
 	}
 	if err := g.checkSharedOntologies(); err != nil {

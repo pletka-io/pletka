@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database"
@@ -21,6 +22,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/rebuildlease"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/ontologyevidence"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
 	"github.com/pletka-io/pletka/pkg/weave/ontology"
 )
@@ -75,6 +77,7 @@ func readLegacySnapshot(ctx context.Context, t *testing.T, p *pgxpool.Pool) onto
 	t.Helper()
 	var receipt readsession.LegacyContentReceipt
 	var saved *readsession.Session
+	var prepared ontologyevidence.Prepared
 	err := readsession.NewFactory(p).WithSourceAuthorization(auth.CheckProjectRead).Read(ctx, auth.Release(legacyVersion), legacyProject, func(s *readsession.Session) error {
 		saved = s
 		sources, err := s.Dependencies(ctx)
@@ -101,13 +104,42 @@ func readLegacySnapshot(ctx context.Context, t *testing.T, p *pgxpool.Pool) onto
 			t.Error("legacy release passed verified-content boundary")
 		}
 		receipt, err = s.LegacyContent(ctx)
-		return err
+		if err != nil {
+			return err
+		}
+		prepared, err = s.LegacyInterpretation(ctx)
+		if err != nil {
+			return err
+		}
+		again, err := s.LegacyInterpretation(ctx)
+		if err != nil {
+			return err
+		}
+		if prepared != again {
+			t.Fatal("session did not reuse prepared interpretation")
+		}
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		if _, err := s.LegacyInterpretation(canceled); err == nil {
+			t.Fatal("cached interpretation bypassed cancellation")
+		}
+		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := saved.LegacyContent(ctx); err == nil {
 		t.Fatal("legacy receipt escaped session lifetime")
+	}
+	if _, err := saved.LegacyInterpretation(ctx); err == nil {
+		t.Fatal("cached interpretation escaped session")
+	}
+	detached, err := prepared.Artifact()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref, err := prepared.Reference(); err != nil || ref != receipt.Ontology() {
+		t.Fatal("detached interpretation lost binding")
 	}
 	for _, section := range loadCaptureLedger(t).Sections {
 		if _, ok := receipt.Section(section.ArchiveTable); !ok {
@@ -118,6 +150,9 @@ func readLegacySnapshot(ctx context.Context, t *testing.T, p *pgxpool.Pool) onto
 	err = ontologysnapshot.NewFactory(p).Read(ctx, receipt.Ontology(), func(r ontologysnapshot.Reader) error { var err error; a, err = r.Snapshot(ctx); return err })
 	if err != nil {
 		t.Fatal(err)
+	}
+	if a != detached {
+		t.Fatal("prepared interpretation changed original artifact")
 	}
 	return a
 }
