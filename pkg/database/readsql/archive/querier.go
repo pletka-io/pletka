@@ -42,7 +42,10 @@ type Querier interface {
 	ContentModels(ctx context.Context, arg ContentModelsParams) ([]ContentModelsRow, error)
 	ContentNamespaces(ctx context.Context, arg ContentNamespacesParams) ([]ContentNamespacesRow, error)
 	ContentOntologyLinks(ctx context.Context, arg ContentOntologyLinksParams) ([]ContentOntologyLinksRow, error)
+	// Keep the same hashable selection shape as ContentOverrides.
 	ContentOverrideRefs(ctx context.Context, arg ContentOverrideRefsParams) ([]WeaveOverrideRefsArchive, error)
+	// Hash large override selections even when PostgreSQL reuses a generic plan.
+	// ANY(array-parameter) otherwise scans the array again for every candidate row.
 	ContentOverrides(ctx context.Context, arg ContentOverridesParams) ([]ContentOverridesRow, error)
 	ContentPlacements(ctx context.Context, arg ContentPlacementsParams) ([]ContentPlacementsRow, error)
 	ContentProjectActors(ctx context.Context, arg ContentProjectActorsParams) ([]ContentProjectActorsRow, error)

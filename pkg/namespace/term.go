@@ -21,7 +21,9 @@ func MatchesTerm(reference, uri, prefix, local string, aliases []Binding) bool {
 		return true
 	}
 	for _, b := range aliases {
-		if b.Prefix == p && b.Namespace+name == uri {
+		// Comparing slices avoids allocating a full URI for every alias of every
+		// candidate term during retained-evidence assessment.
+		if b.Prefix == p && strings.HasPrefix(uri, b.Namespace) && uri[len(b.Namespace):] == name {
 			return true
 		}
 	}

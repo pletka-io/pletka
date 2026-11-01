@@ -365,6 +365,13 @@ func TestLegacyCompleteContentPreservesUnresolvedMeaning(t *testing.T) {
 	if err != nil || d.Assessments[0].Status != ontologyevidence.Ambiguous {
 		t.Fatalf("ambiguity lost: %v", err)
 	}
+	// Mutating a decoded copy cannot change the constructor's private validated
+	// document, including when the same evidence builds another graph.
+	d.Assessments[0].Status = ontologyevidence.Resolved
+	d.Inventory[0].BodyJSON = "forged"
+	if _, err := projectsnapshot.NewComplete(in, nil); err != nil {
+		t.Fatalf("decoded copy mutated retained evidence: %v", err)
+	}
 	in.Content.Fields[0].OntologyScope = []byte(`{"prefix":"crm","local_name":"E2"}`)
 	if _, err := projectsnapshot.NewComplete(in, nil); err == nil {
 		t.Fatal("authored content drifted from retained legacy evidence")

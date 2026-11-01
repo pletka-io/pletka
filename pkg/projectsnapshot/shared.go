@@ -23,9 +23,9 @@ func (g *graph) checkSharedOntologies() error {
 			return nil
 		}
 		if e.contract == 2 {
-			d, err := e.artifact.Decode()
-			if err != nil {
-				return err
+			d := e.legacyDocument
+			if d == nil {
+				return fmt.Errorf("legacy interpretation is uninitialized")
 			}
 			for _, body := range d.Inventory {
 				if err := check(body.VersionID, body.OntologyID, body.Digest); err != nil {

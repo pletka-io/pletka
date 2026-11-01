@@ -164,9 +164,9 @@ func (p *project) checkPublicationLinks(c Content) error {
 
 func (g *graph) checkLegacy(id Identity, c Content, elements []ontologyevidence.Element, bindings []namespace.Binding) error {
 	p := g.projects[id]
-	d, err := p.evidence.artifact.Decode()
-	if err != nil {
-		return err
+	d := p.evidence.legacyDocument
+	if d == nil {
+		return fmt.Errorf("legacy interpretation is uninitialized")
 	}
 	retained := d.Elements
 	if g.fragment {

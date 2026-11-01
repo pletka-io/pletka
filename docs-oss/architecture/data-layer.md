@@ -512,3 +512,7 @@ and explicit own-project link clearing; foreign archived references survive hot
 deletion. See [example mutations](../reference/example-mutations.md).
 Read schemas pin data, filter, form and navigation URLs to the resolved
 release, including default public reads.
+
+See [read performance](../reference/read-performance.md) for query/row measurement,
+prepared-plan costs, immutable interpretation reuse and the distinction between
+encoded assembly budgets, cumulative allocations and peak process memory.

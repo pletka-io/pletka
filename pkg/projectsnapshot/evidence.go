@@ -14,14 +14,16 @@ import (
 // It proves value consistency, not database provenance or authorization. The
 // bound assembler obtains the inputs and remains responsible for that boundary.
 type Evidence struct {
-	id           Identity
-	contract     int
-	descriptors  releasedescriptor.Snapshot
-	verified     releasecontent.Verified
-	legacy       releasecontent.Legacy
-	artifact     ontologyevidence.Artifact
-	publications []ontologyartifact.ProjectArtifact
-	references   []ontologyartifact.TermResolution
+	id          Identity
+	contract    int
+	descriptors releasedescriptor.Snapshot
+	verified    releasecontent.Verified
+	legacy      releasecontent.Legacy
+	artifact    ontologyevidence.Artifact
+	// Parsed once at construction, private and never exposed or mutated.
+	legacyDocument *ontologyevidence.Document
+	publications   []ontologyartifact.ProjectArtifact
+	references     []ontologyartifact.TermResolution
 }
 
 // VerifiedEvidence binds contract 1 receipts, descriptors and exact publications.
@@ -51,14 +53,18 @@ func LegacyEvidence(receipt releasecontent.Legacy, descriptors releasedescriptor
 	if err != nil {
 		return Evidence{}, err
 	}
-	ref, err := artifact.Reference()
+	document, err := artifact.Decode()
+	if err != nil {
+		return Evidence{}, err
+	}
+	ref, err := ontologyevidence.NewReference(document.ProjectID, document.Version, artifact.Digest)
 	if err != nil {
 		return Evidence{}, err
 	}
 	if ref != receipt.Ontology() {
 		return Evidence{}, fmt.Errorf("legacy ontology evidence differs from content receipt")
 	}
-	e := Evidence{id: id, contract: 2, legacy: receipt, artifact: artifact, descriptors: descriptors}
+	e := Evidence{id: id, contract: 2, legacy: receipt, artifact: artifact, legacyDocument: &document, descriptors: descriptors}
 	if err := e.checkDescriptors(); err != nil {
 		return Evidence{}, err
 	}

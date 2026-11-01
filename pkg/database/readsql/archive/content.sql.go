@@ -1258,7 +1258,7 @@ SELECT s.override_id AS override_id,
        s.version_number AS version_number
 FROM weave_override_refs_archive s JOIN weave_field_overrides_archive p ON p.id=s.override_id AND p.version_number=s.version_number
 WHERE p.project_id=$1::text AND s.version_number=$2::text
-  AND (NOT $3::boolean OR (s.override_id::text = ANY($4::text[])))
+  AND (NOT $3::boolean OR (s.override_id::text IN (SELECT unnest($4::text[]))))
 ORDER BY s.override_id, s.ref_type, s.position
 LIMIT $6::integer OFFSET $5::bigint
 `
@@ -1272,6 +1272,7 @@ type ContentOverrideRefsParams struct {
 	PageLimit        int32    `json:"page_limit"`
 }
 
+// Keep the same hashable selection shape as ContentOverrides.
 func (q *Queries) ContentOverrideRefs(ctx context.Context, arg ContentOverrideRefsParams) ([]WeaveOverrideRefsArchive, error) {
 	rows, err := q.db.Query(ctx, contentOverrideRefs,
 		arg.ProjectID,
@@ -1335,7 +1336,7 @@ SELECT s.id AS id,
        s.set_value_entry_id AS set_value_entry_id
 FROM weave_field_overrides_archive s
 WHERE s.project_id=$1::text AND s.version_number=$2::text
-  AND (NOT $3::boolean OR (s.id::text = ANY($4::text[]) OR (s.entity_type = '' AND s.field_id = ANY($5::text[])) OR ((s.entity_type = 'model' AND s.entity_id = ANY($6::text[])) OR (s.entity_type = 'collection' AND s.entity_id = ANY($7::text[])) OR (s.entity_type = 'field' AND s.entity_id = ANY($5::text[])))))
+  AND (NOT $3::boolean OR (s.id::text IN (SELECT unnest($4::text[])) OR (s.entity_type = '' AND s.field_id = ANY($5::text[])) OR ((s.entity_type = 'model' AND s.entity_id = ANY($6::text[])) OR (s.entity_type = 'collection' AND s.entity_id = ANY($7::text[])) OR (s.entity_type = 'field' AND s.entity_id = ANY($5::text[])))))
 ORDER BY s.entity_type, s.entity_id, s.position, s.id
 LIMIT $9::integer OFFSET $8::bigint
 `
@@ -1380,6 +1381,8 @@ type ContentOverridesRow struct {
 	SetValueEntryID    *string `json:"set_value_entry_id"`
 }
 
+// Hash large override selections even when PostgreSQL reuses a generic plan.
+// ANY(array-parameter) otherwise scans the array again for every candidate row.
 func (q *Queries) ContentOverrides(ctx context.Context, arg ContentOverridesParams) ([]ContentOverridesRow, error) {
 	rows, err := q.db.Query(ctx, contentOverrides,
 		arg.ProjectID,

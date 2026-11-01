@@ -146,6 +146,13 @@ func (v *validator) inventory(d Document) ([]bodyDocument, error) {
 type location struct{ kind, id, path string }
 
 func validateAssessments(d Document, bodies []bodyDocument) error {
+	type result struct {
+		status     Status
+		candidates []Candidate
+	}
+	// Locations must each be checked, but identical references share the same
+	// immutable inventory and bindings within this context.
+	assessed := map[TermReference]result{}
 	expected := map[location]TermReference{}
 	elements := map[location]bool{}
 	for _, e := range d.Elements {
@@ -173,8 +180,12 @@ func validateAssessments(d Document, bodies []bodyDocument) error {
 			return fmt.Errorf("assessment omits, duplicates or changes original input")
 		}
 		delete(expected, key)
-		status, candidates := assess(ref, d.Inventory, bodies, d.Bindings)
-		if status != a.Status || !slices.Equal(candidates, a.Candidates) {
+		value, ok := assessed[ref]
+		if !ok {
+			value.status, value.candidates = assess(ref, d.Inventory, bodies, d.Bindings)
+			assessed[ref] = value
+		}
+		if value.status != a.Status || !slices.Equal(value.candidates, a.Candidates) {
 			return fmt.Errorf("assessment differs from retained candidate evidence")
 		}
 	}

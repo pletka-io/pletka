@@ -182,6 +182,8 @@ WHERE s.project_id=sqlc.arg(project_id)::text AND s.version_number=sqlc.arg(vers
 ORDER BY s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
+-- Hash large override selections even when PostgreSQL reuses a generic plan.
+-- ANY(array-parameter) otherwise scans the array again for every candidate row.
 -- name: ContentOverrides :many
 SELECT s.id AS id,
        s.field_id AS field_id,
@@ -210,7 +212,7 @@ SELECT s.id AS id,
        s.set_value_entry_id AS set_value_entry_id
 FROM weave_field_overrides_archive s
 WHERE s.project_id=sqlc.arg(project_id)::text AND s.version_number=sqlc.arg(version)::text
-  AND (NOT sqlc.arg(restricted)::boolean OR (s.id::text = ANY(sqlc.arg(selected_override)::text[]) OR (s.entity_type = '' AND s.field_id = ANY(sqlc.arg(selected_field)::text[])) OR ((s.entity_type = 'model' AND s.entity_id = ANY(sqlc.arg(selected_model)::text[])) OR (s.entity_type = 'collection' AND s.entity_id = ANY(sqlc.arg(selected_collection)::text[])) OR (s.entity_type = 'field' AND s.entity_id = ANY(sqlc.arg(selected_field)::text[])))))
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.id::text IN (SELECT unnest(sqlc.arg(selected_override)::text[])) OR (s.entity_type = '' AND s.field_id = ANY(sqlc.arg(selected_field)::text[])) OR ((s.entity_type = 'model' AND s.entity_id = ANY(sqlc.arg(selected_model)::text[])) OR (s.entity_type = 'collection' AND s.entity_id = ANY(sqlc.arg(selected_collection)::text[])) OR (s.entity_type = 'field' AND s.entity_id = ANY(sqlc.arg(selected_field)::text[])))))
 ORDER BY s.entity_type, s.entity_id, s.position, s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
@@ -285,6 +287,7 @@ WHERE s.release_project_id=sqlc.arg(project_id)::text AND s.version_number=sqlc.
 ORDER BY s.release_project_id, s.id
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 
+-- Keep the same hashable selection shape as ContentOverrides.
 -- name: ContentOverrideRefs :many
 SELECT s.override_id AS override_id,
        s.ref_type AS ref_type,
@@ -295,7 +298,7 @@ SELECT s.override_id AS override_id,
        s.version_number AS version_number
 FROM weave_override_refs_archive s JOIN weave_field_overrides_archive p ON p.id=s.override_id AND p.version_number=s.version_number
 WHERE p.project_id=sqlc.arg(project_id)::text AND s.version_number=sqlc.arg(version)::text
-  AND (NOT sqlc.arg(restricted)::boolean OR (s.override_id::text = ANY(sqlc.arg(selected_override)::text[])))
+  AND (NOT sqlc.arg(restricted)::boolean OR (s.override_id::text IN (SELECT unnest(sqlc.arg(selected_override)::text[]))))
 ORDER BY s.override_id, s.ref_type, s.position
 LIMIT sqlc.arg(page_limit)::integer OFFSET sqlc.arg(page_offset)::bigint;
 

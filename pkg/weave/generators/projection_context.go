@@ -116,8 +116,12 @@ func (p *projection) retainTerms(id projectsnapshot.Identity, c projectsnapshot.
 		if err != nil {
 			return err
 		}
+		resolver, err := legacy.Resolver()
+		if err != nil {
+			return err
+		}
 		for _, input := range inputs {
-			def, err := legacy.Resolve(input.EntityKind, input.EntityID, input.Location)
+			def, err := resolver.Resolve(input.EntityKind, input.EntityID, input.Location)
 			if err != nil {
 				return fmt.Errorf("generator semantic input %s %s%s: %w", input.EntityKind, input.EntityID, input.Location, err)
 			}

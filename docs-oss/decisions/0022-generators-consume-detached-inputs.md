@@ -64,6 +64,8 @@ retained bundles and closed-enum state. Low-level tree builders remain available
 for renderer unit fixtures; production assembly enters through `BuildSnapshot`.
 Defensive copying and complete bulk capture cost memory; large-project latency,
 projection reuse and output budgets still need measurement before broad rollout.
+The [performance reference](../reference/read-performance.md) defines the
+measurement boundaries, retained-evidence reuse and memory-budget limitations.
 
 The service, entity CSV, visualization/X3ML, integration artifacts, generator CLI
 and Arches packs use the boundary. The whole-project CSV/ZIP service now shares

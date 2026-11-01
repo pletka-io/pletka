@@ -1216,7 +1216,7 @@ SELECT s.override_id AS override_id,
        ''::text AS version_number
 FROM weave_override_refs s JOIN weave_field_overrides p ON p.id=s.override_id
 WHERE p.project_id=$1::text
-  AND (NOT $2::boolean OR (s.override_id::text = ANY($3::text[])))
+  AND (NOT $2::boolean OR (s.override_id::text IN (SELECT unnest($3::text[]))))
 ORDER BY s.override_id, s.ref_type, s.position
 LIMIT $5::integer OFFSET $4::bigint
 `
@@ -1239,6 +1239,7 @@ type ContentOverrideRefsRow struct {
 	VersionNumber string `json:"version_number"`
 }
 
+// Keep the same hashable selection shape as ContentOverrides.
 func (q *Queries) ContentOverrideRefs(ctx context.Context, arg ContentOverrideRefsParams) ([]ContentOverrideRefsRow, error) {
 	rows, err := q.db.Query(ctx, contentOverrideRefs,
 		arg.ProjectID,
@@ -1301,7 +1302,7 @@ SELECT s.id AS id,
        s.set_value_entry_id AS set_value_entry_id
 FROM weave_field_overrides s
 WHERE s.project_id=$1::text
-  AND (NOT $2::boolean OR (s.id::text = ANY($3::text[]) OR (s.entity_type = '' AND s.field_id = ANY($4::text[])) OR ((s.entity_type = 'model' AND s.entity_id = ANY($5::text[])) OR (s.entity_type = 'collection' AND s.entity_id = ANY($6::text[])) OR (s.entity_type = 'field' AND s.entity_id = ANY($4::text[])))))
+  AND (NOT $2::boolean OR (s.id::text IN (SELECT unnest($3::text[])) OR (s.entity_type = '' AND s.field_id = ANY($4::text[])) OR ((s.entity_type = 'model' AND s.entity_id = ANY($5::text[])) OR (s.entity_type = 'collection' AND s.entity_id = ANY($6::text[])) OR (s.entity_type = 'field' AND s.entity_id = ANY($4::text[])))))
 ORDER BY s.entity_type, s.entity_id, s.position, s.id
 LIMIT $8::integer OFFSET $7::bigint
 `
@@ -1345,6 +1346,8 @@ type ContentOverridesRow struct {
 	SetValueEntryID    *string `json:"set_value_entry_id"`
 }
 
+// Hash large override selections even when PostgreSQL reuses a generic plan.
+// ANY(array-parameter) otherwise scans the array again for every candidate row.
 func (q *Queries) ContentOverrides(ctx context.Context, arg ContentOverridesParams) ([]ContentOverridesRow, error) {
 	rows, err := q.db.Query(ctx, contentOverrides,
 		arg.ProjectID,

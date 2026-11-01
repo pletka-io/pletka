@@ -135,24 +135,52 @@ func (d Definition) Evidence() (Candidate, string, error) {
 // Resolve routes imported entities through their recorded source contexts.
 // Callers cannot accidentally interpret them using the importing inventory.
 func (a Artifact) Resolve(entityKind, entityID, location string) (Definition, error) {
-	d, err := a.Decode()
+	r, err := a.Resolver()
 	if err != nil {
 		return Definition{}, err
 	}
-	contexts := map[Origin]Document{}
+	return r.Resolve(entityKind, entityID, location)
+}
+
+// Resolver holds validated, private interpretation contexts for a batch of
+// lookups. It has no reader or mutable exported buffers; its zero value fails.
+type Resolver struct {
+	root     Origin
+	contexts map[Origin]Document
+}
+
+// Resolver validates the entire artifact once, before any definition is served.
+// It does not promote unresolved assessments or change source context routing.
+func (a Artifact) Resolver() (Resolver, error) {
+	d, err := a.Decode()
+	if err != nil {
+		return Resolver{}, err
+	}
+	root := Origin{project: d.ProjectID, version: d.Version}
+	contexts := map[Origin]Document{root: d}
 	for _, source := range d.Sources {
 		context, err := decodeDocument(source.JSON, source.Digest)
 		if err != nil {
-			return Definition{}, err
+			return Resolver{}, err
 		}
 		contexts[Origin{project: context.ProjectID, version: context.Version}] = context
+	}
+	return Resolver{root: root, contexts: contexts}, nil
+}
+
+// Resolve uses the already validated context graph and preserves exact
+// resolved/missing/ambiguous/invalid outcomes for each location.
+func (r Resolver) Resolve(entityKind, entityID, location string) (Definition, error) {
+	d, ok := r.contexts[r.root]
+	if !ok {
+		return Definition{}, fmt.Errorf("semantic resolver is uninitialized")
 	}
 	// Decode has already verified every edge and ruled out cycles.
 	for {
 		found := false
 		for _, dep := range d.Dependencies {
 			if dep.EntityKind == entityKind && dep.EntityID == entityID {
-				d = contexts[Origin{project: dep.SourceProject, version: dep.SourceVersion}]
+				d = r.contexts[Origin{project: dep.SourceProject, version: dep.SourceVersion}]
 				found = true
 				break
 			}
