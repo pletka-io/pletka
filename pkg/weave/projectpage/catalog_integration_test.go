@@ -19,9 +19,11 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/service/browserread"
+	"github.com/pletka-io/pletka/pkg/service/generatorread"
 	"github.com/pletka-io/pletka/pkg/service/projectread"
 	"github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/example"
+	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/publication"
 	"github.com/pletka-io/pletka/pkg/weave/release"
 	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
@@ -155,7 +157,11 @@ func TestCatalogInventoriesAndExampleSchemaRetainRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vocabulary.Mount(router, vocabulary.Host{Service: vocabulary.NewService(pool, nil, store), Projects: store.Projects(), Inventory: source, LatestRelease: latest})
+	exportSource, err := generatorread.New(readsession.NewFactory(pool).WithSourceAuthorization(auth.CheckProjectRead), projectread.DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	vocabulary.Mount(router, vocabulary.Host{SKOS: generators.NewService(exportSource, nil), Service: vocabulary.NewService(pool, nil, store), Projects: store.Projects(), Inventory: source, LatestRelease: latest})
 	router.Route("/projects/{projectID}/examples", func(r chi.Router) {
 		r.Use(auth.RequireProjectRead(store.Projects()), auth.WithProjectVersionContext, auth.ResolveContentVersion(latest))
 		example.Mount(r, example.Host{Service: example.NewService(mutationBoundary), Projects: store.Projects(), Browser: source})

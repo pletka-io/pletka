@@ -258,7 +258,6 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	browserSource := buildBrowserSource(opts)
 	projectPagesHost := buildProjectPagesHost(logger, templateRenderer, weaveStore, i18nManager, sessionManager, publicationReader, browserSource)
 	searchHost := buildSearchHost(weaveStore, logger, publicationReader)
-	vocabularyHost := buildVocabularyHost(opts.Pool, weaveStore, logger, languages, langResolver, opts.VocabularyServiceURL, browserSource, publicationReader)
 	entitySchemaHost := buildEntitySchemaHost(weaveStore, logger, languages, langResolver, i18nManager, organizationHost, publicationReader)
 	releaseHost := buildReleaseHost(opts.Pool, logger, languages, langResolver, opts.ModuleHost, opts.OntologyHost)
 	projectPageHost := buildProjectPageHost(weaveStore, logger, languages, langResolver, i18nManager, publicationReader, releaseHost.Service, browserSource)
@@ -324,6 +323,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		sessionManager,
 	)
 	generatorService := buildGeneratorService(generatorSource, generatorRenderers)
+	vocabularyHost := buildVocabularyHost(opts.Pool, weaveStore, logger, languages, langResolver, opts.VocabularyServiceURL, browserSource, publicationReader, generatorService)
 	visualizationHost := buildVisualizationHost(weaveStore, logger, generatorService, publicationReader)
 	detailViewHost := buildDetailViewHost(opts.Pool, logger, templateRenderer, weaveStore, i18nManager, sessionManager, opts.IntegrationRegistry, ontologySvc, hasFormat, publicationReader, browserSource)
 	categoryHost, categoryService := buildCategoryHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver)

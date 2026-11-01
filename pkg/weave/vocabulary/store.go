@@ -2,7 +2,6 @@ package vocabulary
 
 import (
 	"context"
-	"io"
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -64,10 +63,6 @@ type Reader interface {
 	// SearchConceptListSourceEntries searches the source vocabulary behind a
 	// list. The bool reports a degraded vocabulary service.
 	SearchConceptListSourceEntries(ctx context.Context, projectID, conceptListID, query, lang string, limit int) ([]ConceptListEntryView, bool, error)
-
-	// RenderConceptListSKOS serializes a list to SKOS. An export leaves the
-	// system, so it must serialize the scope it claims to be exporting.
-	RenderConceptListSKOS(ctx context.Context, projectID, listID string, w io.Writer) error
 }
 
 // Store owns the writes and hands out readers.

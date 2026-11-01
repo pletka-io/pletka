@@ -29,25 +29,33 @@ func NewService(source Source, registry *Registry) *Service {
 }
 
 func (s *Service) snapshot(ctx context.Context, scope auth.ReadScope, project, kind, id string, opts Options) (*Snapshot, error) {
+	value, err := s.fragment(ctx, scope, project, kind, id)
+	if err != nil {
+		return nil, err
+	}
+	return BuildSnapshot(value, opts)
+}
+
+func (s *Service) fragment(ctx context.Context, scope auth.ReadScope, project, kind, id string) (projectsnapshot.EntityFragment, error) {
 	if s == nil || s.source == nil || !scope.Valid() {
-		return nil, fmt.Errorf("generator requires a source and explicit read scope")
+		return projectsnapshot.EntityFragment{}, fmt.Errorf("generator requires a source and explicit read scope")
 	}
 	value, err := s.source.Entity(ctx, scope, project, kind, id)
 	if err != nil {
-		return nil, err
+		return projectsnapshot.EntityFragment{}, err
 	}
 	consumer, err := value.Consumer()
 	if err != nil {
-		return nil, err
+		return projectsnapshot.EntityFragment{}, err
 	}
 	root, err := value.Root()
 	if err != nil {
-		return nil, err
+		return projectsnapshot.EntityFragment{}, err
 	}
 	if consumer.ProjectID() != project || consumer.Version() != scope.Version() || consumer.IsDraft() != !scope.IsRelease() || root.Kind != kind || root.ID != id {
-		return nil, fmt.Errorf("generator source returned a different selection")
+		return projectsnapshot.EntityFragment{}, fmt.Errorf("generator source returned a different selection")
 	}
-	return BuildSnapshot(value, opts)
+	return value, nil
 }
 
 // SnapshotForModel assembles one explicit selection before projection.

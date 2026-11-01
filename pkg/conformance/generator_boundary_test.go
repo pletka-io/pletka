@@ -1,6 +1,7 @@
 package conformance
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"path/filepath"
@@ -8,6 +9,27 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestSKOSHTTPHandlerHasOnlyAnExportCapability(t *testing.T) {
+	path := filepath.Join(repoRoot(t), "pkg/weave/vocabulary/skos_handler.go")
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		if spec, ok := node.(*ast.TypeSpec); ok && spec.Name.Name == "skosHandler" {
+			body, ok := spec.Type.(*ast.StructType)
+			if !ok || len(body.Fields.List) != 1 {
+				t.Fatal("SKOS handler must retain only its exporter")
+			}
+			field, ok := body.Fields.List[0].Type.(*ast.Ident)
+			if !ok || field.Name != "SKOSExporter" {
+				t.Fatal("SKOS handler acquired an editing/store dependency")
+			}
+		}
+		return true
+	})
+}
 
 // A renderer or projection must not reacquire data through a new slice, pool,
 // HTTP client or session. Adding a renderer does not grant loading capabilities.

@@ -60,6 +60,10 @@ before returning; `BuildSnapshot` and renderers are pure. Use `BindProject` for
 bulk inventory/identifier lookup and rendering from one complete value. Do not
 add slice readers, optional enums, current ontology bundles or global anchor
 lookups. Script adapters consume versioned `EncodeInput` data, not loader callbacks.
+SKOS uses that same source's concept-list fragment and the existing pure Turtle
+renderer; its export handler cannot call the vocabulary editing service. Use
+retained list-owner namespace/hierarchy and preserve the existing `skos_url`
+capability with a pinned version. Do not add another export JSON contract.
 See [ADR-0022](../../docs-oss/decisions/0022-generators-consume-detached-inputs.md).
 
 ## Dispatcher Rule

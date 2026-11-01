@@ -72,7 +72,7 @@ func TestRemovedVocabularyIsReadOnly(t *testing.T) {
 
 	t.Run("searching a removed vocabulary offers nothing new", func(t *testing.T) {
 		r := chi.NewRouter()
-		vocabulary.Mount(r, vocabulary.Host{Inventory: &browserread.Source{}, LatestRelease: fakeProjectReader{}, Service: svc, Projects: fakeProjectReader{visibility: "public"}})
+		vocabulary.Mount(r, vocabulary.Host{SKOS: newSKOSExporter(t, pool), Inventory: &browserread.Source{}, LatestRelease: fakeProjectReader{}, Service: svc, Projects: fakeProjectReader{visibility: "public"}})
 
 		req := httptest.NewRequest(http.MethodGet, "/api/v2/vocabularies/RMVVOC/entries/search?q=painting", nil)
 		w := httptest.NewRecorder()
@@ -99,7 +99,7 @@ func TestRemovedVocabularyIsReadOnly(t *testing.T) {
 			VALUES ('RMVLIVE', 'RMVP', 'aat_live', 'vocabservice', '{"vocab":"aat"}'::jsonb, 'published')`)
 
 		r := chi.NewRouter()
-		vocabulary.Mount(r, vocabulary.Host{Inventory: &browserread.Source{}, LatestRelease: fakeProjectReader{}, Service: svc, Projects: fakeProjectReader{visibility: "public"}})
+		vocabulary.Mount(r, vocabulary.Host{SKOS: newSKOSExporter(t, pool), Inventory: &browserread.Source{}, LatestRelease: fakeProjectReader{}, Service: svc, Projects: fakeProjectReader{visibility: "public"}})
 
 		req := httptest.NewRequest(http.MethodGet, "/api/v2/vocabularies/RMVLIVE/entries/search?q=painting", nil)
 		w := httptest.NewRecorder()

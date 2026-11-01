@@ -110,10 +110,6 @@ var UnscopedReadAllowlist = map[string]Exemption{
 		Reason:       trulyUnscoped + "Answers which lists contain a URI, over live membership.",
 		ConvertsWith: convVocabulary,
 	},
-	"vocabulary.RenderConceptListSKOS": {
-		Reason:       trulyUnscoped + "An export renderer: it serializes a concept list to SKOS from live rows, so a pinned export does not match the release it claims. The spec's exports section is explicit that an export leaves the system.",
-		ConvertsWith: convVocabulary,
-	},
 	"namespacebinding.Get": {
 		Reason:       trulyUnscoped + "Reads a live binding.",
 		ConvertsWith: convNamespace,

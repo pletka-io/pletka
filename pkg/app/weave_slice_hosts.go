@@ -388,9 +388,10 @@ func buildVocabularyHost(
 	vocabServiceURL string,
 	source *browserread.Source,
 	latest auth.LatestReleaseReader,
+	gens *generators.Service,
 ) vocabulary.Host {
 	return vocabulary.Host{
-		Inventory: source, LatestRelease: latest,
+		Inventory: source, LatestRelease: latest, SKOS: gens,
 		Service:      vocabulary.NewService(pool, registry.New(http.DefaultClient, vocabServiceURL), weave),
 		Projects:     weave.Projects(),
 		Logger:       logger,

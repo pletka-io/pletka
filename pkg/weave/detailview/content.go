@@ -60,8 +60,7 @@ func (h *Handler) decorateDetail(ctx context.Context, value projectedDetail) *Re
 		c.DeleteURL = capabilityURL(editable, apiBase)
 		c.ConceptList = &ConceptListCap{
 			SearchEntriesURL: capabilityURL(editable, apiBase+"/source-entries/search"), AddEntryURL: capabilityURL(editable, apiBase+"/entries"), UpdateEntryURL: capabilityURL(editable, apiBase+"/entries/{id}"), RemoveEntryURL: capabilityURL(editable, apiBase+"/entries/{id}"), ReorderURL: capabilityURL(editable, apiBase+"/entries/reorder"), CreateTermURL: capabilityURL(editable, apiBase+"/terms"), SealURL: capabilityURL(editable, apiBase+"/sealed"), BroaderURLTemplate: capabilityURL(editable, apiBase+"/terms/{conceptID}/broader"), IsClosed: value.Closed, SourceName: value.ConceptSource, HasRemoteSource: value.RemoteSource,
-			// The legacy exporter still loads hierarchy edges from live rows.
-			SkosURL: capabilityURL(value.Consumer.IsDraft(), apiBase+"/skos"),
+			SkosURL: withVersion(apiBase+"/skos", version),
 		}
 		return &r
 	}

@@ -8,14 +8,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
+	"github.com/pletka-io/pletka/pkg/service/generatorread"
+	"github.com/pletka-io/pletka/pkg/service/projectread"
+	"github.com/pletka-io/pletka/pkg/weave/generators"
+
 	"github.com/pletka-io/pletka/internal/testdb"
-	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
 
-// TestRenderConceptListSKOS_Integration proves the endpoint renders a concept
+// TestGenerateConceptListSKOS_Integration proves the endpoint renders a concept
 // list as a SKOS concept scheme in Turtle, with the pletka: curie expanded to
 // the configured namespace and hierarchy edges emitted (#3599).
-func TestRenderConceptListSKOS_Integration(t *testing.T) {
+func TestGenerateConceptListSKOS_Integration(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 
@@ -35,10 +42,10 @@ func TestRenderConceptListSKOS_Integration(t *testing.T) {
 	exec(`INSERT INTO weave_concept_list_entries (id, concept_list_id, vocabulary_entry_id, position) VALUES ('J2','SKCL','SB',2)`)
 	exec(`INSERT INTO weave_concept_broader (id, concept_id, broader_id, scheme_id) VALUES ('E1','SA','SB','SKCL')`)
 
-	svc := vocabulary.NewService(pool, nil)
+	svc := newSKOSExporter(t, pool)
 	var buf bytes.Buffer
-	if err := svc.RenderConceptListSKOS(ctx, "SKOSP", "SKCL", &buf); err != nil {
-		t.Fatalf("RenderConceptListSKOS: %v", err)
+	if err := svc.GenerateConceptListSKOS(ctx, auth.Draft(), "SKOSP", "SKCL", &buf); err != nil {
+		t.Fatalf("GenerateConceptListSKOS: %v", err)
 	}
 	out := buf.String()
 
@@ -57,9 +64,9 @@ func TestRenderConceptListSKOS_Integration(t *testing.T) {
 	}
 }
 
-// TestRenderConceptListSKOS_ConfiguredNamespace proves F4 (#3599): a project's
+// TestGenerateConceptListSKOS_ConfiguredNamespace proves F4 (#3599): a project's
 // concept_namespace overrides the default base in the emitted SKOS.
-func TestRenderConceptListSKOS_ConfiguredNamespace(t *testing.T) {
+func TestGenerateConceptListSKOS_ConfiguredNamespace(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
 
@@ -76,10 +83,10 @@ func TestRenderConceptListSKOS_ConfiguredNamespace(t *testing.T) {
 	exec(`INSERT INTO weave_concept_lists (id, project_id, semantic_id) VALUES ('NSCL','NSP','NSP.CL.1')`)
 	exec(`INSERT INTO weave_concept_list_entries (id, concept_list_id, vocabulary_entry_id, position) VALUES ('NJ','NSCL','NA',1)`)
 
-	svc := vocabulary.NewService(pool, nil)
+	svc := newSKOSExporter(t, pool)
 	var buf bytes.Buffer
-	if err := svc.RenderConceptListSKOS(ctx, "NSP", "NSCL", &buf); err != nil {
-		t.Fatalf("RenderConceptListSKOS: %v", err)
+	if err := svc.GenerateConceptListSKOS(ctx, auth.Draft(), "NSP", "NSCL", &buf); err != nil {
+		t.Fatalf("GenerateConceptListSKOS: %v", err)
 	}
 	out := buf.String()
 	if !strings.Contains(out, "@prefix pletka: <https://vocab.example.org/> .") {
@@ -88,4 +95,13 @@ func TestRenderConceptListSKOS_ConfiguredNamespace(t *testing.T) {
 	if !strings.Contains(out, "<https://vocab.example.org/concept/NA> a skos:Concept") {
 		t.Fatalf("concept URI not expanded with configured namespace:\n%s", out)
 	}
+}
+
+func newSKOSExporter(t *testing.T, pool *pgxpool.Pool) *generators.Service {
+	t.Helper()
+	source, err := generatorread.New(readsession.NewFactory(pool).WithSourceAuthorization(auth.CheckProjectRead), projectread.DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return generators.NewService(source, nil)
 }

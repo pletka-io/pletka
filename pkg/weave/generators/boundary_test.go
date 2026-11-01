@@ -26,6 +26,19 @@ type failingSource struct {
 	err   error
 }
 
+func TestSKOSRequiresScopeAndDoesNotPublishFailedInput(t *testing.T) {
+	failure := errors.New("retained source missing")
+	source := &failingSource{err: failure}
+	service := generators.NewService(source, nil)
+	var output bytes.Buffer
+	if err := service.GenerateConceptListSKOS(t.Context(), auth.ReadScope{}, "G", "L", &output); err == nil || source.calls != 0 {
+		t.Fatal("SKOS reached source without an explicit scope")
+	}
+	if err := service.GenerateConceptListSKOS(t.Context(), auth.Release("1"), "G", "L", &output); !errors.Is(err, failure) || source.calls != 1 || output.Len() != 0 {
+		t.Fatalf("failed source published SKOS: %v %s", err, output.String())
+	}
+}
+
 func (s *failingSource) Entity(context.Context, auth.ReadScope, string, string, string) (projectsnapshot.EntityFragment, error) {
 	s.calls++
 	return projectsnapshot.EntityFragment{}, s.err

@@ -57,9 +57,9 @@ omit its URL, and explicit release requests to the browser reuse endpoint are
 rejected. Working-view reuse first validates selected entity membership. The
 shared legacy MCP reuse builder is outside this browser migration.
 
-The existing SKOS exporter combines selected list entries with live hierarchy
-edges. Release detail pages therefore omit its link until that exporter consumes
-retained input. Its working-view link remains available.
+The [SKOS exporter](skos-export.md) uses retained list memberships, hierarchy and
+namespace through the shared generator source. Both working and release detail
+schemas expose its existing download capability, pinned to the resolved selection.
 
 Project-page metadata, credits and ontology summaries now use their own
 [bounded summary input](project-summary-reads.md). Paginated inventories and

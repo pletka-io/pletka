@@ -130,6 +130,15 @@ func TestDetailBoundaryRetainsContentAndDoesNotReadLiveEntities(t *testing.T) {
 		Capabilities ViewCapabilities `json:"capabilities"`
 		Adoptions    []AdoptionItem   `json:"adoptions"`
 	}
+	var list struct {
+		Capabilities ViewCapabilities `json:"capabilities"`
+	}
+	if err := json.Unmarshal([]byte(before[paths[4]]), &list); err != nil {
+		t.Fatal(err)
+	}
+	if list.Capabilities.ConceptList == nil || list.Capabilities.ConceptList.SkosURL != "/api/v2/projects/BROWSE/concept-lists/BROWSE.L/skos?version=9.0.0" {
+		t.Fatalf("release SKOS capability lost selection: %+v", list.Capabilities.ConceptList)
+	}
 	if err := json.Unmarshal([]byte(before[paths[0]]), &model); err != nil {
 		t.Fatal(err)
 	}

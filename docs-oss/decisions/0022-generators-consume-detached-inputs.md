@@ -67,13 +67,16 @@ projection reuse and output budgets still need measurement before broad rollout.
 
 The service, entity CSV, visualization/X3ML, integration artifacts, generator CLI
 and Arches packs use the boundary. The whole-project CSV/ZIP service now shares
-the complete-project source (amendment below). Standalone current ontology export
-and browser inventory still need migration.
+the complete-project source (amendment below). Standalone ontology exports reuse
+the packs' pure retained-artifact projection; they no longer have an independent
+current-state loader. SKOS exports use the same source's concept-list fragments
+and preserve their existing Turtle format; see [SKOS exports](../reference/skos-export.md).
 Project-qualified generator routes now support released roots absent from live
 tables. Legacy owner-relative aliases still require live owner discovery. Browser
 details use a separate [raw bounded projection](../reference/browser-detail-reads.md);
 [project summaries](../reference/project-summary-reads.md) also use bounded
-detached inputs. Paginated inventories and adoption closure remain separate work.
+detached inputs. [Paginated inventories and adoption closure](../reference/project-inventory-reads.md)
+also use selected inputs.
 This decision does not enable capture-aware mutations on normal HTTP/MCP traffic.
 
 The [HTTP route contract](../reference/generator-routes.md) describes explicit

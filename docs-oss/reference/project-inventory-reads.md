@@ -139,8 +139,9 @@ Run it after building frontend assets with
 `PLETKA_EXAMPLE_BROWSER=1 bash test/integration.sh ./pkg/weave/projectpage -run TestCatalogInventoriesAndExampleSchemaRetainRelease -count=1 -v`.
 
 
-SKOS/standalone ontology exports, remaining slice reader migrations and
-capture-aware mutation rollout are separate work.
+[SKOS exports](skos-export.md) now consume retained fragments through the shared
+generator source. Remaining slice reader migrations, performance qualification
+and capture-aware mutation rollout are separate work.
 
 See [project summaries](project-summary-reads.md),
 [browser details](browser-detail-reads.md) and

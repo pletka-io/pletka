@@ -465,6 +465,12 @@ open a transaction per model. Source authorization still belongs to the factory.
 The renderer import ratchet forbids new database/service capabilities. See
 [ADR-0022](../decisions/0022-generators-consume-detached-inputs.md).
 
+SKOS uses the same source with a bounded concept-list fragment. Its pure projection
+reads retained memberships, scheme edges, labels and the list owner's effective
+concept namespace; it has no vocabulary editing service or query capability.
+The existing Turtle response and schema download link are reused in both states.
+See [SKOS exports](../reference/skos-export.md).
+
 The separate whole-project CSV verification exporter now reuses this complete
 source. It retains a narrow current-project lookup for authorization only;
 projection and all eight ZIP entries use captured content. Active ontology policy

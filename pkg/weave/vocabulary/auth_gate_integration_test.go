@@ -41,7 +41,7 @@ func TestSearchConceptListEntries_AuthGate(t *testing.T) {
 
 	serve := func(vis, listID string) int {
 		r := chi.NewRouter()
-		vocabulary.Mount(r, vocabulary.Host{Inventory: &browserread.Source{}, LatestRelease: fakeProjectReader{}, Service: svc, Projects: fakeProjectReader{visibility: vis}})
+		vocabulary.Mount(r, vocabulary.Host{SKOS: newSKOSExporter(t, pool), Inventory: &browserread.Source{}, LatestRelease: fakeProjectReader{}, Service: svc, Projects: fakeProjectReader{visibility: vis}})
 		req := httptest.NewRequest(http.MethodGet, "/api/v2/concept-lists/"+listID+"/entries/search?q=x", nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
