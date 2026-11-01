@@ -33,3 +33,29 @@ SELECT EXISTS (SELECT 1 FROM entities WHERE entity_type = @entity_type::text AND
 SELECT * FROM weave_release_dependency_entities
 WHERE project_id = @project_id::text AND version_number = @version::text
 ORDER BY entity_type, entity_id;
+
+-- name: WeaveFirstMissingReleaseDependencyEntity :one
+-- The caller validates the complete project closure, authorization and every
+-- member's source pin first, on the same repeatable-read transaction.
+WITH entities AS (
+    SELECT 'project'::text AS entity_type, id, id AS project_id, version_number FROM weave_projects_archive
+    UNION ALL SELECT 'field', id, project_id, version_number FROM weave_fields_archive
+    UNION ALL SELECT 'model', id, project_id, version_number FROM weave_models_archive
+    UNION ALL SELECT 'collection', id, project_id, version_number FROM weave_collections_archive
+    UNION ALL SELECT 'category', id, project_id, version_number FROM weave_categories_archive
+    UNION ALL SELECT 'concept_list', id, project_id, version_number FROM weave_concept_lists_archive
+    UNION ALL SELECT 'example', id, project_id, version_number FROM weave_examples_archive
+    UNION ALL SELECT 'override', id::text, project_id, version_number FROM weave_field_overrides_archive
+    UNION ALL SELECT 'vocabulary', id, project_id, version_number FROM weave_vocabularies_archive
+    UNION ALL SELECT 'vocabulary_entry', e.id, v.project_id, e.version_number
+        FROM weave_vocabulary_entries_archive e JOIN weave_vocabularies_archive v ON v.id = e.vocabulary_id AND v.version_number = e.version_number
+)
+SELECT d.* FROM weave_release_dependency_entities d
+WHERE d.project_id = @project_id::text AND d.version_number = @version::text
+  AND NOT EXISTS (
+    SELECT 1 FROM entities e
+    WHERE e.entity_type = d.entity_type AND e.id = d.entity_id
+      AND e.project_id = d.source_project_id AND e.version_number = d.source_version
+  )
+ORDER BY d.entity_type, d.entity_id
+LIMIT 1;

@@ -52,7 +52,7 @@ func TestDependencyQueryPackagesAreSelectOnlyAndStateSpecific(t *testing.T) {
 	queryNames := regexp.MustCompile(`-- name: (\w+)`)
 	allowed := map[string]map[string]bool{
 		"draft":   {"WeaveDraftDependencyReferences": true, "WeaveDraftDependencyEntityOwner": true, "WeaveLatestDependencyRelease": true, "WeaveDraftFollowingDependencies": true},
-		"archive": {"WeaveReleaseDependencyState": true, "WeaveListReleaseProjectDependencies": true, "WeaveGetReleaseDependencyEntity": true, "WeaveListReleaseDependencyEntities": true, "WeaveReleaseContainsDependencyEntity": true},
+		"archive": {"WeaveReleaseDependencyState": true, "WeaveListReleaseProjectDependencies": true, "WeaveGetReleaseDependencyEntity": true, "WeaveListReleaseDependencyEntities": true, "WeaveReleaseContainsDependencyEntity": true, "WeaveFirstMissingReleaseDependencyEntity": true},
 	}
 	writes := regexp.MustCompile(`(?i)\b(?:INSERT|UPDATE|DELETE|MERGE|TRUNCATE|CALL|CREATE|ALTER|DROP)\b`)
 	tables := regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+(weave_[a-z_]+)`)
@@ -102,5 +102,33 @@ func TestDependencyQueryPackagesAreSelectOnlyAndStateSpecific(t *testing.T) {
 	}
 	if strings.Join(strings.Fields(strings.Join(lines, " ")), " ") != "SELECT id, owner_id, visibility FROM weave_projects WHERE id = @project_id::text;" {
 		t.Fatal("source authorization gained content columns or a different policy source")
+	}
+}
+
+// Capture's individual lookup and retained reads' batch check must agree on
+// supported kinds, ownership and textual source-version joins.
+func TestDependencyMembershipQueriesShareArchiveIdentity(t *testing.T) {
+	path := filepath.Join(repoRoot(t), "pkg/database/queries/read_dependency_archive/dependency_archive.sql")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries := strings.Split(string(data), "-- name: ")
+	definitions := map[string]string{}
+	for _, query := range queries[1:] {
+		name := strings.Fields(query)[0]
+		start := strings.Index(query, "WITH entities AS (")
+		if start < 0 {
+			continue
+		}
+		end := strings.Index(query[start:], "\n)\n")
+		if end < 0 {
+			t.Fatal("missing archive identity definition")
+		}
+		definitions[name] = strings.Join(strings.Fields(query[start:start+end]), " ")
+	}
+	want := definitions["WeaveReleaseContainsDependencyEntity"]
+	if want == "" || definitions["WeaveFirstMissingReleaseDependencyEntity"] != want {
+		t.Fatal("scalar and batch membership checks disagree on archive identities")
 	}
 }

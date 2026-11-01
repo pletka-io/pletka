@@ -2,8 +2,11 @@ package releasedeps
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	archive "github.com/pletka-io/pletka/pkg/database/readsql/dependencyarchive"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
@@ -45,14 +48,19 @@ func ReadCaptured(ctx context.Context, queries archive.Querier, project, version
 			return Plan{}, unavailable("entity dependency has no matching project pin")
 		}
 		key := entityKey{e.EntityType, e.EntityID}
-		exists, err := c.contains(ctx, e.SourceProjectID, e.SourceVersion, key)
-		if err != nil {
+		membership[key] = e.SourceProjectID
+	}
+	// All source authorization and pin checks precede the batched body lookup.
+	// Query the captured inventory itself on this transaction, rather than
+	// reconstructing identity arrays or selecting any current source state.
+	if len(entities) > 0 {
+		missing, err := queries.WeaveFirstMissingReleaseDependencyEntity(ctx, archive.WeaveFirstMissingReleaseDependencyEntityParams{ProjectID: project, Version: version})
+		if err == nil {
+			return Plan{}, unavailable("%s %s is not in source release %s@%s", missing.EntityType, missing.EntityID, missing.SourceProjectID, missing.SourceVersion)
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return Plan{}, err
 		}
-		if !exists {
-			return Plan{}, unavailable("%s %s is not in source release %s@%s", key.kind, key.id, e.SourceProjectID, e.SourceVersion)
-		}
-		membership[key] = e.SourceProjectID
 	}
 	return Plan{pins: c.pins, entities: membership}, nil
 }

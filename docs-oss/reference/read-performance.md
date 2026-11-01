@@ -46,6 +46,17 @@ for exact transport, not repeated interpretation in renderers. Generator boundar
 tests guard that distinction. These are internal Go values, not new wire formats
 or global caches.
 
+Captured dependency reads validate the complete source closure, current source
+authorization and every member's source pin before checking archived bodies.
+One query per nonempty retained inventory finds the first missing member in
+kind/ID order. It reads that inventory and the exact source archives on the same
+transaction; it does not build caller-supplied identity arrays or select latest
+versions. A missing/unknown kind, wrong owner/version or query failure returns no
+partial plan. Source-project checks still run separately. Capture and draft
+planning retain their individual identity lookups; a conformance test keeps the
+scalar and batch archive identity definitions aligned. Query-count regressions
+exercise a large captured membership without timing thresholds in unit tests.
+
 Entity assembly discovers dependencies using only newly selected identities in
 each round and queries the sections affected by those selectors. Already returned
 vocabulary child identities do not trigger another discovery read when the central

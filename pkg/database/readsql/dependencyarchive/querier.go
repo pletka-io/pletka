@@ -9,6 +9,9 @@ import (
 )
 
 type Querier interface {
+	// The caller validates the complete project closure, authorization and every
+	// member's source pin first, on the same repeatable-read transaction.
+	WeaveFirstMissingReleaseDependencyEntity(ctx context.Context, arg WeaveFirstMissingReleaseDependencyEntityParams) (WeaveReleaseDependencyEntity, error)
 	WeaveGetReleaseDependencyEntity(ctx context.Context, arg WeaveGetReleaseDependencyEntityParams) (WeaveReleaseDependencyEntity, error)
 	WeaveListReleaseDependencyEntities(ctx context.Context, arg WeaveListReleaseDependencyEntitiesParams) ([]WeaveReleaseDependencyEntity, error)
 	WeaveListReleaseProjectDependencies(ctx context.Context, arg WeaveListReleaseProjectDependenciesParams) ([]WeaveReleaseProjectDependency, error)
