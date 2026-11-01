@@ -46,6 +46,19 @@ for exact transport, not repeated interpretation in renderers. Generator boundar
 tests guard that distinction. These are internal Go values, not new wire formats
 or global caches.
 
+Local ontology summaries, usage counts and reference matching read the immutable
+`context_document` retained beside a legacy snapshot. Capture and history import
+validate that context against the owned archive. Queries still require the selected
+project/version and matching full-snapshot receipt; they do not parse embedded
+source contexts for a local facet. Parent summaries bind each source separately.
+Complete assembly and transport retain the full document and its closure checks.
+
+Evidence hashing uses bounded scratch space while preserving the exact SHA256
+bytes. Reference assessment scans project and body alias registries separately,
+avoiding a combined copy for every reference. Both registries remain complete;
+conflicting aliases still produce ambiguity. Allocation profiles should distinguish
+these temporary copies from retained graph memory and serialized-byte budgets.
+
 Captured dependency reads validate the complete source closure, current source
 authorization and every member's source pin before checking archived bodies.
 One query per nonempty retained inventory finds the first missing member in

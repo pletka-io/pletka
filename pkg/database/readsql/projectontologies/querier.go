@@ -12,6 +12,10 @@ import (
 type Querier interface {
 	BrowserMatchOntologyReferences(ctx context.Context, arg BrowserMatchOntologyReferencesParams) ([]BrowserMatchOntologyReferencesRow, error)
 	BrowserOntologyUsage(ctx context.Context, arg BrowserOntologyUsageParams) ([]BrowserOntologyUsageRow, error)
+	// Local summary facets use the immutable context stored alongside the full
+	// snapshot. Capture/import validates this context against the owned archive;
+	// the full snapshot digest still binds it to the selected content receipt.
+	// Avoid parsing embedded source contexts when reading only local evidence.
 	BrowserOwnOntologySummaries(ctx context.Context, arg BrowserOwnOntologySummariesParams) ([]BrowserOwnOntologySummariesRow, error)
 	BrowserSummaryEvidence(ctx context.Context, arg BrowserSummaryEvidenceParams) (bool, error)
 	ProjectOntologyArtifacts(ctx context.Context, arg ProjectOntologyArtifactsParams) ([]ProjectOntologyArtifactsRow, error)

@@ -22,17 +22,16 @@ func assess(ref TermReference, inventory []Body, bodies []bodyDocument, aliases 
 		if ref.VersionID != "" && ref.VersionID != pin.VersionID {
 			continue
 		}
-		bindings := append(slices.Clone(aliases), body.Bindings...)
 		terms := body.Classes
 		if ref.Kind == propertyKind {
 			terms = body.Properties
 		}
 		seen := map[string]bool{}
 		for _, t := range terms {
-			if ref.URI != "" && !namespace.MatchesTerm(ref.URI, t.URI, t.Prefix, t.LocalName, bindings) {
+			if ref.URI != "" && !matchesTerm(ref.URI, t, aliases, body.Bindings) {
 				continue
 			}
-			if ref.Prefix != "" && !namespace.MatchesTerm(ref.Prefix+":"+ref.LocalName, t.URI, t.Prefix, t.LocalName, bindings) {
+			if ref.Prefix != "" && !matchesTerm(ref.Prefix+":"+ref.LocalName, t, aliases, body.Bindings) {
 				continue
 			}
 			if !seen[t.URI] {
@@ -55,6 +54,13 @@ func assess(ref TermReference, inventory []Body, bodies []bodyDocument, aliases 
 	default:
 		return Ambiguous, matches
 	}
+}
+
+// Matching is existential over the complete alias registry. Inspect both
+// immutable slices without copying or collapsing conflicting namespaces.
+func matchesTerm(reference string, t term, project, body []namespace.Binding) bool {
+	return namespace.MatchesTerm(reference, t.URI, t.Prefix, t.LocalName, project) ||
+		namespace.MatchesTerm(reference, t.URI, t.Prefix, t.LocalName, body)
 }
 
 func invalidReference(ref TermReference, inventory []Body) bool {

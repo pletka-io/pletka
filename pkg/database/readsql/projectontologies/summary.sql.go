@@ -21,7 +21,7 @@ WITH retained AS (
  SELECT b->>'version_id',(b->>'body_json')::jsonb,b->>'digest' FROM weave_legacy_ontology_snapshots s
  JOIN weave_releases r ON r.project_id=s.project_id AND r.version=s.version_number AND r.content_capture_version=2
    AND s.digest=r.content_capture_receipt->>'ontology_snapshot_digest',
- LATERAL jsonb_array_elements(s.document::jsonb->'inventory') b
+ LATERAL jsonb_array_elements(s.context_document::jsonb->'inventory') b
  WHERE s.project_id = $2::text AND s.version_number = $3::text
 ), body AS (SELECT ontology_version_id AS version_id,body AS b FROM retained WHERE ontology_version_id=ANY($1::text[])), terms AS (
  SELECT version_id,'class'::text AS kind,t FROM body,LATERAL jsonb_array_elements(b->'classes') t
@@ -86,12 +86,12 @@ WITH refs AS (
  SELECT e->'candidates'->0->>'version_id',e->'candidates'->0->>'uri',e->'reference'->>'kind'
  FROM weave_legacy_ontology_snapshots s JOIN weave_releases r ON r.project_id=s.project_id AND r.version=s.version_number AND r.content_capture_version=2
    AND s.digest=r.content_capture_receipt->>'ontology_snapshot_digest',
- LATERAL jsonb_array_elements(s.document::jsonb->'assessments') e
+ LATERAL jsonb_array_elements(s.context_document::jsonb->'assessments') e
  WHERE s.project_id = $1::text AND s.version_number = $2::text AND e->>'status'='resolved'
 )
 SELECT selected.version_id::text AS version_id,count(DISTINCT uri) FILTER(WHERE kind='class')::integer AS classes,
        count(DISTINCT uri) FILTER(WHERE kind='property')::integer AS properties,
-       NOT EXISTS(SELECT 1 FROM weave_legacy_ontology_snapshots s,LATERAL jsonb_array_elements(s.document::jsonb->'assessments') e
+       NOT EXISTS(SELECT 1 FROM weave_legacy_ontology_snapshots s,LATERAL jsonb_array_elements(s.context_document::jsonb->'assessments') e
          WHERE s.project_id = $1::text AND s.version_number = $2::text AND e->>'status'<>'resolved') AS known
 FROM unnest($3::text[]) selected(version_id) LEFT JOIN refs ON refs.version_id=selected.version_id
 GROUP BY selected.version_id ORDER BY selected.version_id
@@ -146,7 +146,7 @@ WITH retained AS (
  SELECT b->>'version_id',(b->>'body_json')::jsonb,b->>'digest' FROM weave_legacy_ontology_snapshots s
  JOIN weave_releases r ON r.project_id=s.project_id AND r.version=s.version_number AND r.content_capture_version=2
    AND s.digest=r.content_capture_receipt->>'ontology_snapshot_digest',
- LATERAL jsonb_array_elements(s.document::jsonb->'inventory') b
+ LATERAL jsonb_array_elements(s.context_document::jsonb->'inventory') b
  WHERE s.project_id = $2::text AND s.version_number = $3::text
 ), bodies AS (
  SELECT l.ontology_version_id,r.body,r.digest FROM weave_project_ontology_versions_archive l
@@ -173,6 +173,10 @@ type BrowserOwnOntologySummariesRow struct {
 	Present           bool            `json:"present"`
 }
 
+// Local summary facets use the immutable context stored alongside the full
+// snapshot. Capture/import validates this context against the owned archive;
+// the full snapshot digest still binds it to the selected content receipt.
+// Avoid parsing embedded source contexts when reading only local evidence.
 func (q *Queries) BrowserOwnOntologySummaries(ctx context.Context, arg BrowserOwnOntologySummariesParams) ([]BrowserOwnOntologySummariesRow, error) {
 	rows, err := q.db.Query(ctx, browserOwnOntologySummaries, arg.RowLimit, arg.ProjectID, arg.Version)
 	if err != nil {

@@ -145,7 +145,18 @@ type Document struct {
 	Dependencies  []Dependency        `json:"dependencies"`
 }
 
-func hash(s string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(s))) }
+func hash(s string) string {
+	// Evidence can contain large embedded source documents. Hash the exact bytes
+	// through a bounded scratch buffer instead of allocating a second full copy.
+	h := sha256.New()
+	var block [32 * 1024]byte
+	for len(s) > 0 {
+		n := copy(block[:], s)
+		_, _ = h.Write(block[:n]) // SHA256 writes never fail.
+		s = s[n:]
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
 
 // Decode checks format, identity, body hashes, source contexts, reference
 // coverage and assessments. It does not promote local evidence to publication.
