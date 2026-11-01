@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/browserhttp"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
@@ -22,6 +23,7 @@ import (
 type LangResolver func(r *http.Request) string
 
 type Handler struct {
+	inventory browserhttp.Handler
 	svc       *Service
 	projects  auth.ProjectReader
 	logger    *slog.Logger
@@ -118,42 +120,11 @@ func (h *Handler) ListProjectVocabularies(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) ListProjectConceptLists(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
-	items, err := h.svc.ListProjectConceptLists(r.Context(), projectID)
-	if err != nil {
-		h.logger.Error("list concept lists failed", "err", err, "project_id", projectID)
-		apierror.Write(w, r, apierror.Internal(err))
-		return
-	}
-	items = filterConceptLists(
-		items,
-		r.URL.Query().Get("search"),
-		r.URL.Query().Get("status"),
-		r.URL.Query().Get("vocabulary_id"),
-	)
-	sortConceptLists(items, r.URL.Query().Get("sort_by"), r.URL.Query().Get("sort_dir") == "desc")
-	total := len(items)
-	page, perPage := paginationParams(r)
-	items = paginate(items, page, perPage)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"items":         items,
-		"concept_lists": items,
-		"total":         total,
-		"page":          page,
-		"per_page":      perPage,
-	})
+	h.inventory.List(w, r, "concept_list")
 }
 
 func (h *Handler) ConceptListVocabularyFilterOptions(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
-	items, err := h.svc.ListProjectConceptLists(r.Context(), projectID)
-	if err != nil {
-		h.logger.Error("list concept list vocabulary filters failed", "err", err, "project_id", projectID)
-		apierror.Write(w, r, apierror.Internal(err))
-		return
-	}
-	options := conceptListVocabularyFilterOptions(items)
-	writeJSON(w, http.StatusOK, map[string]any{"options": options})
+	h.inventory.Filters(w, r, "concept_list", "vocabulary")
 }
 
 func (h *Handler) ConceptListCreateFormSchema(w http.ResponseWriter, r *http.Request) {
@@ -619,42 +590,6 @@ func paginationParams(r *http.Request) (int, int) {
 	return page, perPage
 }
 
-func filterConceptLists(items []ConceptListView, query, statusRaw, vocabularyRaw string) []ConceptListView {
-	query = strings.ToLower(strings.TrimSpace(query))
-	statuses := parseCSVSet(statusRaw)
-	vocabularies := parseCSVSet(vocabularyRaw)
-	if query == "" && len(statuses) == 0 && len(vocabularies) == 0 {
-		return items
-	}
-	out := items[:0]
-	for _, item := range items {
-		if len(statuses) > 0 && !statuses[item.Status] {
-			continue
-		}
-		if len(vocabularies) > 0 && (item.VocabularyID == nil || !vocabularies[*item.VocabularyID]) {
-			continue
-		}
-		if query != "" {
-			haystack := strings.ToLower(strings.Join([]string{
-				item.ID,
-				item.SemanticID,
-				item.SystemName,
-				item.Status,
-				item.VocabularyLabel,
-				item.ListTypeLabel,
-				item.ListTypeURI,
-				translationsText(item.UIName),
-				translationsText(item.Description),
-			}, " "))
-			if !strings.Contains(haystack, query) {
-				continue
-			}
-		}
-		out = append(out, item)
-	}
-	return out
-}
-
 func filterAdminVocabularies(items []AdminVocabularyView, query, statusRaw, connectorRaw string) []AdminVocabularyView {
 	query = strings.ToLower(strings.TrimSpace(query))
 	statuses := parseCSVSet(statusRaw)
@@ -708,58 +643,6 @@ func parseCSVSet(raw string) map[string]bool {
 	return out
 }
 
-func conceptListVocabularyFilterOptions(items []ConceptListView) []formschema.FilterOption {
-	type option struct {
-		value string
-		label string
-	}
-	seen := map[string]option{}
-	for _, item := range items {
-		if item.VocabularyID == nil || strings.TrimSpace(*item.VocabularyID) == "" {
-			continue
-		}
-		label := strings.TrimSpace(item.VocabularyLabel)
-		if label == "" {
-			label = *item.VocabularyID
-		}
-		seen[*item.VocabularyID] = option{value: *item.VocabularyID, label: label}
-	}
-	values := make([]option, 0, len(seen))
-	for _, opt := range seen {
-		values = append(values, opt)
-	}
-	sort.SliceStable(values, func(i, j int) bool {
-		if values[i].label == values[j].label {
-			return values[i].value < values[j].value
-		}
-		return values[i].label < values[j].label
-	})
-	out := make([]formschema.FilterOption, 0, len(values))
-	for _, opt := range values {
-		out = append(out, formschema.FilterOption{
-			Value: opt.value,
-			Label: domain.Translations{"en": opt.label},
-		})
-	}
-	return out
-}
-
-func sortConceptLists(items []ConceptListView, sortBy string, desc bool) {
-	if strings.TrimSpace(sortBy) == "" {
-		sortBy = "ui_name"
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		left, right := conceptListSortValue(items[i], sortBy), conceptListSortValue(items[j], sortBy)
-		if left == right {
-			left, right = items[i].SemanticID, items[j].SemanticID
-		}
-		if desc {
-			return left > right
-		}
-		return left < right
-	})
-}
-
 func sortAdminVocabularies(items []AdminVocabularyView, sortBy string, desc bool) {
 	if strings.TrimSpace(sortBy) == "" {
 		sortBy = "ui_name"
@@ -774,25 +657,6 @@ func sortAdminVocabularies(items []AdminVocabularyView, sortBy string, desc bool
 		}
 		return left < right
 	})
-}
-
-func conceptListSortValue(item ConceptListView, sortBy string) string {
-	switch sortBy {
-	case "semantic_id":
-		return item.SemanticID
-	case "system_name":
-		return item.SystemName
-	case "status":
-		return item.Status
-	case "vocabulary":
-		return item.VocabularyLabel
-	case "entries":
-		return leftPadInt(item.EntryCount)
-	case "bound_fields":
-		return leftPadInt(item.BoundFieldCount)
-	default:
-		return translationsText(item.UIName)
-	}
 }
 
 func adminVocabularySortValue(item AdminVocabularyView, sortBy string) string {

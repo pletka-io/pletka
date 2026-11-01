@@ -8,20 +8,29 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/browserhttp"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	weaveadmin "github.com/pletka-io/pletka/pkg/weave/admin"
 )
 
 type Host struct {
-	Service      *Service
-	Projects     auth.ProjectReader
-	Logger       *slog.Logger
-	Languages    []formschema.LanguageInfo
-	LangResolver LangResolver
+	Inventory     browserhttp.Source
+	LatestRelease auth.LatestReleaseReader
+	Service       *Service
+	Projects      auth.ProjectReader
+	Logger        *slog.Logger
+	Languages     []formschema.LanguageInfo
+	LangResolver  LangResolver
 }
 
 func (h Host) Validate() error {
 	var missing []string
+	if h.LatestRelease == nil {
+		missing = append(missing, "LatestRelease")
+	}
+	if h.Inventory == nil {
+		missing = append(missing, "Inventory")
+	}
 	if h.Service == nil {
 		missing = append(missing, "Service")
 	}
@@ -39,6 +48,7 @@ func Mount(parent chi.Router, host Host) {
 		panic(err)
 	}
 	h := NewHandler(host.Service, host.Projects, host.Logger, host.Languages, host.LangResolver)
+	h.inventory = browserhttp.Handler{Source: host.Inventory, Lang: host.LangResolver}
 
 	parent.Get("/api/v2/vocabularies/{vocabularyID}/entries/search", h.SearchVocabularyEntries)
 	parent.Get("/api/v2/vocabularies/{vocabularyID}/roots", h.VocabularyRoots)
@@ -48,10 +58,10 @@ func Mount(parent chi.Router, host Host) {
 	parent.With(weaveadmin.RequireSuperAdmin).Get("/admin/vocabularies/data", h.AdminVocabularyData)
 
 	parent.With(auth.RequireProjectRead(host.Projects)).Get("/api/v2/projects/{projectID}/vocabularies", h.ListProjectVocabularies)
-	parent.With(auth.RequireProjectRead(host.Projects)).Get("/api/v2/projects/{projectID}/concept-lists", h.ListProjectConceptLists)
+	parent.With(auth.RequireProjectRead(host.Projects), auth.WithProjectVersionContext, auth.ResolveContentVersion(host.LatestRelease)).Get("/api/v2/projects/{projectID}/concept-lists", h.ListProjectConceptLists)
 	parent.With(auth.RequireProjectEdit(host.Projects)).Get("/api/v2/projects/{projectID}/concept-lists/form-schema", h.ConceptListCreateFormSchema)
 	parent.With(auth.RequireProjectEdit(host.Projects)).Post("/api/v2/projects/{projectID}/concept-lists", h.CreateProjectConceptList)
-	parent.With(auth.RequireProjectRead(host.Projects)).Get("/api/v2/projects/{projectID}/concept-lists/filters/vocabularies", h.ConceptListVocabularyFilterOptions)
+	parent.With(auth.RequireProjectRead(host.Projects), auth.WithProjectVersionContext, auth.ResolveContentVersion(host.LatestRelease)).Get("/api/v2/projects/{projectID}/concept-lists/filters/vocabularies", h.ConceptListVocabularyFilterOptions)
 	parent.With(auth.RequireProjectRead(host.Projects)).Get("/api/v2/projects/{projectID}/concept-lists/{listID}", h.GetProjectConceptList)
 	parent.With(auth.RequireProjectRead(host.Projects)).Get("/api/v2/projects/{projectID}/concept-lists/{listID}/skos", h.ExportConceptListSKOS)
 	parent.With(auth.RequireProjectEdit(host.Projects)).Get("/api/v2/projects/{projectID}/concept-lists/{listID}/form-schema", h.ConceptListEditFormSchema)

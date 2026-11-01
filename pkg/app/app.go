@@ -258,7 +258,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	browserSource := buildBrowserSource(opts)
 	projectPagesHost := buildProjectPagesHost(logger, templateRenderer, weaveStore, i18nManager, sessionManager, publicationReader, browserSource)
 	searchHost := buildSearchHost(weaveStore, logger, publicationReader)
-	vocabularyHost := buildVocabularyHost(opts.Pool, weaveStore, logger, languages, langResolver, opts.VocabularyServiceURL)
+	vocabularyHost := buildVocabularyHost(opts.Pool, weaveStore, logger, languages, langResolver, opts.VocabularyServiceURL, browserSource, publicationReader)
 	entitySchemaHost := buildEntitySchemaHost(weaveStore, logger, languages, langResolver, i18nManager, organizationHost, publicationReader)
 	releaseHost := buildReleaseHost(opts.Pool, logger, languages, langResolver, opts.ModuleHost, opts.OntologyHost)
 	projectPageHost := buildProjectPageHost(weaveStore, logger, languages, langResolver, i18nManager, publicationReader, releaseHost.Service, browserSource)
@@ -283,7 +283,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		logger.Warn("git materializer failed to start", "err", err)
 	}
 	membersHost := buildMembersHost(opts.Pool, logger, languages, langResolver)
-	exampleHost := buildExampleHost(opts.Pool, weaveStore, logger, languages, langResolver, opts.ExamplesMaxNestingDepth)
+	exampleHost := buildExampleHost(opts.Pool, weaveStore, logger, languages, langResolver, opts.ExamplesMaxNestingDepth, browserSource)
 	namespaceBindingHost, namespaceSvc := buildNamespaceBindingHost(opts.Pool, logger, changeLog, languages, langResolver)
 	projectOntologyVersionHost := buildProjectOntologyVersionHost(
 		opts.Pool,

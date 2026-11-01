@@ -122,35 +122,14 @@ func TestHandlerDetailUnknownIDIs404ForBrowsersToo(t *testing.T) {
 	}
 }
 
-// TestHandlerListCarriesModelName verifies list rows name the target model
-// next to its id (George: "you have to have memorized the Pletka numbers").
-func TestHandlerListCarriesModelName(t *testing.T) {
-	store := newFakeStore()
-	seedExample(t, store, "LA", "01EXAMPLE")
-	views := namingViews{
-		fakeViews: fakeViews{models: map[string]*domain.ModelView{"M1": singleFieldModelView(11, "F1", "String", false, 0, nil)}},
-		names:     map[string]domain.Translations{"M1": {"en": "Physical Thing"}},
-	}
-	h := NewHandler(NewService(store, views), nil, nil, nil)
-	req := httptest.NewRequestWithContext(auth.WithReadScope(context.Background(), auth.Draft()), http.MethodGet, "/LA/examples", nil)
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("projectID", "LA")
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
-	rec := httptest.NewRecorder()
-	h.List(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d; body=%s", rec.Code, rec.Body.String())
-	}
-	var out struct {
-		Items []struct {
-			EntityID   string `json:"entity_id"`
-			EntityName string `json:"entity_name"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out.Items) != 1 {
-		t.Fatalf("body = %s (err %v)", rec.Body.String(), err)
-	}
-	if out.Items[0].EntityName != "Physical Thing" || out.Items[0].EntityID != "M1" {
-		t.Fatalf("row = %+v", out.Items[0])
+func TestEditingServiceCannotValidateReleasedContent(t *testing.T) {
+	svc := NewService(nil, nil)
+	for _, scope := range []auth.ReadScope{{}, auth.Release("1.0.0")} {
+		if _, err := svc.Get(t.Context(), scope, "P", "E"); err == nil {
+			t.Fatal("live validation accepted a non-draft scope")
+		}
+		if _, err := svc.BuildFormSchema(t.Context(), scope, "P", "create", "model", "M", "", "en", nil); err == nil {
+			t.Fatal("live form accepted a non-draft scope")
+		}
 	}
 }

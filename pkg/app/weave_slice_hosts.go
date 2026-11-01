@@ -386,8 +386,11 @@ func buildVocabularyHost(
 	languages []formschema.LanguageInfo,
 	langResolver vocabulary.LangResolver,
 	vocabServiceURL string,
+	source *browserread.Source,
+	latest auth.LatestReleaseReader,
 ) vocabulary.Host {
 	return vocabulary.Host{
+		Inventory: source, LatestRelease: latest,
 		Service:      vocabulary.NewService(pool, registry.New(http.DefaultClient, vocabServiceURL), weave),
 		Projects:     weave.Projects(),
 		Logger:       logger,
@@ -779,8 +782,10 @@ func buildExampleHost(
 	languages []formschema.LanguageInfo,
 	langResolver example.LangResolver,
 	examplesMaxNestingDepth int,
+	source *browserread.Source,
 ) example.Host {
 	return example.Host{
+		Browser:      source,
 		Service:      example.NewService(example.NewPostgresStore(pool), weave, example.WithMaxNestingDepth(examplesMaxNestingDepth)),
 		Projects:     weave.Projects(),
 		Logger:       logger,

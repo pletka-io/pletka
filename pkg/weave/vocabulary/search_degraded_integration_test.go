@@ -12,6 +12,7 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/service/browserread"
 	"github.com/pletka-io/pletka/pkg/weave/vocabconnector/registry"
 	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
@@ -40,7 +41,7 @@ func TestSearchVocabularyEntries_Degraded(t *testing.T) {
 	// Both vocabularies are project-owned (DEGP) now that there is no global
 	// tier; "public" visibility keeps the anonymous request in this test
 	// readable, matching the pre-ownership behaviour for a global vocabulary.
-	vocabulary.Mount(r, vocabulary.Host{Service: svc, Projects: fakeProjectReader{visibility: "public"}})
+	vocabulary.Mount(r, vocabulary.Host{Inventory: &browserread.Source{}, LatestRelease: fakeProjectReader{}, Service: svc, Projects: fakeProjectReader{visibility: "public"}})
 
 	search := func(vocabularyID string) (int, map[string]any) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v2/vocabularies/"+vocabularyID+"/entries/search?q=term", nil)
@@ -117,7 +118,7 @@ func TestSearchConceptListSourceEntries_Degraded(t *testing.T) {
 	mustExec(t, pool, `INSERT INTO weave_concept_lists (id, project_id) VALUES ('CLSRCQNONE','SRCQ')`)
 
 	r := chi.NewRouter()
-	vocabulary.Mount(r, vocabulary.Host{Service: svc, Projects: fakeProjectReader{}})
+	vocabulary.Mount(r, vocabulary.Host{Inventory: &browserread.Source{}, LatestRelease: fakeProjectReader{}, Service: svc, Projects: fakeProjectReader{}})
 
 	// The route is behind RequireProjectEdit; a super-admin snapshot satisfies
 	// the gate without standing up a role fixture, which this test is not about.

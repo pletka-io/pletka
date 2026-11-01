@@ -3,7 +3,7 @@ import type { EntityListSchema } from '$lib/types/entity-list-schema';
 
 export type EntityListEditorProps = {
   schema: EntityListSchema;
-  mode: 'create' | 'edit';
+  mode: 'create' | 'edit' | 'view';
   itemId?: string;
   lang: string;
   /** savedId lets the list keep the saved item visible after reload. */

@@ -160,7 +160,7 @@ func refKind(kind string) string {
 // Only compact merge keys are read before pagination; bodies are hydrated for that page.
 func (s *Source) Inventory(ctx context.Context, scope auth.ReadScope, project, kind string, q browserinput.InventoryQuery) (browserinput.Inventory, error) {
 	var out browserinput.Inventory
-	if !inventoryKind(kind) {
+	if !inventoryKind(kind) && kind != catalogConceptList && kind != catalogExample {
 		return out, fmt.Errorf("unsupported inventory kind %q", kind)
 	}
 	if q.Page < 1 || q.PerPage < 1 || q.PerPage > 1000 || q.Page > 20000/q.PerPage {
@@ -170,6 +170,11 @@ func (s *Source) Inventory(ctx context.Context, scope auth.ReadScope, project, k
 		return out, fmt.Errorf("inventory source is uninitialized")
 	}
 	err := s.sessions.Read(ctx, scope, project, func(root *readsession.Session) error {
+		if kind == catalogConceptList || kind == catalogExample {
+			var err error
+			out, err = catalogInventory(ctx, root, kind, q)
+			return err
+		}
 		state, err := newInventoryState(ctx, root)
 		if err != nil {
 			return err
@@ -447,11 +452,11 @@ func (s *inventoryState) decorate(row browserinput.InventoryRow, bound *readsess
 	return row
 }
 func inventoryURL(bound *readsession.Session, kind, id string) string {
-	v := bound.Scope().Version()
-	if v == "" {
-		v = "draft"
+	path := "/projects/" + url.PathEscape(bound.ProjectID()) + "/" + kind + "s/" + url.PathEscape(id)
+	if v := bound.Scope().Version(); v != "" {
+		path += "?version=" + url.QueryEscape(v)
 	}
-	return "/projects/" + url.PathEscape(bound.ProjectID()) + "/" + kind + "s/" + url.PathEscape(id) + "?version=" + url.QueryEscape(v)
+	return path
 }
 
 // Counts scan the consumer's relation index once for the selected page.

@@ -85,7 +85,7 @@ func (h *Handler) decorateDetail(ctx context.Context, value projectedDetail) *Re
 		if canEdit && e.Origin.Kind == domain.OriginInherited {
 			c.AdoptURL = base + "/adopt"
 		}
-		c.ExamplesSchemaURL = capabilityURL(value.Consumer.IsDraft(), fmt.Sprintf("/projects/%s/entity-list-schema/example?entity_type=model&entity_id=%s", project, e.ID))
+		c.ExamplesSchemaURL = withVersion(fmt.Sprintf("/projects/%s/entity-list-schema/example?entity_type=model&entity_id=%s", project, e.ID), version)
 	}
 	if editable {
 		inUse := h.currentInUse(ctx, project, kind, e.ID)

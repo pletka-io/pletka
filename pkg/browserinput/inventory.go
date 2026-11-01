@@ -12,11 +12,26 @@ import (
 type InventoryQuery struct {
 	Page, PerPage                                              int
 	Search, SortBy, Origin, Scope, Category, ModelType, Status string
+	VocabularyID, EntityType, EntityID                         string
 	Descending                                                 bool
 }
 
 // InventoryRow is detached browser display data. Counts refer to the consumer project.
 type InventoryRow struct {
+	EntityNames              domain.Translations  `json:"entity_names,omitempty"`
+	Title                    domain.Translations  `json:"title,omitempty"`
+	EntityType               string               `json:"entity_type,omitempty"`
+	EntityID                 string               `json:"entity_id,omitempty"`
+	EntityName               string               `json:"entity_name,omitempty"`
+	EntityTypeLabel          string               `json:"entity_type_label,omitempty"`
+	VocabularyID             string               `json:"vocabulary_id,omitempty"`
+	VocabularyLabel          string               `json:"vocabulary_label,omitempty"`
+	ListType                 string               `json:"list_type,omitempty"`
+	ListTypeURI              string               `json:"list_type_uri,omitempty"`
+	ListTypeLabel            string               `json:"list_type_label,omitempty"`
+	IsClosed                 bool                 `json:"is_closed"`
+	EntryCount               int                  `json:"entry_count"`
+	BoundFieldCount          int                  `json:"bound_field_count"`
 	ID                       string               `json:"id"`
 	SemanticID               string               `json:"semantic_id,omitempty"`
 	SystemName               string               `json:"system_name,omitempty"`
@@ -61,6 +76,7 @@ type Inventory struct {
 	Page, PerPage            int
 	Scopes                   []string
 	Categories               map[string]domain.Translations
+	Vocabularies             map[string]domain.Translations
 }
 
 // Adoption is an explicit receipt with its selected source's bill of materials.

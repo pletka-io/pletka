@@ -13,8 +13,11 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
+	"github.com/pletka-io/pletka/pkg/service/browserread"
+	"github.com/pletka-io/pletka/pkg/service/projectread"
 	"github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/field"
 	"github.com/pletka-io/pletka/pkg/weave/publication"
@@ -29,15 +32,8 @@ import (
 // instead of the hot draft, while an editor (here: an org-inherited owner)
 // keeps seeing hot, and an explicit ?version= is unaffected either way.
 //
-// The route under test is the field slice's own GET /api/{fieldID} (mounted
-// at /projects/{projectID}/fields), not detailview's entity-view API: buildField
-// in this package's handler.go always reads the live (hot) field row — it
-// never consults auth.ProjectVersionFromContext for content, only for URLs
-// and the publication badge — so it can't demonstrate a hot/release content
-// difference. field.Service.Get, by contrast, already branches on
-// auth.ProjectVersionFromContext (pre-existing support for explicit
-// ?version=), making it the real proof point for the release-default
-// middleware this task wires up.
+// This route exercises the field slice's GET /api/{fieldID}; the separate
+// browser detail boundary tests cover retained entity-view projection.
 func TestReleaseDefault_FieldRoute(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
@@ -109,7 +105,11 @@ func TestReleaseDefault_FieldRoute(t *testing.T) {
 	// LatestRelease reader (router.go: WithProjectVersionContext ->
 	// WithProjectResource -> ResolveContentVersion).
 	pub := publication.NewReader(pool)
-	fieldHost := field.Host{
+	inventory, err := browserread.New(readsession.NewFactory(pool).WithSourceAuthorization(auth.CheckProjectRead), projectread.DefaultOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fieldHost := field.Host{Inventory: inventory,
 		Service:  field.NewService(fieldStore, nil, nil, nil, weaveStore.Projects(), nil, nil, nil, nil, nil),
 		Projects: weaveStore.Projects(),
 	}

@@ -53,7 +53,7 @@
   let currentFilters = $state<Record<string, string>>({});
   let currentSearch = $state('');
   let currentViewMode = $state('');
-  let view = $state<'list' | 'add' | 'edit'>('list');
+  let view = $state<'list' | 'add' | 'edit' | 'view'>('list');
   let editingId = $state<string | null>(null);
   let deletingItem = $state<any | null>(null);
   let statsId = $state<string | null>(null);
@@ -118,7 +118,7 @@
       }
       optionsByParam = { ...optionsByParam };
       if (initialItemId) {
-        handleEdit(initialItemId);
+        if (schema?.capabilities?.edit && !readOnlyReleaseMode) handleEdit(initialItemId); else handleView(initialItemId);
       }
       applyStateFromURL();
       await loadData();
@@ -411,12 +411,22 @@
     onitemchange?.(id);
   }
 
+  function handleView(id: string) {
+    if (!EditorWidget || !schema?.row_actions?.some((a) => a.id === 'view' && a.method === 'GET')) return;
+    editingId = id;
+    view = 'view';
+    onitemchange?.(id);
+  }
+
   function findRowAction(actionId: string) {
     return schema?.row_actions?.find((a) => a.id === actionId);
   }
 
   function handleRowAction(actionId: string, item: any) {
     switch (actionId) {
+      case 'view':
+        handleView(item.id);
+        break;
       case 'edit':
         handleEdit(item.id);
         break;
@@ -760,13 +770,13 @@
       onclose={() => (statsId = null)}
     />
   {/if}
-{:else if schema && (view === 'add' || view === 'edit')}
+{:else if schema && (view === 'add' || view === 'edit' || view === 'view')}
   {#if EditorWidget}
     {#key view === 'add' ? 'custom-add' : `custom-${editingId}`}
       <EditorWidget
         {schema}
-        mode={view === 'add' ? 'create' : 'edit'}
-        itemId={view === 'edit' ? editingId! : ''}
+        mode={view === 'add' ? 'create' : view}
+        itemId={view !== 'add' ? editingId! : ''}
         {lang}
         onsuccess={handleFormSuccess}
         oncancel={backToList}

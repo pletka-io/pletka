@@ -68,10 +68,9 @@ can run after the pool closes. Regression tests cover live deletion, parent
 repinning, descriptor/catalog edits, current access changes, concurrent commits,
 legacy ambiguity and credit overflow.
 
-Model/collection/field inventories and the adoption tab/closure now use the
-[scoped inventory boundary](project-inventory-reads.md). Concept-list/example
-inventory tabs retain their existing release restrictions until their inventory
-paths migrate.
+All five entity inventories and the adoption tab/closure use the
+[scoped inventory boundary](project-inventory-reads.md). Concept-list and example
+release tabs use detached viewers.
 Standalone ontology and SKOS exports, representative performance qualification
 and capture-aware mutation rollout are also separate work.
 

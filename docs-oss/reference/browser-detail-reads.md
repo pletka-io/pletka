@@ -63,8 +63,10 @@ retained input. Its working-view link remains available.
 
 Project-page metadata, credits and ontology summaries now use their own
 [bounded summary input](project-summary-reads.md). Paginated inventories and
-adoption closure remain separate migrations. List pages must use bounded scoped queries, not a
-complete-project capture. The temporary session-bound field-usage facet should
+adoption closure now use their [scoped inventory boundary](project-inventory-reads.md).
+Concept lists retain this detail viewer; examples use a detached recorded-value viewer.
+Model detail pages expose pinned example lists in releases. List pages use bounded
+scoped queries rather than a complete-project capture. The temporary session-bound field-usage facet should
 move into the field reader when that slice's remaining ordinary operations are
 converted. Large-project performance qualification and capture-aware mutation
 rollout are still separate gates.

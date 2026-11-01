@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -15,14 +16,16 @@ import (
 )
 
 type recordingSource struct {
+	query browserinput.InventoryQuery
 	calls int
 	value browserinput.Inventory
 	err   error
 	scope auth.ReadScope
 }
 
-func (s *recordingSource) Inventory(_ context.Context, scope auth.ReadScope, _, _ string, _ browserinput.InventoryQuery) (browserinput.Inventory, error) {
+func (s *recordingSource) Inventory(_ context.Context, scope auth.ReadScope, _, _ string, query browserinput.InventoryQuery) (browserinput.Inventory, error) {
 	s.calls++
+	s.query = query
 	s.scope = scope
 	return s.value, s.err
 }
@@ -64,5 +67,21 @@ func TestInventorySourceFailureDoesNotReturnPartialRows(t *testing.T) {
 	router.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodGet, "/projects/P/fields", nil))
 	if w.Code != 500 || source.calls != 1 {
 		t.Fatalf("status=%d calls=%d", w.Code, source.calls)
+	}
+}
+
+func TestCatalogHTTPKeepsAuthoredStatusLanguageAndNewestFirst(t *testing.T) {
+	source := &recordingSource{value: browserinput.Inventory{ProjectID: "P", Version: "1.0.0", Kind: "example", Page: 1, PerPage: 50, Items: []browserinput.InventoryRow{{ID: "E", Status: "valid", EntityName: "English", EntityNames: domain.Translations{"et": "Tabatud"}}}}}
+	h := Handler{Source: source, Lang: func(*http.Request) string { return "et" }}
+	router := chi.NewRouter()
+	router.Get("/projects/{projectID}/examples", func(w http.ResponseWriter, r *http.Request) { h.List(w, r, "example") })
+	ctx := auth.WithReadScope(auth.WithProject(t.Context(), &domain.Project{Entity: domain.Entity{ID: "P"}, Visibility: "public"}), auth.Release("1.0.0"))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodGet, "/projects/P/examples", nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"entity_name":"Tabatud"`) || !strings.Contains(w.Body.String(), `"status":"valid"`) {
+		t.Fatalf("catalog response: %d %s", w.Code, w.Body.String())
+	}
+	if source.query.SortBy != "updated_at" || !source.query.Descending {
+		t.Fatalf("example default sort: %+v", source.query)
 	}
 }

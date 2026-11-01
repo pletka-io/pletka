@@ -1,6 +1,7 @@
 package formschema
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -215,4 +216,31 @@ type EntityListEditor struct {
 	// editor widget calls, so the frontend never constructs an API URL
 	// itself (schema-driven API rule). Keys are widget-specific.
 	Endpoints map[string]string `json:"endpoints,omitempty"`
+}
+
+// BindReadVersion pins list, filter and viewer requests to the selection that built the schema.
+func (s *EntityListSchema) BindReadVersion(version string) {
+	if version == "" {
+		return
+	}
+	bind := func(path string) string {
+		if path == "" {
+			return path
+		}
+		u, err := url.Parse(path)
+		if err != nil {
+			return path
+		}
+		q := u.Query()
+		q.Set("version", version)
+		u.RawQuery = q.Encode()
+		return strings.ReplaceAll(strings.ReplaceAll(u.String(), "%7B", "{"), "%7D", "}")
+	}
+	s.DataURL = bind(s.DataURL)
+	for i := range s.Filters {
+		s.Filters[i].OptionsURL = bind(s.Filters[i].OptionsURL)
+	}
+	if s.Editor != nil && s.Editor.Endpoints != nil {
+		s.Editor.Endpoints["view_url_template"] = bind(s.Editor.Endpoints["view_url_template"])
+	}
 }

@@ -10,6 +10,11 @@ import (
 )
 
 type Querier interface {
+	BrowserCatalogLabels(ctx context.Context, arg BrowserCatalogLabelsParams) ([]BrowserCatalogLabelsRow, error)
+	// Labels were resolved through this session's selected dependency graph.
+	BrowserCatalogPage(ctx context.Context, arg BrowserCatalogPageParams) (BrowserCatalogPageRow, error)
+	// Compact reference identities only; no entry bodies or example values.
+	BrowserCatalogReferences(ctx context.Context, arg BrowserCatalogReferencesParams) ([]BrowserCatalogReferencesRow, error)
 	BrowserFieldUsage(ctx context.Context, arg BrowserFieldUsageParams) (BrowserFieldUsageRow, error)
 	BrowserInventoryCategories(ctx context.Context, arg BrowserInventoryCategoriesParams) ([]BrowserInventoryCategoriesRow, error)
 	BrowserInventoryIndex(ctx context.Context, arg BrowserInventoryIndexParams) (BrowserInventoryIndexRow, error)

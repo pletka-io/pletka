@@ -16,7 +16,7 @@ type inventoryRow struct {
 func projectRows(value browserinput.Inventory) []inventoryRow {
 	rows := make([]inventoryRow, 0, len(value.Items))
 	for _, r := range value.Items {
-		if value.Version != "" || r.SourceVersion != "" {
+		if value.Kind != catalogConceptList && value.Kind != catalogExample && (value.Version != "" || r.SourceVersion != "") {
 			r.Status = "published"
 		}
 		rows = append(rows, inventoryRow{r, originListLabel(r.Origin, r.NotReferenced)})

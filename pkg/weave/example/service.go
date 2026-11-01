@@ -438,6 +438,9 @@ func (s *Service) Get(ctx context.Context, scope auth.ReadScope, projectID, exam
 // get is Get, also returning the slot resolver it validated with so the
 // edit form reuses its cached views.
 func (s *Service) get(ctx context.Context, scope auth.ReadScope, projectID, exampleID string) (*ExampleRecord, *slotResolver, error) {
+	if err := requireDraftEditing(scope); err != nil {
+		return nil, nil, err
+	}
 	r, err := s.store.At(scope)
 	if err != nil {
 		return nil, nil, err
@@ -495,6 +498,9 @@ func (s *Service) List(ctx context.Context, scope auth.ReadScope, projectID stri
 // BuildFormSchema returns the create or edit form for an example, read at
 // scope because an edit form prefills from the example it is editing.
 func (s *Service) BuildFormSchema(ctx context.Context, scope auth.ReadScope, projectID, mode, targetType, targetID, exampleID, lang string, languages []formschema.LanguageInfo) (*ExampleFormSchema, error) {
+	if err := requireDraftEditing(scope); err != nil {
+		return nil, err
+	}
 	if mode == "" {
 		mode = formschema.ModeCreate
 	}
@@ -1271,4 +1277,13 @@ func successMessage(exampleID string) string {
 		return "Example created successfully"
 	}
 	return "Example updated successfully"
+}
+
+// Editing validation uses live model views. Released browsing belongs to the
+// retained browser boundary, and cannot enter this service through any caller.
+func requireDraftEditing(scope auth.ReadScope) error {
+	if !scope.Valid() || scope.IsRelease() {
+		return fmt.Errorf("example editing validation requires an explicit draft scope")
+	}
+	return nil
 }

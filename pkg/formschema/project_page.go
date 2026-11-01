@@ -154,13 +154,6 @@ func BuildProjectPageSchema(
 			Icon:       "tag",
 			ContentURL: withVersion(fmt.Sprintf("/projects/%s/entity-list-schema/concept-list", project.ID)),
 			Count:      conceptListCount,
-			Disabled:   activeVersion != "",
-			Tooltip: func() string {
-				if activeVersion != "" {
-					return "Concept list browsing is currently available only in draft mode"
-				}
-				return ""
-			}(),
 		},
 		{
 			ID:         "examples",
@@ -168,13 +161,6 @@ func BuildProjectPageSchema(
 			Icon:       "document-text",
 			ContentURL: withVersion(fmt.Sprintf("/projects/%s/entity-list-schema/example", project.ID)),
 			Count:      exampleCount,
-			Disabled:   activeVersion != "",
-			Tooltip: func() string {
-				if activeVersion != "" {
-					return "Examples are currently available only in draft mode"
-				}
-				return ""
-			}(),
 		},
 	}
 	patterns := ProjectPageTab{

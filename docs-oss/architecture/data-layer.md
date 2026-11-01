@@ -491,3 +491,10 @@ membership before hydrating the requested page; receipt closures follow selected
 source sessions. No complete-project or ontology-body load is needed. Explicit
 limits, source authorization and required-content failures are part of the
 [project inventory contract](../reference/project-inventory-reads.md).
+
+Concept-list/example inventories use the same boundary for owned metadata,
+scoped counts and selected vocabulary/target labels. Label references are compact
+and bounded; filtering/pagination stay database-side. Recorded example views use
+a bounded assembler fragment and pure projection, preserving stale saved values.
+The editing validator cannot accept a release scope. Read schemas pin their data,
+filter and preview URLs to the resolved release, including default public reads.

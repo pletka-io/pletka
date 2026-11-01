@@ -144,6 +144,7 @@ func (h *Handler) EntityListSchema(w http.ResponseWriter, r *http.Request) {
 
 	if project := auth.ProjectFromContext(r.Context()); project != nil {
 		if auth.ProjectVersionFromContext(r.Context()) != "" {
+			schema.BindReadVersion(auth.ProjectVersionFromContext(r.Context()))
 			schema.StripEditActions()
 		}
 		if !auth.FromContext(r.Context()).Can(auth.ProjectEdit, auth.ProjectResource(project), nil) {

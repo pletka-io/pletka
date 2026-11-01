@@ -11,6 +11,7 @@ func TestExampleEntityListEditorEndpoints(t *testing.T) {
 		t.Fatal("editor missing")
 	}
 	want := map[string]string{
+		"view_url_template":   "/projects/LA/examples/{id}/view",
 		"list_url":            "/projects/LA/examples",
 		"detail_url_template": "/projects/LA/examples/{id}",
 		"form_schema_url":     "/projects/LA/examples/form-schema",
@@ -23,5 +24,23 @@ func TestExampleEntityListEditorEndpoints(t *testing.T) {
 	}
 	if len(s.Editor.Endpoints) != len(want) {
 		t.Errorf("endpoint count = %d, want %d: %v", len(s.Editor.Endpoints), len(want), s.Editor.Endpoints)
+	}
+}
+
+func TestReleasedExampleSchemaPinsViewerAndRemovesWrites(t *testing.T) {
+	s := BuildExampleEntityListSchema("LA", "en", nil, "model", "LAM.10")
+	s.BindReadVersion("2.0.0")
+	s.StripEditActions()
+	if s.DataURL != "/projects/LA/examples?entity_id=LAM.10&entity_type=model&version=2.0.0" {
+		t.Fatalf("data URL: %s", s.DataURL)
+	}
+	if s.Editor.Endpoints["view_url_template"] != "/projects/LA/examples/{id}/view?version=2.0.0" {
+		t.Fatalf("viewer URL: %s", s.Editor.Endpoints["view_url_template"])
+	}
+	if s.Capabilities != nil {
+		t.Fatalf("release exposes write capabilities: %+v", s.Capabilities)
+	}
+	if len(s.RowActions) != 1 || s.RowActions[0].ID != "view" || s.RowActions[0].Method != "GET" {
+		t.Fatalf("release actions: %+v", s.RowActions)
 	}
 }

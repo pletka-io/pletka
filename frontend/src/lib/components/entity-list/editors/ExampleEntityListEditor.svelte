@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { EntityListSchema } from '$lib/types/entity-list-schema';
+  import ExampleReadView from '$lib/components/example/ExampleReadView.svelte';
   import ExampleWorkspace from '$lib/components/example/ExampleWorkspace.svelte';
 
   let {
@@ -11,7 +12,7 @@
     oncancel,
   }: {
     schema: EntityListSchema;
-    mode: 'create' | 'edit';
+    mode: 'create' | 'edit' | 'view';
     itemId?: string;
     lang: string;
     onsuccess?: () => void | Promise<void>;
@@ -42,6 +43,9 @@
   });
 </script>
 
+{#if mode === 'view'}
+  <ExampleReadView url={(schema.editor?.endpoints?.view_url_template ?? '').replace('{id}', encodeURIComponent(itemId))} {lang} {oncancel} />
+{:else}
 <ExampleWorkspace
   projectId={schema.project_id}
   {endpoints}
@@ -53,3 +57,4 @@
   {onsuccess}
   {oncancel}
 />
+{/if}

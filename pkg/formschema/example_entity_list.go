@@ -27,6 +27,7 @@ func BuildExampleEntityListSchema(projectID, lang string, languages []LanguageIn
 		DataURL:           dataURL,
 		DataKey:           "items",
 		DetailURLTemplate: "",
+		DetailURLField:    inventoryDetailURLField,
 		ProjectID:         projectID,
 		EmptyState: &EmptyState{
 			Icon:    "document-text",
@@ -68,6 +69,7 @@ func BuildExampleEntityListSchema(projectID, lang string, languages []LanguageIn
 			// URLs the example-workspace editor calls; the widget fills
 			// {id} client-side (compliant template substitution).
 			Endpoints: map[string]string{
+				"view_url_template":   fmt.Sprintf("/projects/%s/examples/{id}/view", projectID),
 				"list_url":            fmt.Sprintf("/projects/%s/examples", projectID),
 				"detail_url_template": fmt.Sprintf("/projects/%s/examples/{id}", projectID),
 				"form_schema_url":     fmt.Sprintf("/projects/%s/examples/form-schema", projectID),
@@ -103,6 +105,7 @@ func BuildExampleEntityListSchema(projectID, lang string, languages []LanguageIn
 			},
 		},
 		RowActions: []RowAction{
+			{ID: "view", Icon: "eye", Label: i18n.L("common.view", "View"), Method: "GET"},
 			{
 				ID:    "edit",
 				Icon:  "pencil",

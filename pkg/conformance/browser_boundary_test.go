@@ -56,7 +56,7 @@ func checkBrowserProjectionPath(t *testing.T, dir string) {
 
 // Inventory HTTP entry points have one source. Per-function store fallbacks cannot return.
 func TestInventoryHandlersOnlyDelegateToSharedBoundary(t *testing.T) {
-	for slice, names := range map[string][]string{"model": {"List", "ScopeClassesOptions"}, "collection": {"List", "ScopeClassesOptions", "CategoriesOptions"}, "field": {"List", "OntologyScopesFilter", "CategoriesFilter"}} {
+	for slice, names := range map[string][]string{"model": {"List", "ScopeClassesOptions"}, "collection": {"List", "ScopeClassesOptions", "CategoriesOptions"}, "field": {"List", "OntologyScopesFilter", "CategoriesFilter"}, "vocabulary": {"ListProjectConceptLists", "ConceptListVocabularyFilterOptions"}, "example": {"List"}} {
 		path := filepath.Join(repoRoot(t), "pkg/weave", slice, "handler.go")
 		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {
@@ -90,6 +90,28 @@ func TestInventoryHandlersOnlyDelegateToSharedBoundary(t *testing.T) {
 		for _, name := range names {
 			if !seen[name] {
 				t.Errorf("missing protected inventory method %s.%s", slice, name)
+			}
+		}
+	}
+}
+
+// Shared browser handlers cannot acquire a slice store or editing service.
+func TestBrowserHTTPHasNoContentStoreCapabilities(t *testing.T) {
+	for _, file := range goFilesUnder(t, filepath.Join(repoRoot(t), "pkg/browserhttp")) {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		syntax, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, imp := range syntax.Imports {
+			name, err := strconv.Unquote(imp.Path.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(name, "/database/") || strings.Contains(name, "/service/") || strings.Contains(name, "/pkg/weave/") && !strings.HasSuffix(name, "/apierror") && !strings.HasSuffix(name, "/publication") {
+				t.Errorf("browser boundary %s imports content capability %s", file, name)
 			}
 		}
 	}

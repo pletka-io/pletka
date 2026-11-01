@@ -14,6 +14,7 @@ func BuildConceptListEntityListSchema(projectID, lang string, languages []Langua
 		Title:             i18n.L("concept_list.list.title", "Concept lists"),
 		DataURL:           fmt.Sprintf("/api/v2/projects/%s/concept-lists", projectID),
 		DataKey:           "concept_lists",
+		DetailURLField:    inventoryDetailURLField,
 		DetailURLTemplate: fmt.Sprintf("/projects/%s/concept-lists/{id}", projectID),
 		EditURLTemplate:   fmt.Sprintf("/api/v2/projects/%s/concept-lists/{id}/form-schema", projectID),
 		ProjectID:         projectID,

@@ -95,6 +95,13 @@ paths, which retain unrestricted capabilities. New content reads use the bound
   Actual-cut tests cover foreign IDs, live deletion and snapshot consistency.
   Remaining slices still have the weaker signature ratchet.
 
+Browser model/collection/field/concept-list/example lists and filter options
+must delegate to the required `browserhttp.Source.Inventory` boundary. Do not
+append live vocabulary labels, target names, counts or publication status to
+released catalog rows. Example previews consume detached fragments; editing
+validation rejects release scopes. Schema read URLs retain the resolved selection.
+See [project inventory reads](../../docs-oss/reference/project-inventory-reads.md).
+
 ### Reading another project's content
 
 [ADR-0011](../../docs-oss/decisions/0011-cross-project-reads-resolve-at-the-source-release.md)

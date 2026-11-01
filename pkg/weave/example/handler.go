@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/auth"
-	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/browserhttp"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
 )
@@ -28,12 +28,14 @@ func wantsHTML(r *http.Request) bool {
 // hash (see project-detail.svelte.ts readHashItem); the same shape is
 // published to the editor as page_url_template in the entity-list schema.
 func projectExamplesPageURL(projectID, exampleID string) string {
-	return fmt.Sprintf("/projects/%s#tab=examples&item=%s", projectID, exampleID)
+	return fmt.Sprintf("/projects/%s#tab=examples&item=%s", url.PathEscape(projectID), url.QueryEscape(exampleID))
 }
 
 type LangResolver func(r *http.Request) string
 
 type Handler struct {
+	inventory browserhttp.Handler
+	viewer    browserhttp.ExampleHandler
 	svc       *Service
 	log       *slog.Logger
 	languages []formschema.LanguageInfo
@@ -56,103 +58,14 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/form-schema", h.FormSchema)
 	r.Route("/{exampleID}", func(r chi.Router) {
 		r.Get("/", h.Detail)
+		r.Get("/view", h.View)
 		r.Put("/", h.Update)
 		r.Delete("/", h.Delete)
 	})
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	projectID := chi.URLParam(r, "projectID")
-	page := 1
-	perPage := 25
-	if v, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && v > 0 {
-		page = v
-	}
-	if v, err := strconv.Atoi(r.URL.Query().Get("per_page")); err == nil && v > 0 {
-		perPage = v
-	}
-	opts := []domain.QueryOption{
-		domain.WithLimit(perPage),
-		domain.WithOffset((page - 1) * perPage),
-	}
-	if sortBy := r.URL.Query().Get("sort_by"); sortBy != "" {
-		opts = append(opts, domain.WithOrderBy(sortBy, r.URL.Query().Get("sort_dir") == "desc"))
-	}
-	if search := r.URL.Query().Get("search"); search != "" {
-		opts = append(opts, domain.WithSearch(search))
-	}
-	if entityType := r.URL.Query().Get("entity_type"); entityType != "" {
-		opts = append(opts, domain.WithFilter("entity_type", entityType))
-	}
-	if entityID := r.URL.Query().Get("entity_id"); entityID != "" {
-		opts = append(opts, domain.WithFilter("entity_id", entityID))
-	}
-	if status := r.URL.Query().Get("status"); status != "" {
-		opts = append(opts, domain.WithFilter("status", status))
-	}
-	// The request boundary is where a scope is resolved; the service receives
-	// it and never reaches into the context for one.
-	scope := auth.ReadScopeFromContext(r.Context())
-	items, total, err := h.svc.List(r.Context(), scope, projectID, opts...)
-	if err != nil {
-		h.log.Error("example list failed", "project_id", projectID, "err", err)
-		apierror.Write(w, r, apierror.Internal(err))
-		return
-	}
-	type item struct {
-		ID              string              `json:"id"`
-		ProjectID       string              `json:"project_id"`
-		EntityType      string              `json:"entity_type"`
-		EntityTypeLabel string              `json:"entity_type_label"`
-		EntityID        string              `json:"entity_id"`
-		EntityName      string              `json:"entity_name,omitempty"`
-		Title           domain.Translations `json:"title,omitempty"`
-		Description     domain.Translations `json:"description,omitempty"`
-		Status          string              `json:"status"`
-		UpdatedAt       any                 `json:"updated_at,omitempty"`
-		CreatedAt       any                 `json:"created_at,omitempty"`
-	}
-	lang := "en"
-	if h.lang != nil {
-		lang = h.lang(r)
-	}
-	// Display name of the target model next to its id, so the list reads
-	// "Physical Thing LAM.10" rather than ids alone; one lookup per model.
-	names := map[string]string{}
-	rows := make([]item, 0, len(items))
-	for _, ex := range items {
-		label := "Model"
-		if ex.EntityType == domain.ExampleEntityTypeCollection {
-			label = "Collection"
-		}
-		name, ok := names[ex.EntityID]
-		if !ok && ex.EntityType == domain.ExampleEntityTypeModel {
-			name = h.svc.TargetName(r.Context(), ex.EntityID).Get(lang)
-			if name == ex.EntityID {
-				name = ""
-			}
-			names[ex.EntityID] = name
-		}
-		rows = append(rows, item{
-			ID:              ex.ID,
-			ProjectID:       ex.ProjectID,
-			EntityType:      string(ex.EntityType),
-			EntityTypeLabel: label,
-			EntityID:        ex.EntityID,
-			EntityName:      name,
-			Title:           ex.Title,
-			Description:     ex.Description,
-			Status:          string(ex.Status),
-			UpdatedAt:       ex.UpdatedAt,
-			CreatedAt:       ex.CreatedAt,
-		})
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"items":    rows,
-		"total":    total,
-		"page":     page,
-		"per_page": perPage,
-	})
+	h.inventory.List(w, r, "example")
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +84,16 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
+	if auth.ReadScopeFromContext(r.Context()).IsRelease() {
+		if wantsHTML(r) {
+			version := auth.ReadScopeFromContext(r.Context()).Version()
+			http.Redirect(w, r, fmt.Sprintf("/projects/%s?version=%s#tab=examples&item=%s", url.PathEscape(chi.URLParam(r, "projectID")), url.QueryEscape(version), url.QueryEscape(chi.URLParam(r, "exampleID"))), http.StatusSeeOther)
+			return
+		}
+		h.viewer.Show(w, r)
+		return
+	}
+
 	projectID := chi.URLParam(r, "projectID")
 	exampleID := chi.URLParam(r, "exampleID")
 	scope := auth.ReadScopeFromContext(r.Context())
@@ -213,6 +136,11 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
+	if scope := auth.ReadScopeFromContext(r.Context()); !scope.Valid() || scope.IsRelease() {
+		apierror.Write(w, r, apierror.BadRequest("Example editing requires a draft selection"))
+		return
+	}
+
 	projectID := chi.URLParam(r, "projectID")
 	mode := r.URL.Query().Get("mode")
 	targetType := r.URL.Query().Get("target_type")
@@ -232,3 +160,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
+
+// View delegates to the source-only recorded-value browser.
+func (h *Handler) View(w http.ResponseWriter, r *http.Request) { h.viewer.Show(w, r) }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/service/browserread"
 	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
 
@@ -40,7 +41,7 @@ func TestSearchConceptListEntries_AuthGate(t *testing.T) {
 
 	serve := func(vis, listID string) int {
 		r := chi.NewRouter()
-		vocabulary.Mount(r, vocabulary.Host{Service: svc, Projects: fakeProjectReader{visibility: vis}})
+		vocabulary.Mount(r, vocabulary.Host{Inventory: &browserread.Source{}, LatestRelease: fakeProjectReader{}, Service: svc, Projects: fakeProjectReader{visibility: vis}})
 		req := httptest.NewRequest(http.MethodGet, "/api/v2/concept-lists/"+listID+"/entries/search?q=x", nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
@@ -53,4 +54,8 @@ func TestSearchConceptListEntries_AuthGate(t *testing.T) {
 	if code := serve("internal", "CLINT"); code != http.StatusNotFound {
 		t.Fatalf("anonymous read of an INTERNAL project's list: want 404, got %d", code)
 	}
+}
+
+func (fakeProjectReader) LatestReleaseVersion(context.Context, string) (string, error) {
+	return "", nil
 }

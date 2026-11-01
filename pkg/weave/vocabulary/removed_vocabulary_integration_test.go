@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/internal/testdb"
+	"github.com/pletka-io/pletka/pkg/service/browserread"
 	"github.com/pletka-io/pletka/pkg/weave/vocabconnector/registry"
 	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
@@ -71,7 +72,7 @@ func TestRemovedVocabularyIsReadOnly(t *testing.T) {
 
 	t.Run("searching a removed vocabulary offers nothing new", func(t *testing.T) {
 		r := chi.NewRouter()
-		vocabulary.Mount(r, vocabulary.Host{Service: svc, Projects: fakeProjectReader{visibility: "public"}})
+		vocabulary.Mount(r, vocabulary.Host{Inventory: &browserread.Source{}, LatestRelease: fakeProjectReader{}, Service: svc, Projects: fakeProjectReader{visibility: "public"}})
 
 		req := httptest.NewRequest(http.MethodGet, "/api/v2/vocabularies/RMVVOC/entries/search?q=painting", nil)
 		w := httptest.NewRecorder()
@@ -98,7 +99,7 @@ func TestRemovedVocabularyIsReadOnly(t *testing.T) {
 			VALUES ('RMVLIVE', 'RMVP', 'aat_live', 'vocabservice', '{"vocab":"aat"}'::jsonb, 'published')`)
 
 		r := chi.NewRouter()
-		vocabulary.Mount(r, vocabulary.Host{Service: svc, Projects: fakeProjectReader{visibility: "public"}})
+		vocabulary.Mount(r, vocabulary.Host{Inventory: &browserread.Source{}, LatestRelease: fakeProjectReader{}, Service: svc, Projects: fakeProjectReader{visibility: "public"}})
 
 		req := httptest.NewRequest(http.MethodGet, "/api/v2/vocabularies/RMVLIVE/entries/search?q=painting", nil)
 		w := httptest.NewRecorder()
