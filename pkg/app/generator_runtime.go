@@ -4,18 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
+
+	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/projectsnapshot"
 
 	"github.com/pletka-io/pletka/pkg/domain"
-	"github.com/pletka-io/pletka/pkg/formschema"
-	"github.com/pletka-io/pletka/pkg/weave"
-	"github.com/pletka-io/pletka/pkg/weave/collection"
-	"github.com/pletka-io/pletka/pkg/weave/field"
+
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/genwiring"
-	"github.com/pletka-io/pletka/pkg/weave/model"
-	"github.com/pletka-io/pletka/pkg/weave/release"
-	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
 
 // GeneratorRuntime exposes the app-assembled generator service plus the
@@ -23,9 +19,8 @@ import (
 type GeneratorRuntime struct {
 	Service *generators.Service
 
-	models      model.Store
-	collections collection.Store
-	fields      field.Store
+	value   projectsnapshot.CompleteProject
+	project string
 }
 
 // NewGeneratorRuntime builds the same core generator service used by the HTTP
@@ -41,89 +36,73 @@ func NewGeneratorRuntime(opts Options) (*GeneratorRuntime, error) {
 		return nil, fmt.Errorf("app generator runtime: invalid contributions: %w", err)
 	}
 
-	weaveStore := weave.NewPostgresStore(opts.Pool)
-	changeLog := domain.NoopChangeLogRunner()
-	languages := []formschema.LanguageInfo(nil)
-	langResolver := func(*http.Request) string { return "" }
-	projectHost := buildProjectHost(opts.Pool, weaveStore, opts.Logger, changeLog, languages, nil, opts.VocabularyServiceURL)
-	_, namespaceSvc := buildNamespaceBindingHost(opts.Pool, opts.Logger, changeLog, languages, nil)
-	fieldHost, modelHost, collectionHost, _ := buildCoreEntityHosts(coreEntityDeps{
-		Pool:      opts.Pool,
-		Weave:     weaveStore,
-		Logger:    opts.Logger,
-		ChangeLog: changeLog,
-		Languages: languages,
-	}, langResolver)
-
-	// The adoption picker needs these to read an ancestor at its own
-	// release. Same instances, never duplicates (ADR-0008); they are built
-	// after buildProjectHost, so they are assigned here.
-	projectHost.Models = modelHost.Service
-	projectHost.Collections = collectionHost.Service
-	projectHost.Releases = release.NewService(release.NewPostgresStore(opts.Pool), opts.Pool, opts.Logger, release.WithModuleHosts(opts.ModuleHost, opts.OntologyHost))
-
 	renderers := opts.GeneratorRenderers
 	if len(renderers) == 0 {
 		renderers = genwiring.CoreRenderers()
 	}
-	genSvc := buildGeneratorService(
-		opts.Logger,
-		projectHost,
-		fieldHost,
-		modelHost,
-		collectionHost,
-		namespaceSvc,
-		renderers,
-	)
-	// Sealed-list value enums in generated schemas (#3599).
-	genSvc.SetConceptEnumReader(vocabulary.NewService(opts.Pool, nil))
-	return &GeneratorRuntime{
-		Service:     genSvc,
-		models:      model.NewPostgresStore(opts.Pool),
-		collections: collection.NewPostgresStore(opts.Pool),
-		fields:      field.NewPostgresStore(opts.Pool),
-	}, nil
+	// CLI is a trusted operator boundary; source policy is explicit.
+	source := buildGeneratorSource(opts, func(context.Context, auth.Resource) error { return nil })
+	genSvc := buildGeneratorService(source, renderers)
+	return &GeneratorRuntime{Service: genSvc}, nil
 }
 
-// ListModels returns every model in the given project. Used by CLI --all and
-// pack workflows.
-func (r *GeneratorRuntime) ListModels(ctx context.Context, projectID string) ([]*domain.Model, error) {
-	models, _, err := r.models.List(ctx, domain.WithProjectID(projectID))
+// BindProject returns an operation-scoped runtime over one detached graph.
+func (r *GeneratorRuntime) BindProject(ctx context.Context, scope auth.ReadScope, project string) (*GeneratorRuntime, error) {
+	service, value, err := r.Service.BindProject(ctx, scope, project)
 	if err != nil {
-		return nil, fmt.Errorf("list models for project %s: %w", projectID, err)
+		return nil, err
 	}
-	return models, nil
+	return &GeneratorRuntime{Service: service, value: value, project: project}, nil
 }
 
-func (r *GeneratorRuntime) ModelID(ctx context.Context, projectID, identifier string) (string, error) {
-	model, err := r.models.GetByIdentifier(ctx, projectID, identifier)
+// ListModels reads the already selected project; it cannot reopen current data.
+func (r *GeneratorRuntime) ListModels(ctx context.Context, project string) ([]*domain.Model, error) {
+	if project != r.project {
+		return nil, fmt.Errorf("bind generator project before listing")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	items, err := generators.EntityOptions(r.value, "model")
 	if err != nil {
-		return "", fmt.Errorf("resolve model %q: %w", identifier, err)
+		return nil, err
 	}
-	if model == nil {
-		return "", fmt.Errorf("model %q not found in project %s", identifier, projectID)
+	out := make([]*domain.Model, 0, len(items))
+	for _, item := range items {
+		out = append(out, &domain.Model{Entity: domain.Entity{ID: item.ID, SemanticID: item.SemanticID, SystemName: item.SystemName, UIName: item.UIName, ProjectID: project}})
 	}
-	return model.ID, nil
+	return out, nil
 }
 
-func (r *GeneratorRuntime) CollectionID(ctx context.Context, projectID, identifier string) (string, error) {
-	collection, err := r.collections.GetByIdentifier(ctx, projectID, identifier)
-	if err != nil {
-		return "", fmt.Errorf("resolve collection %q: %w", identifier, err)
+// ModelID resolves identifiers inside the bound operation.
+func (r *GeneratorRuntime) ModelID(ctx context.Context, project, identifier string) (string, error) {
+	if project != r.project {
+		return "", fmt.Errorf("bind generator project before lookup")
 	}
-	if collection == nil {
-		return "", fmt.Errorf("collection %q not found in project %s", identifier, projectID)
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
-	return collection.ID, nil
+	return generators.ResolveIdentifier(r.value, "model", identifier)
 }
 
-func (r *GeneratorRuntime) FieldID(ctx context.Context, projectID, identifier string) (string, error) {
-	field, err := r.fields.GetByIdentifier(ctx, projectID, identifier)
-	if err != nil {
-		return "", fmt.Errorf("resolve field %q: %w", identifier, err)
+// CollectionID resolves identifiers inside the bound operation.
+func (r *GeneratorRuntime) CollectionID(ctx context.Context, project, identifier string) (string, error) {
+	if project != r.project {
+		return "", fmt.Errorf("bind generator project before lookup")
 	}
-	if field == nil {
-		return "", fmt.Errorf("field %q not found in project %s", identifier, projectID)
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
-	return field.ID, nil
+	return generators.ResolveIdentifier(r.value, "collection", identifier)
+}
+
+// FieldID resolves identifiers inside the bound operation.
+func (r *GeneratorRuntime) FieldID(ctx context.Context, project, identifier string) (string, error) {
+	if project != r.project {
+		return "", fmt.Errorf("bind generator project before lookup")
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return generators.ResolveIdentifier(r.value, "field", identifier)
 }

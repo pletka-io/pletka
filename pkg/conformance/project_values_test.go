@@ -146,7 +146,7 @@ func TestOnlyAssemblerAndPortableDecoderConstructCompleteProjectValues(t *testin
 	root := repoRoot(t)
 	for _, path := range goFilesUnder(t, root) {
 		rel := mustRel(t, root, path)
-		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/projectsnapshot/") || strings.HasPrefix(rel, "pkg/service/projectread/") {
+		if rel == "internal/testsnapshot/generators.go" || strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "pkg/projectsnapshot/") || strings.HasPrefix(rel, "pkg/service/projectread/") {
 			continue
 		}
 		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)

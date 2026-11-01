@@ -34,7 +34,6 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/publication"
 	weaverouter "github.com/pletka-io/pletka/pkg/weave/router"
 	weavetemplates "github.com/pletka-io/pletka/pkg/weave/templates"
-	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
 
 // IntegrationProjectArtifactProviderFactory supplies project-level integration
@@ -314,31 +313,18 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	projectHost.Models = modelHost.Service
 	projectHost.Collections = collectionHost.Service
 	projectHost.Releases = releaseHost.Service
+	generatorSource := buildGeneratorSource(opts, authorizeGeneratorSource)
 	projectCSVExportHost, exportsHost := buildExportHosts(
+		generatorSource,
 		weaveStore,
 		logger,
 		i18nManager,
 		sessionManager,
-		projectHost,
-		fieldHost,
-		modelHost,
-		collectionHost,
-		namespaceSvc,
 		ontologyReader,
 		ontologyVersionReader,
 	)
-	generatorService := buildGeneratorService(
-		logger,
-		projectHost,
-		fieldHost,
-		modelHost,
-		collectionHost,
-		namespaceSvc,
-		generatorRenderers,
-	)
-	// Sealed-list value enums in generated schemas (#3599).
-	generatorService.SetConceptEnumReader(vocabulary.NewService(opts.Pool, nil))
-	visualizationHost := buildVisualizationHost(opts.Pool, weaveStore, logger, generatorService, publicationReader)
+	generatorService := buildGeneratorService(generatorSource, generatorRenderers)
+	visualizationHost := buildVisualizationHost(weaveStore, logger, generatorService, publicationReader)
 	detailViewHost := buildDetailViewHost(opts.Pool, logger, templateRenderer, weaveStore, i18nManager, sessionManager, opts.IntegrationRegistry, ontologySvc, hasFormat, publicationReader)
 	categoryHost, categoryService := buildCategoryHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver)
 	errPageHost := buildErrorPageHost(templateRenderer, i18nManager, langResolver)

@@ -73,6 +73,7 @@ func BuildModelSnapshot(in ModelSnapshotInput) *Snapshot {
 			// does not merge.
 			placementScope := catSlug + "/" + collectionSlug
 			collNode := views.TreeNode{
+				Placement:  collection.Placement,
 				Kind:       views.NodeCollection,
 				ID:         collection.ID,
 				Label:      collection.Name,
@@ -257,14 +258,11 @@ type ModelSnapshotInput struct {
 	Model       domain.Model
 	View        domain.ModelView
 	Collections map[string]*domain.Collection
-	// ExtraAnchored is the set of collections discovered via the
-	// cross-project anchor index that the model view does not own
-	// but whose anchor class matches at least one Collection-stub
-	// field's terminal class. Each entry carries its own resolved
-	// field set (already loaded by the snap service), keyed by
-	// collection ID. composeCollections indexes these alongside the
-	// view's own collections so they can be grafted onto matching
-	// stubs. Nil / empty disables cross-anchor composition.
+	// ExtraAnchored contains explicit retained collection references not
+	// placed in this model. Each entry carries its source-context fields
+	// and shared path prefix, keyed by collection ID. Composition indexes
+	// these alongside the model's own placements; it never discovers
+	// additional targets from current or global state.
 	ExtraAnchored map[string]ExtraAnchoredCollection
 	Namespaces    NamespaceSet
 	Ontologies    []domain.ResolvedOntologyVersion

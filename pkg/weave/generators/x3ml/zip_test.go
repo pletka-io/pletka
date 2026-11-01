@@ -30,7 +30,7 @@ func TestBuildZip_WithBundle(t *testing.T) {
 		{OriginalFilename: "crm.ttl", RDFContent: "@prefix crm: <> ."},
 		{OriginalFilename: "", RDFContent: "skipped — no filename"},
 		{OriginalFilename: "empty.ttl", RDFContent: ""},
-		{OriginalFilename: "crm.ttl", RDFContent: "duplicate — dedup"},
+		{OriginalFilename: "crm.ttl", RDFContent: "@prefix crm: <> ."},
 		{OriginalFilename: "skos.ttl", RDFContent: "@prefix skos: <> ."},
 	}
 	got, err := x3ml.BuildZip("mapping.b.x3ml", []byte("<x3ml/>"), bundle)
@@ -68,4 +68,13 @@ func readZip(t *testing.T, data []byte) map[string]string {
 		out[f.Name] = string(b)
 	}
 	return out
+}
+
+func TestBuildZipRejectsConflictingRetainedFiles(t *testing.T) {
+	for _, name := range []string{"ontology.ttl", "mapping.x3ml"} {
+		bundle := []domain.OntologyBundleEntry{{OriginalFilename: name, RDFContent: "one"}, {OriginalFilename: name, RDFContent: "two"}}
+		if _, err := x3ml.BuildZip("mapping.x3ml", []byte("mapping"), bundle); err == nil {
+			t.Fatal("conflicting files silently replaced")
+		}
+	}
 }

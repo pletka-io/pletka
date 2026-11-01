@@ -70,19 +70,21 @@ Examples:
 	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.id, "id", "", "entity ID, semantic ID, or system name (single-entity mode)")
 	weaveGenerateCmd.Flags().BoolVar(&weaveGenerateOpts.all, "all", false, "render every entity of the given --kind for the project (currently --kind model only); writes one file per entity into --out-dir")
 	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.outDir, "out-dir", "", "output directory for --all (one <slug>.json per entity); required when --all is set")
+	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.version, "version", "", "release version to generate; omitted selects draft")
 	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.format, "format", "turtle", fmt.Sprintf("output format: %s, snapshot (Snapshot/tree as JSON), ascii (human-readable tree with pn ids), or paths (per-leaf -> notation with old/new id brackets, sorted like the ascii tree)", strings.Join(sortedFormatNames(available), ", ")))
 	weaveGenerateCmd.Flags().StringVarP(&weaveGenerateOpts.out, "out", "o", "", "output file path; stdout when omitted")
 	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.basePrefix, "base-prefix", "ex", "RDF base namespace prefix alias")
 	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.baseURI, "base-uri", "", "RDF base URI override; project namespace when omitted")
 	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.rdfNode, "rdf-node-mode", string(generators.RDFNodeModeBlankNode), "RDF node mode: blank_node or resource")
 	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.mermaid, "mermaid-mode", string(generators.MermaidModeOntology), "Mermaid mode: ontology or instance")
-	weaveGenerateCmd.Flags().BoolVar(&weaveGenerateOpts.composeCollections, "compose-collections", false, "graft every collection that anchors at class X under every Collection-stub field whose path ends at X (snap-level pass; affects every renderer that consumes snap.Fields)")
+	weaveGenerateCmd.Flags().BoolVar(&weaveGenerateOpts.composeCollections, "compose-collections", false, "graft retained placements and explicitly referenced collections at matching class anchors")
 	weaveGenerateCmd.Flags().IntVar(&weaveGenerateOpts.composeMaxDepth, "compose-max-depth", 0, "cap collection composition recursion (0 = built-in default, currently 10)")
 
 	return weaveGenerateCmd
 }
 
 var weaveGenerateOpts struct {
+	version            string
 	projectID          string
 	kind               string
 	id                 string
@@ -153,6 +155,11 @@ func runWeaveGenerate(renderers []generators.Renderer) func(cmd *cobra.Command, 
 			return err
 		}
 
+		scope := auth.ScopeForResolvedVersion(weaveGenerateOpts.version)
+		generatorRuntime, err = generatorRuntime.BindProject(ctx, scope, weaveGenerateOpts.projectID)
+		if err != nil {
+			return err
+		}
 		var w io.Writer = cmd.OutOrStdout()
 		var f *os.File
 		if weaveGenerateOpts.out != "" {
@@ -183,7 +190,7 @@ func runWeaveGenerate(renderers []generators.Renderer) func(cmd *cobra.Command, 
 			if kind != generators.EntityModel {
 				return fmt.Errorf("--all currently supports --kind model only")
 			}
-			return runWeaveGenerateAll(ctx, generatorRuntime, projectID, format, dumpSnapshot, genOpts)
+			return runWeaveGenerateAll(ctx, generatorRuntime, scope, projectID, format, dumpSnapshot, genOpts)
 		}
 
 		var generateErr error
@@ -194,10 +201,10 @@ func runWeaveGenerate(renderers []generators.Renderer) func(cmd *cobra.Command, 
 				return err
 			}
 			if dumpSnapshot {
-				snap, serr := generatorRuntime.Service.SnapshotForModel(ctx, projectID, modelID, genOpts)
+				snap, serr := generatorRuntime.Service.SnapshotForModel(ctx, scope, projectID, modelID, genOpts)
 				generateErr = writeSnapshotDump(w, snap, serr, weaveGenerateOpts.format)
 			} else {
-				generateErr = generatorRuntime.Service.GenerateModel(ctx, projectID, modelID, format, w, genOpts)
+				generateErr = generatorRuntime.Service.GenerateModel(ctx, scope, projectID, modelID, format, w, genOpts)
 			}
 		case generators.EntityCollection:
 			collectionID, err := generatorRuntime.CollectionID(ctx, projectID, id)
@@ -205,10 +212,10 @@ func runWeaveGenerate(renderers []generators.Renderer) func(cmd *cobra.Command, 
 				return err
 			}
 			if dumpSnapshot {
-				snap, serr := generatorRuntime.Service.SnapshotForCollection(ctx, projectID, collectionID, genOpts)
+				snap, serr := generatorRuntime.Service.SnapshotForCollection(ctx, scope, projectID, collectionID, genOpts)
 				generateErr = writeSnapshotDump(w, snap, serr, weaveGenerateOpts.format)
 			} else {
-				generateErr = generatorRuntime.Service.GenerateCollection(ctx, projectID, collectionID, format, w, genOpts)
+				generateErr = generatorRuntime.Service.GenerateCollection(ctx, scope, projectID, collectionID, format, w, genOpts)
 			}
 		case generators.EntityField:
 			fieldID, err := generatorRuntime.FieldID(ctx, projectID, id)
@@ -216,10 +223,10 @@ func runWeaveGenerate(renderers []generators.Renderer) func(cmd *cobra.Command, 
 				return err
 			}
 			if dumpSnapshot {
-				snap, serr := generatorRuntime.Service.SnapshotForField(ctx, projectID, fieldID, genOpts)
+				snap, serr := generatorRuntime.Service.SnapshotForField(ctx, scope, projectID, fieldID, genOpts)
 				generateErr = writeSnapshotDump(w, snap, serr, weaveGenerateOpts.format)
 			} else {
-				generateErr = generatorRuntime.Service.GenerateField(ctx, projectID, fieldID, format, w, genOpts)
+				generateErr = generatorRuntime.Service.GenerateField(ctx, scope, projectID, fieldID, format, w, genOpts)
 			}
 		default:
 			return fmt.Errorf("unsupported entity kind %q", kind)
@@ -240,6 +247,7 @@ func runWeaveGenerate(renderers []generators.Renderer) func(cmd *cobra.Command, 
 func runWeaveGenerateAll(
 	ctx context.Context,
 	generatorRuntime *app.GeneratorRuntime,
+	scope auth.ReadScope,
 	projectID string,
 	format generators.Format,
 	dumpSnapshot bool,
@@ -277,10 +285,10 @@ func runWeaveGenerateAll(
 		}
 		var genErr error
 		if dumpSnapshot {
-			snap, serr := generatorRuntime.Service.SnapshotForModel(ctx, projectID, m.ID, genOpts)
+			snap, serr := generatorRuntime.Service.SnapshotForModel(ctx, scope, projectID, m.ID, genOpts)
 			genErr = writeSnapshotDump(f, snap, serr, weaveGenerateOpts.format)
 		} else {
-			genErr = generatorRuntime.Service.GenerateModel(ctx, projectID, m.ID, format, f, genOpts)
+			genErr = generatorRuntime.Service.GenerateModel(ctx, scope, projectID, m.ID, format, f, genOpts)
 		}
 		f.Close()
 		if genErr != nil {
@@ -477,7 +485,7 @@ func parseGeneratorKind(value string) (generators.EntityKind, error) {
 }
 
 func newGeneratorCLIRuntime(pool *pgxpool.Pool, renderers []generators.Renderer) (*app.GeneratorRuntime, error) {
-	opts := app.Options{Pool: pool, Logger: logger}
+	opts := app.Options{Pool: pool, Logger: logger, ModuleHost: cliruntime.ModuleHostFromViper(), OntologyHost: cliruntime.OntologyHostFromViper()}
 	opts.GeneratorRenderers = renderers
 	return app.NewGeneratorRuntime(opts)
 }

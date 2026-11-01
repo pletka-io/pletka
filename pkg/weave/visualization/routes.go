@@ -15,7 +15,6 @@ import (
 type Host struct {
 	Generators *generators.Service
 	Weave      domain.WeaveStore
-	Bundles    ontologyBundleReader
 	Logger     *slog.Logger
 	// LatestRelease backs the release-default policy applied in
 	// loadAndGateProject so a public project's non-editor reader gets the
@@ -34,9 +33,6 @@ func (h Host) Validate() error {
 	if h.Weave == nil {
 		return fmt.Errorf("visualization host missing required dependencies: Weave")
 	}
-	if h.Bundles == nil {
-		return fmt.Errorf("visualization host missing required dependencies: Bundles")
-	}
 	return nil
 }
 
@@ -47,7 +43,7 @@ func Mount(parent chi.Router, h Host) {
 	if err := h.Validate(); err != nil {
 		panic(err)
 	}
-	handler := NewHandler(h.Weave, h.Generators, h.Bundles, h.Logger, h.LatestRelease)
+	handler := NewHandler(h.Weave, h.Generators, h.Logger, h.LatestRelease)
 
 	withVersion := parent.With(weaveauth.WithProjectVersionContext)
 

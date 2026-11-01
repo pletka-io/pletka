@@ -611,3 +611,9 @@ func TestX3MLFormBSkipsDegeneratePlacement(t *testing.T) {
 		t.Errorf("degenerate placement must be skipped, found its template\n%s", got)
 	}
 }
+
+func TestRetainedInputDoesNotInventAnOntologyTarget(t *testing.T) {
+	if got := buildTarget(&generators.Snapshot{SchemaVersion: 1}); len(got.Infos) != 0 {
+		t.Fatal("retained empty input invented a current ontology target")
+	}
+}

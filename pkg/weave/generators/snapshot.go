@@ -8,7 +8,10 @@ import (
 // Snapshot is the common generator input. Renderers should consume this
 // resolved shape instead of querying stores or re-deriving path semantics.
 type Snapshot struct {
-	RootKind EntityKind `json:"root_kind"`
+	SchemaVersion  int                          `json:"schema_version,omitempty"`
+	Selection      Selection                    `json:"selection"`
+	OntologyBundle []domain.OntologyBundleEntry `json:"ontology_bundle,omitempty"`
+	RootKind       EntityKind                   `json:"root_kind"`
 
 	Project    domain.Project     `json:"project"`
 	Model      *domain.Model      `json:"model,omitempty"`
@@ -51,12 +54,10 @@ type FieldNode struct {
 	// Collection entity.
 	CollectionName domain.Translations `json:"collection_name,omitempty"`
 
-	// ConceptEnum is the sorted, de-duplicated set of member concept URIs from
-	// the field's bound *sealed* concept lists. Populated only when a concept
-	// enum reader is wired (host build) and at least one bound list is sealed;
-	// generators (SHACL sh:in, later Arches) emit it as an exhaustive value
-	// constraint (#3599). Empty for open/unbound fields.
-	ConceptEnum []string `json:"concept_enum,omitempty"`
+	// ConceptEnum contains sorted exact URIs from retained sealed concept lists.
+	// ConceptEnumClosed distinguishes an empty closed constraint from no constraint.
+	ConceptEnumClosed bool     `json:"concept_enum_closed,omitempty"`
+	ConceptEnum       []string `json:"concept_enum,omitempty"`
 
 	// GraftPath is the chain of Collection-stub fields that anchored this
 	// field's grafted position. Empty on an un-grafted field (the field
@@ -72,8 +73,7 @@ type FieldNode struct {
 	// distinct anchors becomes two distinct Arches nodes (Arches'
 	// node-belongs-to-one-nodegroup constraint).
 	//
-	// Stays nil/empty for now; populated when the snap-level collection
-	// composition pass lands.
+	// Populated by the optional pure collection composition pass.
 	GraftPath []string `json:"graft_path,omitempty"`
 }
 

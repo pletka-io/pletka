@@ -22,14 +22,6 @@ import (
 	weavex3ml "github.com/pletka-io/pletka/pkg/weave/generators/x3ml"
 )
 
-// ontologyBundleReader supplies a project's linked ontologies for the
-// X3ML zip artifact. Matches visualization's ontologyBundleReader so
-// the projectontologyversion slice's Store satisfies both.
-type ontologyBundleReader interface {
-	BundleForProject(ctx context.Context, projectID string) ([]domain.OntologyBundleEntry, error)
-	BundleForVersions(ctx context.Context, versionIDs []string) ([]domain.OntologyBundleEntry, error)
-}
-
 // Handler serves the integrations hub HTTP endpoints. Read-only routes
 // gate on auth.ProjectRead; write + action routes gate on
 // auth.ProjectEdit.
@@ -37,20 +29,19 @@ type Handler struct {
 	weave            domain.WeaveStore
 	svc              *Service
 	gens             *generators.Service
-	bundles          ontologyBundleReader
 	projectArtifacts func(context.Context, string) registry.ProjectArtifactProvider
 	logger           *slog.Logger
 }
 
-// NewHandler builds a Handler. The generator service + bundle reader
-// are required for the action endpoint's artifact provider — the hub
+// NewHandler builds a Handler. The generator service
+// is required for the action endpoint's artifact provider — the hub
 // renders X3ML zips in-memory without going through HTTP. The optional
 // projectArtifacts factory supplies host-level project bundles.
-func NewHandler(weave domain.WeaveStore, svc *Service, gens *generators.Service, bundles ontologyBundleReader, projectArtifacts func(context.Context, string) registry.ProjectArtifactProvider, logger *slog.Logger) *Handler {
+func NewHandler(weave domain.WeaveStore, svc *Service, gens *generators.Service, projectArtifacts func(context.Context, string) registry.ProjectArtifactProvider, logger *slog.Logger) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handler{weave: weave, svc: svc, gens: gens, bundles: bundles, projectArtifacts: projectArtifacts, logger: logger.With("handler", "integrations.hub")}
+	return &Handler{weave: weave, svc: svc, gens: gens, projectArtifacts: projectArtifacts, logger: logger.With("handler", "integrations.hub")}
 }
 
 func (h *Handler) loadProjectAndGate(w http.ResponseWriter, r *http.Request, projectID string, cap auth.Capability) (*domain.Project, bool) { //nolint:unparam // cap kept explicit at the gate; this line changed only to pass r (ADR-0009 migration)
@@ -439,7 +430,7 @@ func (h *Handler) RunAction(w http.ResponseWriter, r *http.Request) {
 
 	var provider registry.ArtifactProvider
 	if kind != "" && entityID != "" {
-		provider = h.artifactProvider(ctx, project.ID, kind, entityID)
+		provider = h.artifactProvider(auth.WithReadScope(ctx, auth.Draft()), project.ID, kind, entityID)
 	}
 	var projectProvider registry.ProjectArtifactProvider
 	if h.projectArtifacts != nil {
@@ -476,19 +467,7 @@ func (h *Handler) RunAction(w http.ResponseWriter, r *http.Request) {
 // without paying snapshot construction cost.
 func (h *Handler) artifactProvider(ctx context.Context, projectID string, kind registry.EntityKind, entityID string) registry.ArtifactProvider {
 	return func(format registry.Format) (io.Reader, string, error) {
-		resolved, err := h.weave.Projects().ResolvedOntologyVersions(ctx, projectID, domain.ResolvedOntologyVersionOpts{})
-		if err != nil {
-			return nil, "", fmt.Errorf("resolve ontology versions: %w", err)
-		}
-		versionIDs := make([]string, 0, len(resolved))
-		for _, r := range resolved {
-			versionIDs = append(versionIDs, r.Link.OntologyVersionID)
-		}
-		bundle, err := h.bundles.BundleForVersions(ctx, versionIDs)
-		if err != nil {
-			return nil, "", fmt.Errorf("load ontology bundle: %w", err)
-		}
-		snap, err := h.snapshotFor(ctx, projectID, kind, entityID, bundle)
+		snap, err := h.snapshotFor(ctx, projectID, kind, entityID)
 		if err != nil {
 			return nil, "", err
 		}
@@ -499,7 +478,7 @@ func (h *Handler) artifactProvider(ctx context.Context, projectID string, kind r
 		base := artifactBaseName(snap) + artifactExtension(format)
 		switch generators.Format(format) {
 		case generators.FormatX3ML, generators.FormatX3MLB:
-			data, err := weavex3ml.BuildZip(base, buf.Bytes(), bundle)
+			data, err := weavex3ml.BuildZip(base, buf.Bytes(), snap.OntologyBundle)
 			if err != nil {
 				return nil, "", err
 			}
@@ -510,32 +489,18 @@ func (h *Handler) artifactProvider(ctx context.Context, projectID string, kind r
 	}
 }
 
-func (h *Handler) snapshotFor(ctx context.Context, projectID string, kind registry.EntityKind, entityID string, bundle []domain.OntologyBundleEntry) (*generators.Snapshot, error) {
-	opts := generators.Options{X3MLTargets: x3mlTargets(bundle)}
+func (h *Handler) snapshotFor(ctx context.Context, projectID string, kind registry.EntityKind, entityID string) (*generators.Snapshot, error) {
+	opts := generators.Options{}
 	switch generators.EntityKind(kind) {
 	case generators.EntityModel:
-		return h.gens.SnapshotForModel(ctx, projectID, entityID, opts)
+		return h.gens.SnapshotForModel(ctx, auth.ReadScopeFromContext(ctx), projectID, entityID, opts)
 	case generators.EntityCollection:
-		return h.gens.SnapshotForCollection(ctx, projectID, entityID, opts)
+		return h.gens.SnapshotForCollection(ctx, auth.ReadScopeFromContext(ctx), projectID, entityID, opts)
 	case generators.EntityField:
-		return h.gens.SnapshotForField(ctx, projectID, entityID, opts)
+		return h.gens.SnapshotForField(ctx, auth.ReadScopeFromContext(ctx), projectID, entityID, opts)
 	default:
 		return nil, fmt.Errorf("unsupported entity kind %q", kind)
 	}
-}
-
-func x3mlTargets(bundle []domain.OntologyBundleEntry) []generators.X3MLTarget {
-	out := make([]generators.X3MLTarget, 0, len(bundle))
-	for _, o := range bundle {
-		out = append(out, generators.X3MLTarget{
-			Prefix:     o.Prefix,
-			Namespace:  o.Namespace,
-			Label:      o.Name,
-			Version:    o.VersionString,
-			SchemaFile: o.OriginalFilename,
-		})
-	}
-	return out
 }
 
 func artifactBaseName(snap *generators.Snapshot) string {

@@ -26,38 +26,17 @@ import (
 type Handler struct {
 	weave         pkgdomain.WeaveStore
 	gens          *generators.Service
-	bundles       ontologyBundleReader
 	logger        *slog.Logger
 	latestRelease auth.LatestReleaseReader
 }
 
-// ontologyBundleReader supplies a project's linked ontologies (with raw
-// schema content) for the X3ML <target> blocks and ZIP download. The
-// projectontologyversion slice's Store satisfies it.
-type ontologyBundleReader interface {
-	BundleForProject(ctx context.Context, projectID string) ([]pkgdomain.OntologyBundleEntry, error)
-	BundleForVersions(ctx context.Context, versionIDs []string) ([]pkgdomain.OntologyBundleEntry, error)
-}
-
-type versionedModelLookup interface {
-	GetByIDVersion(ctx context.Context, projectID, id, version string) (*pkgdomain.Model, error)
-}
-
-type versionedCollectionLookup interface {
-	GetByIDVersion(ctx context.Context, projectID, id, version string) (*pkgdomain.Collection, error)
-}
-
-type versionedFieldLookup interface {
-	GetByIDVersion(ctx context.Context, projectID, id, version string) (*pkgdomain.Field, error)
-}
-
 // NewHandler builds the visualization Handler. latestRelease is optional —
-// nil disables the release-mode default, leaving readers on the hot draft.
-func NewHandler(weave pkgdomain.WeaveStore, gens *generators.Service, bundles ontologyBundleReader, logger *slog.Logger, latestRelease auth.LatestReleaseReader) *Handler {
+// nil fails requests that require a default release (explicit selection still works).
+func NewHandler(weave pkgdomain.WeaveStore, gens *generators.Service, logger *slog.Logger, latestRelease auth.LatestReleaseReader) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handler{weave: weave, gens: gens, bundles: bundles, logger: logger, latestRelease: latestRelease}
+	return &Handler{weave: weave, gens: gens, logger: logger, latestRelease: latestRelease}
 }
 
 // DiagramResponse mirrors the legacy diagram JSON envelope so the
@@ -86,10 +65,10 @@ func (h *Handler) GetModelDiagram(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, opts)
+	snap, err := h.gens.SnapshotForModel(ctx, auth.ReadScopeFromContext(ctx), model.ProjectID, model.ID, opts)
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	var buf bytes.Buffer
@@ -101,7 +80,7 @@ func (h *Handler) GetModelDiagram(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, DiagramResponse{
 		Success: true,
 		Mermaid: buf.String(),
-		Name:    model.UIName.Get("en", model.SystemName),
+		Name:    snap.Model.UIName.Get("en", snap.Model.SystemName),
 		ID:      model.ID,
 		Count:   len(snap.Fields),
 	})
@@ -122,10 +101,10 @@ func (h *Handler) GetCollectionDiagram(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	snap, err := h.gens.SnapshotForCollection(ctx, coll.ProjectID, coll.ID, opts)
+	snap, err := h.gens.SnapshotForCollection(ctx, auth.ReadScopeFromContext(ctx), coll.ProjectID, coll.ID, opts)
 	if err != nil {
 		h.logger.Error("collection snapshot", "id", coll.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build collection snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	var buf bytes.Buffer
@@ -137,7 +116,7 @@ func (h *Handler) GetCollectionDiagram(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, DiagramResponse{
 		Success: true,
 		Mermaid: buf.String(),
-		Name:    coll.UIName.Get("en", coll.SystemName),
+		Name:    snap.Collection.UIName.Get("en", snap.Collection.SystemName),
 		ID:      coll.ID,
 		Count:   len(snap.Fields),
 	})
@@ -211,10 +190,10 @@ func (h *Handler) GetFieldDiagram(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	snap, err := h.gens.SnapshotForField(ctx, field.ProjectID, field.ID, opts)
+	snap, err := h.gens.SnapshotForField(ctx, auth.ReadScopeFromContext(ctx), field.ProjectID, field.ID, opts)
 	if err != nil {
 		h.logger.Error("field snapshot", "id", field.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build field snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	var buf bytes.Buffer
@@ -226,7 +205,7 @@ func (h *Handler) GetFieldDiagram(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, DiagramResponse{
 		Success: true,
 		Mermaid: buf.String(),
-		Name:    field.UIName.Get("en", field.SystemName),
+		Name:    snap.Field.UIName.Get("en", snap.Field.SystemName),
 		ID:      field.ID,
 		Count:   len(snap.Fields),
 	})
@@ -298,10 +277,10 @@ func (h *Handler) modelSPARQL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	opts := sparqlOptionsFromRequest(r)
-	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, opts)
+	snap, err := h.gens.SnapshotForModel(ctx, auth.ReadScopeFromContext(ctx), model.ProjectID, model.ID, opts)
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	h.writeSPARQL(ctx, w, r, snap)
@@ -317,10 +296,10 @@ func (h *Handler) collectionSPARQL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	opts := sparqlOptionsFromRequest(r)
-	snap, err := h.gens.SnapshotForCollection(ctx, coll.ProjectID, coll.ID, opts)
+	snap, err := h.gens.SnapshotForCollection(ctx, auth.ReadScopeFromContext(ctx), coll.ProjectID, coll.ID, opts)
 	if err != nil {
 		h.logger.Error("collection snapshot", "id", coll.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build collection snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	h.writeSPARQL(ctx, w, r, snap)
@@ -336,10 +315,10 @@ func (h *Handler) fieldSPARQL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	opts := sparqlOptionsFromRequest(r)
-	snap, err := h.gens.SnapshotForField(ctx, field.ProjectID, field.ID, opts)
+	snap, err := h.gens.SnapshotForField(ctx, auth.ReadScopeFromContext(ctx), field.ProjectID, field.ID, opts)
 	if err != nil {
 		h.logger.Error("field snapshot", "id", field.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build field snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	h.writeSPARQL(ctx, w, r, snap)
@@ -379,7 +358,7 @@ func (h *Handler) modelX3ML(w http.ResponseWriter, r *http.Request, format gener
 		return
 	}
 	h.serveX3ML(ctx, w, r, format, model.ProjectID, func(opts generators.Options) (*generators.Snapshot, error) {
-		return h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, opts)
+		return h.gens.SnapshotForModel(ctx, auth.ReadScopeFromContext(ctx), model.ProjectID, model.ID, opts)
 	})
 }
 
@@ -389,7 +368,7 @@ func (h *Handler) collectionX3ML(w http.ResponseWriter, r *http.Request, format 
 		return
 	}
 	h.serveX3ML(ctx, w, r, format, coll.ProjectID, func(opts generators.Options) (*generators.Snapshot, error) {
-		return h.gens.SnapshotForCollection(ctx, coll.ProjectID, coll.ID, opts)
+		return h.gens.SnapshotForCollection(ctx, auth.ReadScopeFromContext(ctx), coll.ProjectID, coll.ID, opts)
 	})
 }
 
@@ -399,7 +378,7 @@ func (h *Handler) fieldX3ML(w http.ResponseWriter, r *http.Request, format gener
 		return
 	}
 	h.serveX3ML(ctx, w, r, format, field.ProjectID, func(opts generators.Options) (*generators.Snapshot, error) {
-		return h.gens.SnapshotForField(ctx, field.ProjectID, field.ID, opts)
+		return h.gens.SnapshotForField(ctx, auth.ReadScopeFromContext(ctx), field.ProjectID, field.ID, opts)
 	})
 }
 
@@ -419,23 +398,7 @@ func (h *Handler) serveX3ML(
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	resolved, err := h.weave.Projects().ResolvedOntologyVersions(ctx, projectID, pkgdomain.ResolvedOntologyVersionOpts{})
-	if err != nil {
-		h.logger.Error("x3ml resolve ontology versions", "project", projectID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to resolve project ontologies: "+err.Error(), err))
-		return
-	}
-	versionIDs := make([]string, 0, len(resolved))
-	for _, r := range resolved {
-		versionIDs = append(versionIDs, r.Link.OntologyVersionID)
-	}
-	bundle, err := h.bundles.BundleForVersions(ctx, versionIDs)
-	if err != nil {
-		h.logger.Error("x3ml ontology bundle", "project", projectID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to load project ontologies: "+err.Error(), err))
-		return
-	}
-	snap, err := build(generators.Options{X3MLTargets: x3mlTargets(bundle)})
+	snap, err := build(generators.Options{})
 	if err != nil {
 		h.logger.Error("x3ml snapshot", "project", projectID, "err", err)
 		apierror.Write(w, r, apierror.InternalWith("failed to build snapshot: "+err.Error(), err))
@@ -450,7 +413,7 @@ func (h *Handler) serveX3ML(
 
 	base := x3mlBaseName(snap) + x3mlExtension(format)
 	if r.URL.Query().Get("bundle") == "zip" {
-		h.writeX3MLZip(w, r, base, buf.Bytes(), bundle)
+		h.writeX3MLZip(w, r, base, buf.Bytes(), snap.OntologyBundle)
 		return
 	}
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
@@ -474,22 +437,6 @@ func (h *Handler) writeX3MLZip(w http.ResponseWriter, r *http.Request, x3mlName 
 	_, _ = w.Write(data)
 }
 
-// x3mlTargets maps the project's linked ontologies to renderer targets.
-func x3mlTargets(bundle []pkgdomain.OntologyBundleEntry) []generators.X3MLTarget {
-	out := make([]generators.X3MLTarget, 0, len(bundle))
-	for _, o := range bundle {
-		out = append(out, generators.X3MLTarget{
-			Prefix:     o.Prefix,
-			Namespace:  o.Namespace,
-			Label:      o.Name,
-			Version:    o.VersionString,
-			SchemaFile: o.OriginalFilename,
-		})
-	}
-	return out
-}
-
-// x3mlBaseName is the entity-derived file stem for the download.
 func x3mlBaseName(snap *generators.Snapshot) string {
 	switch snap.RootKind {
 	case generators.EntityModel:
@@ -537,10 +484,10 @@ func (h *Handler) GetModelArches(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, generators.Options{})
+	snap, err := h.gens.SnapshotForModel(ctx, auth.ReadScopeFromContext(ctx), model.ProjectID, model.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	var buf bytes.Buffer
@@ -567,10 +514,10 @@ func (h *Handler) GetModelSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, generators.Options{})
+	snap, err := h.gens.SnapshotForModel(ctx, auth.ReadScopeFromContext(ctx), model.ProjectID, model.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -595,10 +542,10 @@ func (h *Handler) GetModelASCIITree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, generators.Options{})
+	snap, err := h.gens.SnapshotForModel(ctx, auth.ReadScopeFromContext(ctx), model.ProjectID, model.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -619,10 +566,10 @@ func (h *Handler) GetModelResearchSpace(w http.ResponseWriter, r *http.Request) 
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, generators.Options{})
+	snap, err := h.gens.SnapshotForModel(ctx, auth.ReadScopeFromContext(ctx), model.ProjectID, model.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	var buf bytes.Buffer
@@ -664,10 +611,10 @@ func (h *Handler) modelGraph(w http.ResponseWriter, r *http.Request, format gene
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, opts)
+	snap, err := h.gens.SnapshotForModel(ctx, auth.ReadScopeFromContext(ctx), model.ProjectID, model.ID, opts)
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	var buf bytes.Buffer
@@ -694,10 +641,10 @@ func (h *Handler) collectionGraph(w http.ResponseWriter, r *http.Request, format
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	snap, err := h.gens.SnapshotForCollection(ctx, coll.ProjectID, coll.ID, opts)
+	snap, err := h.gens.SnapshotForCollection(ctx, auth.ReadScopeFromContext(ctx), coll.ProjectID, coll.ID, opts)
 	if err != nil {
 		h.logger.Error("collection snapshot", "id", coll.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build collection snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	var buf bytes.Buffer
@@ -724,10 +671,10 @@ func (h *Handler) fieldGraph(w http.ResponseWriter, r *http.Request, format gene
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	snap, err := h.gens.SnapshotForField(ctx, field.ProjectID, field.ID, opts)
+	snap, err := h.gens.SnapshotForField(ctx, auth.ReadScopeFromContext(ctx), field.ProjectID, field.ID, opts)
 	if err != nil {
 		h.logger.Error("field snapshot", "id", field.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build field snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	var buf bytes.Buffer
@@ -770,10 +717,10 @@ func (h *Handler) fieldRDF(w http.ResponseWriter, r *http.Request, format genera
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	snap, err := h.gens.SnapshotForField(ctx, field.ProjectID, field.ID, generators.Options{})
+	snap, err := h.gens.SnapshotForField(ctx, auth.ReadScopeFromContext(ctx), field.ProjectID, field.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("field snapshot", "id", field.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build field snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	var buf bytes.Buffer
@@ -795,10 +742,10 @@ func (h *Handler) modelRDF(w http.ResponseWriter, r *http.Request, format genera
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, generators.Options{})
+	snap, err := h.gens.SnapshotForModel(ctx, auth.ReadScopeFromContext(ctx), model.ProjectID, model.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	var buf bytes.Buffer
@@ -820,10 +767,10 @@ func (h *Handler) collectionRDF(w http.ResponseWriter, r *http.Request, format g
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	snap, err := h.gens.SnapshotForCollection(ctx, coll.ProjectID, coll.ID, generators.Options{})
+	snap, err := h.gens.SnapshotForCollection(ctx, auth.ReadScopeFromContext(ctx), coll.ProjectID, coll.ID, generators.Options{})
 	if err != nil {
 		h.logger.Error("collection snapshot", "id", coll.ID, "err", err)
-		apierror.Write(w, r, apierror.InternalWith("failed to build collection snapshot: "+err.Error(), err))
+		apierror.Write(w, r, apierror.FromError(err))
 		return
 	}
 	var buf bytes.Buffer
@@ -869,21 +816,7 @@ func (h *Handler) loadModelAndGate(w http.ResponseWriter, r *http.Request) (*pkg
 		apierror.Write(w, r, apierror.Internal(err))
 		return nil, ctx, false
 	}
-	if version != "" {
-		if vr, ok := h.weave.Models().(versionedModelLookup); ok {
-			versioned, err := vr.GetByIDVersion(ctx, model.ProjectID, modelID, version)
-			if err != nil {
-				h.logger.Error("load archived model", "id", modelID, "project_id", model.ProjectID, "version", version, "err", err)
-				writeError(w, "model not found", http.StatusNotFound)
-				return nil, ctx, false
-			}
-			if versioned == nil {
-				writeError(w, "model not found", http.StatusNotFound)
-				return nil, ctx, false
-			}
-			model = versioned
-		}
-	}
+	ctx = auth.WithReadScope(ctx, auth.ScopeForResolvedVersion(version))
 	return model, ctx, true
 }
 
@@ -910,21 +843,7 @@ func (h *Handler) loadCollectionAndGate(w http.ResponseWriter, r *http.Request) 
 		apierror.Write(w, r, apierror.Internal(err))
 		return nil, ctx, false
 	}
-	if version != "" {
-		if vr, ok := h.weave.Collections().(versionedCollectionLookup); ok {
-			versioned, err := vr.GetByIDVersion(ctx, coll.ProjectID, collectionID, version)
-			if err != nil {
-				h.logger.Error("load archived collection", "id", collectionID, "project_id", coll.ProjectID, "version", version, "err", err)
-				writeError(w, "collection not found", http.StatusNotFound)
-				return nil, ctx, false
-			}
-			if versioned == nil {
-				writeError(w, "collection not found", http.StatusNotFound)
-				return nil, ctx, false
-			}
-			coll = versioned
-		}
-	}
+	ctx = auth.WithReadScope(ctx, auth.ScopeForResolvedVersion(version))
 	return coll, ctx, true
 }
 
@@ -951,21 +870,7 @@ func (h *Handler) loadFieldAndGate(w http.ResponseWriter, r *http.Request) (*pkg
 		apierror.Write(w, r, apierror.Internal(err))
 		return nil, ctx, false
 	}
-	if version != "" {
-		if vr, ok := h.weave.WeaveFields().(versionedFieldLookup); ok {
-			versioned, err := vr.GetByIDVersion(ctx, field.ProjectID, fieldID, version)
-			if err != nil {
-				h.logger.Error("load archived field", "id", fieldID, "project_id", field.ProjectID, "version", version, "err", err)
-				writeError(w, "field not found", http.StatusNotFound)
-				return nil, ctx, false
-			}
-			if versioned == nil {
-				writeError(w, "field not found", http.StatusNotFound)
-				return nil, ctx, false
-			}
-			field = versioned
-		}
-	}
+	ctx = auth.WithReadScope(ctx, auth.ScopeForResolvedVersion(version))
 	return field, ctx, true
 }
 

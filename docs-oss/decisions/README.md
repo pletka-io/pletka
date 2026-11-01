@@ -40,3 +40,4 @@ Format: [`TEMPLATE.md`](TEMPLATE.md). Numbering is zero-padded and sequential.
 | [0019](0019-imported-project-history-keeps-its-origin.md) | Restore complete immutable project history and working copies atomically, preserving original evidence and separate import provenance. |
 | [0020](0020-draft-mutations-own-their-capture.md) | Enrolled draft mutations atomically retain ordered receipts, raw effects and complete before/after values; storage rejects bypasses. |
 | [0021](0021-captured-draft-git-delivery.md) | Publish captured revisions through an isolated automation ref with durable preparation, CAS, acknowledgement and exact retry recovery. |
+| [0022](0022-generators-consume-detached-inputs.md) | Generators load through one scoped assembler source and render detached versioned values; future script adapters consume the same data contract. |

@@ -6,6 +6,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/service/generatorread"
+	"github.com/pletka-io/pletka/pkg/service/projectread"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
@@ -680,15 +684,11 @@ func buildCoreEntityHosts(
 }
 
 func buildExportHosts(
+	source generators.Source,
 	weave domain.WeaveStore,
 	logger *slog.Logger,
 	i18nManager i18n.Manager,
 	sessionManager *session.Manager,
-	projectHost project.Host,
-	fieldHost field.Host,
-	modelHost model.Host,
-	collectionHost collection.Host,
-	namespaceSvc *namespacebinding.Service,
 	ontologyReader weavecsvexport.OntologyLookup,
 	ontologyVersionReader weavecsvexport.OntologyVersionLookup,
 ) (weavecsvexport.Host, weaveexports.Host) {
@@ -708,14 +708,7 @@ func buildExportHosts(
 	if err != nil {
 		panic(err)
 	}
-	exportSvc := generators.NewService(
-		projectHost.Service,
-		modelHost.Service,
-		collectionHost.Service,
-		fieldHost.Service,
-		namespaceSvc,
-		reg,
-	)
+	exportSvc := generators.NewService(source, reg)
 
 	return weavecsvexport.Host{
 		Service: csvSvc,
@@ -726,31 +719,28 @@ func buildExportHosts(
 	}
 }
 
-func buildGeneratorService(
-	logger *slog.Logger,
-	projectHost project.Host,
-	fieldHost field.Host,
-	modelHost model.Host,
-	collectionHost collection.Host,
-	namespaceSvc *namespacebinding.Service,
-	renderers []generators.Renderer,
-) *generators.Service {
+func buildGeneratorService(source generators.Source, renderers []generators.Renderer) *generators.Service {
 	reg, err := generators.NewRegistry(renderers...)
 	if err != nil {
 		panic(err)
 	}
-	return generators.NewService(
-		projectHost.Service,
-		modelHost.Service,
-		collectionHost.Service,
-		fieldHost.Service,
-		namespaceSvc,
-		reg,
-	)
+	return generators.NewService(source, reg)
+}
+
+func buildGeneratorSource(opts Options, policy readsession.SourceAuthorization) *generatorread.Source {
+	options := projectread.DefaultOptions()
+	options.Hosts.Project, options.Hosts.Ontology = opts.ModuleHost, opts.OntologyHost
+	source, err := generatorread.New(readsession.NewFactory(opts.Pool).WithSourceAuthorization(policy), options)
+	if err != nil {
+		panic(err)
+	}
+	return source
+}
+func authorizeGeneratorSource(ctx context.Context, resource auth.Resource) error {
+	return auth.CheckProjectRead(ctx, resource)
 }
 
 func buildVisualizationHost(
-	pool *pgxpool.Pool,
 	weave domain.WeaveStore,
 	logger *slog.Logger,
 	gens *generators.Service,
@@ -759,7 +749,6 @@ func buildVisualizationHost(
 	return visualization.Host{
 		Generators:    gens,
 		Weave:         weave,
-		Bundles:       projectontologyversion.NewPostgresStore(pool),
 		Logger:        logger,
 		LatestRelease: publicationReader,
 	}

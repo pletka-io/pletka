@@ -77,13 +77,16 @@ type EntityRef struct {
 
 // ResolvedField is a field with its winning override applied and refs resolved.
 type ResolvedField struct {
-	ID            string         `json:"id"`
-	SemanticID    string         `json:"semantic_id"`
-	SystemName    string         `json:"system_name"`
-	ProjectID     string         `json:"project_id,omitempty"`
-	OntologyPath  string         `json:"ontology_path,omitempty"`
-	PathElements  []PathElement  `json:"path_elements,omitempty"`
-	SubfieldPaths []SubfieldPath `json:"subfield_paths,omitempty"` // legacy <br><br> additional paths
+	SourceVersion     string         `json:"source_version,omitempty"`
+	OverrideProjectID string         `json:"override_project_id,omitempty"`
+	SetValueEntryID   string         `json:"set_value_entry_id,omitempty"`
+	ID                string         `json:"id"`
+	SemanticID        string         `json:"semantic_id"`
+	SystemName        string         `json:"system_name"`
+	ProjectID         string         `json:"project_id,omitempty"`
+	OntologyPath      string         `json:"ontology_path,omitempty"`
+	PathElements      []PathElement  `json:"path_elements,omitempty"`
+	SubfieldPaths     []SubfieldPath `json:"subfield_paths,omitempty"` // legacy <br><br> additional paths
 
 	DisplayName Translations `json:"display_name"`
 	Description Translations `json:"description,omitempty"`

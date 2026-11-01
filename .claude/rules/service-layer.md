@@ -54,7 +54,13 @@ func NewService(store Store, projects ProjectReader, ...) *Service
 > per ADR-0005 — request-plumbing middleware belongs in `pkg/auth`). The
 > change is done; the planning doc it cited does not live in this repo.
 
-Generators follow the reader pattern at scale: six narrow readers (`ProjectReader`, `ModelReader`, `CollectionReader`, `FieldReader`, `NamespaceReader`, `ConceptEnumReader`) plus a `*Registry` — never the `domain.WeaveStore` aggregate.
+Generators receive one `Source` returning validated `projectsnapshot` values and
+one `*Registry`. The production `service/generatorread` closes its scoped session
+before returning; `BuildSnapshot` and renderers are pure. Use `BindProject` for
+bulk inventory/identifier lookup and rendering from one complete value. Do not
+add slice readers, optional enums, current ontology bundles or global anchor
+lookups. Script adapters consume versioned `EncodeInput` data, not loader callbacks.
+See [ADR-0022](../../docs-oss/decisions/0022-generators-consume-detached-inputs.md).
 
 ## Dispatcher Rule
 
@@ -235,7 +241,7 @@ its own complete validation contract before it may produce this evidence.
 - A handler-only module growing a `Store` interface — promote it to a full slice or read through an existing slice's service
 - Two packages building the same entity's schema — collapse to the slice
 - Business logic inside a store method (stores query, services decide)
-- Generators depending on the `domain.WeaveStore` aggregate instead of narrow readers
+- Generators importing loading capabilities or adding readers around the single detached `Source` boundary
 - A handler emitting `http.Error`/`http.NotFound` instead of `weaverouter.Error`/`apierror.Write`
 - A read method outside a `Reader` in a versioned slice
 - A SQL string literal outside named `.sql` files under `pkg/database/queries/` — see `database-patterns.md`

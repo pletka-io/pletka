@@ -1,12 +1,15 @@
 package exports
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/pletka-io/pletka/pkg/weave/apierror"
 
 	"github.com/go-chi/chi/v5"
 
@@ -74,24 +77,29 @@ func (h *Handler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	entityKind := chi.URLParam(r, "entityKind")
 	entityID := cleanCSVParam(chi.URLParam(r, "entityID"))
 
-	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-%s-%s.csv"`, projectID, entityKind, entityID))
+	var output bytes.Buffer
 
 	var err error
 	switch normalizeEntityKind(entityKind) {
 	case generators.EntityModel:
-		err = h.service.GenerateModel(r.Context(), projectID, entityID, generators.FormatCSV, w, generators.Options{})
+		err = h.service.GenerateModel(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, entityID, generators.FormatCSV, &output, generators.Options{})
 	case generators.EntityCollection:
-		err = h.service.GenerateCollection(r.Context(), projectID, entityID, generators.FormatCSV, w, generators.Options{})
+		err = h.service.GenerateCollection(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, entityID, generators.FormatCSV, &output, generators.Options{})
 	case generators.EntityField:
-		err = h.service.GenerateField(r.Context(), projectID, entityID, generators.FormatCSV, w, generators.Options{})
+		err = h.service.GenerateField(r.Context(), auth.ReadScopeFromContext(r.Context()), projectID, entityID, generators.FormatCSV, &output, generators.Options{})
 	default:
 		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "unknown export entity kind")
 		return
 	}
 	if err != nil {
 		h.log.Error("generate weave csv export", "err", err, "project_id", projectID, "entity_kind", entityKind, "entity_id", entityID)
+		apierror.Write(w, r, apierror.FromError(err))
+		return
 	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-%s-%s.csv"`, projectID, entityKind, entityID))
+
+	_, _ = w.Write(output.Bytes())
 }
 
 func normalizeEntityKind(kind string) generators.EntityKind {

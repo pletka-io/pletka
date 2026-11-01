@@ -6,15 +6,21 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/pletka-io/pletka/internal/testsnapshot"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/projectsnapshot"
 	"github.com/pletka-io/pletka/pkg/weave/errresp"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/generators/exportgraph"
+	"github.com/pletka-io/pletka/pkg/weave/generators/mermaid"
 )
 
 // superAdminRequest builds a GET to url with a superadmin snapshot in
@@ -22,7 +28,7 @@ import (
 // (defense-in-depth alongside the schema URL hiding); tests need to
 // pass that gate before they exercise the actual handler logic.
 func superAdminRequest(method, url string) *http.Request {
-	req := httptest.NewRequest(method, url, nil)
+	req := httptest.NewRequestWithContext(context.Background(), method, url, nil)
 	snap := &auth.AuthSnapshot{IsSuperAdmin: true}
 	return req.WithContext(auth.WithSnapshot(req.Context(), snap))
 }
@@ -40,7 +46,7 @@ func TestReleaseLookupFailureStopsEntityReads(t *testing.T) {
 	h := NewHandler(testWeaveStore{
 		project: project, model: domain.Model{Entity: entity},
 		collection: domain.Collection{Entity: entity}, field: domain.Field{Entity: entity},
-	}, nil, nil, nil, failedReleaseReader{err: cause})
+	}, nil, nil, failedReleaseReader{err: cause})
 	for _, kind := range []string{"model", "collection", "field"} {
 		t.Run(kind, func(t *testing.T) {
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/gen/"+kind+"/E", nil)
@@ -132,7 +138,7 @@ func TestExportGraphRoutesRenderModelGraph(t *testing.T) {
 	if body.RootKey == "" || len(body.Nodes) < 2 {
 		t.Fatalf("unexpected graph shape: %+v", body)
 	}
-	if body.Nodes[0].Class.URI != "crm:E21_Person" {
+	if body.Nodes[0].Class.URI != "http://www.cidoc-crm.org/cidoc-crm/E21_Person" {
 		t.Fatalf("root class = %q, want crm:E21_Person", body.Nodes[0].Class.URI)
 	}
 	if len(body.Groups) == 0 {
@@ -183,7 +189,7 @@ func TestExportGraphRoutesRenderCollectionGraph(t *testing.T) {
 	if body.RootKey == "" || len(body.Nodes) < 2 {
 		t.Fatalf("unexpected graph shape: %+v", body)
 	}
-	if body.Nodes[0].Class.URI != "crm:E67_Birth" {
+	if body.Nodes[0].Class.URI != "http://www.cidoc-crm.org/cidoc-crm/E67_Birth" {
 		t.Fatalf("root class = %q, want crm:E67_Birth", body.Nodes[0].Class.URI)
 	}
 	if len(body.Fields) != 1 || body.Fields[0].SemanticID != "LAF.2" {
@@ -197,11 +203,9 @@ func testVisualizationRouter(t *testing.T, project domain.Project, model domain.
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
-	projectReader := &testProjectReader{project: project}
-	modelReader := &testModelReader{model: model, view: modelView}
-	collectionReader := &testCollectionReader{collection: collection, fields: collectionFields}
-	namespaceReader := &testNamespaceReader{}
-	gens := generators.NewService(projectReader, modelReader, collectionReader, nil, namespaceReader, registry)
+	source := testsnapshot.Source{Value: testsnapshot.GeneratorValue(t, project, model, modelView, collection, collectionFields)}
+	gens := generators.NewService(source, registry)
+
 	handler := NewHandler(
 		testWeaveStore{
 			project:    project,
@@ -209,7 +213,6 @@ func testVisualizationRouter(t *testing.T, project domain.Project, model domain.
 			collection: collection,
 		},
 		gens,
-		nil, // ontologyBundleReader — x3ml routes not exercised here
 		nil,
 		nil, // latestRelease — release default not exercised here
 	)
@@ -291,59 +294,6 @@ func (s testWeaveCollectionStore) GetByID(ctx context.Context, id string) (*doma
 	return &s.collection, ctx.Err()
 }
 
-type testProjectReader struct {
-	project domain.Project
-}
-
-func (r *testProjectReader) GetByID(ctx context.Context, id string) (*domain.Project, error) {
-	if r.project.ID != id {
-		return nil, nil
-	}
-	return &r.project, ctx.Err()
-}
-
-func (r *testProjectReader) ResolvedOntologyVersions(ctx context.Context, projectID string, opts domain.ResolvedOntologyVersionOpts) ([]domain.ResolvedOntologyVersion, error) {
-	return nil, ctx.Err()
-}
-
-type testModelReader struct {
-	model domain.Model
-	view  domain.ModelView
-}
-
-func (r *testModelReader) Get(ctx context.Context, projectID, id string) (*domain.Model, error) {
-	if r.model.ID != id {
-		return nil, nil
-	}
-	return &r.model, ctx.Err()
-}
-
-func (r *testModelReader) View(ctx context.Context, projectID, id string) (*domain.ModelView, error) {
-	return &r.view, ctx.Err()
-}
-
-type testCollectionReader struct {
-	collection domain.Collection
-	fields     []domain.ResolvedField
-}
-
-func (r *testCollectionReader) Get(ctx context.Context, _ auth.ReadScope, projectID, id string) (*domain.Collection, error) {
-	if r.collection.ID != id {
-		return nil, nil
-	}
-	return &r.collection, ctx.Err()
-}
-
-func (r *testCollectionReader) View(ctx context.Context, projectID, id string) ([]domain.ResolvedField, error) {
-	return r.fields, ctx.Err()
-}
-
-type testNamespaceReader struct{}
-
-func (r *testNamespaceReader) ListForProject(ctx context.Context, projectID string) ([]*domain.NamespaceBinding, error) {
-	return nil, ctx.Err()
-}
-
 func resolvedGraphField(id, semanticID, name string, path []domain.PathElement) domain.ResolvedField {
 	return domain.ResolvedField{
 		ID:           id,
@@ -370,5 +320,72 @@ func propertyElement(localName string) domain.PathElement {
 		URI:       "crm:" + localName,
 		Prefix:    "crm",
 		LocalName: localName,
+	}
+}
+
+func TestDiagramNameComesFromSelectedInput(t *testing.T) {
+	project := domain.Project{Entity: domain.Entity{ID: "G"}, Visibility: domain.VisibilityPublic}
+	model := domain.Model{Entity: domain.Entity{ID: "M", ProjectID: "G", UIName: domain.Translations{"en": "Captured name"}}}
+	value := testsnapshot.GeneratorValue(t, project, model, domain.ModelView{}, domain.Collection{}, nil)
+	model.UIName = domain.Translations{"en": "Current name"}
+	registry, err := generators.NewRegistry(mermaid.NewRenderer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(testWeaveStore{project: project, model: model}, generators.NewService(testsnapshot.Source{Value: value}, registry), nil, nil)
+	router := chi.NewRouter()
+	router.Get("/gen/models/{modelID}/diagram", handler.GetModelDiagram)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, superAdminRequest(http.MethodGet, "/gen/models/M/diagram"))
+	if response.Code != http.StatusOK {
+		t.Fatal(response.Body.String())
+	}
+	var body DiagramResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Name != "Captured name" {
+		t.Fatalf("diagram name from current data: %q", body.Name)
+	}
+}
+
+type unavailableSelection struct {
+	testsnapshot.Source
+	scope auth.ReadScope
+	calls int
+}
+
+func (s *unavailableSelection) Entity(_ context.Context, scope auth.ReadScope, project, _ string, id string) (projectsnapshot.EntityFragment, error) {
+	s.scope = scope
+	s.calls++
+	return projectsnapshot.EntityFragment{}, &readsession.NotInReleaseError{ProjectID: project, Version: scope.Version(), EntityID: id}
+}
+
+func TestDiagramForwardsReleaseAndPreservesUnavailableError(t *testing.T) {
+	project := domain.Project{Entity: domain.Entity{ID: "G"}, Visibility: domain.VisibilityPublic}
+	entity := domain.Entity{ID: "E", ProjectID: "G"}
+	registry, err := generators.NewRegistry(mermaid.NewRenderer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"model", "collection", "field"} {
+		t.Run(kind, func(t *testing.T) {
+			source := &unavailableSelection{}
+			h := NewHandler(testWeaveStore{project: project, model: domain.Model{Entity: entity}, collection: domain.Collection{Entity: entity}, field: domain.Field{Entity: entity}}, generators.NewService(source, registry), nil, nil)
+			router := chi.NewRouter()
+			router.Get("/model/{modelID}", h.GetModelDiagram)
+			router.Get("/collection/{collectionID}", h.GetCollectionDiagram)
+			router.Get("/field/{fieldID}", h.GetFieldDiagram)
+			req := superAdminRequest(http.MethodGet, "/"+kind+"/E")
+			req = req.WithContext(auth.WithProjectVersion(req.Context(), "1.0"))
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), "not_in_release") {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if source.calls != 1 || !source.scope.IsRelease() || source.scope.Version() != "1.0" {
+				t.Fatalf("selection changed or retried: calls=%d scope=%+v", source.calls, source.scope)
+			}
+		})
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/pletka-io/pletka/pkg/database/dbutil"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -106,7 +105,7 @@ func WriteCollectionOverview(w io.Writer, collections []*domain.Collection) erro
 			marshalPathElement(collection.OntologyScope),
 			strconv.Itoa(collection.CollectionNumber),
 			strconv.Itoa(collection.CanonicalCollectionOrder),
-			dbutil.NilToEmpty(collection.DefaultCategoryID),
+			optionalString(collection.DefaultCategoryID),
 		}); err != nil {
 			return fmt.Errorf("write collection overview row %d: %w", i, err)
 		}
@@ -145,4 +144,11 @@ func WriteFieldOverview(w io.Writer, fields []*domain.Field) error {
 	}
 	cw.Flush()
 	return cw.Error()
+}
+
+func optionalString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }

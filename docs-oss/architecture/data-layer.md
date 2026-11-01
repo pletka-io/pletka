@@ -454,3 +454,13 @@ see [captured delivery](../reference/captured-draft-delivery.md). Full assembly
 and manifest costs require measurement before rollout. See
 [ADR-0020](../decisions/0020-draft-mutations-own-their-capture.md) and
 [operation contract](../reference/atomic-draft-capture.md).
+
+## Generator read lifetime
+
+`service/generatorread.Source` binds an explicit scope through the configured
+read-session factory and calls `projectread.Entity` or `Project`. The transaction
+ends before projection or output. Bulk generators retain one complete value for
+identifier lookup, graph traversal, ontology packaging and rendering; they do not
+open a transaction per model. Source authorization still belongs to the factory.
+The renderer import ratchet forbids new database/service capabilities. See
+[ADR-0022](../decisions/0022-generators-consume-detached-inputs.md).

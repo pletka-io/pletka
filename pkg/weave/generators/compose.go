@@ -1,6 +1,7 @@
 package generators
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -36,7 +37,13 @@ func composeCollections(view domain.ModelView, collections map[string]*domain.Co
 	// the OGEE Activity Duration gap: LA's Dimension, anchored at
 	// E54_Dimension, grafted under timespan_duration stubs even
 	// though no Activity field belongs to Dimension.
-	for _, ea := range extraAnchored {
+	extraIDs := make([]string, 0, len(extraAnchored))
+	for id := range extraAnchored {
+		extraIDs = append(extraIDs, id)
+	}
+	slices.Sort(extraIDs)
+	for _, id := range extraIDs {
+		ea := extraAnchored[id]
 		if ea.Collection == nil || len(ea.SharedPathPrefix) == 0 {
 			continue
 		}

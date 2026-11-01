@@ -11,7 +11,8 @@ import (
 // BuildZip assembles an in-memory ZIP containing the rendered X3ML
 // mapping and one raw schema file per linked ontology that carries
 // imported RDF content. Ontologies with empty OriginalFilename or
-// RDFContent are skipped; duplicate filenames are deduplicated.
+// RDFContent are skipped; identical files are deduplicated and conflicting
+// filenames fail instead of replacing one retained ontology with another.
 //
 // The function is pure with respect to I/O: it consumes the rendered
 // mapping bytes and an ontology bundle and returns the zip bytes. The
@@ -36,12 +37,18 @@ func BuildZip(mappingFilename string, mapping []byte, bundle []domain.OntologyBu
 		return nil, err
 	}
 
-	seen := map[string]bool{}
+	seen := map[string]string{mappingFilename: string(mapping)}
 	for _, o := range bundle {
-		if o.OriginalFilename == "" || o.RDFContent == "" || seen[o.OriginalFilename] {
+		if o.OriginalFilename == "" || o.RDFContent == "" {
 			continue
 		}
-		seen[o.OriginalFilename] = true
+		if previous, ok := seen[o.OriginalFilename]; ok {
+			if previous != o.RDFContent {
+				return nil, fmt.Errorf("conflicting retained bundle filename %q", o.OriginalFilename)
+			}
+			continue
+		}
+		seen[o.OriginalFilename] = o.RDFContent
 		if err := add(o.OriginalFilename, []byte(o.RDFContent)); err != nil {
 			return nil, err
 		}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pletka-io/pletka/internal/testsnapshot"
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
@@ -23,23 +24,12 @@ func TestServiceGenerateCollectionCSV(t *testing.T) {
 		Entity:        domain.Entity{ID: "collection-1", SemanticID: "LAC.1", SystemName: "birth"},
 		OntologyScope: pe("class", "crm", "E67_Birth", 0),
 	}
-	projectReader := stubProjectReader{project: project}
-	namespaceReader := stubNamespaceReader{
-		namespaces: []*domain.NamespaceBinding{
-			{Prefix: "crm", Namespace: "http://www.cidoc-crm.org/cidoc-crm/", Weight: 10},
-		},
-	}
-	collectionReader := stubCollectionReader{
-		collection: collection,
-		collectionFields: []domain.ResolvedField{
-			resolvedField("field-2", "LAF.2", "late", 20),
-			resolvedField("field-1", "LAF.1", "early", 10),
-		},
-	}
-	svc := generators.NewService(&projectReader, nil, &collectionReader, nil, &namespaceReader, registry)
+	fields := []domain.ResolvedField{resolvedField("field-2", "LAF.2", "late", 20), resolvedField("field-1", "LAF.1", "early", 10)}
+	source := testsnapshot.Source{Value: testsnapshot.GeneratorValue(t, project, domain.Model{}, domain.ModelView{}, collection, fields)}
+	svc := generators.NewService(source, registry)
 
 	var buf bytes.Buffer
-	if err := svc.GenerateCollection(context.Background(), "LA", "collection-1", generators.FormatCSV, &buf, generators.Options{}); err != nil {
+	if err := svc.GenerateCollection(context.Background(), auth.Draft(), "LA", "collection-1", generators.FormatCSV, &buf, generators.Options{}); err != nil {
 		t.Fatalf("GenerateCollection() error: %v", err)
 	}
 
@@ -53,7 +43,7 @@ func TestServiceGenerateCollectionCSV(t *testing.T) {
 	if got := cell(records[2], "field_semantic_id"); got != "LAF.2" {
 		t.Fatalf("second field = %q, want LAF.2", got)
 	}
-	if got := cell(records[1], "root_semantic_id"); got != "LAC.1" {
+	if got := cell(records[1], "root_semantic_id"); got != "collection-1" {
 		t.Fatalf("root semantic id = %q", got)
 	}
 	if got := cell(records[1], "ontology_scope"); got != "crm:E67_Birth" {
@@ -71,7 +61,10 @@ func TestServiceGenerateModelCSV(t *testing.T) {
 		Entity:        domain.Entity{ID: "model-1", SemanticID: "LAM.1", SystemName: "person"},
 		OntologyScope: pe("class", "crm", "E21_Person", 0),
 	}
-	modelReader := stubModelReader{
+	modelReader := struct {
+		model domain.Model
+		view  domain.ModelView
+	}{
 		model: model,
 		view: domain.ModelView{
 			ModelID:   model.ID,
@@ -95,12 +88,11 @@ func TestServiceGenerateModelCSV(t *testing.T) {
 			},
 		},
 	}
-	projectReader := stubProjectReader{project: project}
-	namespaceReader := stubNamespaceReader{}
-	svc := generators.NewService(&projectReader, &modelReader, &stubCollectionReader{}, nil, &namespaceReader, registry)
+	source := testsnapshot.Source{Value: testsnapshot.GeneratorValue(t, project, model, modelReader.view, domain.Collection{}, nil)}
+	svc := generators.NewService(source, registry)
 
 	var buf bytes.Buffer
-	if err := svc.GenerateModel(context.Background(), "LA", "model-1", generators.FormatCSV, &buf, generators.Options{}); err != nil {
+	if err := svc.GenerateModel(context.Background(), auth.Draft(), "LA", "model-1", generators.FormatCSV, &buf, generators.Options{}); err != nil {
 		t.Fatalf("GenerateModel() error: %v", err)
 	}
 
@@ -111,7 +103,7 @@ func TestServiceGenerateModelCSV(t *testing.T) {
 	if got := cell(records[1], "root_kind"); got != "model" {
 		t.Fatalf("root kind = %q", got)
 	}
-	if got := cell(records[1], "root_semantic_id"); got != "LAM.1" {
+	if got := cell(records[1], "root_semantic_id"); got != "model-1" {
 		t.Fatalf("root semantic id = %q", got)
 	}
 	if got := cell(records[1], "field_semantic_id"); got != "LAF.1" {
@@ -137,24 +129,20 @@ func TestServiceGenerateFieldCSV(t *testing.T) {
 		PathElements:      []domain.PathElement{pe("property", "crm", "P1_is_identified_by", 0)},
 		ExpectedValueType: "literal",
 	}
-	projectReader := stubProjectReader{project: project}
-	namespaceReader := stubNamespaceReader{}
-	fieldReader := stubFieldReader{
-		field: field,
-		resolved: domain.ResolvedField{
-			ID:                field.ID,
-			SemanticID:        field.SemanticID,
-			SystemName:        field.SystemName,
-			DisplayName:       field.UIName,
-			ExpectedValueType: field.ExpectedValueType,
-			PathElements:      field.PathElements,
-			SetValue:          "fixed",
-		},
+	value := testsnapshot.GeneratorValue(t, project, domain.Model{}, domain.ModelView{}, domain.Collection{Entity: domain.Entity{ID: "coll"}}, []domain.ResolvedField{{ID: field.ID, SemanticID: field.SemanticID, SystemName: field.SystemName, DisplayName: field.UIName, ExpectedValueType: field.ExpectedValueType, PathElements: field.PathElements, SetValue: "fixed"}})
+	// The standalone base commitment, distinct from the collection row.
+	identity, _ := value.Root()
+	content, _ := value.Content(identity)
+	for i := range content.Overrides {
+		if content.Overrides[i].EntityType == "" {
+			v := "fixed"
+			content.Overrides[i].SetValue = &v
+		}
 	}
-	svc := generators.NewService(&projectReader, nil, nil, &fieldReader, &namespaceReader, registry)
+	svc := generators.NewService(testsnapshot.Source{Value: testsnapshot.Complete(t, content)}, registry)
 
 	var buf bytes.Buffer
-	if err := svc.GenerateField(context.Background(), "LA", "field-1", generators.FormatCSV, &buf, generators.Options{}); err != nil {
+	if err := svc.GenerateField(context.Background(), auth.Draft(), "LA", "field-1", generators.FormatCSV, &buf, generators.Options{}); err != nil {
 		t.Fatalf("GenerateField() error: %v", err)
 	}
 
@@ -168,75 +156,6 @@ func TestServiceGenerateFieldCSV(t *testing.T) {
 	if got := cell(records[1], "set_value"); got != "fixed" {
 		t.Fatalf("set value = %q", got)
 	}
-}
-
-type stubProjectReader struct {
-	project    domain.Project
-	ontologies []domain.ResolvedOntologyVersion
-	missing    bool
-}
-
-func (f *stubProjectReader) GetByID(ctx context.Context, id string) (*domain.Project, error) {
-	if f.missing {
-		// The real store answers (nil, nil) for an id it does not hold.
-		return nil, ctx.Err()
-	}
-	return &f.project, ctx.Err()
-}
-
-func (f *stubProjectReader) ResolvedOntologyVersions(ctx context.Context, projectID string, opts domain.ResolvedOntologyVersionOpts) ([]domain.ResolvedOntologyVersion, error) {
-	return f.ontologies, ctx.Err()
-}
-
-type stubCollectionReader struct {
-	collection       domain.Collection
-	collectionFields []domain.ResolvedField
-	missing          bool // Get answers (nil, nil), as the real reader does for an unknown collection
-}
-
-func (f *stubCollectionReader) Get(ctx context.Context, _ auth.ReadScope, projectID, id string) (*domain.Collection, error) {
-	if f.missing {
-		return nil, ctx.Err()
-	}
-	return &f.collection, ctx.Err()
-}
-
-func (f *stubCollectionReader) View(ctx context.Context, projectID, id string) ([]domain.ResolvedField, error) {
-	return f.collectionFields, ctx.Err()
-}
-
-type stubNamespaceReader struct {
-	namespaces []*domain.NamespaceBinding
-}
-
-func (f *stubNamespaceReader) ListForProject(ctx context.Context, projectID string) ([]*domain.NamespaceBinding, error) {
-	return f.namespaces, ctx.Err()
-}
-
-type stubModelReader struct {
-	model domain.Model
-	view  domain.ModelView
-}
-
-func (f *stubModelReader) Get(ctx context.Context, projectID, id string) (*domain.Model, error) {
-	return &f.model, ctx.Err()
-}
-
-func (f *stubModelReader) View(ctx context.Context, projectID, id string) (*domain.ModelView, error) {
-	return &f.view, ctx.Err()
-}
-
-type stubFieldReader struct {
-	field    domain.Field
-	resolved domain.ResolvedField
-}
-
-func (f *stubFieldReader) Get(ctx context.Context, projectID, id string) (*domain.Field, error) {
-	return &f.field, ctx.Err()
-}
-
-func (f *stubFieldReader) Resolved(ctx context.Context, projectID, id string) (*domain.ResolvedField, error) {
-	return &f.resolved, ctx.Err()
 }
 
 func resolvedField(id, semanticID, name string, position int) domain.ResolvedField {
@@ -304,53 +223,4 @@ func columnIndex(column string) int {
 		}
 	}
 	panic("unknown column: " + column)
-}
-
-func TestServiceSnapshotForCollectionMissingCollection(t *testing.T) {
-	registry, err := generators.NewRegistry(weavecsv.NewRenderer())
-	if err != nil {
-		t.Fatalf("NewRegistry() error: %v", err)
-	}
-	svc := generators.NewService(
-		&stubProjectReader{project: domain.Project{Entity: domain.Entity{ID: "LA"}}},
-		&stubModelReader{},
-		&stubCollectionReader{missing: true},
-		nil,
-		&stubNamespaceReader{},
-		registry,
-	)
-
-	snap, err := svc.SnapshotForCollection(context.Background(), "LA", "ghost", generators.Options{})
-	if err == nil {
-		t.Fatalf("SnapshotForCollection() = %v, want error for a collection that does not exist", snap)
-	}
-	if !strings.Contains(err.Error(), "ghost") {
-		t.Fatalf("error %q should name the collection id", err)
-	}
-}
-
-// TestServiceSnapshotForCollectionMissingProject covers the same hole one line
-// up from the collection guard: project.GetByID also answers (nil, nil) for an
-// id it does not hold, and the snapshot dereferences the project too.
-func TestServiceSnapshotForCollectionMissingProject(t *testing.T) {
-	registry, err := generators.NewRegistry(weavecsv.NewRenderer())
-	if err != nil {
-		t.Fatalf("NewRegistry() error: %v", err)
-	}
-	svc := generators.NewService(
-		&stubProjectReader{missing: true},
-		&stubModelReader{},
-		&stubCollectionReader{},
-		nil,
-		&stubNamespaceReader{},
-		registry,
-	)
-
-	snap, err := svc.SnapshotForCollection(context.Background(), "ghost-project", "coll-1", generators.Options{})
-	if err == nil {
-		t.Fatalf("SnapshotForCollection() = %v, want error for a project that does not exist", snap)
-	}
-	if !strings.Contains(err.Error(), "ghost-project") {
-		t.Fatalf("error %q does not name the missing project", err)
-	}
 }

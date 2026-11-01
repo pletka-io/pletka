@@ -351,7 +351,8 @@ func buildInfo(snap *generators.Snapshot) *infoBlock {
 // buildTarget emits the single <target> container: one <target_info>
 // child per linked ontology, then one <target_collection/>. 3M rejects
 // a document with multiple <target> blocks. With no
-// ontologies it falls back to a single CIDOC-CRM target_info.
+// ontologies, retained inputs emit no invented ontology target. Older manually
+// built snapshots keep the legacy CIDOC-CRM default.
 func buildTarget(snap *generators.Snapshot) targetBlock {
 	infos := make([]targetInfoBlock, 0, len(snap.Options.X3MLTargets))
 	for _, t := range snap.Options.X3MLTargets {
@@ -371,7 +372,7 @@ func buildTarget(snap *generators.Snapshot) targetBlock {
 			}},
 		})
 	}
-	if len(infos) == 0 {
+	if len(infos) == 0 && snap.SchemaVersion == 0 {
 		infos = append(infos, targetInfoBlock{
 			TargetSchema: schemaRef{Type: "rdfs", Version: "7.1.1", Label: "CIDOC CRM"},
 			Namespaces: &namespaces{Entries: []nsEntry{

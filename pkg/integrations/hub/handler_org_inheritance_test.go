@@ -61,7 +61,7 @@ func TestLoadProjectAndGate_HonorsOrgInheritedRole(t *testing.T) {
 	pool := testdb.Pool(t)
 	ownerID, projectID := seedZHUB(t, pool)
 
-	h := NewHandler(weave.NewPostgresStore(pool), nil, nil, nil, nil, slog.Default())
+	h := NewHandler(weave.NewPostgresStore(pool), nil, nil, nil, slog.Default())
 
 	// Org-inherited access: no "project:<id>" role, only "org:<ownerID>".
 	orgUser := weaveauth.WithSnapshot(context.Background(), &weaveauth.AuthSnapshot{

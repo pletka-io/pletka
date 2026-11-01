@@ -43,14 +43,16 @@ type Options struct {
 
 	// X3MLTargets supplies the project's linked ontologies so the X3ML
 	// renderer can emit one <target> block per ontology.
-	// Empty means the renderer falls back to a single CIDOC-CRM target.
+	// BuildSnapshot derives these from retained evidence. Empty means no
+	// target; the CIDOC-CRM default applies only to legacy manual inputs.
 	X3MLTargets []X3MLTarget
 
 	// ComposeCollections enables the snap-level collection composition
 	// pass: every Collection-stub field whose path ends at a CIDOC class
-	// X gets the children of every collection that anchors at X grafted
+	// X gets the children of retained collections that anchor at X grafted
 	// under it, recursively, with the collection's SharedPathPrefix
-	// stripped. Off by default during the staged rollout so existing
+	// stripped. Targets require placements or explicit references; global
+	// anchor discovery is forbidden. Off by default so existing
 	// renderers stay byte-stable; flip on per call to verify.
 	ComposeCollections bool
 

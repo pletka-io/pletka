@@ -143,12 +143,14 @@ func NewService(store Store, projects ProjectReader, ...) *Service
 (`field/service.go:37` declares `ProjectReader`; `pkg/app` wires the concrete
 `field.NewService(fieldStore, projectService, ...)`.)
 
-Generators follow the same pattern at a larger scale: `pkg/weave/generators`
-depends on six narrow readers — `ProjectReader`, `ModelReader`,
-`CollectionReader`, `FieldReader`, `NamespaceReader`, `ConceptEnumReader` —
-plus a `*Registry`
-(`generators/service.go:68-75`). It never depends on the `domain.WeaveStore`
-aggregate.
+Generators use one `Source` returning validated detached project values, plus a
+`*Registry`. `service/generatorread` owns the scoped assembly/session lifetime;
+`generators.BuildSnapshot` projects values without reads. Bulk operations bind one
+complete project before identifier lookup or rendering. Renderers receive copies
+with selection identity, exact semantic evidence and retained constraints, and
+cannot import loading capabilities. See
+[ADR-0022](../decisions/0022-generators-consume-detached-inputs.md), including the
+versioned JSON boundary for future script renderers and remaining consumer migrations.
 
 ## Versioned slices
 

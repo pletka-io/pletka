@@ -12,7 +12,6 @@ import (
 	"github.com/pletka-io/pletka/pkg/integrations"
 	"github.com/pletka-io/pletka/pkg/integrations/registry"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
-	"github.com/pletka-io/pletka/pkg/weave/projectontologyversion"
 )
 
 // ProjectArtifactProviderFactory supplies project-level integration artifacts.
@@ -46,7 +45,6 @@ func Mount(parent chi.Router, h Host) {
 		panic("integrations hub: generator service is required")
 	}
 
-	bundles := projectontologyversion.NewPostgresStore(h.Pool)
 	svc := NewService(NewPostgresStore(h.Pool), h.Registry, h.Cipher, h.Logger)
 	if h.ManagedConfigResolver != nil {
 		svc.SetManagedConfigResolver(h.ManagedConfigResolver)
@@ -57,7 +55,7 @@ func Mount(parent chi.Router, h Host) {
 	if h.ManagedConflictCheck != nil {
 		svc.SetManagedConflictChecker(h.ManagedConflictCheck)
 	}
-	handler := NewHandler(h.Weave, svc, h.Generators, bundles, h.ProjectArtifactProviderFactory, h.Logger)
+	handler := NewHandler(h.Weave, svc, h.Generators, h.ProjectArtifactProviderFactory, h.Logger)
 
 	parent.Group(func(r chi.Router) {
 		r.Use(weaveauth.WithProjectVersionContext)
