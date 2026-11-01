@@ -19,6 +19,23 @@ exports share the pool. Returned rows are not database rows scanned. Use
 from transport, validation and copying. Exercise prepared generic plans as well
 as one-off literal queries; large parameter arrays can have very different costs.
 
+Record the connection topology as well. Container port forwarding can dominate
+client query time even when the server plan is cheap. Compare the same binary,
+query parameters and database over the forwarded path and a direct connection
+inside the container network before attributing that gap to SQL execution. Keep
+these as separate environment measurements; a faster connection is not an
+application optimization. Direct loopback also does not represent deployment
+network latency. A pgx query trace includes socket waits and result decoding.
+
+Large text results have a separate memory cost: the driver buffers a PostgreSQL
+row, then scanning into a retained string copies it. A one-row result can therefore
+be expensive. Smaller row-count pages do not split one large ontology document.
+Borrowed driver buffers cannot back an immutable value after the next read. Exact
+artifact bytes and independent lifetime must survive any transport change. Review
+chunked reads or COPY separately for byte identity, bounded buffering, cancellation,
+the existing transaction and generated-query enforcement; neither alone removes
+the memory needed for the retained document and its decoded values.
+
 `projectread.Limits.MaxBytes` counts encoded rows and ontology evidence. It is
 **not a bound on heap allocation or process RSS**. Immutable value construction,
 validation, defensive copies and output preparation also consume memory. Complete

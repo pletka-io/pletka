@@ -65,6 +65,29 @@ returns clean `domain.*` values. The service above it never sees a `sqlcgen` typ
 Stores query; they do not decide. Validation, permissions, and business rules
 belong to the service — see [`slices.md`](slices.md).
 
+This boundary does not require fetching rows into Go to perform relational work.
+Joins, membership checks, counts, deterministic projections and bounded dependency
+discovery can execute in PostgreSQL through named queries. Captured membership
+already uses a set-based missing-member query; release finalization also uses
+storage functions to enforce capture integrity. Authorization and selection policy
+still belong above these queries.
+
+For versioned reads, database-side processing remains inside the bound reader and
+its existing repeatable-read transaction. Every source keeps its independently
+resolved project/release identity. Preserve cancellation, deterministic ordering,
+budgets and all-or-error results. Return existing typed records where possible;
+moving computation does not require a new JSON contract or a database-aware
+generator. Pure snapshot validation must continue to work for offline/imported
+values, and generators consume those detached values, including a future Lua host.
+
+A stored read function needs additional enforcement before adoption. The current
+draft/archive query conformance check scans direct `FROM`/`JOIN` references; it
+does **not** inspect a function's transitive table dependencies. A function marked
+`STABLE` is not proof of release isolation. Extend that enforcement and exercise
+hot mutation/deletion, wrong source pins and missing archive evidence in PostgreSQL
+tests before hiding read dependencies behind a function. Function definitions
+belong in versioned migrations, with typed calls in the named query sources.
+
 Three kinds of pool holder are sanctioned (compliance backlog item 3, resolved):
 `pkg/weave/health/handler.go` (a DB liveness ping, not domain data access),
 `pkg/weave/pathaudit` (single raw-SQL audit sweep, lifted from the verify-paths CLI),
