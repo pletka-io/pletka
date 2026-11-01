@@ -92,30 +92,50 @@ Metadata/count work remains database-side; large-project performance qualificati
 is still outstanding.
 
 Project release tabs are enabled. Concept-list links use the existing detached
-detail viewer. Examples have a schema-driven GET `view` action and a read-only
-recorded-value viewer at `/projects/{projectID}/examples/{exampleID}/view`. This
-uses the bounded example fragment, including retained target/field/override labels,
-linked examples, nullable metadata and legacy scalar values. Stale saved slots
-remain visible with their ID and an unresolved marker. No validation is recomputed;
-the status shown is the stored status. Target links retain the example's owning
-context and linked example URLs retain their selected release.
+detail viewer. Examples use **one `example-form` schema and one
+`ExampleWorkspace` component** for draft editing and read-only browsing. The
+schema's GET `view` action opens that same workspace. There is no release-only
+viewer or alternate detail JSON format.
 
-The existing example detail endpoint serves this same read-only representation
-for release JSON requests, and redirects release HTML requests to the pinned
-project tab. Draft detail responses and draft editing keep their existing record
-and form contracts. The editing service rejects release/invalid scopes before
-accessing live model views; released form-schema requests are rejected. Moving
-draft editing/validation to retained composition is a separate migration.
+Example detail and form-schema reads require the same bounded source fragment.
+A source-only handler passes detached values to `example.ProjectRead`; it cannot
+reach the editing service. Shared form construction and validation use the
+selected composition, including nested collections in their selected owner's
+context, concept memberships/custom labels, linked examples and nullable legacy
+scalars. Saved values that no longer fit a field remain in `unplaced_values`.
+Validation reports derive from retained inputs; the stored example status is
+preserved. Target links retain the example's owning context, while linked
+examples point at their selected owning release.
 
-Resolved release schemas pin data, filter and viewer URLs, including public
-requests that default to the latest release. Draft links omit the version
-parameter: `draft` is not a supported release selector. Generic row URLs are
-authoritative; the browser does not append an unrelated ambient version.
+The detail endpoint returns the existing `{example, values, validation}` contract
+in both states. HTML requests redirect to the project tab with the selected
+release. The form-schema endpoint accepts `create`, `edit` and `view`: `edit` on a
+release returns the same form without a submit endpoint. Only an authorized editor
+of the owning draft receives POST/PUT capabilities; `view` always omits them.
+The workspace derives editing controls from that endpoint's presence, so the
+server's capability decision governs the same component in every state. Write
+routes still enforce authorization and reject release scopes independently.
 
-Real-cut tests cover pinned foreign vocabularies/targets, search/facets/counts,
-stored statuses, nullable metadata, stale scalar values, linked examples, live
-deletion, read-only editing gates, default public selection, source access changes,
-projection after pool closure, draft snapshot consistency and facet bounds.
+The schema carries retained concept choices, including an empty list when there
+are none. The workspace/picker does not resolve recorded concept labels through a
+global live vocabulary endpoint. Read-only loading needs only the form schema;
+authorized editing also loads the scoped example inventory for link choices.
+Legacy mutation-time example validation remains draft-only and is a separate
+migration from this read path.
+
+Resolved release schemas pin data, filter, form, model-option and navigation URLs,
+including public requests that default to the latest release. Draft links omit
+the version parameter: `draft` is not a supported release selector. Generic row
+URLs are authoritative; the browser does not append an unrelated ambient version.
+
+Real-cut tests cover pinned foreign vocabularies/targets, nested composition,
+concept choices, empty consumer composition, stored statuses, stale values,
+linked examples, live deletion, capability gates, default selection, current
+source access and projection after pool closure. An opt-in Chromium test uses
+actual routes and built assets to check the shared workspace, retained labels,
+absent mutation controls/live enrichment and authorized draft editing controls.
+Run it after building frontend assets with
+`PLETKA_EXAMPLE_BROWSER=1 bash test/integration.sh ./pkg/weave/projectpage -run TestCatalogInventoriesAndExampleSchemaRetainRelease -count=1 -v`.
 
 
 SKOS/standalone ontology exports, remaining slice reader migrations and

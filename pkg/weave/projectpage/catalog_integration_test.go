@@ -14,9 +14,10 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
-	"github.com/pletka-io/pletka/pkg/browserhttp"
 	"github.com/pletka-io/pletka/pkg/browserinput"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
+	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/service/browserread"
 	"github.com/pletka-io/pletka/pkg/service/projectread"
 	"github.com/pletka-io/pletka/pkg/weave"
@@ -26,7 +27,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
 
-func TestCatalogInventoriesAndExampleViewRetainRelease(t *testing.T) {
+func TestCatalogInventoriesAndExampleSchemaRetainRelease(t *testing.T) {
 	pool := testdb.EmptyPool(t)
 	ctx := auth.WithPrincipal(auth.WithSnapshot(t.Context(), &auth.AuthSnapshot{IsSuperAdmin: true}), &auth.Principal{ActorID: "CATOWNER"})
 	exec := func(sql string) {
@@ -39,7 +40,13 @@ func TestCatalogInventoriesAndExampleViewRetainRelease(t *testing.T) {
  INSERT INTO weave_projects(id,owner_id,visibility,ui_name) VALUES('CATS','CATOWNER','public','{"en":"Source"}'),('CATP','CATOWNER','public','{"en":"Project"}');
  INSERT INTO weave_models(id,project_id,ui_name) VALUES('CATS.M','CATS','{"en":"Captured target"}');
  INSERT INTO weave_vocabularies(id,project_id,ui_name,connector_type) VALUES('CATS.V','CATS','{"en":"Captured vocabulary"}','local');
- INSERT INTO weave_vocabulary_entries(id,vocabulary_id,uri,label) VALUES('CATS.T','CATS.V','https://cat.test/term','{"en":"Captured term"}');`)
+ INSERT INTO weave_vocabulary_entries(id,vocabulary_id,uri,label) VALUES('CATS.T','CATS.V','https://cat.test/term','{"en":"Captured term"}');
+ INSERT INTO weave_collections(id,project_id,ui_name) VALUES('CATS.C','CATS','{"en":"Nested collection"}');
+ INSERT INTO weave_concept_lists(id,project_id,ui_name,vocabulary_id,is_closed) VALUES('CATS.L','CATS','{"en":"Source list"}','CATS.V',true);
+ INSERT INTO weave_concept_list_entries(id,concept_list_id,vocabulary_entry_id,custom_label) VALUES('CATS.LE','CATS.L','CATS.T','{"en":"Pinned membership label"}');
+ INSERT INTO weave_fields(id,project_id,ui_name,expected_value_type,path_elements) VALUES('CATS.F','CATS','{"en":"Nested concept"}','Concept','[]');
+ INSERT INTO weave_field_overrides(id,project_id,field_id,entity_type,entity_id,display_name) VALUES(91002,'CATS','CATS.F','collection','CATS.C','{"en":"Nested choice"}'),(91004,'CATS','CATS.F','model','CATS.M','{"en":"Owner-only field"}');
+ INSERT INTO weave_override_refs(override_id,ref_type,target_id,semantic_id) VALUES(91002,'concept_list','CATS.L','');`)
 	releases := release.NewService(release.NewPostgresStore(pool), pool, nil)
 	if _, err := releases.Create(ctx, "CATS", release.CreateInput{Version: "1.0.0"}); err != nil {
 		t.Fatal(err)
@@ -53,7 +60,11 @@ func TestCatalogInventoriesAndExampleViewRetainRelease(t *testing.T) {
  INSERT INTO weave_examples(id,project_id,entity_type,entity_id,title,status) VALUES('CATP.E','CATP','model','CATS.M','{"en":"Worked example"}','valid'),('CATP.ZERO','CATP','model','CATS.M','{"en":"Empty example"}','draft');
  INSERT INTO weave_example_values(example_id,override_id,field_id,occurrence_index,value_kind,value_payload,text_value,slot_path) VALUES('CATP.E',91001,'CATP.F',0,'string','{"kind":"string","string_value":"Recorded content"}','Recorded content','91001:0');
  INSERT INTO weave_example_values(example_id,override_id,field_id,value_kind,value_payload,text_value,slot_path) VALUES('CATP.ZERO',999999,'REMOVED.FIELD','string','{}','Legacy scalar','999999:0');
- INSERT INTO weave_example_values(example_id,override_id,field_id,occurrence_index,value_kind,value_payload,linked_example_id,slot_path) VALUES('CATP.E',91001,'CATP.F',1,'example_ref','{"kind":"example_ref","example_id":"CATP.ZERO"}','CATP.ZERO','91001:1');`)
+ INSERT INTO weave_example_values(example_id,override_id,field_id,occurrence_index,value_kind,value_payload,linked_example_id,slot_path) VALUES('CATP.E',91001,'CATP.F',1,'example_ref','{"kind":"example_ref","example_id":"CATP.ZERO"}','CATP.ZERO','91001:1');
+ INSERT INTO weave_fields(id,project_id,ui_name,expected_value_type,path_elements) VALUES('CATP.N','CATP','{"en":"Nested container"}','Collection','[]');
+ INSERT INTO weave_field_overrides(id,project_id,field_id,entity_type,entity_id,display_name,position) VALUES(91003,'CATP','CATP.N','model','CATS.M','{"en":"Container"}',1);
+ INSERT INTO weave_override_refs(override_id,ref_type,target_id,semantic_id) VALUES(91003,'collection_model','CATS.C','');
+ INSERT INTO weave_example_values(example_id,override_id,field_id,value_kind,value_payload,concept_uri,slot_path) VALUES('CATP.E',91002,'CATS.F','concept','{"kind":"concept","concept_uri":"https://cat.test/term"}','https://cat.test/term','91003:0/91002:0');`)
 	if _, err := releases.Create(ctx, "CATP", release.CreateInput{Version: "2.0.0"}); err != nil {
 		t.Fatal(err)
 	}
@@ -100,23 +111,41 @@ func TestCatalogInventoriesAndExampleViewRetainRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := browserhttp.ProjectExample(detail)
+	record, schema, err := example.ProjectRead(ctx, detail, 2, "en", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.TargetName["en"] != "Captured target" || view.TargetURL != "/projects/CATP/models/CATS.M?version=2.0.0" || len(view.Values) != 2 || view.Values[0].Label["en"] != "Captured slot" || !strings.Contains(string(view.Values[0].Payload), "Recorded content") {
-		t.Fatalf("view: %+v", view)
+	if schema.Target.Name["en"] != "Captured target" || len(record.Values) != 3 || schema.Sections[0].Groups[0].Fields[0].Label["en"] != "Captured slot" || *record.Values[0].ValuePayload.StringValue != "Recorded content" {
+		t.Fatalf("schema: %+v record: %+v", schema, record)
 	}
-	if view.Values[1].LinkedURL != "/projects/CATP/examples/CATP.ZERO?version=2.0.0" {
-		t.Fatalf("linked example: %+v", view.Values[1])
+	if schema.Endpoint != nil || len(schema.LinkedExamples) != 1 || schema.LinkedExamples[0].URL != "/projects/CATP/examples/CATP.ZERO?version=2.0.0" || len(schema.UnplacedValues) != 1 {
+		t.Fatalf("capabilities or recorded links/values: %+v", schema)
+	}
+	nested := schema.Sections[0].Groups[0].Fields[1].Nested
+	if nested == nil || len(nested.Fields) != 1 || nested.Fields[0].Label["en"] != "Nested choice" {
+		t.Fatalf("nested projection: %+v", nested)
+	}
+	choices := nested.Fields[0].ConceptSources
+	if len(choices) != 1 || choices[0].SearchURL != "" || len(choices[0].Entries) != 1 || choices[0].Entries[0].Label["en"] != "Pinned membership label" {
+		t.Fatalf("selected concept choices: %+v", choices)
+	}
+	// A foreign model's owner composition must not leak into an empty consumer.
+	exec(`INSERT INTO weave_projects(id,owner_id,visibility) VALUES('CATE','CATOWNER','public');INSERT INTO weave_project_inheritance(project_id,parent_project_id,source_mode,source_version) VALUES('CATE','CATS','release','1.0.0');INSERT INTO weave_adoptions(project_id,context_entity_type,context_entity_id,entity_type,source_project_id,source_entity_id,source_version) VALUES('CATE','project','CATE','model','CATS','CATS.M','1.0.0');`)
+	emptyModel, err := source.Detail(ctx, auth.Draft(), "CATE", "model", "CATS.M")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, emptyForm, err := example.ProjectRead(ctx, emptyModel, 2, "en", nil)
+	if err != nil || len(emptyForm.Sections) != 0 {
+		t.Fatalf("borrowed owner composition: %+v %v", emptyForm, err)
 	}
 	stale, err := source.Detail(ctx, auth.Release("2.0.0"), "CATP", "example", "CATP.ZERO")
 	if err != nil {
 		t.Fatal(err)
 	}
-	staleView, err := browserhttp.ProjectExample(stale)
-	if err != nil || len(staleView.Values) != 1 || !staleView.Values[0].Unresolved || staleView.Values[0].TextValue == nil || *staleView.Values[0].TextValue != "Legacy scalar" {
-		t.Fatalf("stale saved value: %+v %v", staleView, err)
+	staleRecord, staleSchema, err := example.ProjectRead(ctx, stale, 2, "en", nil)
+	if err != nil || len(staleSchema.UnplacedValues) != 1 || *staleRecord.Values[0].ValuePayload.StringValue != "Legacy scalar" {
+		t.Fatalf("stale saved value: %+v %v", staleSchema, err)
 	}
 	store := weave.NewPostgresStore(pool)
 	latest := publication.NewReader(pool)
@@ -127,13 +156,18 @@ func TestCatalogInventoriesAndExampleViewRetainRelease(t *testing.T) {
 		r.Use(auth.RequireProjectRead(store.Projects()), auth.WithProjectVersionContext, auth.ResolveContentVersion(latest))
 		example.Mount(r, example.Host{Service: example.NewService(nil, nil), Projects: store.Projects(), Browser: source})
 	})
+	// A valid draft read can be read-only independently of release selection.
+	router.Route("/draft/projects/{projectID}/examples", func(r chi.Router) {
+		r.Use(auth.RequireProjectRead(store.Projects()), auth.WithProjectVersionContext)
+		example.Mount(r, example.Host{Service: example.NewService(nil, nil), Projects: store.Projects(), Browser: source})
+	})
 	get := func(path string) *httptest.ResponseRecorder {
 		t.Helper()
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 		return w
 	}
-	paths := []string{"/api/v2/projects/CATP/concept-lists?version=2.0.0", "/api/v2/projects/CATP/concept-lists/filters/vocabularies?version=2.0.0", "/projects/CATP/examples?version=2.0.0", "/projects/CATP/examples/CATP.E/view?version=2.0.0", "/projects/CATP/examples/CATP.E?version=2.0.0"}
+	paths := []string{"/api/v2/projects/CATP/concept-lists?version=2.0.0", "/api/v2/projects/CATP/concept-lists/filters/vocabularies?version=2.0.0", "/projects/CATP/examples?version=2.0.0", "/projects/CATP/examples/form-schema?mode=edit&example_id=CATP.E&version=2.0.0", "/projects/CATP/examples/CATP.E?version=2.0.0"}
 	before := map[string]string{}
 	for _, path := range paths {
 		w := get(path)
@@ -145,10 +179,112 @@ func TestCatalogInventoriesAndExampleViewRetainRelease(t *testing.T) {
 	if !strings.Contains(before[paths[2]], `"status":"valid"`) {
 		t.Fatal("example authored status was rewritten")
 	}
-	if w := get("/projects/CATP/examples/form-schema?mode=edit&example_id=CATP.E&version=2.0.0"); w.Code != 400 {
-		t.Fatalf("released edit form: %d %s", w.Code, w.Body.String())
+	type schemaRead struct {
+		Kind     string                       `json:"kind"`
+		Example  *domain.Example              `json:"example"`
+		Endpoint *formschema.SchemaEndpoint   `json:"endpoint"`
+		Sections []example.ExampleFormSection `json:"sections"`
 	}
-	for _, path := range []string{"/api/v2/projects/CATP/concept-lists?version=9.0.0", "/projects/CATP/examples/MISSING/view?version=2.0.0"} {
+	var releasedSchema schemaRead
+	if err := json.Unmarshal([]byte(before[paths[3]]), &releasedSchema); err != nil {
+		t.Fatal(err)
+	}
+	if releasedSchema.Endpoint != nil || releasedSchema.Example.Status != "valid" {
+		t.Fatalf("release grants mutation or rewrites status: %+v", releasedSchema)
+	}
+	// The same shape serves authorized editing, explicit viewing and public draft reads.
+	for _, tc := range []struct {
+		mode, version string
+		editable      bool
+	}{
+		{"edit", "", true}, {"view", "", false}, {"edit", "2.0.0", false},
+	} {
+		path := "/projects/CATP/examples/form-schema?mode=" + tc.mode + "&example_id=CATP.E"
+		if tc.version != "" {
+			path += "&version=" + tc.version
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodGet, path, nil))
+		if w.Code != 200 {
+			t.Fatalf("form %s: %d %s", path, w.Code, w.Body.String())
+		}
+		var form schemaRead
+		if err := json.Unmarshal(w.Body.Bytes(), &form); err != nil {
+			t.Fatal(err)
+		}
+		if (form.Endpoint != nil) != tc.editable {
+			t.Fatalf("capability %s: %+v", path, form.Endpoint)
+		}
+		if tc.editable && (form.Endpoint.Method != "PUT" || form.Endpoint.URL != "/projects/CATP/examples/CATP.E") {
+			t.Fatalf("write endpoint: %+v", form.Endpoint)
+		}
+		form.Endpoint = nil
+		form.Example = nil
+		releasedCopy := releasedSchema
+		releasedCopy.Example = nil
+		if !reflect.DeepEqual(form, releasedCopy) && tc.version != "" {
+			t.Fatalf("released owner shape changed")
+		}
+	}
+	for _, tc := range []struct {
+		path   string
+		owner  bool
+		status int
+		method string
+	}{
+		{"/draft/projects/CATP/examples/form-schema?mode=edit&example_id=CATP.E", false, 200, ""},
+		{"/projects/CATP/examples/form-schema?mode=create&target_type=model&target_id=CATS.M", true, 200, "POST"},
+		{"/projects/CATP/examples/form-schema?mode=create&target_type=model&target_id=CATS.M&version=2.0.0", true, 403, ""},
+		{"/draft/projects/CATP/examples/form-schema?mode=create&target_type=model&target_id=CATS.M", false, 403, ""},
+	} {
+		requestCtx := t.Context()
+		if tc.owner {
+			requestCtx = ctx
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequestWithContext(requestCtx, http.MethodGet, tc.path, nil))
+		if w.Code != tc.status {
+			t.Fatalf("%s: %d %s", tc.path, w.Code, w.Body.String())
+		}
+		if tc.status != 200 {
+			continue
+		}
+		var form schemaRead
+		if err := json.Unmarshal(w.Body.Bytes(), &form); err != nil {
+			t.Fatal(err)
+		}
+		if tc.method == "" {
+			if form.Endpoint != nil {
+				t.Fatalf("read-only draft grants mutation: %+v", form.Endpoint)
+			}
+		} else if form.Endpoint == nil || form.Endpoint.Method != tc.method {
+			t.Fatalf("create endpoint: %+v", form.Endpoint)
+		}
+	}
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequestWithContext(ctx, method, "/projects/CATP/examples/CATP.E?version=2.0.0", nil))
+		if w.Code != 405 {
+			t.Fatalf("release mutation %s: %d %s", method, w.Code, w.Body.String())
+		}
+	}
+	for _, accept := range []string{"text/html,application/xhtml+xml,*/*;q=0.8", "application/json", "*/*", ""} {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, paths[4], nil)
+		req.Header.Set("Accept", accept)
+		router.ServeHTTP(w, req)
+		if strings.HasPrefix(accept, "text/html") {
+			if w.Code != 302 || w.Header().Get("Location") != "/projects/CATP?version=2.0.0#tab=examples&item=CATP.E" {
+				t.Fatalf("browser redirect: %d %s", w.Code, w.Header().Get("Location"))
+			}
+		} else {
+			var body example.ExampleRecord
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Example == nil || body.Example.ID != "CATP.E" {
+				t.Fatalf("JSON contract: %s %v", w.Body.String(), err)
+			}
+		}
+	}
+	for _, path := range []string{"/api/v2/projects/CATP/concept-lists?version=9.0.0", "/projects/CATP/examples/MISSING?version=2.0.0"} {
 		w := get(path)
 		if w.Code != 404 || !strings.Contains(w.Body.String(), "not_in_release") {
 			t.Fatalf("missing: %d %s", w.Code, w.Body.String())
@@ -159,6 +295,7 @@ func TestCatalogInventoriesAndExampleViewRetainRelease(t *testing.T) {
 			t.Fatalf("invalid query: %d %s", w.Code, w.Body.String())
 		}
 	}
+	runExampleWorkspaceBrowser(t, router)
 	exec(`UPDATE weave_models SET ui_name='{"en":"Changed target"}' WHERE id='CATS.M';UPDATE weave_vocabularies SET ui_name='{"en":"Changed vocabulary"}' WHERE id='CATS.V';UPDATE weave_vocabulary_entries SET label='{"en":"Changed term"}' WHERE id='CATS.T';`)
 	if _, err := releases.Create(ctx, "CATS", release.CreateInput{Version: "1.1.0"}); err != nil {
 		t.Fatal(err)
@@ -175,7 +312,7 @@ func TestCatalogInventoriesAndExampleViewRetainRelease(t *testing.T) {
 			t.Fatal("draft URL names a nonexistent release")
 		}
 	}
-	exec(`DELETE FROM weave_example_values WHERE example_id IN ('CATP.E','CATP.ZERO');DELETE FROM weave_examples WHERE project_id='CATP';DELETE FROM weave_override_refs WHERE override_id=91001;DELETE FROM weave_field_overrides WHERE project_id='CATP';DELETE FROM weave_fields WHERE project_id='CATP';DELETE FROM weave_concept_list_entries WHERE concept_list_id='CATP.L';DELETE FROM weave_concept_lists WHERE project_id='CATP';`)
+	exec(`DELETE FROM weave_example_values WHERE example_id IN ('CATP.E','CATP.ZERO');DELETE FROM weave_examples WHERE project_id='CATP';DELETE FROM weave_override_refs WHERE override_id IN(91001,91003);DELETE FROM weave_field_overrides WHERE project_id='CATP';DELETE FROM weave_fields WHERE project_id='CATP';DELETE FROM weave_concept_list_entries WHERE concept_list_id='CATP.L';DELETE FROM weave_concept_lists WHERE project_id='CATP';`)
 	for _, path := range paths {
 		w := get(path)
 		if w.Code != 200 || w.Body.String() != before[path] {
@@ -183,7 +320,7 @@ func TestCatalogInventoriesAndExampleViewRetainRelease(t *testing.T) {
 		}
 	}
 	// Public default release uses the same middleware as explicit reads, including API-v2 vocabulary routes.
-	for _, pair := range [][2]string{{paths[0], "/api/v2/projects/CATP/concept-lists"}, {paths[2], "/projects/CATP/examples"}, {paths[3], "/projects/CATP/examples/CATP.E/view"}} {
+	for _, pair := range [][2]string{{paths[0], "/api/v2/projects/CATP/concept-lists"}, {paths[2], "/projects/CATP/examples"}, {paths[3], "/projects/CATP/examples/form-schema?mode=edit&example_id=CATP.E"}} {
 		if w := get(pair[1]); w.Code != 200 || w.Body.String() != before[pair[0]] {
 			t.Fatalf("default selection: %d %s", w.Code, w.Body.String())
 		}
@@ -192,8 +329,8 @@ func TestCatalogInventoriesAndExampleViewRetainRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, err := browserhttp.ProjectExample(again)
-	if err != nil || !reflect.DeepEqual(view, after) {
+	after, afterSchema, err := example.ProjectRead(ctx, again, 2, "en", nil)
+	if err != nil || !reflect.DeepEqual(record, after) || !reflect.DeepEqual(schema, afterSchema) {
 		t.Fatalf("projection changed: %+v %v", after, err)
 	}
 	// Current source access remains mandatory even when labels are captured.
@@ -210,8 +347,8 @@ func TestCatalogInventoriesAndExampleViewRetainRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	pool.Close()
-	detached, err := browserhttp.ProjectExample(again)
-	if err != nil || !reflect.DeepEqual(view, detached) {
+	detached, detachedSchema, err := example.ProjectRead(ctx, again, 2, "en", nil)
+	if err != nil || !reflect.DeepEqual(record, detached) || !reflect.DeepEqual(schema, detachedSchema) {
 		t.Fatalf("detached projection: %+v %v", detached, err)
 	}
 }

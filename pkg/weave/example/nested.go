@@ -316,40 +316,6 @@ func (r *slotResolver) resolveAll(values []domain.ExampleValue) ([]resolvedSlot,
 	return out, nil
 }
 
-// checkValue returns the issues of one value given its resolved slot.
-// strict (Create/Update) turns an invalid path, or an unknown override on a
-// nested path, into an input error; reads report both as warnings. A
-// depth-0 value on a removed slot stays a stale_override warning in both
-// modes, as before B.3.
-func (s *Service) checkValue(ctx context.Context, rs resolvedSlot, value domain.ExampleValue, strict bool) ([]domain.ExampleIssue, error) {
-	if strict {
-		if err := strictSlotError(rs, value); err != nil {
-			return nil, err
-		}
-	}
-	cp := containerPath(value.SlotPath)
-	var out []domain.ExampleIssue
-	switch rs.status {
-	case slotOK:
-		var err error
-		out, err = s.valueIssues(ctx, value, rs.field)
-		if err != nil {
-			return nil, err
-		}
-	case slotMoved:
-		return []domain.ExampleIssue{movedGroupValueIssue(value, cp)}, nil
-	case slotUnknown:
-		out = []domain.ExampleIssue{warningIssue("stale_override", nil, &value.OverrideID, &value.OccurrenceIndex, rs.reason)}
-	case slotInvalid:
-		fieldID := value.FieldID
-		out = []domain.ExampleIssue{warningIssue("invalid_nesting", &fieldID, &value.OverrideID, &value.OccurrenceIndex, rs.reason)}
-	}
-	for i := range out {
-		out[i].GroupPath = cp
-	}
-	return out, nil
-}
-
 // strictSlotError is the input error a write (strict) returns for a value
 // whose path does not resolve: an invalid path, or an unknown override on a
 // nested path. It is nil for every other status.

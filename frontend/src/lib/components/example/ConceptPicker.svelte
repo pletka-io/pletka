@@ -36,7 +36,6 @@
   let completedQuery = $state('');
   let searchError = $state('');
   let searchToken = 0;
-  let resolveToken = 0;
 
   const sources = $derived(field.concept_sources ?? []);
   const selectedLabel = $derived(selected ? tr(selected.label, lang) || selected.uri : value);
@@ -72,24 +71,9 @@
     return () => window.clearTimeout(handle);
   });
 
-  async function resolveSelected(uri: string) {
-    const token = ++resolveToken;
-    try {
-      const params = new URLSearchParams({ uri, lang });
-      const res = await fetch(`/api/v2/vocabulary-entries/resolve?${params.toString()}`);
-      if (!res.ok || token !== resolveToken) return;
-      const data = await res.json();
-      selected = {
-        uri: data.uri ?? uri,
-        label: data.label ?? { en: uri },
-        scope_note: data.scope_note,
-        broader_path: data.broader_path,
-        broader_path_items: data.broader_path_items,
-        external_id: data.external_id,
-      };
-    } catch {
-      if (token === resolveToken) selected = { uri, label: { en: uri } };
-    }
+  function resolveSelected(uri: string) {
+    const entry = sources.flatMap((source) => source.entries ?? []).find((entry) => entry.uri === uri);
+    selected = entry ?? { uri, label: { en: uri } };
   }
 
   async function search(q: string) {
@@ -102,6 +86,16 @@
       const next: ConceptOption[] = [];
       await Promise.all(
         sources.map(async (source) => {
+          if (Array.isArray(source.entries)) {
+            for (const entry of source.entries) {
+              if (seen.has(entry.uri) || ![entry.uri, ...Object.values(entry.label ?? {})].some((text) => text.toLowerCase().includes(q.toLowerCase()))) continue;
+              seen.add(entry.uri);
+              next.push({ ...entry, source });
+              if (next.length >= 12) break;
+            }
+            return;
+          }
+          if (!source.search_url) return;
           const url = new URL(source.search_url, window.location.origin);
           url.searchParams.set('q', q);
           url.searchParams.set('limit', '12');

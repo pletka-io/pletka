@@ -241,6 +241,10 @@ func (s *EntityListSchema) BindReadVersion(version string) {
 		s.Filters[i].OptionsURL = bind(s.Filters[i].OptionsURL)
 	}
 	if s.Editor != nil && s.Editor.Endpoints != nil {
-		s.Editor.Endpoints["view_url_template"] = bind(s.Editor.Endpoints["view_url_template"])
+		for _, key := range []string{"list_url", "detail_url_template", "form_schema_url", "page_url_template", "models_url"} {
+			if path := s.Editor.Endpoints[key]; path != "" {
+				s.Editor.Endpoints[key] = bind(path)
+			}
+		}
 	}
 }

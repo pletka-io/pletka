@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/browserhttp"
 	"github.com/pletka-io/pletka/pkg/formschema"
 	"github.com/pletka-io/pletka/pkg/weave/apierror"
@@ -35,7 +34,7 @@ type LangResolver func(r *http.Request) string
 
 type Handler struct {
 	inventory browserhttp.Handler
-	viewer    browserhttp.ExampleHandler
+	reads     readHandler
 	svc       *Service
 	log       *slog.Logger
 	languages []formschema.LanguageInfo
@@ -58,7 +57,6 @@ func (h *Handler) Mount(r chi.Router) {
 	r.Get("/form-schema", h.FormSchema)
 	r.Route("/{exampleID}", func(r chi.Router) {
 		r.Get("/", h.Detail)
-		r.Get("/view", h.View)
 		r.Put("/", h.Update)
 		r.Delete("/", h.Delete)
 	})
@@ -84,29 +82,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Detail(w http.ResponseWriter, r *http.Request) {
-	if auth.ReadScopeFromContext(r.Context()).IsRelease() {
-		if wantsHTML(r) {
-			version := auth.ReadScopeFromContext(r.Context()).Version()
-			http.Redirect(w, r, fmt.Sprintf("/projects/%s?version=%s#tab=examples&item=%s", url.PathEscape(chi.URLParam(r, "projectID")), url.QueryEscape(version), url.QueryEscape(chi.URLParam(r, "exampleID"))), http.StatusSeeOther)
-			return
-		}
-		h.viewer.Show(w, r)
-		return
-	}
-
-	projectID := chi.URLParam(r, "projectID")
-	exampleID := chi.URLParam(r, "exampleID")
-	scope := auth.ReadScopeFromContext(r.Context())
-	record, err := h.svc.Get(r.Context(), scope, projectID, exampleID)
-	if err != nil {
-		apierror.Write(w, r, apierror.NotFound(err.Error()))
-		return
-	}
-	if wantsHTML(r) {
-		http.Redirect(w, r, projectExamplesPageURL(projectID, record.Example.ID), http.StatusFound)
-		return
-	}
-	writeJSON(w, http.StatusOK, record)
+	h.reads.detail(w, r)
 }
 
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
@@ -136,23 +112,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) FormSchema(w http.ResponseWriter, r *http.Request) {
-	if scope := auth.ReadScopeFromContext(r.Context()); !scope.Valid() || scope.IsRelease() {
-		apierror.Write(w, r, apierror.BadRequest("Example editing requires a draft selection"))
-		return
-	}
-
-	projectID := chi.URLParam(r, "projectID")
-	mode := r.URL.Query().Get("mode")
-	targetType := r.URL.Query().Get("target_type")
-	targetID := r.URL.Query().Get("target_id")
-	exampleID := r.URL.Query().Get("example_id")
-	scope := auth.ReadScopeFromContext(r.Context())
-	schema, err := h.svc.BuildFormSchema(r.Context(), scope, projectID, mode, targetType, targetID, exampleID, h.lang(r), h.languages)
-	if err != nil {
-		apierror.Write(w, r, apierror.BadRequest(err.Error()))
-		return
-	}
-	writeJSON(w, http.StatusOK, schema)
+	h.reads.formSchema(w, r)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -160,6 +120,3 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
-
-// View delegates to the source-only recorded-value browser.
-func (h *Handler) View(w http.ResponseWriter, r *http.Request) { h.viewer.Show(w, r) }

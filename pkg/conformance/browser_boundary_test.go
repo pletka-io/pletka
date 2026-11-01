@@ -15,6 +15,7 @@ import (
 func TestBrowserProjectionOnlyImportsValues(t *testing.T) {
 	checkBrowserProjection(t, "detailview")
 	checkBrowserProjection(t, "projectpage")
+	checkBrowserProjection(t, "example")
 	checkBrowserProjectionPath(t, filepath.Join(repoRoot(t), "pkg/browserhttp"))
 }
 
@@ -24,7 +25,7 @@ func checkBrowserProjection(t *testing.T, pkg string) {
 }
 func checkBrowserProjectionPath(t *testing.T, dir string) {
 	t.Helper()
-	allowed := map[string]bool{"encoding/json": true, "fmt": true, "net/url": true, "slices": true, "sort": true, "strings": true, "time": true}
+	allowed := map[string]bool{"context": true, "strconv": true, "encoding/json": true, "fmt": true, "net/url": true, "slices": true, "sort": true, "strings": true, "time": true}
 	for _, suffix := range []string{"browserinput", "domain", "projectsnapshot", "i18n", "formschema"} {
 		allowed["github.com/pletka-io/pletka/pkg/"+suffix] = true
 	}
@@ -46,7 +47,7 @@ func checkBrowserProjectionPath(t *testing.T, dir string) {
 			}
 		}
 		ast.Inspect(syntax, func(node ast.Node) bool {
-			if id, ok := node.(*ast.Ident); ok && id.Name == "Handler" {
+			if id, ok := node.(*ast.Ident); ok && (id.Name == "Handler" || id.Name == "Service" || id.Name == "NewService") {
 				t.Errorf("projection %s can reach handler capabilities", file)
 			}
 			return true
@@ -114,5 +115,48 @@ func TestBrowserHTTPHasNoContentStoreCapabilities(t *testing.T) {
 				t.Errorf("browser boundary %s imports content capability %s", file, name)
 			}
 		}
+	}
+}
+
+// The two public example read entry points cannot return to live editing validation.
+func TestExampleReadHandlersOnlyDelegate(t *testing.T) {
+	f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(repoRoot(t), "pkg/weave/example/handler.go"), nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil || (fn.Name.Name != "Detail" && fn.Name.Name != "FormSchema") {
+			continue
+		}
+		count++
+		if len(fn.Body.List) != 1 {
+			t.Errorf("%s must only delegate", fn.Name.Name)
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if sel, ok := n.(*ast.SelectorExpr); ok {
+				if recv, ok := sel.X.(*ast.Ident); ok && recv.Name == "h" && sel.Sel.Name != "reads" {
+					t.Errorf("example read reaches %s", sel.Sel.Name)
+				}
+			}
+			return true
+		})
+	}
+	if count != 2 {
+		t.Fatal("missing read boundary")
+	}
+	// Files in this boundary may only use detached inputs and explicit capabilities.
+	for _, name := range []string{"read_handler.go", "form_builder.go", "validation.go"} {
+		f, err := parser.ParseFile(token.NewFileSet(), filepath.Join(repoRoot(t), "pkg/weave/example", name), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && (id.Name == "Service" || id.Name == "NewService" || id.Name == "Store" || id.Name == "NewPostgresStore") {
+				t.Errorf("%s acquired %s", name, id.Name)
+			}
+			return true
+		})
 	}
 }

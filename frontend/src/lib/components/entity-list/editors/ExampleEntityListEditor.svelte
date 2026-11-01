@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { EntityListSchema } from '$lib/types/entity-list-schema';
-  import ExampleReadView from '$lib/components/example/ExampleReadView.svelte';
   import ExampleWorkspace from '$lib/components/example/ExampleWorkspace.svelte';
 
   let {
@@ -36,6 +35,7 @@
   // Schema-provided endpoint URLs for the workspace (schema-driven API
   // rule: the frontend never constructs an API URL).
   const endpoints = $derived({
+    models_url: schema.editor?.endpoints?.models_url ?? '',
     list_url: schema.editor?.endpoints?.list_url ?? '',
     detail_url_template: schema.editor?.endpoints?.detail_url_template ?? '',
     form_schema_url: schema.editor?.endpoints?.form_schema_url ?? '',
@@ -43,18 +43,14 @@
   });
 </script>
 
-{#if mode === 'view'}
-  <ExampleReadView url={(schema.editor?.endpoints?.view_url_template ?? '').replace('{id}', encodeURIComponent(itemId))} {lang} {oncancel} />
-{:else}
 <ExampleWorkspace
   projectId={schema.project_id}
   {endpoints}
   {mode}
-  exampleId={mode === 'edit' ? itemId : ''}
+  exampleId={mode !== 'create' ? itemId : ''}
   initialTargetEntityType={mode === 'create' ? target?.entityType ?? '' : ''}
   initialTargetEntityId={mode === 'create' ? target?.entityId ?? '' : ''}
   {lang}
   {onsuccess}
   {oncancel}
 />
-{/if}

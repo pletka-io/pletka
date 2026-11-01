@@ -64,7 +64,7 @@ retained input. Its working-view link remains available.
 Project-page metadata, credits and ontology summaries now use their own
 [bounded summary input](project-summary-reads.md). Paginated inventories and
 adoption closure now use their [scoped inventory boundary](project-inventory-reads.md).
-Concept lists retain this detail viewer; examples use a detached recorded-value viewer.
+Concept lists retain this detail viewer; examples use their existing form schema and workspace over detached inputs, with editing capabilities omitted for read-only requests.
 Model detail pages expose pinned example lists in releases. List pages use bounded
 scoped queries rather than a complete-project capture. The temporary session-bound field-usage facet should
 move into the field reader when that slice's remaining ordinary operations are

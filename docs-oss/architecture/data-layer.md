@@ -494,7 +494,10 @@ limits, source authorization and required-content failures are part of the
 
 Concept-list/example inventories use the same boundary for owned metadata,
 scoped counts and selected vocabulary/target labels. Label references are compact
-and bounded; filtering/pagination stay database-side. Recorded example views use
+and bounded; filtering/pagination stay database-side. Example detail/form reads use
 a bounded assembler fragment and pure projection, preserving stale saved values.
-The editing validator cannot accept a release scope. Read schemas pin their data,
-filter and preview URLs to the resolved release, including default public reads.
+One form schema and workspace serve both states; the read handler adds a submit
+endpoint only for an authorized owning-draft editor. Selected composition and
+concept choices need no live enrichment. Legacy mutation-time validation remains
+draft-only. Read schemas pin data, filter, form and navigation URLs to the resolved
+release, including default public reads.

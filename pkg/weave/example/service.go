@@ -106,16 +106,20 @@ type ExampleRecord struct {
 }
 
 type ExampleFormSchema struct {
-	Kind      string                     `json:"kind"`
-	ExampleID string                     `json:"example_id,omitempty"`
-	Target    ExampleFormTarget          `json:"target"`
-	Endpoint  *formschema.SchemaEndpoint `json:"endpoint,omitempty"`
-	Sections  []ExampleFormSection       `json:"sections"`
-	Issues    []domain.ExampleIssue      `json:"issues,omitempty"`
-	UI        formschema.SchemaUI        `json:"ui"`
+	Example        *domain.Example            `json:"example,omitempty"`
+	LinkedExamples []Link                     `json:"linked_examples,omitempty"`
+	UnplacedValues []UnplacedValue            `json:"unplaced_values,omitempty"`
+	Kind           string                     `json:"kind"`
+	ExampleID      string                     `json:"example_id,omitempty"`
+	Target         ExampleFormTarget          `json:"target"`
+	Endpoint       *formschema.SchemaEndpoint `json:"endpoint,omitempty"`
+	Sections       []ExampleFormSection       `json:"sections"`
+	Issues         []domain.ExampleIssue      `json:"issues,omitempty"`
+	UI             formschema.SchemaUI        `json:"ui"`
 }
 
 type ExampleFormTarget struct {
+	URL        string              `json:"url,omitempty"`
 	EntityType string              `json:"entity_type"`
 	EntityID   string              `json:"entity_id"`
 	Name       domain.Translations `json:"name,omitempty"`
@@ -202,7 +206,8 @@ type ConceptListSource struct {
 	SemanticID string              `json:"semantic_id,omitempty"`
 	Name       domain.Translations `json:"name,omitempty"`
 	URL        string              `json:"url,omitempty"`
-	SearchURL  string              `json:"search_url"`
+	SearchURL  string              `json:"search_url,omitempty"`
+	Entries    []ConceptChoice     `json:"entries"`
 }
 
 func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) (*ExampleRecord, error) {
@@ -495,8 +500,9 @@ func (s *Service) List(ctx context.Context, scope auth.ReadScope, projectID stri
 	return r.List(ctx, opts...)
 }
 
-// BuildFormSchema returns the create or edit form for an example, read at
-// scope because an edit form prefills from the example it is editing.
+// BuildFormSchema retains the legacy draft-only editing resolver.
+//
+// Deprecated: HTTP reads use the mandatory detached source and ProjectRead.
 func (s *Service) BuildFormSchema(ctx context.Context, scope auth.ReadScope, projectID, mode, targetType, targetID, exampleID, lang string, languages []formschema.LanguageInfo) (*ExampleFormSchema, error) {
 	if err := requireDraftEditing(scope); err != nil {
 		return nil, err
@@ -523,73 +529,6 @@ func (s *Service) BuildFormSchema(ctx context.Context, scope auth.ReadScope, pro
 	default:
 		return nil, fmt.Errorf("unsupported form mode: %s", mode)
 	}
-}
-
-// buildModelFormSchema builds the form with the request's slot resolver
-// (its model view and cached collection views).
-func (s *Service) buildModelFormSchema(ctx context.Context, resolver *slotResolver, exampleID, modelID string, record *ExampleRecord, lang string, languages []formschema.LanguageInfo) (*ExampleFormSchema, error) {
-	projectID, view := resolver.projectID, resolver.view
-	var values []domain.ExampleValue
-	var issues []domain.ExampleIssue
-	if record != nil {
-		values, issues = record.Values, record.Validation.Issues
-	}
-	// A value whose field moved to a different group since it was saved does
-	// not resolve and stays out of the form, as it stays out of Get's counts.
-	slots, err := resolver.resolveAll(values)
-	if err != nil {
-		return nil, err
-	}
-	issuesByKey, groupIssues, topIssues := routeIssues(issues)
-	builder := newFormBuilder(resolver, values, slots, issuesByKey)
-	present := formGroupPresence(values, slots)
-	sections := make([]ExampleFormSection, 0, len(view.Categories))
-	for _, cat := range view.Categories {
-		section := ExampleFormSection{
-			ID:             cat.ID,
-			Label:          cat.Name,
-			CanonicalOrder: cat.Position,
-		}
-		for _, coll := range cat.Collections {
-			entries, err := buildGroupEntries(builder, coll, groupIssues, present[coll.ID])
-			if err != nil {
-				return nil, err
-			}
-			section.Groups = append(section.Groups, entries...)
-		}
-		sections = append(sections, section)
-	}
-	topIssues = append(topIssues, builder.unplacedIssues(issues)...)
-	schema := &ExampleFormSchema{
-		Kind:      "example-form",
-		ExampleID: exampleID,
-		Target: ExampleFormTarget{
-			EntityType: string(domain.ExampleEntityTypeModel),
-			EntityID:   modelID,
-			Name:       s.TargetName(ctx, modelID),
-		},
-		Sections: sections,
-		Issues:   topIssues,
-		UI: formschema.SchemaUI{
-			SubmitLabel:    domain.Translations{"en": submitLabel(exampleID)},
-			CancelLabel:    domain.Translations{"en": "Cancel"},
-			SuccessMessage: domain.Translations{"en": successMessage(exampleID)},
-			Languages:      languages,
-			PrimaryLang:    lang,
-		},
-	}
-	if exampleID == "" {
-		schema.Endpoint = &formschema.SchemaEndpoint{
-			Method: "POST",
-			URL:    fmt.Sprintf("/projects/%s/examples", projectID),
-		}
-	} else {
-		schema.Endpoint = &formschema.SchemaEndpoint{
-			Method: "PUT",
-			URL:    fmt.Sprintf("/projects/%s/examples/%s", projectID, exampleID),
-		}
-	}
-	return schema, nil
 }
 
 func buildExampleField(f domain.ResolvedField, values []domain.ExampleValue, issuesByKey map[string][]domain.ExampleIssue, groupPath string) ExampleFormField {
@@ -851,51 +790,6 @@ func (s *Service) validateModelValues(ctx context.Context, projectID, modelID st
 // instead. Every slot path is resolved through the request's slot resolver
 // (the model's current view), nested ones through their container's target
 // collection (see checkValue).
-func (s *Service) validateValues(ctx context.Context, resolver *slotResolver, values []domain.ExampleValue, strict bool) (domain.ExampleValidationReport, error) {
-	if err := placeInGroups(values, resolver.groups, strict); err != nil {
-		return domain.ExampleValidationReport{}, err
-	}
-	slots, err := resolver.resolveAll(values)
-	if err != nil {
-		return domain.ExampleValidationReport{}, err
-	}
-	compactInstances(values, slots)
-	issues := make([]domain.ExampleIssue, 0)
-	counts := map[string]int{}
-	present := map[string]map[string]bool{}
-	for i, value := range values {
-		vIssues, err := s.checkValue(ctx, slots[i], value, strict)
-		if err != nil {
-			return domain.ExampleValidationReport{}, err
-		}
-		issues = append(issues, vIssues...)
-		if slots[i].status != slotOK {
-			continue
-		}
-		counts[slotCountKey(containerPath(value.SlotPath), value.OverrideID)]++
-		gp := groupPart(value.SlotPath)
-		if coll, _, ok := domain.ParseExampleGroupSegment(gp); ok {
-			if present[coll] == nil {
-				present[coll] = map[string]bool{}
-			}
-			present[coll][gp] = true
-		}
-	}
-	nested, err := resolver.nestedCardinalityIssues(values, slots, counts)
-	if err != nil {
-		return domain.ExampleValidationReport{}, err
-	}
-	modelIssues, err := cardinalityIssues(resolver, resolver.view, counts, present)
-	if err != nil {
-		return domain.ExampleValidationReport{}, err
-	}
-	issues = append(issues, modelIssues...)
-	issues = append(issues, nested...)
-	return domain.ExampleValidationReport{
-		Valid:  len(issues) == 0,
-		Issues: issues,
-	}, nil
-}
 
 // movedGroupValueIssue reports a value whose stored group segment no longer
 // matches its override's current group: left as is by validateValues, out
@@ -912,56 +806,6 @@ func movedGroupValueIssue(value domain.ExampleValue, groupPath string) domain.Ex
 
 // valueIssues runs the per-value checks for one value against its resolved
 // leaf field.
-func (s *Service) valueIssues(ctx context.Context, value domain.ExampleValue, field domain.ResolvedField) ([]domain.ExampleIssue, error) {
-	var out []domain.ExampleIssue
-	if field.ID != value.FieldID {
-		fieldID := value.FieldID
-		out = append(out, errorIssue("field_override_mismatch", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "This value is attached to the wrong field slot."))
-	}
-	expected := valueKindForExpectedType(field.ExpectedValueType)
-	if expected != "" && value.ValuePayload.Kind != expected {
-		fieldID := value.FieldID
-		out = append(out, errorIssue("wrong_value_kind", &fieldID, &value.OverrideID, &value.OccurrenceIndex, fmt.Sprintf("Expected %s but got %s.", expected, value.ValuePayload.Kind)))
-	}
-	if field.IsHidden {
-		fieldID := value.FieldID
-		out = append(out, warningIssue("hidden_field_value", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "This field is hidden in the current model configuration."))
-	}
-	if field.SetValue != "" && value.ValuePayload.Kind == domain.ExampleValueKindConcept {
-		if value.ValuePayload.ConceptURI == nil || *value.ValuePayload.ConceptURI != field.SetValue {
-			fieldID := value.FieldID
-			out = append(out, errorIssue("set_value_mismatch", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The selected concept does not match the field's fixed value constraint."))
-		}
-	}
-	if value.ValuePayload.Kind == domain.ExampleValueKindConcept && value.ValuePayload.ConceptURI != nil && len(field.ConceptLists) > 0 {
-		allowed, err := s.conceptURIAllowed(ctx, *value.ValuePayload.ConceptURI, field.ConceptLists)
-		if err != nil {
-			return nil, err
-		}
-		if !allowed {
-			fieldID := value.FieldID
-			out = append(out, errorIssue("concept_not_in_allowed_list", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The selected concept is not part of the allowed concept list."))
-		}
-	}
-	if value.ValuePayload.Kind == domain.ExampleValueKindExampleRef && value.ValuePayload.ExampleID != nil {
-		dr, err := s.draftReader()
-		if err != nil {
-			return nil, err
-		}
-		linked, err := dr.GetByID(ctx, *value.ValuePayload.ExampleID)
-		if err != nil {
-			return nil, err
-		}
-		if linked == nil {
-			fieldID := value.FieldID
-			out = append(out, errorIssue("missing_linked_example", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The referenced example no longer exists."))
-		} else if !linkedTargetAllowed(linked, field) {
-			fieldID := value.FieldID
-			out = append(out, errorIssue("linked_example_not_allowed", &fieldID, &value.OverrideID, &value.OccurrenceIndex, "The referenced example does not match the allowed target models or collections."))
-		}
-	}
-	return out, nil
-}
 
 func slotCountKey(groupPath string, overrideID int64) string {
 	return groupPath + "|" + strconv.FormatInt(overrideID, 10)
@@ -1286,4 +1130,60 @@ func requireDraftEditing(scope auth.ReadScope) error {
 		return fmt.Errorf("example editing validation requires an explicit draft scope")
 	}
 	return nil
+}
+
+func (s *Service) buildModelFormSchema(ctx context.Context, resolver *slotResolver, exampleID, modelID string, record *ExampleRecord, lang string, languages []formschema.LanguageInfo) (*ExampleFormSchema, error) {
+	schema, err := buildExampleFormSchema(resolver, exampleID, modelID, s.TargetName(ctx, modelID), record, lang, languages)
+	if err != nil {
+		return nil, err
+	}
+	setExampleEndpoint(schema, resolver.projectID, exampleID)
+	return schema, nil
+}
+func setExampleEndpoint(schema *ExampleFormSchema, projectID, exampleID string) {
+
+	if exampleID == "" {
+		schema.Endpoint = &formschema.SchemaEndpoint{
+			Method: "POST",
+			URL:    fmt.Sprintf("/projects/%s/examples", projectID),
+		}
+	} else {
+		schema.Endpoint = &formschema.SchemaEndpoint{
+			Method: "PUT",
+			URL:    fmt.Sprintf("/projects/%s/examples/%s", projectID, exampleID),
+		}
+	}
+}
+
+func (s *Service) validateValues(ctx context.Context, resolver *slotResolver, values []domain.ExampleValue, strict bool) (domain.ExampleValidationReport, error) {
+	checks := valueValidator{conceptAllowed: s.conceptURIAllowed, example: func(ctx context.Context, id string) (*domain.Example, error) {
+		reader, err := s.draftReader()
+		if err != nil {
+			return nil, err
+		}
+		return reader.GetByID(ctx, id)
+	}}
+	return checks.validateValues(ctx, resolver, values, strict)
+}
+
+// Link describes an already selected reference, including its pinned browser URL.
+type Link struct {
+	ID         string              `json:"id"`
+	EntityType string              `json:"entity_type"`
+	EntityID   string              `json:"entity_id"`
+	Title      domain.Translations `json:"title"`
+	Status     string              `json:"status"`
+	URL        string              `json:"url"`
+}
+
+// UnplacedValue keeps saved evidence visible when it cannot appear in a normal field slot.
+type UnplacedValue struct {
+	Value  domain.ExampleValue `json:"value"`
+	Reason string              `json:"reason"`
+}
+
+// ConceptChoice is a selected list member for the same schema's value picker.
+type ConceptChoice struct {
+	URI   string              `json:"uri"`
+	Label domain.Translations `json:"label"`
 }

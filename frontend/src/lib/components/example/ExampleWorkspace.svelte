@@ -11,6 +11,7 @@
    *  The workspace fills {id} into url templates client-side; it never
    *  constructs an API path itself. */
   type WorkspaceEndpoints = {
+    models_url: string;
     list_url: string;
     detail_url_template: string;
     form_schema_url: string;
@@ -19,7 +20,6 @@
   };
 
   let {
-    projectId,
     endpoints,
     mode = 'create',
     exampleId = '',
@@ -31,7 +31,7 @@
   }: {
     projectId: string;
     endpoints: WorkspaceEndpoints;
-    mode?: 'create' | 'edit';
+    mode?: 'create' | 'edit' | 'view';
     exampleId?: string;
     initialTargetEntityType?: string;
     initialTargetEntityId?: string;
@@ -53,6 +53,7 @@
     entity_id: string;
     title?: Translations;
     status?: string;
+    url?: string;
   };
 
   type OccurrenceState = {
@@ -103,6 +104,8 @@
 
   let modelAbort: AbortController | null = null;
 
+  const canEdit = $derived(Boolean(schema?.endpoint));
+
   const primaryLang = $derived(schema?.ui.primary_language || lang || 'en');
 
   $effect(() => {
@@ -113,18 +116,17 @@
     loading = true;
     error = '';
     currentExampleId = exampleId;
-    currentMode = mode;
+    currentMode = mode === 'create' ? 'create' : 'edit';
     valuesByOverride = {};
     conceptLabelsByURI = {};
     schema = null;
     activeFilter = 'all';
     expandedSections = {};
     expandedGroups = {};
-    workspaceMode = mode === 'edit' ? 'overview' : 'edit';
+    workspaceMode = mode === 'create' ? 'edit' : 'overview';
     searchQuery = '';
     searchIndex = 0;
     try {
-      await loadAvailableExamples();
       if (mode === 'create') {
         if (initialTargetEntityType === 'model' && initialTargetEntityId) {
           selectedModelId = initialTargetEntityId;
@@ -135,7 +137,7 @@
           await loadInitialModels();
         }
       }
-      if (mode === 'edit' && exampleId) {
+      if (mode !== 'create' && exampleId) {
         await loadExistingExample(exampleId);
       }
     } catch (e: any) {
@@ -146,21 +148,20 @@
   }
 
   async function loadAvailableExamples() {
-    const res = await fetch(`${endpoints.list_url}?per_page=500`);
+    const res = await fetch(readURL(endpoints.list_url, { per_page: '500' }));
     if (!res.ok) throw new Error(`Failed to load examples: ${res.status}`);
     const data = await res.json();
-    availableExamples = data.items ?? [];
+    availableExamples = [...(schema?.linked_examples ?? []), ...(data.items ?? []).filter((item: ExampleOption) => !schema?.linked_examples?.some((linked) => linked.id === item.id))];
   }
 
   async function loadExistingExample(id: string) {
-    const res = await fetch(endpoints.detail_url_template.replace('{id}', id));
-    if (!res.ok) throw new Error(`Failed to load example: ${res.status}`);
-    const data = await res.json();
-    selectedModelId = data.example?.entity_id ?? '';
-    selectedModelLabel = data.example?.entity_id ?? '';
-    titleValues = data.example?.title ?? {};
-    descriptionValues = data.example?.description ?? {};
     await loadSchemaForEdit(id);
+  }
+
+  function readURL(path: string, params: Record<string, string>): string {
+    const url = new URL(path, window.location.origin);
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+    return url.toString();
   }
 
   async function searchModels(query: string) {
@@ -173,7 +174,7 @@
     modelAbort = new AbortController();
     loadingModels = true;
     try {
-      const res = await fetch(`/projects/${projectId}/models?search=${encodeURIComponent(query)}&per_page=20`, {
+      const res = await fetch(readURL(endpoints.models_url, { search: query, per_page: '20' }), {
         signal: modelAbort.signal,
       });
       if (!res.ok) throw new Error(`Failed to search models: ${res.status}`);
@@ -191,7 +192,7 @@
   async function loadInitialModels() {
     loadingModels = true;
     try {
-      const res = await fetch(`/projects/${projectId}/models?per_page=20`);
+      const res = await fetch(readURL(endpoints.models_url, { per_page: '20' }));
       if (!res.ok) throw new Error(`Failed to load models: ${res.status}`);
       const data = await res.json();
       initialModelResults = data.models ?? [];
@@ -221,13 +222,20 @@
     loading = true;
     error = '';
     try {
-      const res = await fetch(`${endpoints.form_schema_url}?mode=create&target_type=model&target_id=${encodeURIComponent(modelId)}`);
+      const res = await fetch(readURL(endpoints.form_schema_url, { mode: 'create', target_type: 'model', target_id: modelId }));
       if (!res.ok) throw new Error(`Failed to load form schema: ${res.status}`);
       const nextSchema: ExampleFormSchema = await res.json();
       schema = nextSchema;
+      availableExamples = nextSchema.linked_examples ?? [];
+      if (nextSchema.example) {
+        titleValues = nextSchema.example.title ?? {};
+        descriptionValues = nextSchema.example.description ?? {};
+      }
+      selectedModelId = nextSchema.target.entity_id;
+      if (!nextSchema.endpoint) workspaceMode = 'overview';
       selectedModelLabel = translated(nextSchema.target?.name, selectedModelLabel || modelId);
       initValueState(nextSchema);
-      void hydrateConceptLabels(nextSchema);
+      if (nextSchema.endpoint) await loadAvailableExamples();
       initStructureState(nextSchema);
     } catch (e: any) {
       error = e?.message || 'Failed to load example schema';
@@ -240,15 +248,22 @@
     loading = true;
     error = '';
     try {
-      const res = await fetch(`${endpoints.form_schema_url}?mode=edit&example_id=${encodeURIComponent(id)}`);
+      const res = await fetch(readURL(endpoints.form_schema_url, { mode: mode === 'view' ? 'view' : 'edit', example_id: id }));
       if (!res.ok) throw new Error(`Failed to load form schema: ${res.status}`);
       const nextSchema: ExampleFormSchema = await res.json();
       schema = nextSchema;
+      availableExamples = nextSchema.linked_examples ?? [];
+      if (nextSchema.example) {
+        titleValues = nextSchema.example.title ?? {};
+        descriptionValues = nextSchema.example.description ?? {};
+      }
+      selectedModelId = nextSchema.target.entity_id;
+      if (!nextSchema.endpoint) workspaceMode = 'overview';
       // The create path does this after the model pick; edit mode needs it
       // too, else the header shows the model id instead of its name.
       selectedModelLabel = translated(nextSchema.target?.name, selectedModelLabel || nextSchema.target?.entity_id || '');
       initValueState(nextSchema);
-      void hydrateConceptLabels(nextSchema);
+      if (nextSchema.endpoint) await loadAvailableExamples();
       initStructureState(nextSchema);
     } catch (e: any) {
       error = e?.message || 'Failed to load example schema';
@@ -268,6 +283,9 @@
           occurrence_index: occ.occurrence_index,
           value: payloadToInput(field, occ.value),
         }));
+        for (const source of field.concept_sources ?? []) {
+          for (const entry of source.entries ?? []) nextConceptLabels[entry.uri] = translated(entry.label, entry.uri);
+        }
         if (field.value_kind === 'concept') {
           for (const occ of field.occurrences ?? []) {
             const uri = occ.value?.concept_uri;
@@ -282,38 +300,6 @@
     conceptLabelsByURI = nextConceptLabels;
   }
 
-  async function hydrateConceptLabels(nextSchema: ExampleFormSchema) {
-    const uris = new Set<string>();
-    for (const section of nextSchema.sections ?? []) {
-      for (const field of allSectionFields(section)) {
-        if (field.value_kind !== 'concept') continue;
-        for (const occ of field.occurrences ?? []) {
-          const uri = occ.value?.concept_uri?.trim();
-          if (!uri || (conceptLabelsByURI[uri] && conceptLabelsByURI[uri] !== uri)) continue;
-          uris.add(uri);
-        }
-      }
-    }
-    if (uris.size === 0) return;
-    const resolved: Record<string, string> = {};
-    await Promise.all(
-      [...uris].map(async (uri) => {
-        try {
-          const params = new URLSearchParams({ uri, lang: primaryLang });
-          const res = await fetch(`/api/v2/vocabulary-entries/resolve?${params.toString()}`);
-          if (!res.ok) return;
-          const data = await res.json();
-          const label = translated(data.label, uri);
-          if (label && label !== uri) resolved[uri] = label;
-        } catch {
-          // Keep the URI fallback when a vocabulary entry cannot be resolved.
-        }
-      }),
-    );
-    if (Object.keys(resolved).length > 0) {
-      conceptLabelsByURI = { ...conceptLabelsByURI, ...resolved };
-    }
-  }
 
   function initStructureState(nextSchema: ExampleFormSchema) {
     const nextSections: Record<string, boolean> = {};
@@ -860,6 +846,7 @@
   }
 
   function setWorkspaceMode(mode: WorkspaceMode) {
+    if (mode === 'edit' && !canEdit) return;
     workspaceMode = mode;
   }
 
@@ -1020,7 +1007,7 @@
       name: `${fieldKey(field)}:${occurrenceIndex}`,
       widget: renderWidget(field),
       required: Boolean(field.required && occurrenceIndex === 0),
-      readonly: fixedConcept,
+      readonly: !canEdit || fixedConcept,
       label: field.label,
       help: field.help,
       value: '',
@@ -1085,6 +1072,8 @@
   }
 
   function examplePageURL(id: string): string {
+    const retained = availableExamples.find((example) => example.id === id)?.url;
+    if (retained) return retained;
     return endpoints.page_url_template ? endpoints.page_url_template.replace('{id}', encodeURIComponent(id)) : '';
   }
 
@@ -1396,7 +1385,7 @@
     <div class="flex items-center justify-between">
       <div>
         <h3 class="text-lg font-semibold text-gray-900">
-          {currentMode === 'create' ? `New ${selectedModelLabel || ''} example`.replace('  ', ' ') : `Editing ${selectedModelLabel ? `${selectedModelLabel} example` : 'example'}`}
+          {currentMode === 'create' ? `New ${selectedModelLabel || ''} example`.replace('  ', ' ') : `${canEdit ? 'Editing' : 'Viewing'} ${selectedModelLabel ? `${selectedModelLabel} example` : 'example'}`}
           {#if currentMode !== 'create'}
             <span class="ml-2 align-middle font-mono text-xs font-normal text-gray-400">{currentExampleId}</span>
           {/if}
@@ -1777,7 +1766,7 @@
       {/snippet}
 
       {@const summary = overallSummary()}
-      {@const status = currentStatus(summary)}
+      {@const status = !canEdit && schema.example ? schema.example.status : currentStatus(summary)}
       {@const matchOrder = searchMatchOrder()}
       {@const activeMatch = activeMatchID()}
 
@@ -1790,7 +1779,11 @@
                 {status === 'has_issues' ? 'Has issues' : status === 'valid' ? 'Valid' : 'Draft'}
               </span>
               {#if selectedModelId}
-                <span class="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-500">{selectedModelId}</span>
+                {#if schema.target.url}
+                  <a href={schema.target.url} class="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs text-pletka-primary hover:underline">{selectedModelId}</a>
+                {:else}
+                  <span class="rounded bg-gray-100 px-2 py-0.5 font-mono text-xs text-gray-500">{selectedModelId}</span>
+                {/if}
               {/if}
             </div>
             <div class="flex flex-wrap gap-2 text-sm text-gray-600">
@@ -1803,9 +1796,11 @@
           <div class="flex flex-wrap items-center gap-2">
             <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
               <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${workspaceMode === 'overview' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setWorkspaceMode('overview')}>Overview</button>
-              <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${workspaceMode === 'edit' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setWorkspaceMode('edit')}>Edit</button>
+              {#if canEdit}
+                <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${workspaceMode === 'edit' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setWorkspaceMode('edit')}>Edit</button>
+              {/if}
             </div>
-            {#if workspaceMode === 'edit'}
+            {#if canEdit && workspaceMode === 'edit'}
               <div class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5">
                 <input
                   type="text"
@@ -1830,10 +1825,11 @@
                 <button type="button" class={`rounded-md px-3 py-1.5 text-sm ${activeFilter === 'issues' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-600 hover:text-gray-900'}`} onclick={() => setFilter('issues')}>Issues Only</button>
               </div>
             {/if}
-            {#if workspaceMode === 'edit'}
+            {#if canEdit && workspaceMode === 'edit'}
               <button type="button" class="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" onclick={expandAllStructure}>Expand all</button>
               <button type="button" class="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" onclick={collapseOptionalStructure}>Collapse optional</button>
             {/if}
+            {#if canEdit}
             <button
               type="button"
               class="rounded-md bg-pletka-primary px-4 py-2 text-sm font-medium text-white hover:bg-pletka-secondary disabled:opacity-60"
@@ -1842,11 +1838,12 @@
             >
               {saving ? 'Saving…' : translated(schema.ui.submit_label, 'Save Example')}
             </button>
+            {/if}
           </div>
         </div>
       </section>
 
-      {#if workspaceMode === 'edit'}
+      {#if canEdit && workspaceMode === 'edit'}
         <section class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <div class="grid gap-4 md:grid-cols-2">
             <WidgetDispatcher field={titleField} bind:value={titleValues} formValues={{}} {lang} languages={schema.ui.languages} errors={[]} />
@@ -1928,7 +1925,7 @@
 
                 {#if expandedSections[section.id]}
                   <div class="space-y-5 border-t border-gray-100 px-5 py-5">
-                    {#if workspaceMode === 'edit' && (section.groups ?? []).some((group) => groupVisible(group))}
+                    {#if canEdit && workspaceMode === 'edit' && (section.groups ?? []).some((group) => groupVisible(group))}
                       <div class="space-y-5">
                         {#each section.groups ?? [] as group (groupKey(group))}
                           {@render editGroup(section, group, activeMatch, schema)}
@@ -1936,7 +1933,7 @@
                       </div>
                     {/if}
 
-                    {#if workspaceMode === 'overview'}
+                    {#if !canEdit || workspaceMode === 'overview'}
                       {#if (section.groups ?? []).some((group) => groupVisibleInOverview(group))}
                         <div class="space-y-5">
                           {#each section.groups ?? [] as group (groupKey(group))}
@@ -1953,7 +1950,20 @@
         </div>
       </div>
 
-      {#if workspaceMode === 'edit'}
+      {#if schema.unplaced_values?.length}
+        <section class="rounded-xl border border-amber-200 bg-amber-50 p-5">
+          <h4 class="font-semibold text-gray-900">Other recorded values</h4>
+          {#each schema.unplaced_values as entry (entry.value.id)}
+            <div class="mt-3 text-sm text-gray-800">
+              <p class="font-medium">{entry.value.field_id}</p>
+              <p class="text-gray-600">{entry.reason}</p>
+              <p class="whitespace-pre-wrap break-words">{Object.entries(entry.value.value_payload).filter(([key, value]) => key !== 'kind' && value != null).map(([, value]) => typeof value === 'object' ? JSON.stringify(value) : String(value)).join(' · ')}</p>
+            </div>
+          {/each}
+        </section>
+      {/if}
+
+      {#if canEdit && workspaceMode === 'edit'}
         <div class="flex items-center justify-end gap-3">
           <button
             type="button"

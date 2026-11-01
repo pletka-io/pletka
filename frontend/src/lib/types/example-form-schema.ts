@@ -5,7 +5,8 @@ export interface ExampleConceptSource {
   semantic_id?: string;
   name?: Translations;
   url?: string;
-  search_url: string;
+  search_url?: string;
+  entries?: Array<{ uri: string; label: Translations }>;
 }
 
 export interface ExampleIssue {
@@ -98,12 +99,16 @@ export interface ExampleFormSection {
 }
 
 export interface ExampleFormSchema {
+  example?: { id: string; title?: Translations; description?: Translations; status: 'draft' | 'valid' | 'has_issues' };
+  linked_examples?: Array<{ id: string; entity_type: string; entity_id: string; title?: Translations; status?: string; url: string }>;
+  unplaced_values?: Array<{ value: { id: number; field_id: string; slot_path?: string; value_payload: Record<string, unknown> }; reason: string }>;
   kind: 'example-form';
   example_id?: string;
   target: {
     entity_type: string;
     entity_id: string;
     name?: Translations;
+    url?: string;
   };
   endpoint?: SchemaEndpoint;
   sections: ExampleFormSection[];

@@ -98,8 +98,11 @@ paths, which retain unrestricted capabilities. New content reads use the bound
 Browser model/collection/field/concept-list/example lists and filter options
 must delegate to the required `browserhttp.Source.Inventory` boundary. Do not
 append live vocabulary labels, target names, counts or publication status to
-released catalog rows. Example previews consume detached fragments; editing
-validation rejects release scopes. Schema read URLs retain the resolved selection.
+released catalog rows. Example detail/form reads consume detached fragments through
+a source-only handler. Reuse the same example schema/workspace; read-only schemas
+omit the submit endpoint. Do not add a separate release viewer or JSON contract.
+Legacy mutation-time validation rejects release scopes. Schema read URLs retain
+the resolved selection.
 See [project inventory reads](../../docs-oss/reference/project-inventory-reads.md).
 
 ### Reading another project's content
