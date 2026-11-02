@@ -278,6 +278,10 @@ func (s *testStoreAdapter) ListPropertiesByQnames(context.Context, string, []str
 func (s *testStoreAdapter) SearchProperties(context.Context, string, string, int) ([]*domain.OntologyProperty, error) {
 	return nil, nil
 }
+func (s *testStoreAdapter) PropertiesWithoutDomain(context.Context, string) ([]*domain.OntologyProperty, error) {
+	return nil, nil
+}
+
 func (s *testStoreAdapter) PropertiesForDomainQname(context.Context, string, string) ([]*domain.OntologyProperty, error) {
 	return nil, nil
 }

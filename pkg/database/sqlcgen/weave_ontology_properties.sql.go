@@ -549,6 +549,71 @@ func (q *Queries) WeavePropertiesForRangeQname(ctx context.Context, arg WeavePro
 	return items, nil
 }
 
+const weavePropertiesWithoutDomain = `-- name: WeavePropertiesWithoutDomain :many
+SELECT p.id, p.ontology_version_id, p.prefix, p.local_name, p.uri, p.qname, p.label, p.comment, p.property_type, p.is_functional, p.is_inverse_functional, p.is_transitive, p.is_symmetric, p.is_asymmetric, p.is_reflexive, p.is_irreflexive, p.inverse_property_uri, p.created_at, p.updated_at, p.natural_sort_key, p.source_module
+FROM weave_ontology_properties p
+JOIN weave_ontology_versions v ON v.id = p.ontology_version_id
+JOIN weave_ontologies o ON o.id = v.ontology_id
+WHERE p.ontology_version_id = $1
+  AND o.namespace <> ''
+  AND starts_with(p.uri, o.namespace)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM weave_ontology_relations r
+    WHERE r.source_id = p.id
+      AND r.source_kind = 'property'
+      AND r.rel_type = 'domain'
+  )
+ORDER BY p.natural_sort_key ASC, p.local_name ASC
+`
+
+// Properties this ontology DEFINES (URI under its declared namespace) that have
+// no rdfs:domain. In RDFS such a property applies to all classes, so
+// autocomplete offers them on every class alongside the domain-matched ones.
+// Imported external properties (URI outside the namespace, e.g. dc:/foaf:/obo:)
+// are excluded so scaffolding does not flood suggestions.
+func (q *Queries) WeavePropertiesWithoutDomain(ctx context.Context, ontologyVersionID string) ([]WeaveOntologyProperty, error) {
+	rows, err := q.db.Query(ctx, weavePropertiesWithoutDomain, ontologyVersionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveOntologyProperty{}
+	for rows.Next() {
+		var i WeaveOntologyProperty
+		if err := rows.Scan(
+			&i.ID,
+			&i.OntologyVersionID,
+			&i.Prefix,
+			&i.LocalName,
+			&i.Uri,
+			&i.Qname,
+			&i.Label,
+			&i.Comment,
+			&i.PropertyType,
+			&i.IsFunctional,
+			&i.IsInverseFunctional,
+			&i.IsTransitive,
+			&i.IsSymmetric,
+			&i.IsAsymmetric,
+			&i.IsReflexive,
+			&i.IsIrreflexive,
+			&i.InversePropertyUri,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.NaturalSortKey,
+			&i.SourceModule,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveSearchOntologyProperties = `-- name: WeaveSearchOntologyProperties :many
 SELECT id, ontology_version_id, prefix, local_name, uri, qname, label, comment, property_type, is_functional, is_inverse_functional, is_transitive, is_symmetric, is_asymmetric, is_reflexive, is_irreflexive, inverse_property_uri, created_at, updated_at, natural_sort_key, source_module FROM weave_ontology_properties
 WHERE ontology_version_id = $1

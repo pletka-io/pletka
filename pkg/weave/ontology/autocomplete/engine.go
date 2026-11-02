@@ -33,6 +33,10 @@ type Store interface {
 	SearchClasses(ctx context.Context, versionID, query string, limit int) ([]*domain.OntologyClass, error)
 	SearchProperties(ctx context.Context, versionID, query string, limit int) ([]*domain.OntologyProperty, error)
 	PropertiesForDomainQname(ctx context.Context, versionID, qname string) ([]*domain.OntologyProperty, error)
+	// PropertiesWithoutDomain returns the properties the version's ontology
+	// defines (URI under its namespace) that declare no rdfs:domain. Per RDFS
+	// they apply to all classes, so they are offered on every class.
+	PropertiesWithoutDomain(ctx context.Context, versionID string) ([]*domain.OntologyProperty, error)
 	// ListSubclassesByQname returns the direct subclasses of parentQname.
 	// Caller walks breadth-first for transitive coverage.
 	ListSubclassesByQname(ctx context.Context, versionID, parentQname string) ([]*domain.OntologyClass, error)
@@ -282,6 +286,27 @@ func (e *DirectEngine) suggestPropertiesForClass(ctx context.Context, versionIDs
 				if len(out) >= req.MaxResults {
 					return out, nil
 				}
+			}
+		}
+
+		// A property the ontology defines with no rdfs:domain applies to every
+		// class (RDFS), so offer the version's domain-less own-vocabulary
+		// properties on this class too, after the domain-matched ones.
+		dlProps, err := e.store.PropertiesWithoutDomain(ctx, vID)
+		if err != nil {
+			return nil, fmt.Errorf("properties without domain: %w", err)
+		}
+		for _, p := range dlProps {
+			if _, dup := seen[p.Qname]; dup {
+				continue
+			}
+			if q != "" && !matchesQuery(p.LocalName, p.Label, q) {
+				continue
+			}
+			seen[p.Qname] = struct{}{}
+			out = append(out, propertyToSuggestion(p, ontPrefix, versionString, false))
+			if len(out) >= req.MaxResults {
+				return out, nil
 			}
 		}
 	}
