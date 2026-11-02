@@ -10,6 +10,8 @@ import (
 	"github.com/pletka-io/pletka/pkg/projectsnapshot"
 )
 
+const fieldKind = "field"
+
 type entityContext struct {
 	session    *readsession.Session
 	input      projectsnapshot.ProjectInput
@@ -143,7 +145,7 @@ func requestConsumerDefaults(contexts []*entityContext) error {
 			continue
 		}
 		for _, m := range c.input.Membership {
-			if m.Kind != "field" {
+			if m.Kind != fieldKind {
 				continue
 			}
 			for _, source := range contexts {
@@ -162,42 +164,31 @@ func requestConsumerDefaults(contexts []*entityContext) error {
 }
 
 func loadEntityClosure(ctx context.Context, contexts []*entityContext, b *budget) error {
-	var err error
-	b.discovery = true
 	for pending := true; pending; {
 		pending = false
-		for _, c := range contexts {
-			// Only this round's rows contribute new closure requests.
-			c.input.Content = projectsnapshot.Content{}
+		requests := make([]projectsnapshot.Selection, len(contexts))
+		for i, c := range contexts {
+			requests[i] = projectsnapshot.Selection{}
 			if !c.dirty {
 				continue
 			}
 			c.dirty = false
 			b.selection = nextSelection(c.selection, c.discovered)
-			c.input.Content, c.input.Counts, err = loadContent(ctx, c.session, b)
+			var err error
+			requests[i], err = c.discover(ctx, b)
 			if err != nil {
 				return err
-			}
-			if err := discoveredChildren(c.input.Content, c.discovered); err != nil {
-				return err
-			}
-			for _, field := range c.input.Content.Fields {
-				c.fields[field.ID] = true
 			}
 		}
-		for i, c := range contexts {
-			requests, err := projectsnapshot.RequiredEntities(c.input.Content)
-			if err != nil {
-				return err
-			}
-			kinds := make([]string, 0, len(requests))
-			for k := range requests {
-				kinds = append(kinds, k)
+		for i, requested := range requests {
+			kinds := make([]string, 0, len(requested))
+			for kind := range requested {
+				kinds = append(kinds, kind)
 			}
 			slices.Sort(kinds)
-			for _, k := range kinds {
-				for _, entity := range requests[k] {
-					if err := requestEntity(contexts, i, k, entity); err != nil {
+			for _, kind := range kinds {
+				for _, id := range requested[kind] {
+					if err := requestEntity(contexts, i, kind, id); err != nil {
 						return err
 					}
 				}
@@ -210,12 +201,11 @@ func loadEntityClosure(ctx context.Context, contexts []*entityContext, b *budget
 			pending = pending || c.dirty
 		}
 	}
-	// Materialize the closed selection once in database order. Discovery never
-	// reads the growing union again, and metadata is fetched only here. Counting
-	// both passes in the budget reflects actual query work, including overlaps.
-	b.discovery = false
+	// Materialize once in database order. Compact discovery rows and full content
+	// both contribute to the workload budget; neither pass returns partial values.
 	for _, c := range contexts {
 		b.selection = c.selection
+		var err error
 		c.input.Content, c.input.Counts, err = loadContent(ctx, c.session, b)
 		if err != nil {
 			return err
@@ -262,4 +252,28 @@ func (a *Assembler) entityEvidence(ctx context.Context, contexts []*entityContex
 	}
 
 	return root, sources, nil
+}
+
+func (c *entityContext) discover(ctx context.Context, b *budget) (projectsnapshot.Selection, error) {
+	requested := projectsnapshot.Selection{}
+	rows, err := pages(ctx, b, c.session.DiscoverIdentities)
+	if err != nil {
+		return nil, err
+	}
+	var children []string
+	for _, row := range rows {
+		if _, err := requested.Include(row.Kind, row.ID); err != nil {
+			return nil, err
+		}
+		if row.Present && row.Kind == fieldKind {
+			c.fields[row.ID] = true
+		}
+		if row.Present && row.Kind == "vocabulary_entry" {
+			children = append(children, row.ID)
+		}
+	}
+	if err := discoveredChildren(children, c.discovered); err != nil {
+		return nil, err
+	}
+	return requested, nil
 }

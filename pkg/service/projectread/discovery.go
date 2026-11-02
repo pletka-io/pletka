@@ -79,15 +79,15 @@ func nextSelection(current, visited projectsnapshot.Selection) projectsnapshot.S
 // need not trigger discovery again when it selects no other section. Derive that
 // condition from the shared registry so adding another consumer disables the
 // shortcut automatically; final materialization still uses the full selection.
-func discoveredChildren(content projectsnapshot.Content, visited projectsnapshot.Selection) error {
+func discoveredChildren(ids []string, visited projectsnapshot.Selection) error {
 	const kind = "vocabulary_entry"
 	for section, kinds := range discoveryKinds() {
 		if section != vocabularyEntriesSection && slices.Contains(kinds, kind) {
 			return nil
 		}
 	}
-	for _, row := range content.VocabularyEntries {
-		if _, err := visited.Include(kind, row.ID); err != nil {
+	for _, id := range ids {
+		if _, err := visited.Include(kind, id); err != nil {
 			return err
 		}
 	}

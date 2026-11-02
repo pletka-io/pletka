@@ -133,17 +133,27 @@ scalar and batch archive identity definitions aligned. Query-count regressions
 exercise a large captured membership without timing thresholds in unit tests.
 
 Entity assembly discovers dependencies using only newly selected identities in
-each round and queries the sections affected by those selectors. Already returned
+each round. One paged, non-recursive SQL projection per bound project returns
+typed identities and whether their bodies were actually found. References alone
+do not establish body presence: consumer field defaults depend on that distinction.
+Go still routes requests through retained membership and independently authorized
+source sessions. SQL cannot choose another project, version or source. Already returned
 vocabulary child identities do not trigger another discovery read when the central
 registry confirms that they select no additional section. Once the closure stops
 growing, assembly materializes that restricted selection once in database order,
 including metadata. This preserves ordering/collation without merging independently
 ordered pages in Go. It is not a whole-project read/filter fallback. Some rows can
-appear under multiple parent selectors, and discovery rows are read again in the
-final pass; **both passes count toward row and encoded-byte budgets**. A final
+appear under multiple parent selectors. SQL deduplicates kind/ID requests within
+each expansion while retaining actual body presence. Compact discovery records and
+the final full content rows **both count toward row and encoded-byte budgets**;
+identities discovered again in later rounds count again. These counters do not bound
+PostgreSQL scanned rows, sort memory or process RSS. A final
 containment check rejects new references outside the discovered selection. An
 exhaustive test compares the discovery registry with draft/archive SQL selectors
-so new sections and selector changes cannot silently bypass discovery.
+so new sections and selector changes cannot silently bypass discovery. Reference
+column probes and PostgreSQL comparisons against the independent typed-row oracle
+check edge coverage, body presence and ordered fragments. Complete-project assembly
+does not use discovery and remains a control in performance comparisons.
 
 Regression checks should cover selection, authorization, immutability, ambiguous
 references and draft/release parity. Keep timing thresholds out of small unit

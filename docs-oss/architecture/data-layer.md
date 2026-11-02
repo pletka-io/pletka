@@ -89,6 +89,16 @@ moving computation does not require a new JSON contract or a database-aware
 generator. Pure snapshot validation must continue to work for offline/imported
 values, and generators consume those detached values, including a future Lua host.
 
+`Session.DiscoverIdentities` implements one non-recursive expansion of an explicit
+entity selection. Separate draft/archive queries project kind, ID and body presence
+using the content readers' ownership joins and selectors. They never resolve source
+releases; the assembler distributes requests using retained membership. Empty
+selections stay empty, nil/full selections are rejected, and unknown edge kinds fail.
+The final materialization and pure graph validation remain independent. Selector
+and reference-column ratchets plus PostgreSQL row-oracle comparisons guard this
+duplicated acquisition logic. See [read performance](../reference/read-performance.md)
+for workload accounting and measurement limits.
+
 A stored read function needs additional enforcement before adoption. The current
 draft/archive query conformance check scans direct `FROM`/`JOIN` references; it
 does **not** inspect a function's transitive table dependencies. A function marked

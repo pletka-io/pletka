@@ -56,6 +56,24 @@ type Querier interface {
 	ContentVocabularies(ctx context.Context, arg ContentVocabulariesParams) ([]ContentVocabulariesRow, error)
 	ContentVocabularyEntries(ctx context.Context, arg ContentVocabularyEntriesParams) ([]ContentVocabularyEntriesRow, error)
 	CountCollections(ctx context.Context, arg CountCollectionsParams) (int64, error)
+	// One non-recursive expansion inside the bound project/state. Keep selectors in
+	// sync with content.sql; conformance checks compare the source predicates.
+	// source: ContentAdoptions
+	// source: ContentCategories
+	// source: ContentPlacements
+	// source: ContentCollections
+	// source: ContentBroader
+	// source: ContentConceptEntries
+	// source: ContentConceptLists
+	// source: ContentExampleValues
+	// source: ContentExamples
+	// source: ContentOverrides
+	// source: ContentFields
+	// source: ContentModels
+	// source: ContentOverrideRefs
+	// source: ContentVocabularies
+	// source: ContentVocabularyEntries
+	DiscoverContentIdentities(ctx context.Context, arg DiscoverContentIdentitiesParams) ([]DiscoverContentIdentitiesRow, error)
 	DraftActorDescriptors(ctx context.Context, projectID string) ([]DraftActorDescriptorsRow, error)
 	// Selection policy belongs to the whole draft even for a bounded entity read.
 	DraftHasSemanticReferences(ctx context.Context, projectID string) (bool, error)

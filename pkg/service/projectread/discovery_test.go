@@ -80,7 +80,7 @@ func TestIncrementalDiscoveryNeverRequeuesOldIdentities(t *testing.T) {
 func TestLoadedChildIdentityDoesNotRepeatDiscovery(t *testing.T) {
 	visited := projectsnapshot.Selection{}
 	content := projectsnapshot.Content{VocabularyEntries: []projectsnapshot.VocabularyEntryRecord{{ID: "child", VocabularyID: "parent"}}}
-	if err := discoveredChildren(content, visited); err != nil {
+	if err := discoveredChildren([]string{"child"}, visited); err != nil {
 		t.Fatal(err)
 	}
 	requests, err := projectsnapshot.RequiredEntities(content)

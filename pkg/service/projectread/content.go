@@ -111,17 +111,6 @@ func loadContent(ctx context.Context, s *readsession.Session, b *budget) (projec
 	return c, counts, nil
 }
 func loadSection[T any](ctx context.Context, b *budget, section string, read func(context.Context, readsession.Page) ([]T, error), destination *[]T, counts map[string]int64) error {
-	if b.discovery {
-		needed, err := discoverSection(section, b.selection)
-		if err != nil {
-			return err
-		}
-		if !needed {
-			*destination = []T{}
-			counts[section] = 0
-			return nil
-		}
-	}
 	rows, err := pages(ctx, b, read)
 	if err != nil {
 		return fmt.Errorf("load %s: %w", section, err)

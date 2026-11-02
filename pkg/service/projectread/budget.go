@@ -41,7 +41,6 @@ type budget struct {
 	limits      Limits
 	rows, bytes int64
 	selection   projectsnapshot.Selection
-	discovery   bool
 }
 
 func (b *budget) addBytes(n int64) error {
