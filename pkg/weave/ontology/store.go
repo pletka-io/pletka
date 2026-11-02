@@ -95,6 +95,7 @@ type Store interface {
 	ListPropertiesByQnames(ctx context.Context, versionID string, qnames []string) ([]*domain.OntologyProperty, error)
 	SearchProperties(ctx context.Context, versionID, query string, limit int) ([]*domain.OntologyProperty, error)
 	PropertiesForDomainQname(ctx context.Context, versionID, qname string) ([]*domain.OntologyProperty, error)
+	PropertiesWithoutDomain(ctx context.Context, versionID string) ([]*domain.OntologyProperty, error)
 	PropertiesForRangeQname(ctx context.Context, versionID, qname string) ([]*domain.OntologyProperty, error)
 	GetInverseProperty(ctx context.Context, versionID, propertyID string) (*domain.OntologyProperty, error)
 

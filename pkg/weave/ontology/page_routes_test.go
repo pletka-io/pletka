@@ -706,6 +706,10 @@ func (s *routeTestStore) ListPropertiesByQnames(context.Context, string, []strin
 func (s *routeTestStore) SearchProperties(context.Context, string, string, int) ([]*domain.OntologyProperty, error) {
 	return nil, nil
 }
+func (s *routeTestStore) PropertiesWithoutDomain(_ context.Context, _ string) ([]*domain.OntologyProperty, error) {
+	return nil, nil
+}
+
 func (s *routeTestStore) PropertiesForDomainQname(_ context.Context, versionID, qname string) ([]*domain.OntologyProperty, error) {
 	var out []*domain.OntologyProperty
 	for _, rel := range s.relations {

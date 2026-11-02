@@ -57,6 +57,28 @@ WHERE p.ontology_version_id = $1
   AND r.target_qname = $2
 ORDER BY p.natural_sort_key ASC, p.local_name ASC;
 
+-- name: WeavePropertiesWithoutDomain :many
+-- Properties this ontology DEFINES (URI under its declared namespace) that have
+-- no rdfs:domain. In RDFS such a property applies to all classes, so
+-- autocomplete offers them on every class alongside the domain-matched ones.
+-- Imported external properties (URI outside the namespace, e.g. dc:/foaf:/obo:)
+-- are excluded so scaffolding does not flood suggestions.
+SELECT p.*
+FROM weave_ontology_properties p
+JOIN weave_ontology_versions v ON v.id = p.ontology_version_id
+JOIN weave_ontologies o ON o.id = v.ontology_id
+WHERE p.ontology_version_id = $1
+  AND o.namespace <> ''
+  AND starts_with(p.uri, o.namespace)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM weave_ontology_relations r
+    WHERE r.source_id = p.id
+      AND r.source_kind = 'property'
+      AND r.rel_type = 'domain'
+  )
+ORDER BY p.natural_sort_key ASC, p.local_name ASC;
+
 -- name: WeavePropertiesForRangeQname :many
 SELECT p.*
 FROM weave_ontology_properties p

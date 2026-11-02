@@ -104,6 +104,22 @@ func (e *IndexedEngine) suggestPropertiesForClass(idx *Index, class *Node, req R
 			}
 		}
 	}
+	// A property the ontology defines with no rdfs:domain applies to every class
+	// (RDFS), so offer the index's domain-less own-vocabulary properties after
+	// the domain-matched ones. Same dedupe/query/limit path.
+	for _, p := range idx.DomainlessProps {
+		if _, dup := seen[p.Qname]; dup {
+			continue
+		}
+		if q != "" && !matchesQuery(p.LocalName, p.Label, q) {
+			continue
+		}
+		seen[p.Qname] = struct{}{}
+		out = append(out, nodeToSuggestion(p))
+		if len(out) >= req.MaxResults {
+			return out
+		}
+	}
 	return out
 }
 

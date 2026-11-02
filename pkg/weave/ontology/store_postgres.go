@@ -540,6 +540,18 @@ func (s *postgresStore) PropertiesForDomainQname(ctx context.Context, versionID,
 	return out, nil
 }
 
+func (s *postgresStore) PropertiesWithoutDomain(ctx context.Context, versionID string) ([]*domain.OntologyProperty, error) {
+	rows, err := s.queries.WeavePropertiesWithoutDomain(ctx, versionID)
+	if err != nil {
+		return nil, fmt.Errorf("properties without domain: %w", err)
+	}
+	out := make([]*domain.OntologyProperty, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, rowToProperty(r))
+	}
+	return out, nil
+}
+
 func (s *postgresStore) PropertiesForRangeQname(ctx context.Context, versionID, qname string) ([]*domain.OntologyProperty, error) {
 	rows, err := s.queries.WeavePropertiesForRangeQname(ctx, sqlcgen.WeavePropertiesForRangeQnameParams{
 		OntologyVersionID: versionID,

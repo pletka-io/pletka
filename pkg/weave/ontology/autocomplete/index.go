@@ -17,6 +17,10 @@ type OntologyMeta struct {
 	Prefix        string
 	VersionString string
 	VersionID     string
+	// Namespace is the declared namespace of the owning ontology. It scopes the
+	// "no domain => applies to all" rule to a property the ontology defines
+	// (URI under this namespace) rather than one it merely imports.
+	Namespace string
 }
 
 // Node is one qname in the project-union ontology DAG. Class-edge slices
@@ -65,6 +69,13 @@ type Index struct {
 	Primary  string
 	BuiltAt  time.Time
 	ByQname  map[string]*Node
+
+	// DomainlessProps are property nodes an ontology DEFINES (URI under its own
+	// namespace) that declare no rdfs:domain. Per RDFS such a property applies
+	// to any class, so suggestPropertiesForClass offers these on every class.
+	// Imported external properties with no domain (dc:, foaf:, obo:…) are
+	// excluded so scaffolding does not flood every class.
+	DomainlessProps []*Node
 }
 
 // indexStore is the narrow read surface buildIndex needs.
@@ -200,6 +211,7 @@ func buildIndex(ctx context.Context, store indexStore, namespaceBindings Namespa
 		}
 	}
 
+	idx.DomainlessProps = collectDomainlessProps(idx)
 	idx.BuiltAt = time.Now()
 	detectCycles(idx, log)
 	log.Info("autocomplete index built",
@@ -257,11 +269,32 @@ func metaResolver(ctx context.Context, store indexStore, log *slog.Logger) func(
 			}
 			if o != nil {
 				m.Prefix = o.Prefix
+				m.Namespace = o.Namespace
 			}
 		}
 		cache[versionID] = m
 		return m
 	}
+}
+
+// collectDomainlessProps returns the property nodes an ontology defines (URI
+// under its own namespace) that have no domain edge. Sorted by qname so the
+// suggestion order is stable. Imported external properties (URI outside the
+// owning ontology's namespace) are skipped, as are ghosts and properties that
+// have a domain in any linked version.
+func collectDomainlessProps(idx *Index) []*Node {
+	var out []*Node
+	for _, n := range idx.ByQname {
+		if n == nil || n.Ghost || n.Type != "property" || len(n.Domains) > 0 {
+			continue
+		}
+		if n.Meta.Namespace == "" || !strings.HasPrefix(n.URI, n.Meta.Namespace) {
+			continue
+		}
+		out = append(out, n)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Qname < out[j].Qname })
+	return out
 }
 
 // detectCycles logs (does not fail) when subclass_of forms a loop — signals a

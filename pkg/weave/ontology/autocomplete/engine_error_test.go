@@ -58,6 +58,10 @@ func (s *errorStore) SearchProperties(_ context.Context, _, _ string, _ int) ([]
 	return nil, nil
 }
 
+func (s *errorStore) PropertiesWithoutDomain(_ context.Context, _ string) ([]*domain.OntologyProperty, error) {
+	return nil, nil
+}
+
 func (s *errorStore) PropertiesForDomainQname(_ context.Context, _, _ string) ([]*domain.OntologyProperty, error) {
 	return nil, nil
 }
@@ -125,6 +129,10 @@ func (s *notFoundThenFoundStore) SearchClasses(_ context.Context, _, _ string, _
 }
 
 func (s *notFoundThenFoundStore) SearchProperties(_ context.Context, _, _ string, _ int) ([]*domain.OntologyProperty, error) {
+	return nil, nil
+}
+
+func (s *notFoundThenFoundStore) PropertiesWithoutDomain(_ context.Context, _ string) ([]*domain.OntologyProperty, error) {
 	return nil, nil
 }
 
@@ -227,6 +235,10 @@ func (s *classNotFoundPropertyErrorStore) SearchClasses(_ context.Context, _, _ 
 }
 
 func (s *classNotFoundPropertyErrorStore) SearchProperties(_ context.Context, _, _ string, _ int) ([]*domain.OntologyProperty, error) {
+	return nil, nil
+}
+
+func (s *classNotFoundPropertyErrorStore) PropertiesWithoutDomain(_ context.Context, _ string) ([]*domain.OntologyProperty, error) {
 	return nil, nil
 }
 
