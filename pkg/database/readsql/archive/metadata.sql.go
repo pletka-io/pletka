@@ -113,31 +113,6 @@ func (q *Queries) ReleaseLegacyContentReceipt(ctx context.Context, arg ReleaseLe
 	return content_capture_receipt, err
 }
 
-const releaseLegacyOntologySnapshot = `-- name: ReleaseLegacyOntologySnapshot :one
-SELECT s.document, s.digest FROM weave_legacy_ontology_snapshots s
-JOIN weave_releases r ON r.project_id=s.project_id AND r.version=s.version_number
-WHERE s.project_id=$1::text AND s.version_number=$2::text
-  AND r.content_capture_version=2
-  AND s.digest=r.content_capture_receipt->>'ontology_snapshot_digest'
-`
-
-type ReleaseLegacyOntologySnapshotParams struct {
-	ProjectID string `json:"project_id"`
-	Version   string `json:"version"`
-}
-
-type ReleaseLegacyOntologySnapshotRow struct {
-	Document string `json:"document"`
-	Digest   string `json:"digest"`
-}
-
-func (q *Queries) ReleaseLegacyOntologySnapshot(ctx context.Context, arg ReleaseLegacyOntologySnapshotParams) (ReleaseLegacyOntologySnapshotRow, error) {
-	row := q.db.QueryRow(ctx, releaseLegacyOntologySnapshot, arg.ProjectID, arg.Version)
-	var i ReleaseLegacyOntologySnapshotRow
-	err := row.Scan(&i.Document, &i.Digest)
-	return i, err
-}
-
 const releaseModelTypes = `-- name: ReleaseModelTypes :many
 SELECT a.id, a.model_type FROM weave_models_archive a
 JOIN weave_releases r ON r.project_id=a.project_id AND r.version=a.version_number

@@ -25,13 +25,6 @@ WHERE project_id=sqlc.arg(project_id)::text AND version=sqlc.arg(version)::text
 SELECT content_capture_version FROM weave_releases
 WHERE project_id=sqlc.arg(project_id)::text AND version=sqlc.arg(version)::text;
 
--- name: ReleaseLegacyOntologySnapshot :one
-SELECT s.document, s.digest FROM weave_legacy_ontology_snapshots s
-JOIN weave_releases r ON r.project_id=s.project_id AND r.version=s.version_number
-WHERE s.project_id=sqlc.arg(project_id)::text AND s.version_number=sqlc.arg(version)::text
-  AND r.content_capture_version=2
-  AND s.digest=r.content_capture_receipt->>'ontology_snapshot_digest';
-
 -- name: ReleaseImportOrigin :one
 SELECT (i.project_id IS NOT NULL)::boolean AS imported,
        COALESCE(to_char(i.imported_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),'')::text AS imported_at

@@ -190,6 +190,9 @@ func TestPilotQueriesCannotCrossStateOrWrite(t *testing.T) {
 		if len(paths) == 0 {
 			t.Fatalf("no %s pilot queries found", state)
 		}
+		if state == "archive" {
+			paths = append(paths, filepath.Join(repoRoot(t), "pkg/database/queries/read_archive_artifact/chunks.sql"))
+		}
 		for _, path := range paths {
 			body, err := os.ReadFile(path)
 			if err != nil {
@@ -209,6 +212,7 @@ func TestPilotQueriesCannotCrossStateOrWrite(t *testing.T) {
 				// This facet reads the capture certificate and immutable import
 				// origin, never mutable content from the release catalog.
 				isArchive = isArchive || ((match[1] == "weave_releases" || match[1] == "weave_release_imports") && filepath.Base(path) == "metadata.sql")
+				isArchive = isArchive || (match[1] == "weave_releases" && filepath.ToSlash(path) == filepath.ToSlash(filepath.Join(repoRoot(t), "pkg/database/queries/read_archive_artifact/chunks.sql")))
 				if isArchive != (state == "archive") {
 					t.Errorf("%s accesses other state table %s", path, match[1])
 				}

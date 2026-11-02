@@ -65,15 +65,11 @@ func (s *Session) LegacyInterpretation(ctx context.Context) (ontologyevidence.Pr
 	if err != nil {
 		return ontologyevidence.Prepared{}, err
 	}
-	q, err := s.ArchiveQueries()
+	artifact, err := s.artifact.Read(ctx)
 	if err != nil {
 		return ontologyevidence.Prepared{}, err
 	}
-	r, err := q.ReleaseLegacyOntologySnapshot(ctx, archive.ReleaseLegacyOntologySnapshotParams{ProjectID: s.projectID, Version: s.scope.Version()})
-	if err != nil {
-		return ontologyevidence.Prepared{}, err
-	}
-	value, err := s.lifetime.interpretations.Prepare(ontologyevidence.Artifact{JSON: r.Document, Digest: r.Digest})
+	value, err := s.lifetime.interpretations.Prepare(artifact)
 	if err != nil {
 		return ontologyevidence.Prepared{}, err
 	}

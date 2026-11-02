@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/internal/legacyartifact"
 	"github.com/pletka-io/pletka/pkg/database/readsql/archive"
 	"github.com/pletka-io/pletka/pkg/database/readsql/catalog"
 	"github.com/pletka-io/pletka/pkg/database/readsql/dependencyarchive"
@@ -50,6 +51,7 @@ type Session struct {
 	lifetime       *lifetime
 	dependencies   *dependencies
 	interpretation *ontologyevidence.Prepared
+	artifact       *legacyartifact.Reader
 }
 
 type lifetime struct {
@@ -161,6 +163,7 @@ func bind(ctx context.Context, q *sqlcgen.Queries, tx pgx.Tx, life *lifetime, gr
 			return nil, err
 		}
 		s.archive = archive.New(tx)
+		s.artifact = legacyartifact.New(tx, projectID, scope.Version())
 		s.ontologies = projectontologies.New(tx)
 		captured := dependencyarchive.New(tx)
 		s.dependencies = &dependencies{graph: graph, load: func(ctx context.Context) (releasedeps.Plan, error) {

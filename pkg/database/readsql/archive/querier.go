@@ -68,7 +68,6 @@ type Querier interface {
 	ReleaseDescriptors(ctx context.Context, arg ReleaseDescriptorsParams) (json.RawMessage, error)
 	ReleaseImportOrigin(ctx context.Context, arg ReleaseImportOriginParams) (ReleaseImportOriginRow, error)
 	ReleaseLegacyContentReceipt(ctx context.Context, arg ReleaseLegacyContentReceiptParams) ([]byte, error)
-	ReleaseLegacyOntologySnapshot(ctx context.Context, arg ReleaseLegacyOntologySnapshotParams) (ReleaseLegacyOntologySnapshotRow, error)
 	ReleaseModelTypes(ctx context.Context, arg ReleaseModelTypesParams) ([]ReleaseModelTypesRow, error)
 }
 

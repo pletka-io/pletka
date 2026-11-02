@@ -31,10 +31,32 @@ Large text results have a separate memory cost: the driver buffers a PostgreSQL
 row, then scanning into a retained string copies it. A one-row result can therefore
 be expensive. Smaller row-count pages do not split one large ontology document.
 Borrowed driver buffers cannot back an immutable value after the next read. Exact
-artifact bytes and independent lifetime must survive any transport change. Review
-chunked reads or COPY separately for byte identity, bounded buffering, cancellation,
-the existing transaction and generated-query enforcement; neither alone removes
-the memory needed for the retained document and its decoded values.
+artifact bytes and independent lifetime must survive any transport change. Evaluate
+transport changes for byte identity, bounded buffering, cancellation, the existing
+transaction and generated-query enforcement. They do not remove the memory needed
+for the retained document and its decoded values.
+
+Retained legacy artifacts now use a single named archive query that emits byte
+chunks of at most 256 KiB. A private reader copies each borrowed chunk into an
+owned string builder before advancing the driver. It checks offsets, lengths,
+consistent headers, completion and cancellation, and never returns partial
+evidence. The session then performs the existing exact-byte digest, identity,
+body, assessment and closure validation. Missing evidence never selects another
+query or current data.
+
+The query retains the original toasted text, converts it to UTF-8 once on the
+usual UTF-8 database path, and sorts integer offsets before projecting chunks.
+Keep the projection barrier and outer ordering: sorting the projected byte
+payloads can spill the entire artifact to temporary files at ordinary `work_mem`.
+Byte counts also account for conversion on other database encodings. Check real
+generic/custom plans after query changes. Statement count remains one per
+artifact; protocol returned-row counts increase because one artifact spans
+multiple rows. Structural counts and encoded evidence budgets are unchanged.
+
+Collecting every chunk with a generated `:many` method would retain an additional
+full copy. The guarded private adapter therefore uses sqlc's exported query and
+types with a streaming scan. Complete artifacts and decoded values are still
+retained; bounded protocol rows do not bound total request memory or RSS.
 
 `projectread.Limits.MaxBytes` counts encoded rows and ontology evidence. It is
 **not a bound on heap allocation or process RSS**. Immutable value construction,

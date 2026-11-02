@@ -28,8 +28,17 @@ correct version is pinned in `go.mod` as a tool dependency; a different binary c
 emit incompatible types (e.g. `pgtype.Text` instead of `*string`). The config is
 `sqlc.yaml`.
 
-**Never hand-edit `pkg/database/sqlcgen/` or `pkg/database/readsql/`.** They are
-generated. Change the `.sql` query and regenerate.
+**Never hand-edit `pkg/database/sqlcgen/`, `pkg/database/readsql/`, or
+`pkg/database/internal/legacyartifactsql/`.** They are generated. Change the `.sql`
+query and regenerate.
+
+The private `database/internal/legacyartifact` reader streams retained artifact
+chunks using sqlc's exported query constant and generated parameter/row types.
+The generated `:many` collector would retain every chunk and lose the memory
+benefit. This is one explicit streaming adapter: its imports and single generated
+query call are guarded, and tests compare its bindings/scans with sqlc's collector.
+It receives the owning transaction only from read-session binding and returns
+detached evidence. No SQL literals, pool or cursor reach consumers.
 
 The workflow for a new query:
 

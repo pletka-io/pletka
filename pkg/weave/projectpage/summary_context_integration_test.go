@@ -4,17 +4,20 @@ package projectpage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/ontologyevidence"
 	"github.com/pletka-io/pletka/pkg/service/browserread"
 	"github.com/pletka-io/pletka/pkg/service/projectread"
 	"github.com/pletka-io/pletka/pkg/weave/ontology"
@@ -47,7 +50,7 @@ func TestLegacySummarySeparatesLocalAndSourceContexts(t *testing.T) {
 		for _, name := range names {
 			classes = append(classes, ontology.ImportClass{ID: version + "." + name, URI: "https://context.test/" + name, Prefix: "ctx", LocalName: name})
 		}
-		if _, err := store.StageLegacyVersion(ctx, ontology.ImportVersionInput{Version: ontology.CreateVersionInput{ID: version, OntologyID: "CTXONT", VersionString: fmt.Sprint(i + 1), RDFContent: "<retained/>"}, Classes: classes}); err != nil {
+		if _, err := store.StageLegacyVersion(ctx, ontology.ImportVersionInput{Version: ontology.CreateVersionInput{ID: version, OntologyID: "CTXONT", VersionString: fmt.Sprint(i + 1), RDFContent: strings.Repeat("<retained>ä🙂</retained>", 16384)}, Classes: classes}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -67,6 +70,7 @@ func TestLegacySummarySeparatesLocalAndSourceContexts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	beforeArtifacts := readLegacyArtifacts(ctx, t, pool)
 	var same bool
 	var sources int
 	if err := pool.QueryRow(ctx, `SELECT context_document::jsonb=(document::jsonb||jsonb_build_object('sources','[]'::jsonb)),jsonb_array_length(document::jsonb->'sources') FROM weave_legacy_ontology_snapshots WHERE project_id='CTXROOT' AND version_number='1.0.0'`).Scan(&same, &sources); err != nil || !same || sources != 1 {
@@ -106,6 +110,49 @@ func TestLegacySummarySeparatesLocalAndSourceContexts(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(before, after) {
 		t.Fatalf("retained context changed after live deletion: %v", err)
 	}
+	if !cmp.Equal(beforeArtifacts, readLegacyArtifacts(ctx, t, pool)) {
+		t.Fatal("artifact bytes changed after hot mutation/deletion")
+	}
+}
+
+func readLegacyArtifacts(ctx context.Context, t *testing.T, pool *pgxpool.Pool) map[string]ontologyevidence.Artifact {
+	t.Helper()
+	factory := readsession.NewFactory(pool).WithSourceAuthorization(auth.CheckProjectRead)
+	artifacts := make(map[string]ontologyevidence.Artifact, 2)
+	for _, project := range []string{"CTXROOT", "CTXSOURCE"} {
+		var expected ontologyevidence.Artifact
+		if err := pool.QueryRow(ctx, `SELECT document,digest FROM weave_legacy_ontology_snapshots WHERE project_id=$1 AND version_number='1.0.0'`, project).Scan(&expected.JSON, &expected.Digest); err != nil {
+			t.Fatal(err)
+		}
+		if len(expected.JSON) <= 256<<10 {
+			t.Fatal("fixture must cross transport chunk boundaries")
+		}
+		var closed *readsession.Session
+		err := factory.Read(ctx, auth.Release("1.0.0"), project, func(s *readsession.Session) error {
+			closed = s
+			got, err := s.LegacyOntology(ctx)
+			if err != nil {
+				return err
+			}
+			if got != expected {
+				t.Fatal("streamed artifact differs from exact archived bytes")
+			}
+			artifacts[project] = got
+			canceled, cancel := context.WithCancel(ctx)
+			cancel()
+			if _, err := s.LegacyInterpretation(canceled); !errors.Is(err, context.Canceled) {
+				t.Fatalf("cached interpretation ignored cancellation: %v", err)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := closed.LegacyInterpretation(ctx); err == nil {
+			t.Fatal("closed session returned cached interpretation")
+		}
+	}
+	return artifacts
 }
 
 func checkLocalSummaryContexts(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {

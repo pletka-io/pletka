@@ -34,7 +34,8 @@ pool by design and exposes no pool or transaction to readers.
 
 - **No inline SQL. Not mixed with named queries, not "just this one".** Every
   statement lives in a named `.sql` file under `pkg/database/queries/` and is reached through the
-  generated method. `pkg/conformance` fails the build on a SQL string literal
+  generated method, or the one guarded streaming adapter described below.
+  `pkg/conformance` fails the build on a SQL string literal
   in any non-generated, non-test Go file, with a per-file ceiling in
   `inline_sql_allowlist.go` that may only go down.
 
@@ -59,6 +60,14 @@ pool by design and exposes no pool or transaction to readers.
   `.sql` query and regenerate.
 - Stores map between domain types and generated row types; services never see
   a `sqlcgen` type.
+
+`database/internal/legacyartifact` is the sole streaming adapter. Its query lives
+in `queries/read_archive_artifact/`; sqlc generates exported SQL and typed rows in
+`database/internal/legacyartifactsql`. The adapter consumes borrowed chunk bytes
+before advancing the driver, copies into owned storage, and exposes no streaming
+capability outside the bound session. Import/query ratchets and generated-binding
+parity tests guard it. Do not copy this into services, expose raw SQL to callers,
+or reintroduce a whole-document/`:many` collector as a fallback.
 
 ## Model Rules
 
