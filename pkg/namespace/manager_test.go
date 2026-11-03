@@ -140,6 +140,36 @@ func TestManager_WeightPriority(t *testing.T) {
 	}
 }
 
+// TestManager_EqualWeightTieBreaksByPrefix pins the deterministic tie-break:
+// competing prefixes for one namespace at the same weight resolve by prefix
+// ascending, regardless of insertion order (the #3674 schema.org case, where a
+// readable prefix must beat a hash prefix instead of coin-flipping).
+func TestManager_EqualWeightTieBreaksByPrefix(t *testing.T) {
+	const base = "https://schema.org/"
+	// Insert hash-first so a non-deterministic sort could pick it.
+	mgr := NewStore()
+	mgr.Put("x74cccdd8", base, 80)
+	mgr.Put("schemaorg", base, 80)
+	got, err := mgr.GetWithBase(base)
+	if err != nil {
+		t.Fatalf("GetWithBase: %v", err)
+	}
+	if got.Prefix != "schemaorg" {
+		t.Errorf("GetWithBase: prefix = %q, want %q", got.Prefix, "schemaorg")
+	}
+
+	// A higher-weight binding (e.g. an explicit user override) still wins
+	// outright over the alphabetical tie-break.
+	mgr.Put("sdo", base, 200)
+	got, err = mgr.GetWithBase(base)
+	if err != nil {
+		t.Fatalf("GetWithBase after override: %v", err)
+	}
+	if got.Prefix != "sdo" {
+		t.Errorf("GetWithBase after override: prefix = %q, want %q", got.Prefix, "sdo")
+	}
+}
+
 func TestManager_Prefixes(t *testing.T) {
 	mgr := NewStore()
 	mgr.Put("crm", "http://www.cidoc-crm.org/cidoc-crm/", 10)

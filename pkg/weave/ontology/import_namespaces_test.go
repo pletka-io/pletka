@@ -96,3 +96,37 @@ func TestStandardNamespaceBindingsIncludesRDFCore(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildImportNamespaceManagerHonorsWeight proves the import manager keeps a
+// binding's stored weight instead of flattening everything to one value, so a
+// higher-weight binding wins prefix resolution for a shared namespace (#3674).
+func TestBuildImportNamespaceManagerHonorsWeight(t *testing.T) {
+	const base = "https://schema.org/"
+	mgr := BuildImportNamespaceManager([]NamespaceBinding{
+		{Prefix: "x74cccdd8", Namespace: base, Weight: 80},
+		{Prefix: "schemaorg", Namespace: base, Weight: 80},
+		{Prefix: "sdo", Namespace: base, Weight: 200},
+	})
+	got, err := mgr.GetWithBase(base)
+	if err != nil {
+		t.Fatalf("GetWithBase: %v", err)
+	}
+	if got.Prefix != "sdo" {
+		t.Errorf("GetWithBase: prefix = %q, want %q", got.Prefix, "sdo")
+	}
+
+	// A zero weight (legacy rows predating weighted sources) defaults to 100,
+	// so it outranks an 80-weight competitor rather than tying at an
+	// arbitrary flattened value.
+	mgr2 := BuildImportNamespaceManager([]NamespaceBinding{
+		{Prefix: "zzz", Namespace: base, Weight: 80},
+		{Prefix: "legacy", Namespace: base, Weight: 0},
+	})
+	got2, err := mgr2.GetWithBase(base)
+	if err != nil {
+		t.Fatalf("GetWithBase legacy: %v", err)
+	}
+	if got2.Prefix != "legacy" {
+		t.Errorf("GetWithBase legacy: prefix = %q, want %q", got2.Prefix, "legacy")
+	}
+}
