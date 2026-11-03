@@ -133,24 +133,26 @@ func buildOntologyFields(mode string, existing *formschema.ComposedFieldInput) [
 	isEdit := mode == formschema.ModeEdit || mode == formschema.ModeView
 
 	scope := formschema.FieldDef{
-		Name:     "ontology_scope",
-		Widget:   formschema.WidgetOntologyPath,
-		Required: true,
-		Readonly: mode == formschema.ModeView,
-		Label:    i18n.L("common.scope_class", "Scope Class"),
-		Help:     i18n.L("field.form.scope_class_help", "The root CRM class for this field (e.g. crm:E21_Person)."),
+		Name:        formschema.FieldNameOntologyScope,
+		Widget:      formschema.WidgetOntologyPath,
+		Required:    true,
+		Readonly:    mode == formschema.ModeView,
+		Label:       i18n.L("common.scope_class", "Scope Class"),
+		Help:        i18n.L("field.form.scope_class_help", "The root CRM class for this field (e.g. crm:E21_Person)."),
+		DescribeURL: formschema.OntologyDescribeURLTemplate,
 	}
 	if isEdit && existing != nil {
 		scope.Value = existing.Field.OntologyScope
 	}
 
 	path := formschema.FieldDef{
-		Name:     "ontology_path",
-		Widget:   formschema.WidgetOntologyPath,
-		Required: true,
-		Readonly: mode == formschema.ModeView,
-		Label:    i18n.L("field.form.ontology_path", "Ontology Path"),
-		Help:     i18n.L("field.form.ontology_path_help", "Property chain from the scope class to the value."),
+		Name:        "ontology_path",
+		Widget:      formschema.WidgetOntologyPath,
+		Required:    true,
+		Readonly:    mode == formschema.ModeView,
+		Label:       i18n.L("field.form.ontology_path", "Ontology Path"),
+		Help:        i18n.L("field.form.ontology_path_help", "Property chain from the scope class to the value."),
+		DescribeURL: formschema.OntologyDescribeURLTemplate,
 	}
 	if isEdit && existing != nil {
 		path.Value = existing.Field.PathElements

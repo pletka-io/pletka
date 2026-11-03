@@ -181,6 +181,8 @@ func MountAPI(parent chi.Router, host APIHost) {
 	parent.Get("/api/v1/ontology/edge-provenance", h.EdgeProvenance)
 	parent.With(auth.RequireProjectRead(host.Projects)).
 		Get("/api/projects/{projectID}/ontology-labels", h.OntologyLabels)
+	parent.With(auth.RequireProjectRead(host.Projects)).
+		Get("/api/projects/{projectID}/ontology/describe", h.DescribeTerm)
 }
 
 type PagesHost struct {

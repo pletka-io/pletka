@@ -79,6 +79,31 @@ export interface AutocompleteResponse {
   suggestions: PathSuggestion[];
 }
 /**
+ * TermDescription is the term-detail payload from the ontology-path widget's
+ * schema-provided describe_url (mirrors Go autocomplete.TermDescription).
+ * Edge slices carry qnames; `labels` maps each referenced qname to its label
+ * so related terms render by name instead of an opaque qname.
+ */
+export interface TermDescription {
+  qname: string;
+  uri: string;
+  type: string; // "class" | "property"
+  label?: { [key: string]: string };
+  comment?: { [key: string]: string }; // scope note
+  property_type?: string;
+  superclasses?: string[]; // broader
+  subclasses?: string[]; // narrower
+  as_domain_of?: string[]; // direct properties (class is domain)
+  as_range_of?: string[];
+  domains?: string[];
+  ranges?: string[];
+  super_properties?: string[];
+  inherited_properties?: string[]; // from superclass lineage
+  labels?: { [qname: string]: { [key: string]: string } };
+  ontology: string;
+  version: string;
+}
+/**
  * PathSuggestion represents an autocomplete suggestion
  */
 export interface PathSuggestion {

@@ -3,6 +3,8 @@
   import { tr } from '$lib/types/form-schema';
   import type { PathElement, TypeRef } from '$lib/types/path-types';
   import type { PathSuggestion, AutocompleteRequest, AutocompleteResponse } from '$lib/types/ontology-types';
+  import TermDetailModal from './TermDetailModal.svelte';
+  import TermHoverCard from './TermHoverCard.svelte';
 
   /**
    * SimplePathBuilder: minimal autocomplete + pill-list path picker.
@@ -98,6 +100,25 @@
   function prefixedName(el: PathElement): string {
     if (!el.prefix) return el.local_name;
     return `${el.prefix}:${el.local_name}`;
+  }
+
+  // --- Pill term detail (schema-driven describe_url): hover card + click modal ---
+
+  /** Resolve the field's describe_url template for one path element, or null. */
+  function buildDetailUrl(el: PathElement): string | null {
+    const tmpl = field.describe_url;
+    const pid = getProjectId();
+    if (!tmpl || !pid) return null;
+    const qname = `${el.prefix}:${el.local_name}`;
+    return tmpl
+      .replace('{project_id}', encodeURIComponent(pid))
+      .replace('{qname}', encodeURIComponent(qname));
+  }
+
+  let hoveredIndex = $state<number>(-1); // pill showing the hover card
+  let detailUrl = $state<string | null>(null); // pill opened in the modal
+  function openDetail(el: PathElement) {
+    detailUrl = buildDetailUrl(el);
   }
 
   function normalizeType(t: string): string {
@@ -541,10 +562,24 @@
           <span class="text-gray-400 text-xs select-none" aria-hidden="true">&rarr;</span>
         {/if}
         <span
-          class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium border bg-gray-100 text-gray-800 border-gray-200"
+          class="relative inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium border bg-gray-100 text-gray-800 border-gray-200"
           title={`${el.prefix}:${el.local_name}`}
         >
-          {prefixedName(el)}
+          {#if field.describe_url}
+            <button
+              type="button"
+              class="hover:underline"
+              onmouseenter={() => (hoveredIndex = i)}
+              onmouseleave={() => (hoveredIndex = -1)}
+              onclick={() => openDetail(el)}
+            >{prefixedName(el)}</button>
+            {#if hoveredIndex === i}
+              {@const hurl = buildDetailUrl(el)}
+              {#if hurl}<TermHoverCard url={hurl} {lang} />{/if}
+            {/if}
+          {:else}
+            {prefixedName(el)}
+          {/if}
           {#if !field.readonly && !isScopeMode}
             <button
               type="button"
@@ -707,3 +742,7 @@
     <p class="text-sm text-red-600">{errors[0]}</p>
   {/if}
 </div>
+
+{#if detailUrl}
+  <TermDetailModal url={detailUrl} {lang} onClose={() => (detailUrl = null)} />
+{/if}

@@ -4,6 +4,8 @@
   import type { PathElement, ScopeInfo, ParsedPath } from '$lib/types/path-types';
   import type { PathSuggestion, AutocompleteRequest, AutocompleteResponse } from '$lib/types/ontology-types';
   import SuggestionTooltip from './SuggestionTooltip.svelte';
+  import TermDetailModal from './TermDetailModal.svelte';
+  import TermHoverCard from './TermHoverCard.svelte';
 
   let {
     field,
@@ -120,6 +122,26 @@
   function prefixedName(el: PathElement): string {
     if (!el.prefix) return el.local_name;
     return `${el.prefix}:${el.local_name}`;
+  }
+
+  // --- Pill term detail (schema-driven describe_url): hover card + click modal ---
+
+  /** Resolve the field's describe_url template for one path element, or null. */
+  function buildDetailUrl(el: PathElement): string | null {
+    const tmpl = field.describe_url;
+    const pid = getProjectId();
+    if (!tmpl || !pid) return null;
+    const qname = `${el.prefix}:${el.local_name}`;
+    return tmpl
+      .replace('{project_id}', encodeURIComponent(pid))
+      .replace('{qname}', encodeURIComponent(qname));
+  }
+
+  // hoveredIndex above is the suggestion-dropdown hover; pills use their own.
+  let hoveredPill = $state<number>(-1);
+  let detailUrl = $state<string | null>(null); // pill opened in the modal
+  function openDetail(el: PathElement) {
+    detailUrl = buildDetailUrl(el);
   }
 
   /** Normalize suggestion type to PathElement type vocabulary. */
@@ -642,10 +664,24 @@
           <span class="text-gray-400 text-xs select-none" aria-hidden="true">&rarr;</span>
         {/if}
         <span
-          class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium border {pillClass(el.type)}"
+          class="relative inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium border {pillClass(el.type)}"
           title={`${el.prefix}:${el.local_name}`}
         >
-          {prefixedName(el)}
+          {#if field.describe_url}
+            <button
+              type="button"
+              class="hover:underline"
+              onmouseenter={() => (hoveredPill = i)}
+              onmouseleave={() => (hoveredPill = -1)}
+              onclick={() => openDetail(el)}
+            >{prefixedName(el)}</button>
+            {#if hoveredPill === i}
+              {@const hurl = buildDetailUrl(el)}
+              {#if hurl}<TermHoverCard url={hurl} {lang} />{/if}
+            {/if}
+          {:else}
+            {prefixedName(el)}
+          {/if}
           {#if !field.readonly && !isScopeMode}
             <button
               type="button"
@@ -840,3 +876,7 @@
        JSON-encodes the whole formValues map on submit. A hidden form
        input would force a string round-trip (the old bug). -->
 </div>
+
+{#if detailUrl}
+  <TermDetailModal url={detailUrl} {lang} onClose={() => (detailUrl = null)} />
+{/if}

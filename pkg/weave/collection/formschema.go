@@ -101,12 +101,13 @@ func buildIdentityFields(mode string, existing *domain.Collection, projectID str
 	}
 
 	scope := formschema.FieldDef{
-		Name:     "ontology_scope",
-		Widget:   formschema.WidgetOntologyPath,
-		Required: true,
-		Readonly: mode == formschema.ModeView,
-		Label:    i18n.L("collection.form.ontology_scope", "Ontology Scope"),
-		Help:     i18n.L("collection.form.ontology_scope_help", "Root CRM class shared by the fields in this collection."),
+		Name:        formschema.FieldNameOntologyScope,
+		Widget:      formschema.WidgetOntologyPath,
+		Required:    true,
+		Readonly:    mode == formschema.ModeView,
+		Label:       i18n.L("collection.form.ontology_scope", "Ontology Scope"),
+		Help:        i18n.L("collection.form.ontology_scope_help", "Root CRM class shared by the fields in this collection."),
+		DescribeURL: formschema.OntologyDescribeURLTemplate,
 	}
 	if isEdit && existing != nil {
 		scope.Value = existing.OntologyScope
