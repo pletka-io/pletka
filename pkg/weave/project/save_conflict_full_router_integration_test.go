@@ -20,6 +20,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/model"
 	"github.com/pletka-io/pletka/pkg/weave/override"
 	"github.com/pletka-io/pletka/pkg/weave/project"
+	"github.com/pletka-io/pletka/pkg/weave/publication"
 )
 
 // newFullSaveConflictRouter mounts the model and collection slices
@@ -138,12 +139,13 @@ func newFullSaveConflictRouter(pool *pgxpool.Pool) http.Handler {
 	// .../models. The assertion below is that chi resolves the deeper,
 	// more specific mount over the shallower one.
 	project.Mount(router, project.Host{
-		Service:     projectSvc,
-		Overrides:   overrideSvc,
-		Weave:       weaveStore,
-		Models:      modelSvc,
-		Collections: collectionSvc,
-		Releases:    releaseReaderForTest(pool),
+		Service:       projectSvc,
+		Overrides:     overrideSvc,
+		Weave:         weaveStore,
+		Models:        modelSvc,
+		Collections:   collectionSvc,
+		Releases:      releaseReaderForTest(pool),
+		LatestRelease: publication.NewReader(pool),
 	})
 
 	return router

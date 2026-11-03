@@ -22,6 +22,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/override"
 	"github.com/pletka-io/pletka/pkg/weave/project"
+	"github.com/pletka-io/pletka/pkg/weave/publication"
 )
 
 // Scratch coordinates for the save-conflict tests: a scratch model and a
@@ -127,12 +128,13 @@ func newSaveConflictRouterWithPools(pool, overridePool *pgxpool.Pool) http.Handl
 
 	router := chi.NewRouter()
 	project.Mount(router, project.Host{
-		Service:     projectSvc,
-		Overrides:   overrideSvc,
-		Weave:       weaveStore,
-		Models:      modelSvc,
-		Collections: collectionSvc,
-		Releases:    releaseSvc,
+		Service:       projectSvc,
+		Overrides:     overrideSvc,
+		Weave:         weaveStore,
+		Models:        modelSvc,
+		Collections:   collectionSvc,
+		Releases:      releaseSvc,
+		LatestRelease: publication.NewReader(pool),
 	})
 	return router
 }

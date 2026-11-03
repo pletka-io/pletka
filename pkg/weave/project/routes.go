@@ -33,6 +33,10 @@ type Host struct {
 	Models      ModelVersionLister
 	Collections CollectionVersionLister
 	Releases    ReleaseLister
+	// LatestRelease resolves the content version a non-editor reads on a
+	// public project. Required: without it every route under {projectID}
+	// would serve the working draft to anonymous readers.
+	LatestRelease auth.LatestReleaseReader
 }
 
 func (h Host) Validate() error {
@@ -45,6 +49,9 @@ func (h Host) Validate() error {
 	}
 	if h.Releases == nil {
 		missing = append(missing, "Releases")
+	}
+	if h.LatestRelease == nil {
+		missing = append(missing, "LatestRelease")
 	}
 	if h.Service == nil {
 		missing = append(missing, "Service")
@@ -134,12 +141,14 @@ func Mount(parent chi.Router, host Host) {
 
 // mountAt mounts a slice sub-mux at pattern, installing the project
 // resource middleware on routes that carry a {projectID} so the
-// per-request project + populated auth.Resource is in context.
-// Mirrors the mountSlice helper in pkg/weave/router.
+// per-request project + populated auth.Resource is in context, then the
+// content version resolver so non-editors of a public project read its
+// latest release. Mirrors the mountSlice helper in pkg/weave/router.
 func mountAt(parent chi.Router, pattern string, host Host, attach func(chi.Router)) {
 	sub := chi.NewMux()
 	sub.Use(auth.WithProjectVersionContext)
 	sub.Use(auth.WithProjectResource(host.Weave))
+	sub.Use(auth.ResolveContentVersion(host.LatestRelease))
 	attach(sub)
 	parent.Mount(pattern, sub)
 }
