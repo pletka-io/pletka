@@ -84,6 +84,10 @@ export interface FieldDef {
   options_url?: string;
   /** Template URL with {field_name} substitutions for typeahead search widgets. */
   search_url?: string;
+  /** Ontology-path widget term-detail endpoint. Carries client-substituted
+   *  {project_id} and {qname} tokens; the widget fetches it to open a
+   *  term-detail modal for a built path step. */
+  describe_url?: string;
   /** Vocabulary-entry picker roots-first browse (#3625): roots_url lists a
    *  vocabulary's curated browse roots, children_url_template drills into one
    *  node. Both carry {vocabulary_id} like search_url; children also {conceptId}.

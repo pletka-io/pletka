@@ -391,6 +391,35 @@ func (h *Handler) OntologyLabels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// DescribeTerm returns the full description of one ontology term (class or
+// property) resolved within a project's linked ontology versions: label,
+// scope note, broader/narrower classes, direct + inherited properties, and a
+// label map for every referenced qname. Drives the path-builder term-detail
+// modal. 404 when the qname is unknown or a ghost in the project's index.
+func (h *Handler) DescribeTerm(w http.ResponseWriter, r *http.Request) {
+	projectID := chi.URLParam(r, "projectID")
+	if projectID == "" {
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "project id required")
+		return
+	}
+	qname := strings.TrimSpace(r.URL.Query().Get("qname"))
+	if qname == "" {
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "qname required")
+		return
+	}
+	desc, err := h.svc.DescribeTerm(r.Context(), projectID, qname)
+	if err != nil {
+		h.log.Error("describe term", "err", err)
+		errresp.InternalWith(w, r, err, "describe failed")
+		return
+	}
+	if desc == nil {
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "term not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, desc)
+}
+
 // ---------------------------------------------------------------------------
 // Form / list schema endpoints — drive the entity-list + entity-form
 // Svelte islands in the admin UI.

@@ -3,6 +3,8 @@
   import { tr } from '$lib/types/form-schema';
   import type { PathElement, TypeRef } from '$lib/types/path-types';
   import type { PathSuggestion, AutocompleteRequest, AutocompleteResponse } from '$lib/types/ontology-types';
+  import { getOntologyLabels } from '$lib/api/client';
+  import TermDetailModal from './TermDetailModal.svelte';
 
   /**
    * SimplePathBuilder: minimal autocomplete + pill-list path picker.
@@ -98,6 +100,33 @@
   function prefixedName(el: PathElement): string {
     if (!el.prefix) return el.local_name;
     return `${el.prefix}:${el.local_name}`;
+  }
+
+  // --- Term labels + detail modal (schema-driven describe_url) ---
+
+  /** local_name -> label, so built pills show human names not opaque qnames. */
+  let termLabels = $state<Record<string, string>>({});
+  $effect(() => {
+    const pid = getProjectId();
+    if (!pid) return;
+    let cancelled = false;
+    getOntologyLabels(pid).then((m) => { if (!cancelled) termLabels = m; }).catch(() => {});
+    return () => { cancelled = true; };
+  });
+
+  function elLabel(el: PathElement): string {
+    return termLabels[el.local_name] || prefixedName(el);
+  }
+
+  let detailUrl = $state<string | null>(null);
+  function openDetail(el: PathElement) {
+    const tmpl = field.describe_url;
+    const pid = getProjectId();
+    if (!tmpl || !pid) return;
+    const qname = `${el.prefix}:${el.local_name}`;
+    detailUrl = tmpl
+      .replace('{project_id}', encodeURIComponent(pid))
+      .replace('{qname}', encodeURIComponent(qname));
   }
 
   function normalizeType(t: string): string {
@@ -544,7 +573,16 @@
           class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium border bg-gray-100 text-gray-800 border-gray-200"
           title={`${el.prefix}:${el.local_name}`}
         >
-          {prefixedName(el)}
+          {#if field.describe_url}
+            <button
+              type="button"
+              class="hover:underline"
+              title={`${el.prefix}:${el.local_name} — click for details`}
+              onclick={() => openDetail(el)}
+            >{elLabel(el)}</button>
+          {:else}
+            {elLabel(el)}
+          {/if}
           {#if !field.readonly && !isScopeMode}
             <button
               type="button"
@@ -707,3 +745,7 @@
     <p class="text-sm text-red-600">{errors[0]}</p>
   {/if}
 </div>
+
+{#if detailUrl}
+  <TermDetailModal url={detailUrl} {lang} onClose={() => (detailUrl = null)} />
+{/if}

@@ -130,6 +130,12 @@ type FieldDef struct {
 	CheckURL            string             `json:"check_url,omitempty"`
 	CreateURL           string             `json:"create_url,omitempty"`
 	CreateLabel         domain.Localizable `json:"create_label,omitempty"`
+	// DescribeURL is the ontology-path widget's term-detail endpoint,
+	// carrying client-substituted {project_id} and {qname} tokens (the same
+	// template substitution ListManager performs on capability URLs). The
+	// widget fetches it to render a term-detail modal for a built path step.
+	// Empty = no describe affordance. Value is OntologyDescribeURLTemplate.
+	DescribeURL string `json:"describe_url,omitempty"`
 
 	// ItemAddURL and ItemRemoveURLTemplate make a field self-managing: its
 	// controls call these endpoints directly instead of editing a value the
@@ -251,6 +257,13 @@ const (
 	// (base's direct children, drill into sub-extensions).
 	WidgetOntologyTree = "ontology-tree"
 )
+
+// OntologyDescribeURLTemplate is the schema-provided term-detail endpoint for
+// the ontology-path widget. {project_id} and {qname} are substituted
+// client-side (the path-builder widget already resolves project_id from its
+// form context). Carried on FieldDef.DescribeURL so the frontend never
+// hand-builds this URL.
+const OntologyDescribeURLTemplate = "/api/projects/{project_id}/ontology/describe?qname={qname}"
 
 // Marker calls make schema-emitted frontend widgets discoverable by manifest
 // conformance tests without changing the public constant API.
