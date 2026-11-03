@@ -45,6 +45,7 @@
     if (isClass) {
       return [
         ['Broader (superclasses)', term.superclasses ?? []],
+        ['Ancestors', term.ancestors ?? []],
         ['Narrower (subclasses)', term.subclasses ?? []],
         ['Direct properties', term.as_domain_of ?? []],
         ['Inherited properties', term.inherited_properties ?? []],
