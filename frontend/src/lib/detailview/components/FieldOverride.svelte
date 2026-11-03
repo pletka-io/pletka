@@ -343,24 +343,38 @@
           </div>
         {/if}
         {#if field.resource_model_refs?.length}
-          <div class="flex items-center">
+          <div class="flex items-start">
             <span class="text-gray-400 w-24 flex-shrink-0">Model:</span>
             <div class="flex flex-wrap gap-1">
               {#each field.resource_model_refs as ref}
-                <a href={ref.url} class="text-blue-600 hover:text-blue-800 hover:underline">
-                  {tr(ref.name, lang, ref.semantic_id)}
+                <a
+                  href={ref.url}
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-800 hover:bg-purple-200"
+                >
+                  <span class="font-medium">{ref.semantic_id}</span>
+                  <span class="text-purple-600">{tr(ref.name, lang, '')}</span>
+                  {#if ref.origin?.kind === 'inherited'}
+                    <span class="text-[10px] uppercase tracking-wide text-amber-700">inherited</span>
+                  {/if}
                 </a>
               {/each}
             </div>
           </div>
         {/if}
         {#if field.collection_model_refs?.length}
-          <div class="flex items-center">
+          <div class="flex items-start">
             <span class="text-gray-400 w-24 flex-shrink-0">Collection:</span>
             <div class="flex flex-wrap gap-1">
               {#each field.collection_model_refs as ref}
-                <a href={ref.url} class="text-blue-600 hover:text-blue-800 hover:underline">
-                  {tr(ref.name, lang, ref.semantic_id)}
+                <a
+                  href={ref.url}
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-800 hover:bg-green-200"
+                >
+                  <span class="font-medium">{ref.semantic_id}</span>
+                  <span class="text-green-600">{tr(ref.name, lang, '')}</span>
+                  {#if ref.origin?.kind === 'inherited'}
+                    <span class="text-[10px] uppercase tracking-wide text-amber-700">inherited</span>
+                  {/if}
                 </a>
               {/each}
             </div>
