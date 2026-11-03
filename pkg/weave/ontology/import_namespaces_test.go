@@ -97,10 +97,10 @@ func TestStandardNamespaceBindingsIncludesRDFCore(t *testing.T) {
 	}
 }
 
-// TestBuildImportNamespaceManagerHonoursWeight proves the import manager keeps a
+// TestBuildImportNamespaceManagerHonorsWeight proves the import manager keeps a
 // binding's stored weight instead of flattening everything to one value, so a
 // higher-weight binding wins prefix resolution for a shared namespace (#3674).
-func TestBuildImportNamespaceManagerHonoursWeight(t *testing.T) {
+func TestBuildImportNamespaceManagerHonorsWeight(t *testing.T) {
 	const base = "https://schema.org/"
 	mgr := BuildImportNamespaceManager([]NamespaceBinding{
 		{Prefix: "x74cccdd8", Namespace: base, Weight: 80},

@@ -141,7 +141,7 @@ func BuildImportNamespaceManager(bindings []NamespaceBinding) nsutil.Manager {
 		if prefix == "" || namespace == "" {
 			continue
 		}
-		// Honour the binding's stored weight so source priority (system/
+		// Honor the binding's stored weight so source priority (system/
 		// standard > rdf-declared > version-derived, and explicit user
 		// overrides above all) survives into prefix resolution. Flattening
 		// every binding to one weight made competing bindings for the same
