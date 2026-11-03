@@ -379,7 +379,22 @@ func TestMutationKeepsArchivedLinksAndClearsOnlyOwnedDraftReferences(t *testing.
 	}
 	// Downgrade cannot recreate the hot FK by dropping legitimate retained links.
 	db := stdlib.OpenDBFromPool(f.pool)
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := database.Migrate(db); err != nil {
+			t.Error(err)
+		}
+		_ = db.Close()
+	})
+	// Later migrations downgrade cleanly; the guard belongs to migration 044.
+	latest, err := database.LatestMigrationVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for version := latest; version > 44; version-- {
+		if err := database.MigrateDown(db); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var pgErr *pgconn.PgError
 	if err := database.MigrateDown(db); !errors.As(err, &pgErr) || pgErr.Code != "23503" {
 		t.Fatalf("archived-link downgrade guard: %v", err)
