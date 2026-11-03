@@ -2046,6 +2046,8 @@ func convertField(f pkgdomain.ResolvedField, refs ViewRefs, projectID, activeVer
 		ExpectedValueType:   f.ExpectedValueType,
 		SetValue:            f.SetValue,
 		IsRequired:          f.IsRequired,
+		MinOccurs:           f.MinOccurs,
+		MaxOccurs:           f.MaxOccurs,
 		IsHidden:            f.IsHidden,
 		OntologyPath:        f.OntologyPath,
 		PathElements:        f.PathElements,

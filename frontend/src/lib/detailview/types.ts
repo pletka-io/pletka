@@ -294,11 +294,16 @@ export interface ViewField {
   expected_value_type?: string;
   set_value?: string;
   is_required: boolean;
+  /** Per-field placement cardinality. max_occurs null/absent = unbounded ("*"). */
+  min_occurs?: number;
+  max_occurs?: number | null;
   is_hidden: boolean;
   ontology_path?: string;
   path_elements?: PathElement[];
   resource_model_refs?: EntityRef[];
   collection_model_refs?: EntityRef[];
+  /** Concept list(s) / control list this field's value is drawn from drawn from. */
+  concept_list_refs?: EntityRef[];
   category_id?: string;
   collection_id?: string;
   /** Standalone detail URL of the source field (e.g. /projects/LA/fields/LAF.10).

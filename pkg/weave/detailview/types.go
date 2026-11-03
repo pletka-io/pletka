@@ -294,6 +294,11 @@ type ViewField struct {
 	ExpectedValueType   string                  `json:"expected_value_type,omitempty"`
 	SetValue            string                  `json:"set_value,omitempty"`
 	IsRequired          bool                    `json:"is_required"`
+	// MinOccurs / MaxOccurs are the per-field placement cardinality. MaxOccurs
+	// is nil for unbounded (rendered as "*"). Surfaced so the read view shows
+	// cardinality inline instead of only in the override edit drawer.
+	MinOccurs           int                     `json:"min_occurs"`
+	MaxOccurs           *int                    `json:"max_occurs,omitempty"`
 	IsHidden            bool                    `json:"is_hidden"`
 	OntologyPath        string                  `json:"ontology_path,omitempty"`
 	PathElements        []pkgdomain.PathElement `json:"path_elements,omitempty"`
