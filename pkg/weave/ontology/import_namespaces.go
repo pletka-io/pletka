@@ -141,7 +141,18 @@ func BuildImportNamespaceManager(bindings []NamespaceBinding) nsutil.Manager {
 		if prefix == "" || namespace == "" {
 			continue
 		}
-		_, _ = mgr.Put(prefix, namespace, 100)
+		// Honour the binding's stored weight so source priority (system/
+		// standard > rdf-declared > version-derived, and explicit user
+		// overrides above all) survives into prefix resolution. Flattening
+		// every binding to one weight made competing bindings for the same
+		// namespace resolve arbitrarily (see #3674: schema.org landed on a
+		// hash prefix on one instance and a readable one on another). A zero
+		// weight predates the weighted sources, so default it to 100.
+		weight := int(binding.Weight)
+		if weight == 0 {
+			weight = 100
+		}
+		_, _ = mgr.Put(prefix, namespace, weight)
 	}
 	return mgr
 }

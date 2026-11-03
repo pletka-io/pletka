@@ -160,15 +160,27 @@ func (s *store) Prefixes() map[string]string {
 	return result
 }
 
+// sortLocked orders each bucket by descending weight, breaking ties
+// deterministically so GetWithBase/GetWithPrefix never depend on insertion
+// order. A base bucket (same namespace, competing prefixes) breaks ties by
+// prefix ascending; a prefix bucket (same prefix, competing namespaces) by
+// URI ascending. SliceStable keeps the result reproducible across identical
+// inputs.
 func (s *store) sortLocked() {
 	for _, entries := range s.byPrefix {
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].Weight > entries[j].Weight
+		sort.SliceStable(entries, func(i, j int) bool {
+			if entries[i].Weight != entries[j].Weight {
+				return entries[i].Weight > entries[j].Weight
+			}
+			return entries[i].URI < entries[j].URI
 		})
 	}
 	for _, entries := range s.byBase {
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].Weight > entries[j].Weight
+		sort.SliceStable(entries, func(i, j int) bool {
+			if entries[i].Weight != entries[j].Weight {
+				return entries[i].Weight > entries[j].Weight
+			}
+			return entries[i].Prefix < entries[j].Prefix
 		})
 	}
 }
