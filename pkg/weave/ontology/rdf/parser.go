@@ -767,20 +767,31 @@ func (p *RDFParser) extractURIList(refs []Reference) []string {
 }
 
 func (p *RDFParser) determinePropertyType(prop *RDFProperty) string {
-	// Heuristics to determine property type
-	if len(prop.Range) > 0 {
-		for _, rangeRef := range prop.Range {
-			if strings.Contains(rangeRef.Resource, "Literal") ||
-				strings.Contains(rangeRef.Resource, "string") ||
-				strings.Contains(rangeRef.Resource, "int") ||
-				strings.Contains(rangeRef.Resource, "date") {
-				return "DatatypeProperty"
-			}
+	// Classify a plain rdf:Property (no explicit owl:*Property type) by its
+	// range: a property whose range is a literal datatype is a
+	// DatatypeProperty, otherwise it relates to a class (ObjectProperty).
+	//
+	// "Literal datatype" = any term in the XSD namespace (xsd:string,
+	// xsd:anyURI, xsd:decimal, xsd:boolean, …) or rdfs:Literal. The earlier
+	// heuristic matched only the substrings "Literal"/"string"/"int"/"date",
+	// which silently misclassified every other xsd type (anyURI, decimal,
+	// boolean, float, gYear, …) as an ObjectProperty — so the path builder
+	// offered no literal terminal for them.
+	for _, rangeRef := range prop.Range {
+		if isLiteralRange(rangeRef.Resource) {
+			return "DatatypeProperty"
 		}
 	}
 
-	// Default to object property for ontologies like CIDOC-CRM
+	// Default to object property for ontologies like CIDOC-CRM.
 	return "ObjectProperty"
+}
+
+// isLiteralRange reports whether a range URI denotes a literal value type:
+// any XSD datatype or rdfs:Literal.
+func isLiteralRange(resource string) bool {
+	return strings.Contains(resource, "XMLSchema#") ||
+		strings.Contains(resource, "Literal")
 }
 
 // resolveURI resolves a relative URI against a base URI
