@@ -34,7 +34,7 @@ func (e *IndexedEngine) GetSuggestions(ctx context.Context, req Request) ([]Sugg
 	if last == "" {
 		return nil, nil
 	}
-	n := idx.ByQname[last]
+	n := idx.lookupNode(last)
 	if n == nil || n.Ghost {
 		return nil, nil
 	}
@@ -78,7 +78,7 @@ func (e *IndexedEngine) suggestPropertiesForClass(idx *Index, class *Node, req R
 	lineage := append([]*Node{class},
 		closure(class, func(n *Node) []*Node { return n.Superclasses }, ClosureOpts{})...)
 	for _, extra := range atScope(req) {
-		if en := idx.ByQname[extra]; en != nil && !en.Ghost {
+		if en := idx.lookupNode(extra); en != nil && !en.Ghost {
 			lineage = append(lineage, en)
 			lineage = append(lineage,
 				closure(en, func(n *Node) []*Node { return n.Superclasses }, ClosureOpts{})...)

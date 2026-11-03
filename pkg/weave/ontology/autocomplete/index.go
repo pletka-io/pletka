@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pletka-io/pletka/pkg/domain"
+	nsutil "github.com/pletka-io/pletka/pkg/namespace"
 )
 
 // OntologyMeta is the ontology prefix + version label carried on each Node
@@ -76,6 +77,53 @@ type Index struct {
 	// Imported external properties with no domain (dc:, foaf:, obo:…) are
 	// excluded so scaffolding does not flood every class.
 	DomainlessProps []*Node
+
+	// ByURI indexes the same non-ghost nodes by their full URI so a scope or
+	// path qname can resolve to its node even when its request prefix differs
+	// from the stored one (readable obo: vs the import-assigned x<hash>:).
+	ByURI map[string]*Node
+	// namespaces expands a request qname to a URI using the project's runtime
+	// bindings, feeding the ByURI fallback in lookupNode.
+	namespaces nsutil.Manager
+}
+
+// lookupNode resolves a scope or path qname to its graph node. On a direct
+// ByQname miss it expands the qname to a URI via the project's namespace
+// bindings and retries by URI, so a readable prefix (e.g. obo:BFO_0000001)
+// still resolves to a node the import stored under a different prefix for the
+// same URI (e.g. x59a354be:BFO_0000001). Returns nil when neither resolves.
+func (idx *Index) lookupNode(qname string) *Node {
+	if n := idx.ByQname[qname]; n != nil {
+		return n
+	}
+	if idx.namespaces == nil || idx.ByURI == nil {
+		return nil
+	}
+	uri, err := idx.namespaces.Expand(qname)
+	if err != nil || uri == "" || uri == qname {
+		return nil
+	}
+	return idx.ByURI[uri]
+}
+
+// canonicalTargetQname maps a relation-target qname to the qname of the node
+// that already owns the same URI, when the target uses a different prefix for
+// that URI (e.g. a hash prefix for a class another ontology defines under a
+// readable prefix). Returns "" when the manager is unavailable, the qname does
+// not expand, or no other node owns the URI — leaving the caller on its
+// existing handling.
+func canonicalTargetQname(mgr nsutil.Manager, qnameByURI map[string]string, qname string) string {
+	if mgr == nil || qname == "" || isFullURI(qname) {
+		return ""
+	}
+	uri, err := mgr.Expand(qname)
+	if err != nil || uri == "" {
+		return ""
+	}
+	if canonical := qnameByURI[uri]; canonical != "" && canonical != qname {
+		return canonical
+	}
+	return ""
 }
 
 // indexStore is the narrow read surface buildIndex needs.
@@ -146,10 +194,23 @@ func buildIndex(ctx context.Context, store indexStore, namespaceBindings Namespa
 		}
 	}
 	qnameByURI := map[string]string{}
+	idx.ByURI = map[string]*Node{}
 	for qname, node := range idx.ByQname {
 		if node != nil && node.URI != "" {
 			qnameByURI[node.URI] = qname
+			idx.ByURI[node.URI] = node
 		}
+	}
+	// Namespace manager that expands a qname to a URI. Used both for the
+	// lookupNode request-side fallback (idx.namespaces) and, below, to
+	// canonicalise relation targets so a class referenced under a non-canonical
+	// prefix (e.g. a hash prefix) merges into the node that defines the same
+	// URI instead of stranding its edges on a ghost.
+	nsMgr, err := newNamespaceManager(ctx, namespaceBindings)
+	if err != nil {
+		log.Warn("autocomplete index: namespace manager unavailable; qname URI resolution disabled", "err", err)
+	} else {
+		idx.namespaces = nsMgr
 	}
 
 	// Pass 2: wire edges (subclass_of, domain, range).
@@ -164,7 +225,7 @@ func buildIndex(ctx context.Context, store indexStore, namespaceBindings Namespa
 	seenSub := map[edgePair]struct{}{}
 	seenDom := map[edgePair]struct{}{}
 	seenRng := map[edgePair]struct{}{}
-	qnames := &qnameResolver{namespaceBindings: namespaceBindings}
+	qnames := &qnameResolver{namespaceBindings: namespaceBindings, manager: nsMgr}
 
 	for _, r := range rels {
 		src := idx.ByQname[r.SourceQname]
@@ -174,7 +235,14 @@ func buildIndex(ctx context.Context, store indexStore, namespaceBindings Namespa
 		}
 		targetQname := r.TargetQname
 		if mapped := qnameByURI[targetQname]; mapped != "" {
+			// Target was a full URI: use the canonical qname for it.
 			targetQname = mapped
+		} else if canonical := canonicalTargetQname(nsMgr, qnameByURI, targetQname); canonical != "" {
+			// Target was a qname under a non-canonical prefix for a URI a real
+			// node already owns (e.g. a hash-prefixed BFO class that another
+			// ontology defines under obo:). Merge into that node so its
+			// domain/subclass edges are not stranded on a ghost.
+			targetQname = canonical
 		} else if r.RelType == "range" && src.Type == "property" && src.PropertyType == "DatatypeProperty" {
 			var err error
 			targetQname, err = normalizeRelationQname(ctx, qnames, targetQname)
