@@ -265,6 +265,11 @@ const (
 // hand-builds this URL.
 const OntologyDescribeURLTemplate = "/api/projects/{project_id}/ontology/describe?qname={qname}"
 
+// FieldNameOntologyScope is the field Name for the scope-class ontology-path
+// widget, shared across the field/model/collection forms and the probe so the
+// literal is declared once.
+const FieldNameOntologyScope = "ontology_scope"
+
 // Marker calls make schema-emitted frontend widgets discoverable by manifest
 // conformance tests without changing the public constant API.
 var _ = []string{

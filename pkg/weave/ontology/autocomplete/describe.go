@@ -6,6 +6,11 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
+// nodeTypeClass is the Node.Type value for class nodes (as opposed to
+// "property"). Named here so the describe projection does not repeat the
+// literal.
+const nodeTypeClass = "class"
+
 // TermDescription is the flat, serialization-safe projection of a Node.
 // It carries only strings/slices/Translations (no *Node) so it can cross a
 // package boundary — or a jsonschema inference pass — without exposing the
@@ -73,7 +78,7 @@ func DescribeNode(n *Node) *TermDescription {
 // declared directly on the class and any ghost. Returns nil for a property
 // node. Mirrors how IndexedEngine.suggestPropertiesForClass unions the lineage.
 func inheritedProperties(n *Node) []*Node {
-	if n.Type != "class" {
+	if n.Type != nodeTypeClass {
 		return nil
 	}
 	direct := map[*Node]struct{}{}

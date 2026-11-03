@@ -34,7 +34,7 @@ func BuildOntologyProbeSchema(lang string, languages []LanguageInfo) *FormSchema
 				Label: i18n.L("ontology_probe.section_path_probe", "Ontology Path Probe"),
 				Fields: []FieldDef{
 					{
-						Name:        "ontology_scope",
+						Name:        FieldNameOntologyScope,
 						Widget:      WidgetOntologyPath,
 						Required:    false,
 						Label:       i18n.L("common.scope_class", "Scope Class"),

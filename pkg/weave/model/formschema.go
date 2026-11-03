@@ -101,7 +101,7 @@ func buildIdentityFields(mode string, existing *domain.Model) []formschema.Field
 	}
 
 	scope := formschema.FieldDef{
-		Name:        "ontology_scope",
+		Name:        formschema.FieldNameOntologyScope,
 		Widget:      formschema.WidgetOntologyPath,
 		Required:    true,
 		Readonly:    mode == formschema.ModeView,

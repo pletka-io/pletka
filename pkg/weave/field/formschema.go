@@ -133,7 +133,7 @@ func buildOntologyFields(mode string, existing *formschema.ComposedFieldInput) [
 	isEdit := mode == formschema.ModeEdit || mode == formschema.ModeView
 
 	scope := formschema.FieldDef{
-		Name:        "ontology_scope",
+		Name:        formschema.FieldNameOntologyScope,
 		Widget:      formschema.WidgetOntologyPath,
 		Required:    true,
 		Readonly:    mode == formschema.ModeView,
