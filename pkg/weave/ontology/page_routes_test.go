@@ -161,6 +161,38 @@ func TestAdminOntologyPageSchemaRoutes(t *testing.T) {
 	}
 }
 
+func TestDownloadVersionStreamsSourceAndHidesForAuthored(t *testing.T) {
+	store := newRouteTestStore()
+	store.versions = append(store.versions, &domain.OntologyVersion{
+		ID: "ver-src", OntologyID: "ont-crm", VersionString: "9.9.9",
+		OriginalFilename: "crm.rdf",
+		RDFContent:       "<rdf:RDF>hello</rdf:RDF>",
+	})
+	router := chi.NewRouter()
+	handler := NewHandler(NewService(store, nil, nil), nil, nil, nil)
+	router.Route("/admin/ontologies", handler.Mount)
+
+	// Imported version: streams the stored source as a file attachment.
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/ontologies/versions/ver-src/download", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("download code=%d want 200", rec.Code)
+	}
+	if cd := rec.Header().Get("Content-Disposition"); cd != `attachment; filename="crm.rdf"` {
+		t.Errorf("Content-Disposition=%q", cd)
+	}
+	if rec.Body.String() != "<rdf:RDF>hello</rdf:RDF>" {
+		t.Errorf("body=%q", rec.Body.String())
+	}
+
+	// Pletka-authored version (no imported source) has nothing to download.
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/admin/ontologies/versions/ver-active/download", nil))
+	if rec2.Code != http.StatusNotFound {
+		t.Fatalf("authored download code=%d want 404", rec2.Code)
+	}
+}
+
 func TestAdminUpdateVersionParsesEditableListsAndPreservesOmittedMetadata(t *testing.T) {
 	store := newRouteTestStore()
 	for _, version := range store.versions {

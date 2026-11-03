@@ -34,6 +34,7 @@ import (
 //	DELETE /versions/{versionID}                            DeleteVersion          (super_admin)
 //	GET    /versions/{versionID}/classes     (?q=, ?limit=) ListClasses
 //	GET    /versions/{versionID}/properties  (?q=, ?limit=) ListProperties
+//	GET    /versions/{versionID}/download                   DownloadVersion
 //	GET    /{ontologyID}                                    GetOntology
 //	PUT    /{ontologyID}                                    UpdateOntology         (super_admin)
 //	DELETE /{ontologyID}                                    DeleteOntology         (super_admin)
@@ -93,6 +94,7 @@ func (h *Handler) Mount(r chi.Router) {
 			r.Delete("/", h.DeleteVersion)
 			r.Get("/classes", h.ListClasses)
 			r.Get("/properties", h.ListProperties)
+			r.Get("/download", h.DownloadVersion)
 		})
 	})
 

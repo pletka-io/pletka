@@ -255,6 +255,37 @@ func (h *Handler) GetVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, v)
 }
 
+// DownloadVersion streams a version's original imported RDF source as a file
+// download. Versions authored in Pletka have no imported source, so their
+// RDFContent is empty and this returns 404.
+func (h *Handler) DownloadVersion(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "versionID")
+	if id == "" {
+		errresp.Error(w, r, http.StatusBadRequest, "bad_request", "version id required")
+		return
+	}
+	v, err := h.svc.GetVersion(r.Context(), id)
+	if err != nil {
+		h.writeServiceError(w, r, err, "version")
+		return
+	}
+	if v.RDFContent == "" {
+		errresp.Error(w, r, http.StatusNotFound, "not_found", "version has no downloadable source")
+		return
+	}
+	filename := v.OriginalFilename
+	if filename == "" {
+		filename = "ontology-" + v.VersionString + ".rdf"
+	}
+	contentType := "application/rdf+xml; charset=utf-8"
+	if strings.HasSuffix(strings.ToLower(filename), ".ttl") {
+		contentType = "text/turtle; charset=utf-8"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	_, _ = io.WriteString(w, v.RDFContent)
+}
+
 // ---------------------------------------------------------------------------
 // Class / property read endpoints (version-scoped)
 // ---------------------------------------------------------------------------
