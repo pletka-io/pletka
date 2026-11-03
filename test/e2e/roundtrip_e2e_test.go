@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -20,6 +21,8 @@ import (
 
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/app"
+	"github.com/pletka-io/pletka/pkg/database/ontologybody"
+	"github.com/pletka-io/pletka/pkg/database/ontologyrelease"
 )
 
 // TestRoundtripReadAndExport drives one black-box flow over real HTTP against
@@ -101,6 +104,10 @@ func TestRoundtripReadAndExport(t *testing.T) {
 	// resolves fields by primary key (ULID), which the HTTP surface never
 	// exposes for a fixture semantic id, so this one read is out-of-band.
 	fieldULID := fieldULIDBySemanticID(t, pool, "LA", "LAF.230")
+
+	// Exports read verified draft evidence, which needs every ontology version
+	// the project links to be published. The fixture clone links them unpublished.
+	publishLinkedOntologies(t, pool, "LA")
 
 	// --- Stage 1 (READ): list the project's fields over HTTP. Real path is
 	// HTTP -> field slice handler -> field service -> Postgres clone.
@@ -206,5 +213,87 @@ func repoRoot(t *testing.T) string {
 			t.Fatal("could not find repo root (go.mod)")
 		}
 		wd = parent
+	}
+}
+
+// publishLinkedOntologies publishes each ontology version linked to projectID
+// from its current stored body, as `pletka ontology publish` would, publishing
+// a dependency first whenever the publisher names one it needs pinned.
+func publishLinkedOntologies(t *testing.T, pool *pgxpool.Pool, projectID string) {
+	t.Helper()
+	ctx := context.Background()
+	rows, err := pool.Query(ctx, `SELECT v.ontology_id, v.id FROM weave_ontology_versions v
+		JOIN weave_project_ontology_versions p ON p.ontology_version_id = v.id
+		WHERE p.project_id = $1 ORDER BY v.id`, projectID)
+	if err != nil {
+		t.Fatalf("list linked ontology versions: %v", err)
+	}
+	defer rows.Close()
+	var refs []ontologybody.Reference
+	for rows.Next() {
+		var ontologyID, versionID string
+		if err := rows.Scan(&ontologyID, &versionID); err != nil {
+			t.Fatalf("scan linked ontology version: %v", err)
+		}
+		ref, err := ontologybody.NewReference(ontologybody.OntologyID(ontologyID), ontologybody.VersionID(versionID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		refs = append(refs, ref)
+	}
+	rows.Close()
+	published := 0
+	for _, ref := range refs {
+		published += publishWithDependencies(t, pool, ref, map[ontologybody.Reference]bool{})
+	}
+	t.Logf("stage publish: %d ontology versions published for %d linked", published, len(refs))
+}
+
+var (
+	unpublishedDependency = regexp.MustCompile(`ontology (\S+) version (\S+) must be published before`)
+	absentReference       = regexp.MustCompile(`reference (\S+) is absent from the publication closure`)
+	unresolvedImport      = regexp.MustCompile(`import (\S+) is unresolved or ambiguous`)
+)
+
+func publishWithDependencies(t *testing.T, pool *pgxpool.Pool, ref ontologybody.Reference, visiting map[ontologybody.Reference]bool) int {
+	t.Helper()
+	if visiting[ref] {
+		t.Fatalf("ontology publication cycle at %s", ref.VersionID())
+	}
+	visiting[ref] = true
+	defer delete(visiting, ref)
+	published := 0
+	var opts ontologyrelease.Options
+	for {
+		_, err := ontologyrelease.PublishCurrent(context.Background(), pool, ref, opts)
+		if err == nil {
+			return published + 1
+		}
+		if strings.Contains(err.Error(), "already published") {
+			return published
+		}
+		// A term the body cites from a vocabulary nothing in the closure
+		// defines is external, exactly as `--external-reference` declares it.
+		if m := absentReference.FindStringSubmatch(err.Error()); m != nil {
+			t.Logf("publish %s: external reference %s", ref.VersionID(), m[1])
+			opts.ExternalReferences = append(opts.ExternalReferences, m[1])
+			continue
+		}
+		// An owl:imports IRI no stored ontology answers to is external too,
+		// as `--external-import` declares it.
+		if m := unresolvedImport.FindStringSubmatch(err.Error()); m != nil {
+			t.Logf("publish %s: external import %s", ref.VersionID(), m[1])
+			opts.ExternalImports = append(opts.ExternalImports, m[1])
+			continue
+		}
+		m := unpublishedDependency.FindStringSubmatch(err.Error())
+		if m == nil {
+			t.Fatalf("publish ontology version %s: %v", ref.VersionID(), err)
+		}
+		dep, err := ontologybody.NewReference(ontologybody.OntologyID(m[1]), ontologybody.VersionID(m[2]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		published += publishWithDependencies(t, pool, dep, visiting)
 	}
 }
