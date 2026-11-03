@@ -207,6 +207,7 @@ func buildProjectHost(
 	languages []formschema.LanguageInfo,
 	langResolver project.LangResolver,
 	vocabServiceURL string,
+	latest auth.LatestReleaseReader,
 ) project.Host {
 	return project.Host{
 		Service:             project.NewService(project.NewPostgresStore(pool), weave.Projects(), weave.Memberships(), vocabulary.NewService(pool, registry.New(http.DefaultClient, vocabServiceURL)), logger),
@@ -217,6 +218,7 @@ func buildProjectHost(
 		LangResolver:        langResolver,
 		ConceptValueChecker: vocabulary.NewService(pool, nil), // set_value must be a control-list member (#3599)
 		OrgResolver:         organization.NewService(organization.NewPostgresStore(pool), pool, logger),
+		LatestRelease:       latest,
 	}
 }
 

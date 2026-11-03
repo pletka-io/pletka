@@ -252,7 +252,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	// the publication rollup — see auth.ResolveContentVersion.
 	publicationReader := publication.NewReader(opts.Pool)
 	organizationHost, orgMembersHost := buildOrganizationHosts(opts.Pool, logger, languages, langResolver)
-	projectHost := buildProjectHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver, opts.VocabularyServiceURL)
+	projectHost := buildProjectHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver, opts.VocabularyServiceURL, publicationReader)
 	workspaceHost := buildWorkspaceHost(logger, templateRenderer, i18nManager, sessionManager, languages, langResolver, organizationHost, projectHost, orgMembersHost)
 	authPagesHost := buildAuthPagesHost(logger, templateRenderer, i18nManager, sessionManager, langResolver, opts.RegistrationEnabled, opts.SSOLoginURL)
 	browserSource := buildBrowserSource(opts)
