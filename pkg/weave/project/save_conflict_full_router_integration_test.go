@@ -13,6 +13,8 @@ import (
 	"github.com/pletka-io/pletka/internal/testdb"
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/database/readsession"
+	"github.com/pletka-io/pletka/pkg/service/browserread"
+	"github.com/pletka-io/pletka/pkg/service/projectread"
 	"github.com/pletka-io/pletka/pkg/weave"
 	"github.com/pletka-io/pletka/pkg/weave/collection"
 	"github.com/pletka-io/pletka/pkg/weave/model"
@@ -116,11 +118,17 @@ func newFullSaveConflictRouter(pool *pgxpool.Pool) http.Handler {
 		router.Mount(pattern, sub)
 	}
 
+	// Both hosts require an inventory source; the list routes are not
+	// exercised here, so the production default wiring is enough.
+	inventory, err := browserread.New(readsession.NewFactory(pool).WithSourceAuthorization(weaveauth.CheckProjectRead), projectread.DefaultOptions())
+	if err != nil {
+		panic(err)
+	}
 	mountAt("/projects/{projectID}/models", func(r chi.Router) {
-		model.Mount(r, model.Host{Service: modelSvc, Projects: projects})
+		model.Mount(r, model.Host{Inventory: inventory, Service: modelSvc, Projects: projects})
 	})
 	mountAt("/projects/{projectID}/collections", func(r chi.Router) {
-		collection.Mount(r, collection.Host{Service: collectionSvc, Projects: projects})
+		collection.Mount(r, collection.Host{Inventory: inventory, Service: collectionSvc, Projects: projects})
 	})
 
 	// project.Mount runs last, exactly as it does in router.go — its
