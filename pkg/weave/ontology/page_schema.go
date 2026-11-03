@@ -426,6 +426,14 @@ func BuildVersionDetailPageSchema(model *VersionDetailPageModel, lang string, la
 				Style: "secondary",
 			},
 		)
+		if version.OriginalFilename != "" {
+			actions = append(actions, formschema.OntologyPageAction{
+				ID:    "download",
+				Label: lt(lang, "Download source"),
+				Href:  "/admin/ontologies/versions/" + version.ID + "/download",
+				Style: "secondary",
+			})
+		}
 		if versionCanDelete(version) {
 			actions = append(actions, deleteVersionAction(version, lang))
 		}
