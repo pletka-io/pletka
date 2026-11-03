@@ -569,20 +569,33 @@ func (r *qnameResolver) namespaceManager(ctx context.Context) (nsutil.Manager, e
 	if r.manager != nil {
 		return r.manager, nil
 	}
-	mgr := nsutil.NewDefaultManager()
-	if r.namespaceBindings != nil {
-		bindings, err := r.namespaceBindings(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("autocomplete: load namespace bindings: %w", err)
-		}
-		for i, binding := range bindings {
-			if binding.Prefix == "" || binding.Namespace == "" {
-				continue
-			}
-			_, _ = mgr.Put(binding.Prefix, binding.Namespace, len(bindings)-i)
-		}
+	mgr, err := newNamespaceManager(ctx, r.namespaceBindings)
+	if err != nil {
+		return nil, err
 	}
 	r.manager = mgr
+	return mgr, nil
+}
+
+// newNamespaceManager builds a namespace Manager seeded with the standard
+// defaults plus the project's runtime bindings (earlier bindings win, matching
+// the resolver's most-specific-first ordering). Shared by the qname resolver
+// and the index builder's ByURI fallback.
+func newNamespaceManager(ctx context.Context, bindingsFn NamespaceBindingsFunc) (nsutil.Manager, error) {
+	mgr := nsutil.NewDefaultManager()
+	if bindingsFn == nil {
+		return mgr, nil
+	}
+	bindings, err := bindingsFn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("autocomplete: load namespace bindings: %w", err)
+	}
+	for i, binding := range bindings {
+		if binding.Prefix == "" || binding.Namespace == "" {
+			continue
+		}
+		_, _ = mgr.Put(binding.Prefix, binding.Namespace, len(bindings)-i)
+	}
 	return mgr, nil
 }
 
