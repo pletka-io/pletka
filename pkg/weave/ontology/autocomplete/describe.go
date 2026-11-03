@@ -16,19 +16,23 @@ const nodeTypeClass = "class"
 // package boundary — or a jsonschema inference pass — without exposing the
 // pointer graph.
 type TermDescription struct {
-	Qname           string              `json:"qname"`
-	URI             string              `json:"uri"`
-	Type            string              `json:"type"` // "class" | "property"
-	Label           domain.Translations `json:"label,omitempty"`
-	Comment         domain.Translations `json:"comment,omitempty"` // the scope note
-	PropertyType    string              `json:"property_type,omitempty"`
-	Superclasses    []string            `json:"superclasses,omitempty"`
-	Subclasses      []string            `json:"subclasses,omitempty"`
-	AsDomainOf      []string            `json:"as_domain_of,omitempty"` // properties declared directly on this class
-	AsRangeOf       []string            `json:"as_range_of,omitempty"`
-	Domains         []string            `json:"domains,omitempty"`
-	Ranges          []string            `json:"ranges,omitempty"`
-	SuperProperties []string            `json:"super_properties,omitempty"`
+	Qname        string              `json:"qname"`
+	URI          string              `json:"uri"`
+	Type         string              `json:"type"` // "class" | "property"
+	Label        domain.Translations `json:"label,omitempty"`
+	Comment      domain.Translations `json:"comment,omitempty"` // the scope note
+	PropertyType string              `json:"property_type,omitempty"`
+	Superclasses []string            `json:"superclasses,omitempty"` // direct parents only
+	// Ancestors are the transitive superclasses beyond the direct parents, up
+	// to the hierarchy root (e.g. crm:E1_CRM_Entity), excluding Superclasses
+	// and any ghost. Empty for property terms.
+	Ancestors       []string `json:"ancestors,omitempty"`
+	Subclasses      []string `json:"subclasses,omitempty"`   // direct children only
+	AsDomainOf      []string `json:"as_domain_of,omitempty"` // properties declared directly on this class
+	AsRangeOf       []string `json:"as_range_of,omitempty"`
+	Domains         []string `json:"domains,omitempty"`
+	Ranges          []string `json:"ranges,omitempty"`
+	SuperProperties []string `json:"super_properties,omitempty"`
 	// InheritedProperties are properties a class gains from its superclass
 	// lineage (ancestors' AsDomainOf), excluding those already in AsDomainOf.
 	// Empty for property terms.
@@ -51,6 +55,7 @@ func DescribeNode(n *Node) *TermDescription {
 		return nil
 	}
 	inherited := inheritedProperties(n)
+	ancestors := ancestorClasses(n)
 	td := &TermDescription{
 		Qname:               n.Qname,
 		URI:                 n.URI,
@@ -59,6 +64,7 @@ func DescribeNode(n *Node) *TermDescription {
 		Comment:             n.Comment,
 		PropertyType:        n.PropertyType,
 		Superclasses:        edgeQnames(n.Superclasses),
+		Ancestors:           edgeQnames(ancestors),
 		Subclasses:          edgeQnames(n.Subclasses),
 		AsDomainOf:          edgeQnames(n.AsDomainOf),
 		AsRangeOf:           edgeQnames(n.AsRangeOf),
@@ -69,8 +75,33 @@ func DescribeNode(n *Node) *TermDescription {
 		Ontology:            n.Meta.Prefix,
 		Version:             n.Meta.VersionString,
 	}
-	td.Labels = collectLabels(n, inherited)
+	td.Labels = collectLabels(n, inherited, ancestors)
 	return td
+}
+
+// ancestorClasses returns the transitive superclasses of a class beyond its
+// direct parents (n.Superclasses), up to the hierarchy root, excluding ghosts.
+// Returns nil for a property node. Lets the term detail show the full lineage
+// (e.g. up to crm:E1_CRM_Entity) separately from the immediate parents.
+func ancestorClasses(n *Node) []*Node {
+	if n.Type != nodeTypeClass {
+		return nil
+	}
+	direct := map[*Node]struct{}{}
+	for _, c := range n.Superclasses {
+		direct[c] = struct{}{}
+	}
+	out := make([]*Node, 0)
+	for _, anc := range closure(n, func(x *Node) []*Node { return x.Superclasses }, ClosureOpts{}) {
+		if anc.Ghost {
+			continue
+		}
+		if _, isDirect := direct[anc]; isDirect {
+			continue
+		}
+		out = append(out, anc)
+	}
+	return out
 }
 
 // inheritedProperties returns the property nodes a class gains from its
@@ -108,7 +139,7 @@ func inheritedProperties(n *Node) []*Node {
 // collectLabels gathers the label of the node and every node it references
 // through its edge slices (plus the supplied inherited set), keyed by qname.
 // Only non-empty labels are included.
-func collectLabels(n *Node, inherited []*Node) map[string]domain.Translations {
+func collectLabels(n *Node, inherited, ancestors []*Node) map[string]domain.Translations {
 	labels := map[string]domain.Translations{}
 	add := func(m *Node) {
 		if m == nil || m.Ghost || m.Qname == "" || len(m.Label) == 0 {
@@ -119,7 +150,7 @@ func collectLabels(n *Node, inherited []*Node) map[string]domain.Translations {
 	add(n)
 	for _, group := range [][]*Node{
 		n.Superclasses, n.Subclasses, n.AsDomainOf, n.AsRangeOf,
-		n.Domains, n.Ranges, n.SuperProps, inherited,
+		n.Domains, n.Ranges, n.SuperProps, inherited, ancestors,
 	} {
 		for _, m := range group {
 			add(m)

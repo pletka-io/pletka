@@ -46,6 +46,30 @@ func TestDescribeNode_InheritedPropertiesAndLabels(t *testing.T) {
 	}
 }
 
+// TestDescribeNode_Ancestors checks that Superclasses carries only the direct
+// parents while Ancestors carries the transitive superclasses up to the root
+// (the crm:E1-style case the detail modal shows separately).
+func TestDescribeNode_Ancestors(t *testing.T) {
+	root := &Node{Qname: "crm:E1_CRM_Entity", Type: "class", Label: domain.Translations{"en": "CRM Entity"}}
+	mid := &Node{Qname: "crm:E20_Biological_Object", Type: "class", Label: domain.Translations{"en": "Biological Object"}}
+	leaf := &Node{Qname: "crm:E21_Person", Type: "class", Label: domain.Translations{"en": "Person"}}
+	// leaf -> mid -> root
+	leaf.Superclasses = []*Node{mid}
+	mid.Superclasses = []*Node{root}
+
+	td := DescribeNode(leaf)
+	if got := td.Superclasses; len(got) != 1 || got[0] != "crm:E20_Biological_Object" {
+		t.Fatalf("Superclasses (direct) = %v; want [crm:E20_Biological_Object]", got)
+	}
+	if got := td.Ancestors; len(got) != 1 || got[0] != "crm:E1_CRM_Entity" {
+		t.Fatalf("Ancestors = %v; want [crm:E1_CRM_Entity]", got)
+	}
+	// The root ancestor's label is resolvable for the modal.
+	if td.Labels["crm:E1_CRM_Entity"]["en"] != "CRM Entity" {
+		t.Errorf("ancestor label = %q; want CRM Entity", td.Labels["crm:E1_CRM_Entity"]["en"])
+	}
+}
+
 func keysOf(m map[string]domain.Translations) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

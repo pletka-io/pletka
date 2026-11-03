@@ -91,7 +91,8 @@ export interface TermDescription {
   label?: { [key: string]: string };
   comment?: { [key: string]: string }; // scope note
   property_type?: string;
-  superclasses?: string[]; // broader
+  superclasses?: string[]; // broader (direct parents)
+  ancestors?: string[]; // transitive superclasses beyond the direct parents
   subclasses?: string[]; // narrower
   as_domain_of?: string[]; // direct properties (class is domain)
   as_range_of?: string[];
