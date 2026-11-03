@@ -2,7 +2,10 @@
 
 package gitmaterializer
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // BuildReleaseTree exposes buildReleaseTree to the external integration test
 // package so the determinism assertion can build a release snapshot tree twice
@@ -11,9 +14,22 @@ func (m *Materializer) BuildReleaseTree(ctx context.Context, dstDir, projectID, 
 	return m.buildReleaseTree(ctx, dstDir, projectID, version)
 }
 
-// BuildLegacyReleaseTree exercises the stored schema1/2 verification adapter.
+// BuildLegacyReleaseTree preserves the historical schema1/2 tree and catalog
+// recipe for compatibility fixtures, for integration tests only. Production release writes use complete
+// values; verification calls only the snapshot adapter with a frozen catalog.
 func (m *Materializer) BuildLegacyReleaseTree(ctx context.Context, dstDir, projectID, version string) error {
-	return m.buildLegacyReleaseTree(ctx, dstDir, projectID, version)
+	if err := m.writeLegacyReleaseSnapshot(ctx, dstDir, projectID, version); err != nil {
+		return err
+	}
+	idx, err := m.loadReleasesIndex(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("load releases index %s: %w", projectID, err)
+	}
+	data, err := encodeReleasesIndex(idx)
+	if err != nil {
+		return fmt.Errorf("encode releases index %s: %w", projectID, err)
+	}
+	return writeEntityFile(dstDir, releasesIndexPath, data)
 }
 
 // PrepareCapturedDraftForTest stops at the durable prepare boundary to simulate

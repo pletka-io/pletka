@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+
 	readsql "github.com/pletka-io/pletka/pkg/database/readsql/ontologysnapshot"
 )
 

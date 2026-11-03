@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ const (
 	catalogExample     = "example"
 	catalogVocabulary  = "vocabulary"
 	sortUpdatedAt      = "updated_at"
+	sortUIName         = "ui_name"
 )
 
 // Source must finish its scoped reads before returning display values.
@@ -50,60 +52,11 @@ func (h Handler) load(r *http.Request, kind string, facets bool) (browserinput.I
 	if h.Source == nil || !scope.Valid() {
 		return browserinput.Inventory{}, fmt.Errorf("inventory requires a source and explicit scope")
 	}
-	q := browserinput.InventoryQuery{Page: 1, PerPage: 50, SortBy: "ui_name"}
-	if !facets {
-		query := r.URL.Query()
-		for _, item := range []struct {
-			name  string
-			value *int
-		}{{"page", &q.Page}, {"per_page", &q.PerPage}} {
-			if raw := query.Get(item.name); raw != "" {
-				v, err := strconv.Atoi(raw)
-				if err != nil || v < 1 {
-					return browserinput.Inventory{}, apierror.BadRequest("invalid pagination")
-				}
-				*item.value = v
-			}
-		}
-		q.PerPage = min(q.PerPage, 1000)
-		if q.Page > 20000/q.PerPage {
-			return browserinput.Inventory{}, apierror.BadRequest("requested page exceeds inventory merge window")
-		}
-		q.Search = query.Get("search")
-		q.Origin = query.Get("origin_kind")
-		q.Scope = query.Get("scope_class")
-		if kind == "field" {
-			q.Scope = query.Get("ontology_scope")
-		}
-		q.Category = query.Get("category_id")
-		q.ModelType = query.Get("model_type")
-		q.Status = normalizeCatalogCSV(query.Get("status"))
-		q.VocabularyID = normalizeCatalogCSV(query.Get("vocabulary_id"))
-		q.EntityType = query.Get("entity_type")
-		q.EntityID = query.Get("entity_id")
-		q.Search = strings.TrimSpace(q.Search)
-		q.Descending = query.Get("sort_dir") == "desc"
-		if sort := query.Get("sort_by"); sort != "" {
-			q.SortBy = sort
-		}
-		sorts := []string{"ui_name", "name", "scope"}
-		if kind == catalogConceptList {
-			sorts = []string{"ui_name", "semantic_id", "system_name", catalogVocabulary, "entries", "bound_fields", "status"}
-		}
-		if kind == catalogExample {
-			sorts = []string{"ui_name", sortUpdatedAt, "created_at", "status"}
-			if query.Get("sort_by") == "" {
-				q.SortBy = sortUpdatedAt
-			}
-			if query.Get("sort_dir") == "" && (q.SortBy == sortUpdatedAt || q.SortBy == "created_at") {
-				q.Descending = true
-			}
-		}
-		if !slices.Contains(sorts, q.SortBy) {
-			return browserinput.Inventory{}, apierror.BadRequest("unsupported inventory sort")
-		}
-	} else {
+	q := browserinput.InventoryQuery{Page: 1, PerPage: 50, SortBy: sortUIName}
+	if facets {
 		q.PerPage = 1
+	} else if err := parseInventoryQuery(r.URL.Query(), kind, &q); err != nil {
+		return browserinput.Inventory{}, err
 	}
 	value, err := h.Source.Inventory(r.Context(), scope, project, kind, q)
 	if err != nil {
@@ -113,6 +66,60 @@ func (h Handler) load(r *http.Request, kind string, facets bool) (browserinput.I
 		return browserinput.Inventory{}, fmt.Errorf("inventory returned a different selection")
 	}
 	return value, nil
+}
+
+// parseInventoryQuery reads pagination, filters and sort from the request.
+func parseInventoryQuery(query url.Values, kind string, q *browserinput.InventoryQuery) error {
+	for _, item := range []struct {
+		name  string
+		value *int
+	}{{"page", &q.Page}, {"per_page", &q.PerPage}} {
+		if raw := query.Get(item.name); raw != "" {
+			v, err := strconv.Atoi(raw)
+			if err != nil || v < 1 {
+				return apierror.BadRequest("invalid pagination")
+			}
+			*item.value = v
+		}
+	}
+	q.PerPage = min(q.PerPage, 1000)
+	if q.Page > 20000/q.PerPage {
+		return apierror.BadRequest("requested page exceeds inventory merge window")
+	}
+	q.Search = query.Get("search")
+	q.Origin = query.Get("origin_kind")
+	q.Scope = query.Get("scope_class")
+	if kind == "field" {
+		q.Scope = query.Get("ontology_scope")
+	}
+	q.Category = query.Get("category_id")
+	q.ModelType = query.Get("model_type")
+	q.Status = normalizeCatalogCSV(query.Get("status"))
+	q.VocabularyID = normalizeCatalogCSV(query.Get("vocabulary_id"))
+	q.EntityType = query.Get("entity_type")
+	q.EntityID = query.Get("entity_id")
+	q.Search = strings.TrimSpace(q.Search)
+	q.Descending = query.Get("sort_dir") == "desc"
+	if sort := query.Get("sort_by"); sort != "" {
+		q.SortBy = sort
+	}
+	sorts := []string{sortUIName, "name", "scope"}
+	if kind == catalogConceptList {
+		sorts = []string{sortUIName, "semantic_id", "system_name", catalogVocabulary, "entries", "bound_fields", "status"}
+	}
+	if kind == catalogExample {
+		sorts = []string{sortUIName, sortUpdatedAt, "created_at", "status"}
+		if query.Get("sort_by") == "" {
+			q.SortBy = sortUpdatedAt
+		}
+		if query.Get("sort_dir") == "" && (q.SortBy == sortUpdatedAt || q.SortBy == "created_at") {
+			q.Descending = true
+		}
+	}
+	if !slices.Contains(sorts, q.SortBy) {
+		return apierror.BadRequest("unsupported inventory sort")
+	}
+	return nil
 }
 
 // List preserves the existing entity-list response envelope.

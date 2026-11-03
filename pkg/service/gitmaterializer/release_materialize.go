@@ -22,24 +22,6 @@ const (
 	releasesBranchRef  = "refs/heads/releases"
 )
 
-// buildLegacyReleaseTree preserves the historical schema1/2 tree and catalog
-// recipe for compatibility fixtures. Production release writes use complete
-// values; verification calls only the snapshot adapter with a frozen catalog.
-func (m *Materializer) buildLegacyReleaseTree(ctx context.Context, dstDir, projectID, version string) error {
-	if err := m.writeLegacyReleaseSnapshot(ctx, dstDir, projectID, version); err != nil {
-		return err
-	}
-	idx, err := m.loadReleasesIndex(ctx, projectID)
-	if err != nil {
-		return fmt.Errorf("load releases index %s: %w", projectID, err)
-	}
-	data, err := encodeReleasesIndex(idx)
-	if err != nil {
-		return fmt.Errorf("encode releases index %s: %w", projectID, err)
-	}
-	return writeEntityFile(dstDir, releasesIndexPath, data)
-}
-
 func (m *Materializer) writeLegacyReleaseSnapshot(ctx context.Context, dstDir, projectID, version string) error {
 	if err := m.writeProjectTreeVersion(ctx, dstDir, projectID, version); err != nil {
 		return fmt.Errorf("write release snapshot %s@%s: %w", projectID, version, err)

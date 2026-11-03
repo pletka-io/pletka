@@ -29,8 +29,8 @@ func restoreOrderArtifact(t *testing.T, owner, version string, pins ...Pin) Arti
 func TestOrderArtifactsIndependentOwnerVersions(t *testing.T) {
 	firstSource := restoreOrderArtifact(t, "source", "z-source-1")
 	secondSource := restoreOrderArtifact(t, "source", "z-source-2")
-	first := restoreOrderArtifact(t, "root", "a-root-1", Pin{"source", "z-source-1", firstSource.Digest})
-	second := restoreOrderArtifact(t, "root", "b-root-2", Pin{"source", "z-source-2", secondSource.Digest})
+	first := restoreOrderArtifact(t, "root", "a-root-1", Pin{OntologyID: "source", VersionID: "z-source-1", Digest: firstSource.Digest})
+	second := restoreOrderArtifact(t, "root", "b-root-2", Pin{OntologyID: "source", VersionID: "z-source-2", Digest: secondSource.Digest})
 	want := []Artifact{firstSource, first, secondSource, second}
 	for _, tc := range []struct {
 		name  string
@@ -55,7 +55,7 @@ func TestOrderArtifactsIndependentOwnerVersions(t *testing.T) {
 
 func TestOrderArtifactsRejectsConflictingIdentityAndPins(t *testing.T) {
 	source := restoreOrderArtifact(t, "source", "source-1")
-	pin := Pin{"source", "source-1", source.Digest}
+	pin := Pin{OntologyID: "source", VersionID: "source-1", Digest: source.Digest}
 	root := restoreOrderArtifact(t, "root", "root-1", pin)
 	// Semantically identical JSON is still different published bytes.
 	different := Artifact{JSON: source.JSON + "\n", Digest: digest(source.JSON + "\n")}
@@ -68,12 +68,12 @@ func TestOrderArtifactsRejectsConflictingIdentityAndPins(t *testing.T) {
 		{"same ID different bytes", "conflicting artifact bytes", []Artifact{source, different}},
 		{"same ID different owner", "conflicting artifact bytes", []Artifact{source, restoreOrderArtifact(t, "other", "source-1")}},
 		{"tampered artifact", "digest mismatch", []Artifact{tampered}},
-		{"pin digest mismatch", "dependency identity mismatch", []Artifact{source, restoreOrderArtifact(t, "root", "root-1", Pin{"source", "source-1", strings.Repeat("0", 64)})}},
-		{"pin owner mismatch", "dependency identity mismatch", []Artifact{source, restoreOrderArtifact(t, "root", "root-1", Pin{"other", "source-1", source.Digest})}},
-		{"two versions in one closure", "invalid, conflicting or unordered pins", []Artifact{restoreOrderArtifact(t, "root", "root-1", pin, Pin{"source", "source-2", source.Digest})}},
+		{"pin digest mismatch", "dependency identity mismatch", []Artifact{source, restoreOrderArtifact(t, "root", "root-1", Pin{OntologyID: "source", VersionID: "source-1", Digest: strings.Repeat("0", 64)})}},
+		{"pin owner mismatch", "dependency identity mismatch", []Artifact{source, restoreOrderArtifact(t, "root", "root-1", Pin{OntologyID: "other", VersionID: "source-1", Digest: source.Digest})}},
+		{"two versions in one closure", "invalid, conflicting or unordered pins", []Artifact{restoreOrderArtifact(t, "root", "root-1", pin, Pin{OntologyID: "source", VersionID: "source-2", Digest: source.Digest})}},
 		{"duplicate pin in one closure", "invalid, conflicting or unordered pins", []Artifact{restoreOrderArtifact(t, "root", "root-1", pin, pin)}},
 		{"self owner pin", "invalid, conflicting or unordered pins", []Artifact{restoreOrderArtifact(t, "source", "source-2", pin)}},
-		{"unordered pins", "invalid, conflicting or unordered pins", []Artifact{restoreOrderArtifact(t, "root", "root-1", pin, Pin{"earlier", "earlier-1", source.Digest})}},
+		{"unordered pins", "invalid, conflicting or unordered pins", []Artifact{restoreOrderArtifact(t, "root", "root-1", pin, Pin{OntologyID: "earlier", VersionID: "earlier-1", Digest: source.Digest})}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := orderArtifacts(tc.input)
@@ -91,8 +91,8 @@ func TestOrderArtifactsRejectsCyclicPins(t *testing.T) {
 	// Closing a cycle changes the first artifact's digest, invalidating the
 	// back edge. Such bundles must fail even before the cycle guard is reached.
 	first := restoreOrderArtifact(t, "first", "first-1")
-	second := restoreOrderArtifact(t, "second", "second-1", Pin{"first", "first-1", first.Digest})
-	first = restoreOrderArtifact(t, "first", "first-1", Pin{"second", "second-1", second.Digest})
+	second := restoreOrderArtifact(t, "second", "second-1", Pin{OntologyID: "first", VersionID: "first-1", Digest: first.Digest})
+	first = restoreOrderArtifact(t, "first", "first-1", Pin{OntologyID: "second", VersionID: "second-1", Digest: second.Digest})
 	if _, err := orderArtifacts([]Artifact{first, second}); err == nil {
 		t.Fatal("cyclic dependency bundle accepted")
 	}
@@ -100,7 +100,7 @@ func TestOrderArtifactsRejectsCyclicPins(t *testing.T) {
 
 func TestOrderArtifactsAllowsDependenciesAlreadyInStorage(t *testing.T) {
 	source := restoreOrderArtifact(t, "source", "source-1")
-	root := restoreOrderArtifact(t, "root", "root-1", Pin{"source", "source-1", source.Digest})
+	root := restoreOrderArtifact(t, "root", "root-1", Pin{OntologyID: "source", VersionID: "source-1", Digest: source.Digest})
 	got, err := orderArtifacts([]Artifact{root})
 	if err != nil {
 		t.Fatal(err)

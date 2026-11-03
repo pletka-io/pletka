@@ -1,6 +1,10 @@
 package gitmaterializer
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/pletka-io/pletka/pkg/database/ontologysnapshot"
+)
 
 // Verify the consumer's identities as well as each vendor's internal integrity.
 // Legacy requirements have no digest; they must never select a published vendor.
@@ -9,36 +13,12 @@ func validateOntologyRequirements(snapshot *ProjectSnapshot) error {
 	if err != nil {
 		return err
 	}
-	byVersion := map[string]VendoredOntologySnapshot{}
-	for _, dep := range snapshot.Vendor.Ontologies {
-		if dep.Snapshot == nil {
-			return fmt.Errorf("ontology vendor snapshot is missing")
-		}
-		id := dep.Snapshot.Manifest.Ontology.VersionID
-		if _, ok := byVersion[id]; ok {
-			return fmt.Errorf("duplicate ontology vendor version %s", id)
-		}
-		byVersion[id] = dep
+	byVersion, err := indexOntologyVendors(snapshot)
+	if err != nil {
+		return err
 	}
-	for _, a := range legacy {
-		bodies, err := legacySnapshotBodies(a)
-		if err != nil {
-			return err
-		}
-		for id, b := range bodies {
-			if dep, ok := byVersion[id]; ok {
-				if dep.Snapshot.Artifact == nil {
-					return fmt.Errorf("legacy captured body %s collides with an unverified vendor", id)
-				}
-				doc, err := dep.Snapshot.Artifact.Decode()
-				if err != nil {
-					return err
-				}
-				if doc.OntologyID != b.OntologyID || doc.BodyDigest != b.Digest || doc.BodyJSON != b.BodyJSON {
-					return fmt.Errorf("legacy and published body identity conflicts for %s", id)
-				}
-			}
-		}
+	if err := validateLegacyBodies(legacy, byVersion); err != nil {
+		return err
 	}
 	projects := []*ProjectSnapshot{snapshot}
 	for _, dep := range snapshot.Vendor.Projects {
@@ -66,6 +46,47 @@ func validateOntologyRequirements(snapshot *ProjectSnapshot) error {
 	for id, dep := range byVersion {
 		if dep.Snapshot.Artifact != nil && !selected[id] {
 			return fmt.Errorf("published ontology vendor %s has no pinned requirement", id)
+		}
+	}
+	return nil
+}
+
+func indexOntologyVendors(snapshot *ProjectSnapshot) (map[string]VendoredOntologySnapshot, error) {
+	byVersion := map[string]VendoredOntologySnapshot{}
+	for _, dep := range snapshot.Vendor.Ontologies {
+		if dep.Snapshot == nil {
+			return nil, fmt.Errorf("ontology vendor snapshot is missing")
+		}
+		id := dep.Snapshot.Manifest.Ontology.VersionID
+		if _, ok := byVersion[id]; ok {
+			return nil, fmt.Errorf("duplicate ontology vendor version %s", id)
+		}
+		byVersion[id] = dep
+	}
+	return byVersion, nil
+}
+
+// Legacy captured bodies may coexist with a verified vendor only when both
+// carry the same identity and bytes.
+func validateLegacyBodies(legacy []ontologysnapshot.Artifact, byVersion map[string]VendoredOntologySnapshot) error {
+	for _, a := range legacy {
+		bodies, err := legacySnapshotBodies(a)
+		if err != nil {
+			return err
+		}
+		for id, b := range bodies {
+			if dep, ok := byVersion[id]; ok {
+				if dep.Snapshot.Artifact == nil {
+					return fmt.Errorf("legacy captured body %s collides with an unverified vendor", id)
+				}
+				doc, err := dep.Snapshot.Artifact.Decode()
+				if err != nil {
+					return err
+				}
+				if doc.OntologyID != b.OntologyID || doc.BodyDigest != b.Digest || doc.BodyJSON != b.BodyJSON {
+					return fmt.Errorf("legacy and published body identity conflicts for %s", id)
+				}
+			}
 		}
 	}
 	return nil

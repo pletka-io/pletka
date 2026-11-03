@@ -193,30 +193,7 @@ func (m *Materializer) prepareReleaseRepoint(ctx context.Context, operation stri
 		return prepared, err
 	}
 	if prepared.Commit != "" || prepared.Tag != "" {
-		if prepared.Commit == "" || prepared.Tag == "" {
-			return prepared, fmt.Errorf("incomplete prepared release for %s", expected.ProjectID)
-		}
-		// Resume the exact stored format and catalog, even after a writer upgrade
-		// or mutable title/retirement edit. Never reinterpret prepared bytes.
-		if err := m.writeVerificationTree(ctx, git, prepared.Commit, tmp, expected.ProjectID, expected.Version); err != nil {
-			return prepared, err
-		}
-		tree, err := git.WriteTreeFrom(ctx, tmp)
-		if err != nil {
-			return prepared, err
-		}
-		actualTree, _, err := git.TreeOfRev(ctx, prepared.Commit)
-		if err != nil {
-			return prepared, err
-		}
-		target, _, err := git.RefSHA(ctx, prepared.Tag+"^{}")
-		if err != nil {
-			return prepared, err
-		}
-		if actualTree != tree || target != prepared.Commit || prepared.Tag == "" {
-			return prepared, fmt.Errorf("prepared content differs for %s", expected.ProjectID)
-		}
-		return prepared, nil
+		return m.resumePreparedRelease(ctx, git, prepared, tmp, expected)
 	}
 	if err := m.buildReleaseTree(ctx, tmp, expected.ProjectID, expected.Version); err != nil {
 		return prepared, err
@@ -226,6 +203,34 @@ func (m *Materializer) prepareReleaseRepoint(ctx context.Context, operation stri
 		return prepared, err
 	}
 	return prepareRepointObjects(ctx, git, operation, prefix, tree, expected)
+}
+
+// resumePreparedRelease re-verifies objects prepared by an earlier attempt
+// against the exact stored format and catalog, even after a writer upgrade or
+// mutable title/retirement edit. Never reinterpret prepared bytes.
+func (m *Materializer) resumePreparedRelease(ctx context.Context, git *gitRunner, prepared PreparedRelease, tmp string, expected ReleaseRefState) (PreparedRelease, error) {
+	if prepared.Commit == "" || prepared.Tag == "" {
+		return prepared, fmt.Errorf("incomplete prepared release for %s", expected.ProjectID)
+	}
+	if err := m.writeVerificationTree(ctx, git, prepared.Commit, tmp, expected.ProjectID, expected.Version); err != nil {
+		return prepared, err
+	}
+	tree, err := git.WriteTreeFrom(ctx, tmp)
+	if err != nil {
+		return prepared, err
+	}
+	actualTree, _, err := git.TreeOfRev(ctx, prepared.Commit)
+	if err != nil {
+		return prepared, err
+	}
+	target, _, err := git.RefSHA(ctx, prepared.Tag+"^{}")
+	if err != nil {
+		return prepared, err
+	}
+	if actualTree != tree || target != prepared.Commit {
+		return prepared, fmt.Errorf("prepared content differs for %s", expected.ProjectID)
+	}
+	return prepared, nil
 }
 
 func prepareRepointObjects(ctx context.Context, git *gitRunner, operation, prefix, tree string, expected ReleaseRefState) (PreparedRelease, error) {
