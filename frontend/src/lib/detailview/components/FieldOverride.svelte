@@ -34,6 +34,19 @@
   const fieldKey = $derived(String(field.override_id));
   const isExpanded = $derived(state.expandedFields.has(fieldKey));
 
+  // Per-field cardinality "min..max" (max null = unbounded "*"). Shown greyed
+  // on every row so it's visible at a glance without drowning out the field
+  // name.
+  const cardinality = $derived(
+    `${field.min_occurs ?? 0}..${field.max_occurs == null ? '*' : field.max_occurs}`,
+  );
+
+  // Cap how many target-model/collection refs show on the compact row; the
+  // rest are reachable by expanding the row.
+  const MAX_REFS = 3;
+  const collectionRefs = $derived(field.collection_model_refs ?? []);
+  const resourceRefs = $derived(field.resource_model_refs ?? []);
+
   const parsedPath = $derived(
     field.path_elements && field.path_elements.length > 0
       ? pathElementsToDisplay(field.path_elements)
@@ -91,6 +104,7 @@
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
             <h4 class="text-sm font-medium text-gray-900">{fieldName}</h4>
+            <span class="font-mono text-[11px] text-gray-400" title="Cardinality (min..max; * = unbounded)">{cardinality}</span>
             {#if field.field_semantic_id}
               {#if field.source_field_url}
                 <a
@@ -113,6 +127,19 @@
             {/if}
             {#if field.expected_value_type}
               <Badge variant={typeColors[field.expected_value_type] || 'gray'} size="xs">{field.expected_value_type}</Badge>
+            {/if}
+            {#if field.concept_list_refs?.length}
+              {#each field.concept_list_refs as ref}
+                <a
+                  href={ref.url}
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-indigo-100 text-indigo-800 hover:bg-indigo-200"
+                  title="Concept list (controlled values)"
+                  onclick={(e) => e.stopPropagation()}
+                >
+                  <span class="font-medium">{ref.semantic_id}</span>
+                  <span class="text-indigo-600">{tr(ref.name, lang, '')}</span>
+                </a>
+              {/each}
             {/if}
             {#if field.set_value}
               <span
@@ -156,10 +183,11 @@
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
       </svg>
 
-      <span class="font-medium text-sm text-gray-900 truncate mr-3">{fieldName}</span>
+      <span class="font-medium text-sm text-gray-900 truncate">{fieldName}</span>
+      <span class="font-mono text-[11px] text-gray-400 ml-2 mr-3 flex-shrink-0" title="Cardinality (min..max; * = unbounded)">{cardinality}</span>
       <div class="flex-1"></div>
 
-      <div class="flex flex-wrap items-center gap-1 max-w-[50%] justify-end">
+      <div class="flex flex-wrap items-center gap-1 max-w-[55%] justify-end">
         {#if field.expected_value_type}
           <Badge variant={typeColors[field.expected_value_type] || 'gray'} size="xs">{field.expected_value_type}</Badge>
         {/if}
@@ -172,33 +200,48 @@
             <span class="font-mono truncate">{field.set_value}</span>
           </span>
         {/if}
-        {#if field.collection_model_refs?.length}
-          {#each field.collection_model_refs as ref}
-            <a
-              href={ref.url}
-              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-800 hover:bg-green-200"
-              onclick={(e) => e.stopPropagation()}
-            >
-              <span class="font-medium">{ref.semantic_id}</span>
-              <span class="text-green-600">{tr(ref.name, lang, '')}</span>
-              {#if ref.origin?.kind === 'inherited'}
-                <span class="text-[10px] uppercase tracking-wide text-amber-700">inherited</span>
-              {/if}
-            </a>
-          {/each}
+        {#each collectionRefs.slice(0, MAX_REFS) as ref}
+          <a
+            href={ref.url}
+            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-100 text-green-800 hover:bg-green-200"
+            onclick={(e) => e.stopPropagation()}
+          >
+            <span class="font-medium">{ref.semantic_id}</span>
+            <span class="text-green-600">{tr(ref.name, lang, '')}</span>
+            {#if ref.origin?.kind === 'inherited'}
+              <span class="text-[10px] uppercase tracking-wide text-amber-700">inherited</span>
+            {/if}
+          </a>
+        {/each}
+        {#each resourceRefs.slice(0, MAX_REFS) as ref}
+          <a
+            href={ref.url}
+            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-800 hover:bg-purple-200"
+            onclick={(e) => e.stopPropagation()}
+          >
+            <span class="font-medium">{ref.semantic_id}</span>
+            <span class="text-purple-600">{tr(ref.name, lang, '')}</span>
+            {#if ref.origin?.kind === 'inherited'}
+              <span class="text-[10px] uppercase tracking-wide text-amber-700">inherited</span>
+            {/if}
+          </a>
+        {/each}
+        {#if collectionRefs.length + resourceRefs.length > 2 * MAX_REFS || collectionRefs.length > MAX_REFS || resourceRefs.length > MAX_REFS}
+          {@const extra = Math.max(0, collectionRefs.length - MAX_REFS) + Math.max(0, resourceRefs.length - MAX_REFS)}
+          {#if extra > 0}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-500" title="Expand the row to see all targets">+{extra} more</span>
+          {/if}
         {/if}
-        {#if field.resource_model_refs?.length}
-          {#each field.resource_model_refs as ref}
+        {#if field.concept_list_refs?.length}
+          {#each field.concept_list_refs as ref}
             <a
               href={ref.url}
-              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-purple-100 text-purple-800 hover:bg-purple-200"
+              class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-indigo-100 text-indigo-800 hover:bg-indigo-200"
+              title="Concept list (controlled values)"
               onclick={(e) => e.stopPropagation()}
             >
               <span class="font-medium">{ref.semantic_id}</span>
-              <span class="text-purple-600">{tr(ref.name, lang, '')}</span>
-              {#if ref.origin?.kind === 'inherited'}
-                <span class="text-[10px] uppercase tracking-wide text-amber-700">inherited</span>
-              {/if}
+              <span class="text-indigo-600">{tr(ref.name, lang, '')}</span>
             </a>
           {/each}
         {/if}
@@ -264,6 +307,27 @@
           <div class="flex items-center">
             <span class="text-gray-400 w-24 flex-shrink-0">Type:</span>
             <Badge variant={typeColors[field.expected_value_type] || 'gray'} size="xs">{field.expected_value_type}</Badge>
+          </div>
+        {/if}
+        <div class="flex items-center">
+          <span class="text-gray-400 w-24 flex-shrink-0">Cardinality:</span>
+          <span class="font-mono text-gray-600" title="min..max; * = unbounded">{cardinality}</span>
+        </div>
+        {#if field.concept_list_refs?.length}
+          <div class="flex items-start">
+            <span class="text-gray-400 w-24 flex-shrink-0">Concept list:</span>
+            <div class="flex flex-wrap gap-1">
+              {#each field.concept_list_refs as ref}
+                <a
+                  href={ref.url}
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-indigo-100 text-indigo-800 hover:bg-indigo-200"
+                  onclick={(e) => e.stopPropagation()}
+                >
+                  <span class="font-medium">{ref.semantic_id}</span>
+                  <span class="text-indigo-600">{tr(ref.name, lang, '')}</span>
+                </a>
+              {/each}
+            </div>
           </div>
         {/if}
         {#if field.set_value}
