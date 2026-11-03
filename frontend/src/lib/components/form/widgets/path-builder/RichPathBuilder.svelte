@@ -3,9 +3,9 @@
   import { tr } from '$lib/types/form-schema';
   import type { PathElement, ScopeInfo, ParsedPath } from '$lib/types/path-types';
   import type { PathSuggestion, AutocompleteRequest, AutocompleteResponse } from '$lib/types/ontology-types';
-  import { getOntologyLabels } from '$lib/api/client';
   import SuggestionTooltip from './SuggestionTooltip.svelte';
   import TermDetailModal from './TermDetailModal.svelte';
+  import TermHoverCard from './TermHoverCard.svelte';
 
   let {
     field,
@@ -124,34 +124,24 @@
     return `${el.prefix}:${el.local_name}`;
   }
 
-  // --- Term labels + detail modal (schema-driven describe_url) ---
+  // --- Pill term detail (schema-driven describe_url): hover card + click modal ---
 
-  /** local_name -> label, hydrated from the project's ontology-labels so built
-   *  pills show human names (e.g. "entity") instead of opaque qnames. */
-  let termLabels = $state<Record<string, string>>({});
-  $effect(() => {
-    const pid = getProjectId();
-    if (!pid) return;
-    let cancelled = false;
-    getOntologyLabels(pid).then((m) => { if (!cancelled) termLabels = m; }).catch(() => {});
-    return () => { cancelled = true; };
-  });
-
-  /** Display label for a built path pill: human label if known, else qname. */
-  function elLabel(el: PathElement): string {
-    return termLabels[el.local_name] || prefixedName(el);
-  }
-
-  /** Describe URL (from the field schema) opened when a pill is clicked. */
-  let detailUrl = $state<string | null>(null);
-  function openDetail(el: PathElement) {
+  /** Resolve the field's describe_url template for one path element, or null. */
+  function buildDetailUrl(el: PathElement): string | null {
     const tmpl = field.describe_url;
     const pid = getProjectId();
-    if (!tmpl || !pid) return;
+    if (!tmpl || !pid) return null;
     const qname = `${el.prefix}:${el.local_name}`;
-    detailUrl = tmpl
+    return tmpl
       .replace('{project_id}', encodeURIComponent(pid))
       .replace('{qname}', encodeURIComponent(qname));
+  }
+
+  // hoveredIndex above is the suggestion-dropdown hover; pills use their own.
+  let hoveredPill = $state<number>(-1);
+  let detailUrl = $state<string | null>(null); // pill opened in the modal
+  function openDetail(el: PathElement) {
+    detailUrl = buildDetailUrl(el);
   }
 
   /** Normalize suggestion type to PathElement type vocabulary. */
@@ -674,18 +664,23 @@
           <span class="text-gray-400 text-xs select-none" aria-hidden="true">&rarr;</span>
         {/if}
         <span
-          class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium border {pillClass(el.type)}"
+          class="relative inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium border {pillClass(el.type)}"
           title={`${el.prefix}:${el.local_name}`}
         >
           {#if field.describe_url}
             <button
               type="button"
               class="hover:underline"
-              title={`${el.prefix}:${el.local_name} — click for details`}
+              onmouseenter={() => (hoveredPill = i)}
+              onmouseleave={() => (hoveredPill = -1)}
               onclick={() => openDetail(el)}
-            >{elLabel(el)}</button>
+            >{prefixedName(el)}</button>
+            {#if hoveredPill === i}
+              {@const hurl = buildDetailUrl(el)}
+              {#if hurl}<TermHoverCard url={hurl} {lang} />{/if}
+            {/if}
           {:else}
-            {elLabel(el)}
+            {prefixedName(el)}
           {/if}
           {#if !field.readonly && !isScopeMode}
             <button

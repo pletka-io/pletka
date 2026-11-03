@@ -132,10 +132,16 @@
               </div>
               <div class="flex flex-wrap gap-1">
                 {#each qnames as q}
+                  {@const lbl = termLabel(q)}
                   <span
-                    class="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs text-gray-700"
+                    class="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs"
                     title={q}
-                  >{termLabel(q)}</span>
+                  >
+                    <span class="text-gray-700">{lbl}</span>
+                    {#if lbl !== q}
+                      <span class="font-mono text-[10px] text-gray-400">{q}</span>
+                    {/if}
+                  </span>
                 {/each}
               </div>
             </div>

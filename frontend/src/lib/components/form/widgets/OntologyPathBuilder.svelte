@@ -70,12 +70,18 @@
     mode = mode === 'simple' ? 'rich' : 'simple';
     saveMode(mode);
   }
+
+  // Simple view is disabled for now: the rich view is the only autocomplete
+  // experience (hover term card + click-through detail modal). Flip this to
+  // true — or wire it to a config/schema flag — to bring the toggle back.
+  const ENABLE_SIMPLE_VIEW = false;
+  const activeMode = $derived<Mode>(ENABLE_SIMPLE_VIEW ? mode : 'rich');
 </script>
 
 <div class="space-y-1">
   <!-- Mode toggle: floats above the widget; doesn't reflow the layout
        when flipped. Hidden in readonly mode (no point switching). -->
-  {#if !field.readonly}
+  {#if !field.readonly && ENABLE_SIMPLE_VIEW}
     <div class="flex items-center justify-end gap-1 text-xs">
       <span class="text-gray-400">View:</span>
       <button
@@ -93,7 +99,7 @@
     </div>
   {/if}
 
-  {#if mode === 'rich'}
+  {#if activeMode === 'rich'}
     <RichPathBuilder
       {field}
       bind:value

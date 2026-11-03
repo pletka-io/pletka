@@ -3,8 +3,8 @@
   import { tr } from '$lib/types/form-schema';
   import type { PathElement, TypeRef } from '$lib/types/path-types';
   import type { PathSuggestion, AutocompleteRequest, AutocompleteResponse } from '$lib/types/ontology-types';
-  import { getOntologyLabels } from '$lib/api/client';
   import TermDetailModal from './TermDetailModal.svelte';
+  import TermHoverCard from './TermHoverCard.svelte';
 
   /**
    * SimplePathBuilder: minimal autocomplete + pill-list path picker.
@@ -102,31 +102,23 @@
     return `${el.prefix}:${el.local_name}`;
   }
 
-  // --- Term labels + detail modal (schema-driven describe_url) ---
+  // --- Pill term detail (schema-driven describe_url): hover card + click modal ---
 
-  /** local_name -> label, so built pills show human names not opaque qnames. */
-  let termLabels = $state<Record<string, string>>({});
-  $effect(() => {
-    const pid = getProjectId();
-    if (!pid) return;
-    let cancelled = false;
-    getOntologyLabels(pid).then((m) => { if (!cancelled) termLabels = m; }).catch(() => {});
-    return () => { cancelled = true; };
-  });
-
-  function elLabel(el: PathElement): string {
-    return termLabels[el.local_name] || prefixedName(el);
-  }
-
-  let detailUrl = $state<string | null>(null);
-  function openDetail(el: PathElement) {
+  /** Resolve the field's describe_url template for one path element, or null. */
+  function buildDetailUrl(el: PathElement): string | null {
     const tmpl = field.describe_url;
     const pid = getProjectId();
-    if (!tmpl || !pid) return;
+    if (!tmpl || !pid) return null;
     const qname = `${el.prefix}:${el.local_name}`;
-    detailUrl = tmpl
+    return tmpl
       .replace('{project_id}', encodeURIComponent(pid))
       .replace('{qname}', encodeURIComponent(qname));
+  }
+
+  let hoveredIndex = $state<number>(-1); // pill showing the hover card
+  let detailUrl = $state<string | null>(null); // pill opened in the modal
+  function openDetail(el: PathElement) {
+    detailUrl = buildDetailUrl(el);
   }
 
   function normalizeType(t: string): string {
@@ -570,18 +562,23 @@
           <span class="text-gray-400 text-xs select-none" aria-hidden="true">&rarr;</span>
         {/if}
         <span
-          class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium border bg-gray-100 text-gray-800 border-gray-200"
+          class="relative inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs font-medium border bg-gray-100 text-gray-800 border-gray-200"
           title={`${el.prefix}:${el.local_name}`}
         >
           {#if field.describe_url}
             <button
               type="button"
               class="hover:underline"
-              title={`${el.prefix}:${el.local_name} — click for details`}
+              onmouseenter={() => (hoveredIndex = i)}
+              onmouseleave={() => (hoveredIndex = -1)}
               onclick={() => openDetail(el)}
-            >{elLabel(el)}</button>
+            >{prefixedName(el)}</button>
+            {#if hoveredIndex === i}
+              {@const hurl = buildDetailUrl(el)}
+              {#if hurl}<TermHoverCard url={hurl} {lang} />{/if}
+            {/if}
           {:else}
-            {elLabel(el)}
+            {prefixedName(el)}
           {/if}
           {#if !field.readonly && !isScopeMode}
             <button
