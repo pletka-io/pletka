@@ -191,7 +191,6 @@ type ConceptListStore interface {
 	FindByListType(ctx context.Context, listTypeID string) ([]*ConceptList, error)
 
 	AddEntry(ctx context.Context, entry *ConceptListEntry) error
-	RemoveEntry(ctx context.Context, id string) error
 	ListEntries(ctx context.Context, conceptListID string) ([]*ConceptListEntry, error)
 	ReorderEntries(ctx context.Context, conceptListID string, entryIDs []string) error
 }

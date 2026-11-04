@@ -411,15 +411,6 @@ func (q *Queries) WeaveDeleteConceptList(ctx context.Context, arg WeaveDeleteCon
 	return err
 }
 
-const weaveDeleteConceptListEntry = `-- name: WeaveDeleteConceptListEntry :exec
-DELETE FROM weave_concept_list_entries WHERE id = $1
-`
-
-func (q *Queries) WeaveDeleteConceptListEntry(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, weaveDeleteConceptListEntry, id)
-	return err
-}
-
 const weaveDeleteConceptListEntryInList = `-- name: WeaveDeleteConceptListEntryInList :exec
 DELETE FROM weave_concept_list_entries
 WHERE id = $1 AND concept_list_id = $2
@@ -1348,9 +1339,8 @@ WHERE project_id = $1
   AND id ~ ('^' || $1 || '\.CL\.[0-9]+$')
 `
 
-// Scoped to the list as well as the entry id. The existing WeaveSetConceptListEntryPosition is not:
-// a wrong id there can touch an entry in another list. That looser form has
-// one legacy caller and is left alone here rather than changed underneath it.
+// Scoped to the list as well as the entry id, so a wrong id cannot touch an
+// entry in another list.
 // Highest existing CL number for a project, scanned from the id.  (was nextConceptListID)
 func (q *Queries) WeaveMaxConceptListNumber(ctx context.Context, dollar_1 *string) (interface{}, error) {
 	row := q.db.QueryRow(ctx, weaveMaxConceptListNumber, dollar_1)
@@ -1639,28 +1629,11 @@ type WeaveUpdateConceptListEntryLabelParams struct {
 	ConceptListID string          `json:"concept_list_id"`
 }
 
-// Scoped to the list as well as the entry id. The existing WeaveDeleteConceptListEntry is not:
-// a wrong id there can touch an entry in another list. That looser form has
-// one legacy caller and is left alone here rather than changed underneath it.
+// Scoped to the list as well as the entry id, so a wrong id cannot touch an
+// entry in another list.
 // Set an entry's custom label.  (was UpdateConceptListEntry)
 func (q *Queries) WeaveUpdateConceptListEntryLabel(ctx context.Context, arg WeaveUpdateConceptListEntryLabelParams) error {
 	_, err := q.db.Exec(ctx, weaveUpdateConceptListEntryLabel, arg.Column1, arg.ID, arg.ConceptListID)
-	return err
-}
-
-const weaveUpdateConceptListEntryOrder = `-- name: WeaveUpdateConceptListEntryOrder :exec
-UPDATE weave_concept_list_entries
-SET position = $2, updated_at = NOW()
-WHERE id = $1
-`
-
-type WeaveUpdateConceptListEntryOrderParams struct {
-	ID       string `json:"id"`
-	Position int32  `json:"position"`
-}
-
-func (q *Queries) WeaveUpdateConceptListEntryOrder(ctx context.Context, arg WeaveUpdateConceptListEntryOrderParams) error {
-	_, err := q.db.Exec(ctx, weaveUpdateConceptListEntryOrder, arg.ID, arg.Position)
 	return err
 }
 
