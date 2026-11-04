@@ -197,9 +197,6 @@ INSERT INTO weave_concept_list_entries (
     $1, $2, $3, $4, $5, NOW(), NOW()
 ) RETURNING *;
 
--- name: WeaveDeleteConceptListEntry :exec
-DELETE FROM weave_concept_list_entries WHERE id = $1;
-
 -- name: WeaveListConceptListEntries :many
 SELECT * FROM weave_concept_list_entries
 WHERE concept_list_id = $1
@@ -260,11 +257,6 @@ WHERE cle.concept_list_id = @concept_list_id::text
   )
 ORDER BY cle.position ASC, ve.uri ASC
 LIMIT @result_limit::integer;
-
--- name: WeaveUpdateConceptListEntryOrder :exec
-UPDATE weave_concept_list_entries
-SET position = $2, updated_at = NOW()
-WHERE id = $1;
 
 -- name: WeaveGetProjectConceptListArchive :one
 SELECT * FROM weave_concept_lists_archive
@@ -437,9 +429,8 @@ ORDER BY created_at LIMIT 1;
 -- Remove one entry from a list.  (was RemoveConceptListEntry)
 DELETE FROM weave_concept_list_entries
 WHERE id = $1 AND concept_list_id = $2;
--- Scoped to the list as well as the entry id. The existing WeaveDeleteConceptListEntry is not:
--- a wrong id there can touch an entry in another list. That looser form has
--- one legacy caller and is left alone here rather than changed underneath it.
+-- Scoped to the list as well as the entry id, so a wrong id cannot touch an
+-- entry in another list.
 -- name: WeaveUpdateConceptListEntryLabel :exec
 -- Set an entry's custom label.  (was UpdateConceptListEntry)
 UPDATE weave_concept_list_entries
@@ -455,9 +446,8 @@ SET position = $1,
     updated_at = NOW()
 WHERE id = $2
   AND concept_list_id = $3;
--- Scoped to the list as well as the entry id. The existing WeaveSetConceptListEntryPosition is not:
--- a wrong id there can touch an entry in another list. That looser form has
--- one legacy caller and is left alone here rather than changed underneath it.
+-- Scoped to the list as well as the entry id, so a wrong id cannot touch an
+-- entry in another list.
 -- name: WeaveMaxConceptListNumber :one
 -- Highest existing CL number for a project, scanned from the id.  (was nextConceptListID)
 SELECT COALESCE(MAX((regexp_match(id, '^' || $1 || '\.CL\.([0-9]+)$'))[1]::bigint), 0)

@@ -162,14 +162,6 @@ func (s *conceptListStore) AddEntry(ctx context.Context, entry *domain.ConceptLi
 	return nil
 }
 
-// RemoveEntry deletes an entry from a concept list.
-func (s *conceptListStore) RemoveEntry(ctx context.Context, id string) error {
-	if err := s.queries.WeaveDeleteConceptListEntry(ctx, id); err != nil {
-		return fmt.Errorf("remove concept list entry: %w", err)
-	}
-	return nil
-}
-
 // ListEntries returns all entries for a concept list ordered by position.
 func (s *conceptListStore) ListEntries(ctx context.Context, conceptListID string) ([]*domain.ConceptListEntry, error) {
 	rows, err := s.queries.WeaveListConceptListEntries(ctx, conceptListID)
@@ -211,9 +203,10 @@ func (s *conceptListStore) ReorderEntries(ctx context.Context, conceptListID str
 			return fmt.Errorf("reorder: entry %s not found in concept list %s", entryID, conceptListID)
 		}
 
-		if err := qtx.WeaveUpdateConceptListEntryOrder(ctx, sqlcgen.WeaveUpdateConceptListEntryOrderParams{
-			ID:       entryID,
-			Position: int32(i + 1),
+		if err := qtx.WeaveSetConceptListEntryPositionInList(ctx, sqlcgen.WeaveSetConceptListEntryPositionInListParams{
+			Position:      int32(i + 1),
+			ID:            entryID,
+			ConceptListID: conceptListID,
 		}); err != nil {
 			return fmt.Errorf("reorder: update entry %s: %w", entryID, err)
 		}
