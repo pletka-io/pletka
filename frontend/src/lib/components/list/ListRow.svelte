@@ -145,7 +145,8 @@
       {#if col.type === 'badge'}
         {@const val = Number(item[col.key]) || 0}
         {@const style = val === 0 && col.zero_style ? col.zero_style : col.badge_style || 'gray'}
-        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {badgeColors[style] || badgeColors.gray}">
+        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {badgeColors[style] || badgeColors.gray} {col.tooltip ? 'cursor-help' : ''}"
+              title={col.tooltip ? tr(col.tooltip, lang) : undefined}>
           {val} {tr(col.label, lang)}
         </span>
       {:else if col.type === 'text_badge'}
@@ -153,14 +154,16 @@
         {#if raw}
           {@const valStr = String(raw)}
           {@const style = (col.badge_style_by_value && col.badge_style_by_value[valStr]) || col.badge_style || 'gray'}
-          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {badgeColors[style] || badgeColors.gray}">
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {badgeColors[style] || badgeColors.gray} {col.tooltip ? 'cursor-help' : ''}"
+                title={col.tooltip ? tr(col.tooltip, lang) : undefined}>
             {valStr}
           </span>
         {/if}
       {:else if col.type === 'computed_badge'}
         {@const val = computeValue(col, item)}
         {#if !col.hide_zero || val > 0}
-          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {badgeColors[col.badge_style || 'gray']}">
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {badgeColors[col.badge_style || 'gray']} {col.tooltip ? 'cursor-help' : ''}"
+                title={col.tooltip ? tr(col.tooltip, lang) : undefined}>
             {val} {tr(col.label, lang)}
           </span>
         {/if}

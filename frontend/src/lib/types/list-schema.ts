@@ -56,6 +56,8 @@ export interface Capabilities {
 export interface Column {
   key: string;
   label?: Translations;
+  /** Shown on hover over the badge — a short gloss of what the column counts or means. */
+  tooltip?: Translations;
   type: 'translation' | 'badge' | 'text_badge' | 'computed_badge' | 'text' | 'deprecated_badge' | 'boolean_badge';
   primary?: boolean;
   secondary?: boolean;
