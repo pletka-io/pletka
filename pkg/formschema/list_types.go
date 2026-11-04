@@ -103,8 +103,11 @@ type StatsCap struct {
 
 // Column defines a column in the list.
 type Column struct {
-	Key        string             `json:"key"`
-	Label      domain.Localizable `json:"label,omitempty"`
+	Key   string             `json:"key"`
+	Label domain.Localizable `json:"label,omitempty"`
+	// Tooltip, when set, is shown on hover over the column header — a short
+	// gloss of what the column counts or means. Optional; any column may set it.
+	Tooltip    domain.Localizable `json:"tooltip,omitempty"`
 	Type       string             `json:"type"` // "translation", "badge", "text_badge", "computed_badge", "text"
 	Primary    bool               `json:"primary,omitempty"`
 	Secondary  bool               `json:"secondary,omitempty"`
