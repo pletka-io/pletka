@@ -56,6 +56,33 @@ func (s *Session) DraftPublications(ctx context.Context) ([]ontologyartifact.Art
 		if err != nil {
 			return nil, err
 		}
+		sourcePins, err := sourcePublicationPins(ctx, q, bound, source)
+		if err != nil {
+			return nil, err
+		}
+		pins = append(pins, sourcePins...)
+	}
+	hasReferences, err := q.DraftHasSemanticReferences(ctx, s.projectID)
+	if err != nil {
+		return nil, err
+	}
+	return projectontology.Plan(ctx, draftOntologyPlanner{queries: q}, selected, pins, hasReferences)
+}
+
+// sourcePublicationPins reads the versions a bound source release selected. A
+// verified (contract 1) release carries its publications; a legacy (contract 2)
+// release retains only its selection, so each selected version must be
+// published now, and the current publication of that exact version is the pin.
+// Nothing is guessed: an unpublished selection is the editor's validation
+// error, not missing release content.
+func sourcePublicationPins(ctx context.Context, q draft.Querier, bound *Session, source Source) ([]ontologyartifact.Pin, error) {
+	contract, err := bound.ContentContract(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var pins []ontologyartifact.Pin
+	switch contract {
+	case 1:
 		reader, err := bound.Ontologies(ctx)
 		if err != nil {
 			return nil, err
@@ -71,12 +98,29 @@ func (s *Session) DraftPublications(ctx context.Context) ([]ontologyartifact.Art
 			}
 			pins = append(pins, ontologyartifact.Pin{OntologyID: d.OntologyID, VersionID: d.VersionID, Digest: a.Artifact.Digest})
 		}
+	case 2:
+		prepared, err := bound.LegacyInterpretation(ctx)
+		if err != nil {
+			return nil, err
+		}
+		doc, err := prepared.Document()
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range doc.Inventory {
+			row, err := q.ProjectOntologyPublication(ctx, b.VersionID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, &projectontology.InvalidError{Detail: fmt.Sprintf("ontology version %s selected by %s@%s is not published", b.VersionID, source.ProjectID, source.Version)}
+			}
+			if err != nil {
+				return nil, err
+			}
+			pins = append(pins, ontologyartifact.Pin{OntologyID: b.OntologyID, VersionID: b.VersionID, Digest: row.Digest})
+		}
+	default:
+		return nil, &NotInReleaseError{ProjectID: source.ProjectID, Version: source.Version, EntityID: "complete content contract"}
 	}
-	hasReferences, err := q.DraftHasSemanticReferences(ctx, s.projectID)
-	if err != nil {
-		return nil, err
-	}
-	return projectontology.Plan(ctx, draftOntologyPlanner{queries: q}, selected, pins, hasReferences)
+	return pins, nil
 }
 
 type draftOntologyPlanner struct{ queries draft.Querier }
