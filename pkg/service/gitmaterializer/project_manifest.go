@@ -58,8 +58,12 @@ type projectManifestOntologies struct {
 }
 
 type projectManifestLinkedOntology struct {
-	OntologyID        string `json:"ontology_id"`
-	OntologyVersionID string `json:"ontology_version_id"`
+	// Prefix identifies the ontology by its unique prefix. An authored tree
+	// may give only prefix + version; the materializer writes the prefix
+	// beside the ids so a tree stays loadable where ids differ.
+	Prefix            string `json:"prefix,omitempty"`
+	OntologyID        string `json:"ontology_id,omitempty"`
+	OntologyVersionID string `json:"ontology_version_id,omitempty"`
 	Version           string `json:"version"`
 	IsPrimary         bool   `json:"is_primary,omitempty"`
 }
@@ -206,7 +210,12 @@ func (m *Materializer) loadProjectManifestOntologies(ctx context.Context, projec
 		if err != nil {
 			return nil, fmt.Errorf("get ontology version %s for manifest: %w", row.OntologyVersionID, err)
 		}
+		ontology, err := m.queries.WeaveGetOntologyByID(ctx, version.OntologyID)
+		if err != nil {
+			return nil, fmt.Errorf("get ontology %s for manifest: %w", version.OntologyID, err)
+		}
 		linked = append(linked, projectManifestLinkedOntology{
+			Prefix:            ontology.Prefix,
 			OntologyID:        version.OntologyID,
 			OntologyVersionID: version.ID,
 			Version:           version.VersionString,

@@ -188,15 +188,31 @@ func (m *Materializer) hydrateProjectOntologiesTx(ctx context.Context, tx pgx.Tx
 	for _, link := range manifest.Ontologies.LinkedVersions {
 		versionID := strings.TrimSpace(link.OntologyVersionID)
 		if versionID == "" {
+			ontologyID := strings.TrimSpace(link.OntologyID)
+			label := ontologyID
+			if ontologyID == "" {
+				prefix := strings.TrimSpace(link.Prefix)
+				if prefix == "" {
+					return fmt.Errorf("hydrate project ontologies: a linked version needs ontology_version_id, ontology_id or prefix")
+				}
+				ont, err := q.WeaveGetOntologyByPrefix(ctx, prefix)
+				if err != nil {
+					if errors.Is(err, pgx.ErrNoRows) {
+						return fmt.Errorf("hydrate project ontologies: ontology version %s@%s not found (no ontology with prefix %q)", prefix, link.Version, prefix)
+					}
+					return fmt.Errorf("hydrate project ontologies: resolve ontology prefix %q: %w", prefix, err)
+				}
+				ontologyID, label = ont.ID, prefix
+			}
 			row, err := q.WeaveGetOntologyVersionByOntologyAndString(ctx, sqlcgen.WeaveGetOntologyVersionByOntologyAndStringParams{
-				OntologyID:    link.OntologyID,
+				OntologyID:    ontologyID,
 				VersionString: link.Version,
 			})
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
-					return fmt.Errorf("hydrate project ontologies: ontology version %s@%s not found", link.OntologyID, link.Version)
+					return fmt.Errorf("hydrate project ontologies: ontology version %s@%s not found", label, link.Version)
 				}
-				return fmt.Errorf("hydrate project ontologies: resolve ontology version %s@%s: %w", link.OntologyID, link.Version, err)
+				return fmt.Errorf("hydrate project ontologies: resolve ontology version %s@%s: %w", label, link.Version, err)
 			}
 			versionID = row.ID
 		} else {
