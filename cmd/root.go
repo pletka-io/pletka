@@ -93,9 +93,16 @@ func AddOperationalCommands(root *cobra.Command, opts OperationalOptions) {
 	if len(renderers) == 0 {
 		renderers = genwiring.CoreCLIRenderers()
 	}
+	weave := newWeaveCommand(renderers)
+	project := newProjectCommand()
+	// Both groups take --instance. viper keeps a single pflag per key, so the
+	// project group reuses weave's flag object instead of defining a second
+	// one; two flags bound to the same key would leave one group reading the
+	// other's unchanged value and silently targeting the wrong database.
+	project.PersistentFlags().AddFlag(weave.PersistentFlags().Lookup("instance"))
 	root.AddCommand(
-		newWeaveCommand(renderers),
-		newProjectCommand(),
+		weave,
+		project,
 		newDBCommand(),
 		newAPIKeyCommand(),
 		newReleaseCommand(),

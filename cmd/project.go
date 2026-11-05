@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"github.com/pletka-io/pletka/pkg/app"
 	"github.com/pletka-io/pletka/pkg/app/cliruntime"
@@ -58,10 +57,9 @@ a closure gap. Safe to run repeatedly — a clean tree is a no-op.`,
 		RunE: runReconcile,
 	}
 
-	// --instance selects the target instance's database by the same rule the
-	// server uses (pletka_<instance>); see cliruntime.DatabaseSettingsFromViper.
-	projectCmd.PersistentFlags().String("instance", "", "target instance; selects its database (e.g. prod -> pletka_prod)")
-	_ = viper.BindPFlag("instance", projectCmd.PersistentFlags().Lookup("instance"))
+	// --instance is attached by AddOperationalCommands: it is the weave
+	// group's flag object, shared so viper's single "instance" binding serves
+	// both groups (see cliruntime.DatabaseSettingsFromViper).
 
 	projectCmd.AddCommand(initGitCmd)
 	projectCmd.AddCommand(loadGitCmd)
