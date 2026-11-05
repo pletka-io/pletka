@@ -388,7 +388,7 @@ func (e *DirectEngine) suggestRangeForProperty(ctx context.Context, versionIDs [
 		return nil, fmt.Errorf("range relations: %w", err)
 	}
 
-	isDatatypeProperty := prop.PropertyType == "DatatypeProperty"
+	isDatatypeProperty := literalValued(prop.PropertyType)
 	literals := qnameResolver{namespaceBindings: e.namespaceBindings}
 
 	for _, r := range rels {

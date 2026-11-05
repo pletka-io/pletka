@@ -56,6 +56,14 @@ type Node struct {
 	Ghost bool
 }
 
+// literalValued reports whether a property of this type terminates a path in
+// a literal rather than a class. DatatypeProperty does by definition;
+// AnnotationProperty does in practice (labels, acronyms, notes) and is never
+// declared with a class range an engine could continue from.
+func literalValued(propertyType string) bool {
+	return propertyType == "DatatypeProperty" || propertyType == "AnnotationProperty"
+}
+
 // IndexKey fully determines a project's autocomplete contract.
 type IndexKey struct {
 	VersionSet string // sorted version IDs joined by "|"
@@ -243,7 +251,7 @@ func buildIndex(ctx context.Context, store indexStore, namespaceBindings Namespa
 			// ontology defines under obo:). Merge into that node so its
 			// domain/subclass edges are not stranded on a ghost.
 			targetQname = canonical
-		} else if r.RelType == "range" && src.Type == "property" && src.PropertyType == "DatatypeProperty" {
+		} else if r.RelType == "range" && src.Type == "property" && literalValued(src.PropertyType) {
 			var err error
 			targetQname, err = normalizeRelationQname(ctx, qnames, targetQname)
 			if err != nil {

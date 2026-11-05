@@ -129,7 +129,7 @@ func (e *IndexedEngine) suggestPropertiesForClass(idx *Index, class *Node, req R
 // logic exactly.
 func (e *IndexedEngine) suggestRangeForProperty(idx *Index, prop *Node, req Request) []Suggestion {
 	q := strings.TrimSpace(req.Query)
-	isDatatype := prop.PropertyType == "DatatypeProperty"
+	isDatatype := literalValued(prop.PropertyType)
 	seen := map[string]struct{}{}
 	out := make([]Suggestion, 0)
 	for _, rng := range prop.Ranges {
