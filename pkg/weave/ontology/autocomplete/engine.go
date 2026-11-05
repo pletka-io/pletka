@@ -633,6 +633,14 @@ func isLiteralQname(qname string) bool {
 	return qname == genericLiteralQname || strings.HasPrefix(qname, "xsd:")
 }
 
+// isTerminalQname reports whether a qname can only ever end a path: a
+// literal type or rdfs:Resource ("an IRI"). Such a node is never a scope
+// class and never continues into properties, even though the defaults
+// ontology stores these terms as class rows.
+func isTerminalQname(qname string) bool {
+	return isLiteralQname(qname) || isResourceRange(qname)
+}
+
 func literalSuggestionFromQname(qname string) Suggestion {
 	prefix, local, ok := strings.Cut(qname, ":")
 	if !ok {

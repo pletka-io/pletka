@@ -26,12 +26,19 @@ func (e *IndexedEngine) GetSuggestions(ctx context.Context, req Request) ([]Sugg
 	if idx == nil {
 		return nil, nil
 	}
+	return e.suggestFromIndex(idx, req)
+}
 
+// suggestFromIndex answers req against an already-resolved index. Split from
+// GetSuggestions so the dispatch (root classes, properties for a class, range
+// for a property) can be tested on a hand-built index without a cache.
+func (e *IndexedEngine) suggestFromIndex(idx *Index, req Request) ([]Suggestion, error) {
 	if len(req.CurrentPath) == 0 {
 		return e.suggestRootClasses(idx, req), nil
 	}
 	last := strings.TrimSpace(req.CurrentPath[len(req.CurrentPath)-1])
-	if last == "" {
+	if last == "" || isTerminalQname(last) {
+		// A path ending in a literal type or rdfs:Resource is finished.
 		return nil, nil
 	}
 	n := idx.lookupNode(last)
@@ -55,7 +62,7 @@ func (e *IndexedEngine) suggestRootClasses(idx *Index, req Request) []Suggestion
 	q := strings.TrimSpace(req.Query)
 	out := make([]Suggestion, 0)
 	for _, n := range idx.ByQname {
-		if n.Type != nodeTypeClass || n.Ghost {
+		if n.Type != nodeTypeClass || n.Ghost || isTerminalQname(n.Qname) {
 			continue
 		}
 		if q != "" && !matchesQuery(n.LocalName, n.Label, q) && !strings.Contains(strings.ToLower(n.Qname), strings.ToLower(q)) {
@@ -139,7 +146,7 @@ func (e *IndexedEngine) suggestRangeForProperty(idx *Index, prop *Node, req Requ
 		// the defaults ontology in the index, xsd:string, rdfs:Literal and
 		// rdfs:Resource are real nodes, and rdfs:Resource is the implicit
 		// root whose subclass closure is every class in the project.
-		if isDatatype || isLiteralQname(rng.Qname) || isResourceRange(rng.Qname) {
+		if isDatatype || isTerminalQname(rng.Qname) {
 			s := literalSuggestionFromQname(rng.Qname)
 			if _, dup := seen[s.Qname]; !dup && (q == "" || matchesQuery(s.LocalName, s.Label, q)) {
 				seen[s.Qname] = struct{}{}
