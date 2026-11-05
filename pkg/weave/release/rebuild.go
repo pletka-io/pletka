@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -196,7 +197,11 @@ func (s *Service) planRebuild(ctx context.Context, q *sqlcgen.Queries, projectID
 		}
 		plan.Pins = append(plan.Pins, RebuildPin{r.ProjectID, r.ParentProjectID, rows[0].Version})
 	}
-	edges, err := rebuildSourceEdges(ctx, q, ids, byProject, selected, inheritance, contract.contentVersion)
+	refsFor, ownerOf, err := rebuildInputs(ctx, q, contract, ids, projects)
+	if err != nil {
+		return plan, err
+	}
+	edges, err := rebuildSourceEdges(ctx, refsFor, ownerOf, ids, byProject, selected, inheritance, contract.contentVersion)
 	if err != nil {
 		return plan, err
 	}
@@ -276,7 +281,58 @@ func selectRebuildProjects(byProject map[string][]sqlcgen.WeaveRebuildCatalogRow
 	return ids, selected, projects, nil
 }
 
-func rebuildSourceEdges(ctx context.Context, q *sqlcgen.Queries, ids []string, byProject map[string][]sqlcgen.WeaveRebuildCatalogRow, selected map[string]bool, inheritance []sqlcgen.WeaveRebuildInheritanceRow, contentVersion int16) (map[string][]string, error) {
+type (
+	rebuildRefs  func(ctx context.Context, id string) ([]sqlcgen.WeaveDraftDependencyReferencesRow, error)
+	rebuildOwner func(ctx context.Context, kind, id string) (string, error)
+)
+
+// rebuildInputs chooses where the capture order and source checks read
+// references: the working drafts for format 1, each release's archive for
+// preserve mode, which captures from the archive. Preserve refuses archived
+// inheritance that still follows a parent draft, for every project at once.
+func rebuildInputs(ctx context.Context, q *sqlcgen.Queries, contract rebuildContract, ids []string, projects map[string]RebuildProject) (rebuildRefs, rebuildOwner, error) {
+	liveOwner := func(ctx context.Context, kind, id string) (string, error) {
+		return q.WeaveDraftDependencyEntityOwner(ctx, sqlcgen.WeaveDraftDependencyEntityOwnerParams{EntityType: kind, EntityID: id})
+	}
+	if !contract.preserves() {
+		return q.WeaveDraftDependencyReferences, liveOwner, nil
+	}
+	following := []string{}
+	for _, id := range ids {
+		parents, err := q.WeaveArchivedFollowingDependencies(ctx, sqlcgen.WeaveArchivedFollowingDependenciesParams{ProjectID: id, Version: projects[id].Version})
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, parent := range parents {
+			following = append(following, id+"@"+projects[id].Version+" -> "+parent)
+		}
+	}
+	if len(following) > 0 {
+		return nil, nil, fmt.Errorf("archived inheritance still follows the parent draft; repair the archive before preserving: %s", strings.Join(following, ", "))
+	}
+	refs := func(ctx context.Context, id string) ([]sqlcgen.WeaveDraftDependencyReferencesRow, error) {
+		rows, err := q.WeaveArchivedDependencyReferences(ctx, sqlcgen.WeaveArchivedDependencyReferencesParams{ProjectID: id, Version: projects[id].Version})
+		if err != nil {
+			return nil, err
+		}
+		out := make([]sqlcgen.WeaveDraftDependencyReferencesRow, len(rows))
+		for i, row := range rows {
+			out[i] = sqlcgen.WeaveDraftDependencyReferencesRow(row)
+		}
+		return out, nil
+	}
+	// Same owner chain as releasedeps.archivedDraft: live rows, then archived rows.
+	owner := func(ctx context.Context, kind, id string) (string, error) {
+		source, err := liveOwner(ctx, kind, id)
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return source, err
+		}
+		return q.WeaveArchivedDependencyEntityOwner(ctx, sqlcgen.WeaveArchivedDependencyEntityOwnerParams{EntityType: kind, EntityID: id})
+	}
+	return refs, owner, nil
+}
+
+func rebuildSourceEdges(ctx context.Context, refsFor rebuildRefs, ownerOf rebuildOwner, ids []string, byProject map[string][]sqlcgen.WeaveRebuildCatalogRow, selected map[string]bool, inheritance []sqlcgen.WeaveRebuildInheritanceRow, contentVersion int16) (map[string][]string, error) {
 	edges := map[string][]string{}
 	for _, id := range ids {
 		if parent := byProject[id][0].LegacyParent; parent != "" && !slices.ContainsFunc(inheritance, func(r sqlcgen.WeaveRebuildInheritanceRow) bool {
@@ -284,14 +340,14 @@ func rebuildSourceEdges(ctx context.Context, q *sqlcgen.Queries, ids []string, b
 		}) {
 			return nil, fmt.Errorf("project %s has implicit parent %s; declare its inheritance edge before rebuilding", id, parent)
 		}
-		refs, err := q.WeaveDraftDependencyReferences(ctx, id)
+		refs, err := refsFor(ctx, id)
 		if err != nil {
 			return nil, err
 		}
 		for _, ref := range refs {
 			source := ref.SourceProjectID
 			if source == "" {
-				source, err = q.WeaveDraftDependencyEntityOwner(ctx, sqlcgen.WeaveDraftDependencyEntityOwnerParams{EntityType: ref.EntityType, EntityID: ref.EntityID})
+				source, err = ownerOf(ctx, ref.EntityType, ref.EntityID)
 				if err != nil {
 					return nil, fmt.Errorf("project %s: unresolved %s %s in current drafts: %w", id, ref.EntityType, ref.EntityID, err)
 				}

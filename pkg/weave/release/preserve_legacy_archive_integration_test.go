@@ -143,3 +143,77 @@ func TestPreserveRefusesChangedArchiveAndWrongSource(t *testing.T) {
 		t.Fatal("verified contract accepted a preserve plan")
 	}
 }
+
+// seedArchiveOnlySource adds a released, archived source project whose id
+// sorts after legacy-root. Nothing in the live drafts references it; each
+// test adds one archive-only reference from legacy-root@0.1.0.
+func seedArchiveOnlySource(t *testing.T) (context.Context, *pgxpool.Pool, *Service) {
+	t.Helper()
+	ctx, p, svc := seedLegacyRebuild(t, false)
+	for _, sql := range []string{
+		`INSERT INTO weave_projects(id,owner_id) VALUES ('legacy-zsource','legacy-owner')`,
+		`INSERT INTO weave_fields(id,project_id,ontology_scope) VALUES ('legacy-zsource-field','legacy-zsource','{"prefix":"crm","local_name":"E1"}')`,
+		`INSERT INTO weave_releases(project_id,version,created_by_id) VALUES ('legacy-zsource','0.1.0','legacy-owner')`,
+		`INSERT INTO weave_project_ontology_versions(project_id,ontology_version_id,added_at,is_primary) VALUES ('legacy-zsource','legacy-crm-7.1.3',now(),true)`,
+	} {
+		mustExec(t, p, sql)
+	}
+	testdb.ArchiveDraft(t, p, "legacy-zsource", "0.1.0")
+	return ctx, p, svc
+}
+
+// assertArchiveSourceFirst plans the whole selection, checks the archive-only
+// source is captured before its consumer and that the run pins it.
+func assertArchiveSourceFirst(ctx context.Context, t *testing.T, p *pgxpool.Pool, svc *Service) {
+	t.Helper()
+	plan, err := svc.PlanLegacyRebuild(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Projects) != 2 || plan.Projects[0].ProjectID != "legacy-zsource" || plan.Projects[1].ProjectID != "legacy-root" {
+		t.Fatalf("archive-only source not ordered first: %+v", plan.Projects)
+	}
+	op, err := svc.RunLegacyRebuild(ctx, LegacyRebuildRequest{Plan: plan}, checkRebuild, finishRebuild)
+	if err != nil || !op.Complete {
+		t.Fatalf("preserve failed: %+v %v", op, err)
+	}
+	var pinned int
+	mustScan(t, p, `SELECT count(*) FROM weave_release_project_dependencies
+		WHERE project_id='legacy-root' AND version_number='0.1.0' AND source_project_id='legacy-zsource' AND source_version='0.1.0'`, nil, &pinned)
+	if pinned != 1 {
+		t.Fatalf("archive-only source not pinned: %d", pinned)
+	}
+}
+
+func TestPreserveOrdersArchiveOnlySourcesFirst(t *testing.T) {
+	ctx, p, svc := seedArchiveOnlySource(t)
+	mustExec(t, p, `INSERT INTO weave_adoptions_archive(project_id,context_entity_type,context_entity_id,entity_type,source_project_id,source_entity_id,adopted_at,version_number)
+		VALUES ('legacy-root','model','legacy-model','field','legacy-zsource','legacy-zsource-field',now(),'0.1.0')`)
+	if _, err := svc.PlanLegacyRebuild(ctx, []string{"legacy-root"}); err == nil || !strings.Contains(err.Error(), "include source project legacy-zsource") {
+		t.Fatalf("consumer planned without its archived source: %v", err)
+	}
+	assertArchiveSourceFirst(ctx, t, p, svc)
+}
+
+func TestPreserveRefusesArchivedDraftFollowingAtPlan(t *testing.T) {
+	ctx, p, svc := seedArchiveOnlySource(t)
+	mustExec(t, p, `INSERT INTO weave_project_inheritance_archive(project_id,parent_project_id,version_number,source_mode)
+		VALUES ('legacy-root','legacy-zsource','0.1.0','draft')`)
+	_, err := svc.PlanLegacyRebuild(ctx, nil)
+	if err == nil || !strings.Contains(err.Error(), "legacy-root@0.1.0 -> legacy-zsource") {
+		t.Fatalf("archived draft-following inheritance planned: %v", err)
+	}
+	var changed int
+	mustScan(t, p, `SELECT count(*) FROM weave_releases WHERE content_capture_version<>0`, nil, &changed)
+	if changed != 0 {
+		t.Fatalf("refused plan changed %d releases", changed)
+	}
+}
+
+func TestPreserveResolvesOwnerFromArchiveOnly(t *testing.T) {
+	ctx, p, svc := seedArchiveOnlySource(t)
+	mustExec(t, p, `INSERT INTO weave_field_overrides_archive(id,field_id,project_id,entity_type,entity_id,version_number)
+		VALUES (990001,'legacy-zsource-field','legacy-root','model','legacy-model','0.1.0')`)
+	mustExec(t, p, `DELETE FROM weave_fields WHERE id='legacy-zsource-field'`)
+	assertArchiveSourceFirst(ctx, t, p, svc)
+}
