@@ -9,6 +9,19 @@ import (
 	"context"
 )
 
+const weaveDeleteOntologyRelationsByVersion = `-- name: WeaveDeleteOntologyRelationsByVersion :exec
+DELETE FROM weave_ontology_relations
+WHERE source_id IN (SELECT c.id FROM weave_ontology_classes c WHERE c.ontology_version_id = $1)
+   OR source_id IN (SELECT p.id FROM weave_ontology_properties p WHERE p.ontology_version_id = $1)
+`
+
+// Relations hang off class/property ids with no FK, so a version delete or
+// replace has to clear them explicitly before the cascade removes the sources.
+func (q *Queries) WeaveDeleteOntologyRelationsByVersion(ctx context.Context, versionID string) error {
+	_, err := q.db.Exec(ctx, weaveDeleteOntologyRelationsByVersion, versionID)
+	return err
+}
+
 const weaveDeleteOntologyRelationsForSource = `-- name: WeaveDeleteOntologyRelationsForSource :exec
 
 DELETE FROM weave_ontology_relations

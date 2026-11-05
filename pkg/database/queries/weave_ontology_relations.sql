@@ -47,3 +47,10 @@ FROM weave_ontology_relations r
 JOIN weave_ontology_properties p
   ON p.id = r.source_id AND r.source_kind = 'property'
 WHERE r.rel_type = ANY($2::text[]) AND p.ontology_version_id = ANY($1::text[]);
+
+-- name: WeaveDeleteOntologyRelationsByVersion :exec
+-- Relations hang off class/property ids with no FK, so a version delete or
+-- replace has to clear them explicitly before the cascade removes the sources.
+DELETE FROM weave_ontology_relations
+WHERE source_id IN (SELECT c.id FROM weave_ontology_classes c WHERE c.ontology_version_id = sqlc.arg(version_id))
+   OR source_id IN (SELECT p.id FROM weave_ontology_properties p WHERE p.ontology_version_id = sqlc.arg(version_id));

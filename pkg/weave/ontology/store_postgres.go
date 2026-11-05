@@ -1099,8 +1099,20 @@ WHERE ontology_id = $1
 }
 
 func (s *postgresStore) DeleteVersion(ctx context.Context, id string) error {
-	if err := s.queries.WeaveDeleteOntologyVersion(ctx, id); err != nil {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin delete version tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	qtx := s.queries.WithTx(tx)
+	if err := qtx.WeaveDeleteOntologyRelationsByVersion(ctx, id); err != nil {
+		return fmt.Errorf("delete version relations: %w", err)
+	}
+	if err := qtx.WeaveDeleteOntologyVersion(ctx, id); err != nil {
 		return fmt.Errorf("delete version: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit delete version tx: %w", err)
 	}
 	return nil
 }
@@ -1119,8 +1131,18 @@ func (s *postgresStore) ImportVersion(ctx context.Context, in ImportVersionInput
 	qtx := s.queries.WithTx(tx)
 
 	// Upsert version row. If a version with this ID exists we replace its
-	// content (force-import) — first clear the dependent class/property
-	// rows + relations rows by FK cascade on DELETE.
+	// content (force-import): remember whether it was the active version,
+	// clear its relations (no FK, so no cascade), then let the DELETE
+	// cascade the class/property rows.
+	wasActive := false
+	if existing, err := qtx.WeaveGetOntologyVersionByID(ctx, in.Version.ID); err == nil {
+		wasActive = existing.IsActive
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("read existing version: %w", err)
+	}
+	if err := qtx.WeaveDeleteOntologyRelationsByVersion(ctx, in.Version.ID); err != nil {
+		return nil, fmt.Errorf("clear existing version relations: %w", err)
+	}
 	if err := qtx.WeaveDeleteOntologyVersion(ctx, in.Version.ID); err != nil {
 		return nil, fmt.Errorf("clear existing version: %w", err)
 	}
@@ -1215,7 +1237,9 @@ func (s *postgresStore) ImportVersion(ctx context.Context, in ImportVersionInput
 		return nil, fmt.Errorf("update version counts: %w", err)
 	}
 
-	if in.SetActive {
+	// A replaced version keeps its active state unless the caller asked for
+	// it: the DELETE above dropped the flag and the fresh row starts inactive.
+	if in.SetActive || wasActive {
 		if err := setActiveOntologyVersion(ctx, tx, version.OntologyID, version.ID); err != nil {
 			return nil, fmt.Errorf("set active during import: %w", err)
 		}
