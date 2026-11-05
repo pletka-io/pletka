@@ -10,6 +10,186 @@ import (
 	"encoding/json"
 )
 
+const weaveArchivedDependencyEntityOwner = `-- name: WeaveArchivedDependencyEntityOwner :one
+WITH entities AS (
+    SELECT 'project'::text AS entity_type, id, id AS project_id FROM weave_projects_archive
+    UNION ALL SELECT 'field', id, project_id FROM weave_fields_archive
+    UNION ALL SELECT 'model', id, project_id FROM weave_models_archive
+    UNION ALL SELECT 'collection', id, project_id FROM weave_collections_archive
+    UNION ALL SELECT 'category', id, project_id FROM weave_categories_archive
+    UNION ALL SELECT 'concept_list', id, project_id FROM weave_concept_lists_archive
+    UNION ALL SELECT 'example', id, project_id FROM weave_examples_archive
+    UNION ALL SELECT 'override', id::text, project_id FROM weave_field_overrides_archive
+    UNION ALL SELECT 'vocabulary', id, project_id FROM weave_vocabularies_archive
+    UNION ALL SELECT 'vocabulary_entry', e.id, v.project_id FROM weave_vocabulary_entries_archive e
+        JOIN weave_vocabularies_archive v ON v.id = e.vocabulary_id AND v.version_number = e.version_number
+)
+SELECT COALESCE(project_id, '')::text AS project_id FROM entities
+WHERE entity_type = $1::text AND id = $2::text
+LIMIT 1
+`
+
+type WeaveArchivedDependencyEntityOwnerParams struct {
+	EntityType string `json:"entity_type"`
+	EntityID   string `json:"entity_id"`
+}
+
+// Mirror of WeaveDraftDependencyEntityOwner over archive rows. An id's owning
+// project never changes between versions, so any archived version answers.
+func (q *Queries) WeaveArchivedDependencyEntityOwner(ctx context.Context, arg WeaveArchivedDependencyEntityOwnerParams) (string, error) {
+	row := q.db.QueryRow(ctx, weaveArchivedDependencyEntityOwner, arg.EntityType, arg.EntityID)
+	var project_id string
+	err := row.Scan(&project_id)
+	return project_id, err
+}
+
+const weaveArchivedDependencyReferences = `-- name: WeaveArchivedDependencyReferences :many
+WITH refs AS (
+    SELECT 'project'::text AS entity_type, i.parent_project_id AS entity_id,
+           i.parent_project_id AS source_project_id, COALESCE(i.source_version, '')::text AS source_version
+    FROM weave_project_inheritance_archive i WHERE i.project_id = $1::text AND i.version_number = $2::text
+    UNION ALL
+    SELECT a.entity_type, a.source_entity_id, a.source_project_id, a.source_version
+    FROM weave_adoptions_archive a WHERE a.project_id = $1::text AND a.version_number = $2::text
+    UNION ALL
+    SELECT 'field', o.field_id, '', '' FROM weave_field_overrides_archive o WHERE o.project_id = $1::text AND o.version_number = $2::text
+    UNION ALL
+    SELECT o.entity_type, o.entity_id, '', '' FROM weave_field_overrides_archive o WHERE o.project_id = $1::text AND o.version_number = $2::text AND o.entity_type <> ''
+    UNION ALL
+    SELECT 'category', o.category_id, '', '' FROM weave_field_overrides_archive o WHERE o.project_id = $1::text AND o.version_number = $2::text
+    UNION ALL
+    SELECT 'collection', o.part_of_collection_id, '', '' FROM weave_field_overrides_archive o WHERE o.project_id = $1::text AND o.version_number = $2::text
+    UNION ALL
+    SELECT 'vocabulary_entry', o.set_value_entry_id, '', '' FROM weave_field_overrides_archive o WHERE o.project_id = $1::text AND o.version_number = $2::text
+    UNION ALL
+    SELECT CASE r.ref_type WHEN 'resource_model' THEN 'model' WHEN 'collection_model' THEN 'collection' WHEN 'concept_list' THEN 'concept_list' ELSE r.ref_type END,
+           COALESCE(NULLIF(r.target_id, ''), r.semantic_id), '', ''
+    FROM weave_override_refs_archive r WHERE r.project_id = $1::text AND r.version_number = $2::text
+    UNION ALL
+    SELECT 'category', c.default_category_id, '', '' FROM weave_collections_archive c WHERE c.project_id = $1::text AND c.version_number = $2::text
+    UNION ALL
+    SELECT 'model', p.model_id, '', '' FROM weave_collection_placements_archive p WHERE p.project_id = $1::text AND p.version_number = $2::text
+    UNION ALL
+    SELECT 'collection', p.collection_id, '', '' FROM weave_collection_placements_archive p WHERE p.project_id = $1::text AND p.version_number = $2::text
+    UNION ALL
+    SELECT 'category', p.category_id, '', '' FROM weave_collection_placements_archive p WHERE p.project_id = $1::text AND p.version_number = $2::text
+    UNION ALL
+    SELECT e.entity_type, e.entity_id, '', '' FROM weave_examples_archive e WHERE e.project_id = $1::text AND e.version_number = $2::text
+    UNION ALL
+    SELECT 'override', o.id::text, '', '' FROM weave_example_values_archive v
+        JOIN weave_examples_archive e ON e.id = v.example_id AND e.version_number = v.version_number
+        JOIN weave_field_overrides_archive o ON o.id = v.override_id AND o.version_number = v.version_number
+        JOIN weave_fields_archive f ON f.id = v.field_id AND f.version_number = v.version_number
+        WHERE e.project_id = $1::text AND e.version_number = $2::text
+    UNION ALL
+    SELECT 'field', v.field_id, '', '' FROM weave_example_values_archive v
+        JOIN weave_examples_archive e ON e.id = v.example_id AND e.version_number = v.version_number
+        JOIN weave_field_overrides_archive o ON o.id = v.override_id AND o.version_number = v.version_number
+        JOIN weave_fields_archive f ON f.id = v.field_id AND f.version_number = v.version_number
+        WHERE e.project_id = $1::text AND e.version_number = $2::text
+    UNION ALL
+    SELECT 'collection', v.part_of_collection_id, '', '' FROM weave_example_values_archive v
+        JOIN weave_examples_archive e ON e.id = v.example_id AND e.version_number = v.version_number
+        JOIN weave_field_overrides_archive o ON o.id = v.override_id AND o.version_number = v.version_number
+        JOIN weave_fields_archive f ON f.id = v.field_id AND f.version_number = v.version_number
+        WHERE e.project_id = $1::text AND e.version_number = $2::text
+    UNION ALL
+    SELECT 'example', v.linked_example_id, '', '' FROM weave_example_values_archive v
+        JOIN weave_examples_archive e ON e.id = v.example_id AND e.version_number = v.version_number
+        WHERE e.project_id = $1::text AND e.version_number = $2::text
+    UNION ALL
+    SELECT 'vocabulary', c.vocabulary_id, '', '' FROM weave_concept_lists_archive c WHERE c.project_id = $1::text AND c.version_number = $2::text
+    UNION ALL
+    SELECT 'vocabulary_entry', c.list_type, '', '' FROM weave_concept_lists_archive c WHERE c.project_id = $1::text AND c.version_number = $2::text
+    UNION ALL
+    SELECT 'vocabulary_entry', e.vocabulary_entry_id, '', '' FROM weave_concept_list_entries_archive e
+        JOIN weave_concept_lists_archive c ON c.id = e.concept_list_id AND c.version_number = e.version_number
+        WHERE c.project_id = $1::text AND c.version_number = $2::text
+    UNION ALL
+    SELECT 'vocabulary_entry', b.concept_id, '', '' FROM weave_concept_broader_archive b
+        JOIN weave_concept_lists_archive c ON c.id = b.scheme_id AND c.version_number = b.version_number
+        WHERE c.project_id = $1::text AND c.version_number = $2::text
+    UNION ALL
+    SELECT 'vocabulary_entry', b.broader_id, '', '' FROM weave_concept_broader_archive b
+        JOIN weave_concept_lists_archive c ON c.id = b.scheme_id AND c.version_number = b.version_number
+        WHERE c.project_id = $1::text AND c.version_number = $2::text
+)
+SELECT DISTINCT entity_type::text, entity_id::text, source_project_id::text, source_version::text
+FROM refs WHERE entity_id IS NOT NULL AND btrim(entity_id) <> ''
+ORDER BY source_project_id, source_version DESC, entity_type, entity_id
+`
+
+type WeaveArchivedDependencyReferencesParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+type WeaveArchivedDependencyReferencesRow struct {
+	EntityType      string `json:"entity_type"`
+	EntityID        string `json:"entity_id"`
+	SourceProjectID string `json:"source_project_id"`
+	SourceVersion   string `json:"source_version"`
+}
+
+// Mirror of WeaveDraftDependencyReferences (read_dependency_draft/dependency_draft.sql)
+// over the archive sections at one release. Keep the branches in the same order.
+func (q *Queries) WeaveArchivedDependencyReferences(ctx context.Context, arg WeaveArchivedDependencyReferencesParams) ([]WeaveArchivedDependencyReferencesRow, error) {
+	rows, err := q.db.Query(ctx, weaveArchivedDependencyReferences, arg.ProjectID, arg.Version)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveArchivedDependencyReferencesRow{}
+	for rows.Next() {
+		var i WeaveArchivedDependencyReferencesRow
+		if err := rows.Scan(
+			&i.EntityType,
+			&i.EntityID,
+			&i.SourceProjectID,
+			&i.SourceVersion,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveArchivedFollowingDependencies = `-- name: WeaveArchivedFollowingDependencies :many
+SELECT parent_project_id FROM weave_project_inheritance_archive
+WHERE project_id = $1::text AND version_number = $2::text AND source_mode = 'draft'
+ORDER BY parent_project_id
+`
+
+type WeaveArchivedFollowingDependenciesParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+// Mirror of WeaveDraftFollowingDependencies over the archived inheritance rows.
+func (q *Queries) WeaveArchivedFollowingDependencies(ctx context.Context, arg WeaveArchivedFollowingDependenciesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, weaveArchivedFollowingDependencies, arg.ProjectID, arg.Version)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var parent_project_id string
+		if err := rows.Scan(&parent_project_id); err != nil {
+			return nil, err
+		}
+		items = append(items, parent_project_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveLegacyArchiveDigest = `-- name: WeaveLegacyArchiveDigest :one
 
 SELECT encode(sha256(convert_to(weave_legacy_archive_sections($1::text,$2::text)::text,'UTF8')),'hex')::text AS digest
@@ -44,4 +224,25 @@ func (q *Queries) WeaveLegacyArchiveReceipt(ctx context.Context, arg WeaveLegacy
 	var receipt json.RawMessage
 	err := row.Scan(&receipt)
 	return receipt, err
+}
+
+const weavePinArchivedAdoptions = `-- name: WeavePinArchivedAdoptions :exec
+UPDATE weave_adoptions_archive a SET source_version = d.source_version
+FROM weave_release_project_dependencies d
+WHERE a.project_id = $1::text AND a.version_number = $2::text
+  AND d.project_id = a.project_id AND d.version_number = a.version_number
+  AND d.source_project_id = a.source_project_id AND a.source_version = ''
+`
+
+type WeavePinArchivedAdoptionsParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+// Archive twin of WeaveSnapshotPinnedAdoptions: stamp the captured source pin
+// onto archived adoption receipts that were unpinned when the release was cut.
+// Runs while archive ownership is 0, so the content guard allows the update.
+func (q *Queries) WeavePinArchivedAdoptions(ctx context.Context, arg WeavePinArchivedAdoptionsParams) error {
+	_, err := q.db.Exec(ctx, weavePinArchivedAdoptions, arg.ProjectID, arg.Version)
+	return err
 }
