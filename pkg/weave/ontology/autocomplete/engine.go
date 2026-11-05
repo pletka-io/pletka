@@ -626,6 +626,13 @@ const resourceQname = "rdfs:Resource"
 
 func isResourceRange(qname string) bool { return qname == resourceQname }
 
+// isLiteralQname reports whether a range qname names a literal type: the
+// generic rdfs:Literal or any xsd datatype. Such a range ends a path in a
+// literal whether or not the defaults ontology defines the type as a row.
+func isLiteralQname(qname string) bool {
+	return qname == genericLiteralQname || strings.HasPrefix(qname, "xsd:")
+}
+
 func literalSuggestionFromQname(qname string) Suggestion {
 	prefix, local, ok := strings.Cut(qname, ":")
 	if !ok {

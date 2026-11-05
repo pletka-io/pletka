@@ -133,19 +133,25 @@ func (e *IndexedEngine) suggestRangeForProperty(idx *Index, prop *Node, req Requ
 	seen := map[string]struct{}{}
 	out := make([]Suggestion, 0)
 	for _, rng := range prop.Ranges {
-		if rng.Ghost {
-			// Dangling range target — for a DatatypeProperty, or an
-			// rdfs:Resource range (an IRI value), this is a literal.
-			if isDatatype || isResourceRange(rng.Qname) {
-				s := literalSuggestionFromQname(rng.Qname)
-				if _, dup := seen[s.Qname]; !dup && (q == "" || matchesQuery(s.LocalName, s.Label, q)) {
-					seen[s.Qname] = struct{}{}
-					out = append(out, s)
-					if len(out) >= req.MaxResults {
-						return out
-					}
+		// A literal-valued property, a literal range, or an rdfs:Resource
+		// range ("an IRI") ends the path in a terminal suggestion. This is
+		// decided on the qname, not on whether the target is a ghost: with
+		// the defaults ontology in the index, xsd:string, rdfs:Literal and
+		// rdfs:Resource are real nodes, and rdfs:Resource is the implicit
+		// root whose subclass closure is every class in the project.
+		if isDatatype || isLiteralQname(rng.Qname) || isResourceRange(rng.Qname) {
+			s := literalSuggestionFromQname(rng.Qname)
+			if _, dup := seen[s.Qname]; !dup && (q == "" || matchesQuery(s.LocalName, s.Label, q)) {
+				seen[s.Qname] = struct{}{}
+				out = append(out, s)
+				if len(out) >= req.MaxResults {
+					return out
 				}
 			}
+			continue
+		}
+		if rng.Ghost {
+			// Dangling class range: nothing to offer.
 			continue
 		}
 		if _, dup := seen[rng.Qname]; !dup {
