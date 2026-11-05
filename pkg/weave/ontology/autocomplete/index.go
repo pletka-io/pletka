@@ -292,6 +292,7 @@ func buildIndex(ctx context.Context, store indexStore, namespaceBindings Namespa
 		}
 	}
 
+	wireImplicitRoot(idx)
 	idx.DomainlessProps = collectDomainlessProps(idx)
 	idx.BuiltAt = time.Now()
 	detectCycles(idx, log)
@@ -376,6 +377,44 @@ func collectDomainlessProps(idx *Index) []*Node {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Qname < out[j].Qname })
 	return out
+}
+
+// wireImplicitRoot makes rdfs:Resource the superclass of every class that
+// declares no real superclass. Every RDF class is an rdfs:Resource, so a
+// property whose domain is rdfs:Resource (the defaults ontology's rdfs:label,
+// rdfs:comment, ...) reaches every class through the ordinary superclass
+// closure, with no engine-side special case. A class whose only parents are
+// ghosts (its parent ontology is not linked) counts as having no real
+// superclass and gets the root too. When no version in the index defines
+// rdfs:Resource as a class, nothing is wired and the index is unchanged.
+//
+// ponytail: members of a subclass_of cycle all have a real superclass and
+// so never reach the root; detectCycles already flags such imports.
+func wireImplicitRoot(idx *Index) {
+	root := idx.ByQname[resourceQname]
+	if root == nil || root.Ghost || root.Type != nodeTypeClass {
+		return
+	}
+	for _, n := range idx.ByQname {
+		if n == nil || n == root || n.Ghost || n.Type != nodeTypeClass {
+			continue
+		}
+		if hasRealSuperclass(n) {
+			continue
+		}
+		n.Superclasses = append(n.Superclasses, root)
+		root.Subclasses = append(root.Subclasses, n)
+	}
+}
+
+// hasRealSuperclass reports whether n has at least one non-ghost superclass.
+func hasRealSuperclass(n *Node) bool {
+	for _, s := range n.Superclasses {
+		if !s.Ghost {
+			return true
+		}
+	}
+	return false
 }
 
 // detectCycles logs (does not fail) when subclass_of forms a loop — signals a
