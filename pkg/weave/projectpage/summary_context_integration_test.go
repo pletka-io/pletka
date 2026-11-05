@@ -55,6 +55,8 @@ func TestLegacySummarySeparatesLocalAndSourceContexts(t *testing.T) {
 		}
 	}
 	exec(`INSERT INTO weave_project_ontology_versions(project_id,ontology_version_id,added_at) VALUES('CTXROOT','CTXONT.1',now()),('CTXSOURCE','CTXONT.2',now());`)
+	testdb.ArchiveDraft(t, pool, "CTXSOURCE", "1.0.0")
+	testdb.ArchiveDraft(t, pool, "CTXROOT", "1.0.0")
 	service := release.NewService(release.NewPostgresStore(pool), pool, nil)
 	plan, err := service.PlanLegacyRebuild(ctx, []string{"CTXROOT", "CTXSOURCE"})
 	if err != nil {

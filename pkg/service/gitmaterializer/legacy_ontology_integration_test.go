@@ -58,6 +58,8 @@ func TestLegacyOntologyTransportAndRepointRecovery(t *testing.T) {
 	exec(`INSERT INTO weave_project_inheritance(project_id,parent_project_id,is_primary,source_mode,source_version) VALUES ('ZMAT','transport-source',true,'release','7.0.1')`)
 	exec(`INSERT INTO weave_field_overrides(field_id,project_id,entity_type,entity_id) VALUES ('transport-source-field','ZMAT','model','ZMATM.1')`)
 	exec(`INSERT INTO weave_releases(project_id,version,created_by_id) VALUES ('ZMAT','7.0.1','ZMAT_OWNER'),('transport-source','7.0.1','ZMAT_OWNER')`)
+	testdb.ArchiveDraft(t, pool, "transport-source", "7.0.1")
+	testdb.ArchiveDraft(t, pool, "ZMAT", "7.0.1")
 	svc := newReleaseService(pool)
 	plan, err := svc.PlanLegacyRebuild(ctx, nil)
 	if err != nil {
