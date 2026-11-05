@@ -184,13 +184,19 @@ func (s *Service) createWithEvidence(ctx context.Context, tx pgx.Tx, projectID s
 	}
 
 	if err := evidence.finalize(ctx, sqlcgen.New(tx), projectID, in.Version); err != nil {
-		var pgerr *pgconn.PgError
-		if errors.As(err, &pgerr) && pgerr.ConstraintName == "release_content_source_unverified" {
-			return nil, &ErrValidation{Fields: map[string][]string{dependenciesField: {"source release has no verified content capture; cut a new source release"}}}
-		}
-		return nil, fmt.Errorf("mark release archive ownership: %w", err)
+		return nil, finalizeError(err)
 	}
 	return created, nil
+}
+
+// finalizeError maps a refused release finalization: an unverified source
+// release is a dependency validation error, anything else is internal.
+func finalizeError(err error) error {
+	var pgerr *pgconn.PgError
+	if errors.As(err, &pgerr) && pgerr.ConstraintName == "release_content_source_unverified" {
+		return &ErrValidation{Fields: map[string][]string{dependenciesField: {"source release has no verified content capture; cut a new source release"}}}
+	}
+	return fmt.Errorf("mark release archive ownership: %w", err)
 }
 
 func validateReleaseCandidates(ctx context.Context, tx pgx.Tx, projectID string) error {

@@ -81,15 +81,17 @@ func TestPreserveLegacyArchiveKeepsOriginalRows(t *testing.T) {
 		t.Fatalf("release metadata or receipt wrong: %v %s %d %d %v", createdAt, createdBy, contract, ownership, receiptMatches)
 	}
 	var pinned, adoptionPinned int
-	var source, operation string
+	var source, operation, filledPolicy, filledPins string
 	mustScan(t, p, `SELECT
 		(SELECT count(*) FROM weave_release_project_dependencies WHERE project_id='legacy-root' AND version_number='0.1.0' AND source_project_id='legacy-source' AND source_version='0.1.0'),
 		(SELECT count(*) FROM weave_adoptions_archive WHERE project_id='legacy-root' AND version_number='0.1.0' AND source_version='0.1.0'),
 		(SELECT document->>'source' FROM weave_release_imports WHERE project_id='legacy-root' AND version_number='0.1.0'),
-		(SELECT document->>'rebuild_operation' FROM weave_release_imports WHERE project_id='legacy-root' AND version_number='0.1.0')`,
-		nil, &pinned, &adoptionPinned, &source, &operation)
-	if pinned != 1 || adoptionPinned != 1 || source != "preserved-legacy-archive" || operation != op.ID {
-		t.Fatalf("dependency or ledger evidence wrong: %d %d %q %q", pinned, adoptionPinned, source, operation)
+		(SELECT document->>'rebuild_operation' FROM weave_release_imports WHERE project_id='legacy-root' AND version_number='0.1.0'),
+		(SELECT document->'filled'->>'concept_policy' FROM weave_release_imports WHERE project_id='legacy-root' AND version_number='0.1.0'),
+		(SELECT document->'filled'->>'adoption_pins' FROM weave_release_imports WHERE project_id='legacy-root' AND version_number='0.1.0')`,
+		nil, &pinned, &adoptionPinned, &source, &operation, &filledPolicy, &filledPins)
+	if pinned != 1 || adoptionPinned != 1 || source != "preserved-legacy-archive" || operation != op.ID || filledPolicy != "1" || filledPins != "1" {
+		t.Fatalf("dependency or ledger evidence wrong: %d %d %q %q filled=%q/%q", pinned, adoptionPinned, source, operation, filledPolicy, filledPins)
 	}
 	err = readsession.NewFactory(p).WithSourceAuthorization(auth.CheckProjectRead).Read(ctx, auth.Release("0.1.0"), "legacy-root", func(s *readsession.Session) error {
 		origin, err := s.Origin(ctx)

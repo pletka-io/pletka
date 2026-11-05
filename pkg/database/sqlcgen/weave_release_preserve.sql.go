@@ -203,22 +203,30 @@ SELECT r.project_id, r.version, jsonb_build_object(
         'created_by_id', r.created_by_id, 'title', r.title, 'description', r.description),
     'receipt', weave_legacy_archive_receipt(r.project_id, r.version),
     'source', 'preserved-legacy-archive',
-    'rebuild_operation', $1::text)
+    'rebuild_operation', $1::text,
+    'filled', $2::jsonb)
 FROM weave_releases r
-WHERE r.project_id = $2::text AND r.version = $3::text
+WHERE r.project_id = $3::text AND r.version = $4::text
 `
 
 type WeaveInsertPreservedReleaseImportParams struct {
-	Operation string `json:"operation"`
-	ProjectID string `json:"project_id"`
-	Version   string `json:"version"`
+	Operation string          `json:"operation"`
+	Filled    json.RawMessage `json:"filled"`
+	ProjectID string          `json:"project_id"`
+	Version   string          `json:"version"`
 }
 
 // The migration 041 ledger row for a preserved release. Header values come from
 // the release row inserted in this transaction; the receipt is computed from
-// the archive rows and must equal what finalization computes.
+// the archive rows and must equal what finalization computes. filled counts
+// the archive rows preserve wrote before certifying them.
 func (q *Queries) WeaveInsertPreservedReleaseImport(ctx context.Context, arg WeaveInsertPreservedReleaseImportParams) error {
-	_, err := q.db.Exec(ctx, weaveInsertPreservedReleaseImport, arg.Operation, arg.ProjectID, arg.Version)
+	_, err := q.db.Exec(ctx, weaveInsertPreservedReleaseImport,
+		arg.Operation,
+		arg.Filled,
+		arg.ProjectID,
+		arg.Version,
+	)
 	return err
 }
 
@@ -281,7 +289,7 @@ func (q *Queries) WeaveLegacyArchiveReceipt(ctx context.Context, arg WeaveLegacy
 	return receipt, err
 }
 
-const weavePinArchivedAdoptions = `-- name: WeavePinArchivedAdoptions :exec
+const weavePinArchivedAdoptions = `-- name: WeavePinArchivedAdoptions :execrows
 UPDATE weave_adoptions_archive a SET source_version = d.source_version
 FROM weave_release_project_dependencies d
 WHERE a.project_id = $1::text AND a.version_number = $2::text
@@ -297,12 +305,15 @@ type WeavePinArchivedAdoptionsParams struct {
 // Archive twin of WeaveSnapshotPinnedAdoptions: stamp the captured source pin
 // onto archived adoption receipts that were unpinned when the release was cut.
 // Runs while archive ownership is 0, so the content guard allows the update.
-func (q *Queries) WeavePinArchivedAdoptions(ctx context.Context, arg WeavePinArchivedAdoptionsParams) error {
-	_, err := q.db.Exec(ctx, weavePinArchivedAdoptions, arg.ProjectID, arg.Version)
-	return err
+func (q *Queries) WeavePinArchivedAdoptions(ctx context.Context, arg WeavePinArchivedAdoptionsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, weavePinArchivedAdoptions, arg.ProjectID, arg.Version)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const weavePreserveArchivedConceptPolicy = `-- name: WeavePreserveArchivedConceptPolicy :exec
+const weavePreserveArchivedConceptPolicy = `-- name: WeavePreserveArchivedConceptPolicy :execrows
 UPDATE weave_projects_archive
 SET effective_concept_namespace = COALESCE(effective_concept_namespace, weave_effective_concept_namespace_v1(concept_namespace)),
     enforce_concept_lists = COALESCE(enforce_concept_lists, false)
@@ -319,9 +330,12 @@ type WeavePreserveArchivedConceptPolicyParams struct {
 // and publication refuses it. Preserve fills the only values such a cut
 // could have carried: the effective namespace of an absent concept
 // namespace and lists not enforced. Explicit per-release, never a migration.
-func (q *Queries) WeavePreserveArchivedConceptPolicy(ctx context.Context, arg WeavePreserveArchivedConceptPolicyParams) error {
-	_, err := q.db.Exec(ctx, weavePreserveArchivedConceptPolicy, arg.ProjectID, arg.Version)
-	return err
+func (q *Queries) WeavePreserveArchivedConceptPolicy(ctx context.Context, arg WeavePreserveArchivedConceptPolicyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, weavePreserveArchivedConceptPolicy, arg.ProjectID, arg.Version)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const weavePreserveReleaseRow = `-- name: WeavePreserveReleaseRow :exec

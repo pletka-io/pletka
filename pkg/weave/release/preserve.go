@@ -2,6 +2,7 @@ package release
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -10,6 +11,13 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/releasedeps"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
+
+// preserveFilled counts the archive rows preserve wrote; the import ledger
+// records it beside the receipt it certifies.
+type preserveFilled struct {
+	ConceptPolicy int64 `json:"concept_policy"`
+	AdoptionPins  int64 `json:"adoption_pins"`
+}
 
 // preserveLegacyInTx re-owns a release's archived rows and rebuilds only its
 // evidence. Order matters: the import-ledger row is written after the ontology
@@ -25,7 +33,8 @@ func (s *Service) preserveLegacyInTx(ctx context.Context, tx pgx.Tx, p RebuildPr
 	if count != 1 {
 		return fmt.Errorf("expected one archived project row, found %d", count)
 	}
-	if err := q.WeavePreserveArchivedConceptPolicy(ctx, sqlcgen.WeavePreserveArchivedConceptPolicyParams{ProjectID: p.ProjectID, Version: p.Version}); err != nil {
+	var filled preserveFilled
+	if filled.ConceptPolicy, err = q.WeavePreserveArchivedConceptPolicy(ctx, sqlcgen.WeavePreserveArchivedConceptPolicyParams{ProjectID: p.ProjectID, Version: p.Version}); err != nil {
 		return fmt.Errorf("fill archived concept policy: %w", err)
 	}
 	if err := q.WeavePreserveReleaseRow(ctx, sqlcgen.WeavePreserveReleaseRowParams{
@@ -46,20 +55,24 @@ func (s *Service) preserveLegacyInTx(ctx context.Context, tx pgx.Tx, p RebuildPr
 		}
 		return fmt.Errorf("capture archived project dependencies: %w", err)
 	}
-	if err := q.WeavePinArchivedAdoptions(ctx, sqlcgen.WeavePinArchivedAdoptionsParams{ProjectID: p.ProjectID, Version: p.Version}); err != nil {
+	if filled.AdoptionPins, err = q.WeavePinArchivedAdoptions(ctx, sqlcgen.WeavePinArchivedAdoptionsParams{ProjectID: p.ProjectID, Version: p.Version}); err != nil {
 		return fmt.Errorf("pin archived adoptions: %w", err)
 	}
 	if err := (legacyEvidence{}).capture(ctx, q, p.ProjectID, p.Version, s.hosts); err != nil {
 		return evidenceError(err)
 	}
-	if err := q.WeaveInsertPreservedReleaseImport(ctx, sqlcgen.WeaveInsertPreservedReleaseImportParams{ProjectID: p.ProjectID, Version: p.Version, Operation: operation}); err != nil {
+	filledDoc, err := json.Marshal(filled)
+	if err != nil {
+		return err
+	}
+	if err := q.WeaveInsertPreservedReleaseImport(ctx, sqlcgen.WeaveInsertPreservedReleaseImportParams{ProjectID: p.ProjectID, Version: p.Version, Operation: operation, Filled: filledDoc}); err != nil {
 		return fmt.Errorf("record preserved archive: %w", err)
 	}
 	if err := q.WeaveInsertReleaseChangeSet(ctx, sqlcgen.WeaveInsertReleaseChangeSetParams{ProjectID: p.ProjectID, ActorID: actorID, CommitMessage: "Release v" + p.Version, Version: p.Version}); err != nil {
 		return fmt.Errorf("enqueue release change set: %w", err)
 	}
 	if err := (legacyEvidence{}).finalize(ctx, q, p.ProjectID, p.Version); err != nil {
-		return fmt.Errorf("mark release archive ownership: %w", err)
+		return finalizeError(err)
 	}
 	return nil
 }

@@ -115,7 +115,7 @@ SELECT COALESCE(project_id, '')::text AS project_id FROM entities
 WHERE entity_type = @entity_type::text AND id = @entity_id::text
 LIMIT 1;
 
--- name: WeavePinArchivedAdoptions :exec
+-- name: WeavePinArchivedAdoptions :execrows
 -- Archive twin of WeaveSnapshotPinnedAdoptions: stamp the captured source pin
 -- onto archived adoption receipts that were unpinned when the release was cut.
 -- Runs while archive ownership is 0, so the content guard allows the update.
@@ -144,7 +144,8 @@ VALUES (sqlc.arg(project_id)::text, sqlc.arg(actor_id)::text, 'pletka-system', '
 -- name: WeaveInsertPreservedReleaseImport :exec
 -- The migration 041 ledger row for a preserved release. Header values come from
 -- the release row inserted in this transaction; the receipt is computed from
--- the archive rows and must equal what finalization computes.
+-- the archive rows and must equal what finalization computes. filled counts
+-- the archive rows preserve wrote before certifying them.
 INSERT INTO weave_release_imports (project_id, version_number, document)
 SELECT r.project_id, r.version, jsonb_build_object(
     'header', jsonb_build_object('project_id', r.project_id, 'version', r.version,
@@ -152,11 +153,12 @@ SELECT r.project_id, r.version, jsonb_build_object(
         'created_by_id', r.created_by_id, 'title', r.title, 'description', r.description),
     'receipt', weave_legacy_archive_receipt(r.project_id, r.version),
     'source', 'preserved-legacy-archive',
-    'rebuild_operation', sqlc.arg(operation)::text)
+    'rebuild_operation', sqlc.arg(operation)::text,
+    'filled', sqlc.arg(filled)::jsonb)
 FROM weave_releases r
 WHERE r.project_id = sqlc.arg(project_id)::text AND r.version = sqlc.arg(version)::text;
 
--- name: WeavePreserveArchivedConceptPolicy :exec
+-- name: WeavePreserveArchivedConceptPolicy :execrows
 -- A project row archived before migrations 031/032 has no concept policy
 -- and publication refuses it. Preserve fills the only values such a cut
 -- could have carried: the effective namespace of an absent concept
