@@ -79,20 +79,20 @@ WITH refs AS (
     SELECT 'override', o.id::text, '', '' FROM weave_example_values_archive v
         JOIN weave_examples_archive e ON e.id = v.example_id AND e.version_number = v.version_number
         JOIN weave_field_overrides_archive o ON o.id = v.override_id AND o.version_number = v.version_number
-        JOIN weave_fields_archive f ON f.id = v.field_id AND f.version_number = v.version_number
         WHERE e.project_id = $1::text AND e.version_number = $2::text
+          AND EXISTS (SELECT 1 FROM weave_fields_archive f WHERE f.id = v.field_id)
     UNION ALL
     SELECT 'field', v.field_id, '', '' FROM weave_example_values_archive v
         JOIN weave_examples_archive e ON e.id = v.example_id AND e.version_number = v.version_number
         JOIN weave_field_overrides_archive o ON o.id = v.override_id AND o.version_number = v.version_number
-        JOIN weave_fields_archive f ON f.id = v.field_id AND f.version_number = v.version_number
         WHERE e.project_id = $1::text AND e.version_number = $2::text
+          AND EXISTS (SELECT 1 FROM weave_fields_archive f WHERE f.id = v.field_id)
     UNION ALL
     SELECT 'collection', v.part_of_collection_id, '', '' FROM weave_example_values_archive v
         JOIN weave_examples_archive e ON e.id = v.example_id AND e.version_number = v.version_number
         JOIN weave_field_overrides_archive o ON o.id = v.override_id AND o.version_number = v.version_number
-        JOIN weave_fields_archive f ON f.id = v.field_id AND f.version_number = v.version_number
         WHERE e.project_id = $1::text AND e.version_number = $2::text
+          AND EXISTS (SELECT 1 FROM weave_fields_archive f WHERE f.id = v.field_id)
     UNION ALL
     SELECT 'example', v.linked_example_id, '', '' FROM weave_example_values_archive v
         JOIN weave_examples_archive e ON e.id = v.example_id AND e.version_number = v.version_number
@@ -133,6 +133,10 @@ type WeaveArchivedDependencyReferencesRow struct {
 
 // Mirror of WeaveDraftDependencyReferences (read_dependency_draft/dependency_draft.sql)
 // over the archive sections at one release. Keep the branches in the same order.
+// Example values check their field with a version-free EXISTS: fields are
+// archived only at their owning project's versions, so an adopted foreign
+// field never shares this release's version_number. Overrides are the
+// consumer's own rows and stay joined at the same version.
 func (q *Queries) WeaveArchivedDependencyReferences(ctx context.Context, arg WeaveArchivedDependencyReferencesParams) ([]WeaveArchivedDependencyReferencesRow, error) {
 	rows, err := q.db.Query(ctx, weaveArchivedDependencyReferences, arg.ProjectID, arg.Version)
 	if err != nil {

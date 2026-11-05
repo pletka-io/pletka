@@ -17,6 +17,10 @@ ORDER BY parent_project_id;
 -- name: WeaveArchivedDependencyReferences :many
 -- Mirror of WeaveDraftDependencyReferences (read_dependency_draft/dependency_draft.sql)
 -- over the archive sections at one release. Keep the branches in the same order.
+-- Example values check their field with a version-free EXISTS: fields are
+-- archived only at their owning project's versions, so an adopted foreign
+-- field never shares this release's version_number. Overrides are the
+-- consumer's own rows and stay joined at the same version.
 WITH refs AS (
     SELECT 'project'::text AS entity_type, i.parent_project_id AS entity_id,
            i.parent_project_id AS source_project_id, COALESCE(i.source_version, '')::text AS source_version
@@ -52,20 +56,20 @@ WITH refs AS (
     SELECT 'override', o.id::text, '', '' FROM weave_example_values_archive v
         JOIN weave_examples_archive e ON e.id = v.example_id AND e.version_number = v.version_number
         JOIN weave_field_overrides_archive o ON o.id = v.override_id AND o.version_number = v.version_number
-        JOIN weave_fields_archive f ON f.id = v.field_id AND f.version_number = v.version_number
         WHERE e.project_id = @project_id::text AND e.version_number = @version::text
+          AND EXISTS (SELECT 1 FROM weave_fields_archive f WHERE f.id = v.field_id)
     UNION ALL
     SELECT 'field', v.field_id, '', '' FROM weave_example_values_archive v
         JOIN weave_examples_archive e ON e.id = v.example_id AND e.version_number = v.version_number
         JOIN weave_field_overrides_archive o ON o.id = v.override_id AND o.version_number = v.version_number
-        JOIN weave_fields_archive f ON f.id = v.field_id AND f.version_number = v.version_number
         WHERE e.project_id = @project_id::text AND e.version_number = @version::text
+          AND EXISTS (SELECT 1 FROM weave_fields_archive f WHERE f.id = v.field_id)
     UNION ALL
     SELECT 'collection', v.part_of_collection_id, '', '' FROM weave_example_values_archive v
         JOIN weave_examples_archive e ON e.id = v.example_id AND e.version_number = v.version_number
         JOIN weave_field_overrides_archive o ON o.id = v.override_id AND o.version_number = v.version_number
-        JOIN weave_fields_archive f ON f.id = v.field_id AND f.version_number = v.version_number
         WHERE e.project_id = @project_id::text AND e.version_number = @version::text
+          AND EXISTS (SELECT 1 FROM weave_fields_archive f WHERE f.id = v.field_id)
     UNION ALL
     SELECT 'example', v.linked_example_id, '', '' FROM weave_example_values_archive v
         JOIN weave_examples_archive e ON e.id = v.example_id AND e.version_number = v.version_number
