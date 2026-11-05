@@ -5,9 +5,6 @@
 -- and compares it, so an archive row changed in between refuses the apply.
 SELECT encode(sha256(convert_to(weave_legacy_archive_sections(sqlc.arg(project_id)::text,sqlc.arg(version)::text)::text,'UTF8')),'hex')::text AS digest;
 
--- name: WeaveLegacyArchiveReceipt :one
-SELECT weave_legacy_archive_receipt(sqlc.arg(project_id)::text,sqlc.arg(version)::text)::jsonb AS receipt;
-
 -- name: WeaveArchivedFollowingDependencies :many
 -- Mirror of WeaveDraftFollowingDependencies over the archived inheritance rows.
 SELECT parent_project_id FROM weave_project_inheritance_archive

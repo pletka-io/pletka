@@ -273,22 +273,6 @@ func (q *Queries) WeaveLegacyArchiveDigest(ctx context.Context, arg WeaveLegacyA
 	return digest, err
 }
 
-const weaveLegacyArchiveReceipt = `-- name: WeaveLegacyArchiveReceipt :one
-SELECT weave_legacy_archive_receipt($1::text,$2::text)::jsonb AS receipt
-`
-
-type WeaveLegacyArchiveReceiptParams struct {
-	ProjectID string `json:"project_id"`
-	Version   string `json:"version"`
-}
-
-func (q *Queries) WeaveLegacyArchiveReceipt(ctx context.Context, arg WeaveLegacyArchiveReceiptParams) (json.RawMessage, error) {
-	row := q.db.QueryRow(ctx, weaveLegacyArchiveReceipt, arg.ProjectID, arg.Version)
-	var receipt json.RawMessage
-	err := row.Scan(&receipt)
-	return receipt, err
-}
-
 const weavePinArchivedAdoptions = `-- name: WeavePinArchivedAdoptions :execrows
 UPDATE weave_adoptions_archive a SET source_version = d.source_version
 FROM weave_release_project_dependencies d
