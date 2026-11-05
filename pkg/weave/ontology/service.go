@@ -888,7 +888,10 @@ func (s *Service) DescribeTerm(ctx context.Context, projectID, qname string) (*a
 	if s.indexCache == nil {
 		return nil, ErrAutocompleteUnavailable
 	}
-	idx, err := s.indexCache.For(ctx, autocomplete.Request{ProjectID: projectID})
+	// Always include inherited links: a child project that links no
+	// ontology of its own (everything comes via its parent) would otherwise
+	// resolve to an empty index and every term would 404.
+	idx, err := s.indexCache.For(ctx, autocomplete.Request{ProjectID: projectID, IncludeParentProjects: true})
 	if err != nil {
 		return nil, fmt.Errorf("describe term: resolve index: %w", err)
 	}
