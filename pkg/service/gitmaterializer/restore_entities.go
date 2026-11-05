@@ -258,7 +258,7 @@ func hydrateFieldFile(ctx context.Context, q *sqlcgen.Queries, projectID string,
 	}
 
 	params := sqlcgen.WeaveCreateFieldParams{
-		ID:                ids.GenerateULID(),
+		ID:                semanticID, // fields are keyed by their semantic id, like models and collections
 		SemanticID:        nullableString(semanticID),
 		SystemName:        nullableString(doc.SystemName),
 		UiName:            marshalTranslationsForRestore(doc.UIName),
