@@ -15,3 +15,13 @@ RETURNING (next_n - 1)::bigint;
 -- Idempotent. Call after bulk imports (wave importer) to close any gap
 -- that direct INSERTs into entity tables would have left.
 SELECT weave_reconcile_entity_counters();
+
+-- name: WeaveBumpEntityCounter :exec
+-- Raise a counter so the next allocation is at least @next_n. Never lowers
+-- it. Used after a tree load, which writes entities with explicit ids.
+INSERT INTO weave_entity_counters (project_id, kind, next_n)
+VALUES (@project_id::text, @kind::text, @next_n::bigint)
+ON CONFLICT (project_id, kind)
+DO UPDATE SET
+    next_n = GREATEST(weave_entity_counters.next_n, EXCLUDED.next_n),
+    updated_at = NOW();

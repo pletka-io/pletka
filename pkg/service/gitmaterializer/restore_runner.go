@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
 // HydrateRestorePlan runs the whole restore pipeline for plan's project:
@@ -66,6 +70,11 @@ func (m *Materializer) HydrateRestorePlan(ctx context.Context, plan *RestorePlan
 	}
 	if err := m.hydrateProjectOverridesAndProvenanceLocked(ctx, plan); err != nil {
 		return err
+	}
+	// Entities were written with explicit ids; move the project's counters
+	// past them so the next allocation in the UI cannot collide.
+	if err := bumpEntityCounters(ctx, m.queries, plan.ProjectID, plan.Snapshot.Entities); err != nil {
+		return fmt.Errorf("hydrate restore plan: %w", err)
 	}
 	return nil
 }
@@ -174,4 +183,51 @@ func retargetProjectSnapshot(snapshot *ProjectSnapshot, targetProjectID string) 
 		}
 	}
 	return &cloned, nil
+}
+
+// trailingNumber matches the N in a semantic id such as XF.12 or X.CAT.3.
+var trailingNumber = regexp.MustCompile(`\.(\d+)$`)
+
+// bumpEntityCounters raises each entity-kind counter of projectID past the
+// highest number among the tree's own entities (adopted entities carry the
+// owning project's prefix and are skipped). Project-scoped and tolerant of
+// ids that are not of the numbered form, unlike the database-wide
+// weave_reconcile_entity_counters(), which casts every id's tail to bigint.
+func bumpEntityCounters(ctx context.Context, q *sqlcgen.Queries, projectID string, entities SnapshotEntityTree) error {
+	kinds := []struct {
+		kind  string
+		items []SnapshotEntityFile
+	}{
+		{entityTypeField, entities.Fields},
+		{entityTypeModel, entities.Models},
+		{entityTypeCollection, entities.Collections},
+		{entityTypeCategory, entities.Categories},
+		{entityTypeConceptList, entities.ConceptLists},
+	}
+	for _, k := range kinds {
+		var maxN int64
+		for _, item := range k.items {
+			if !strings.HasPrefix(item.EntityID, projectID) {
+				continue
+			}
+			m := trailingNumber.FindStringSubmatch(item.EntityID)
+			if m == nil {
+				continue
+			}
+			n, err := strconv.ParseInt(m[1], 10, 64)
+			if err != nil {
+				continue
+			}
+			if n > maxN {
+				maxN = n
+			}
+		}
+		if maxN == 0 {
+			continue
+		}
+		if err := q.WeaveBumpEntityCounter(ctx, sqlcgen.WeaveBumpEntityCounterParams{ProjectID: projectID, Kind: k.kind, NextN: maxN + 1}); err != nil {
+			return fmt.Errorf("bump %s counter: %w", k.kind, err)
+		}
+	}
+	return nil
 }

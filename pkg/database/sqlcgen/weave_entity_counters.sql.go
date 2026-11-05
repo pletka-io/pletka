@@ -34,6 +34,28 @@ func (q *Queries) WeaveAllocateEntityNumber(ctx context.Context, arg WeaveAlloca
 	return column_1, err
 }
 
+const weaveBumpEntityCounter = `-- name: WeaveBumpEntityCounter :exec
+INSERT INTO weave_entity_counters (project_id, kind, next_n)
+VALUES ($1::text, $2::text, $3::bigint)
+ON CONFLICT (project_id, kind)
+DO UPDATE SET
+    next_n = GREATEST(weave_entity_counters.next_n, EXCLUDED.next_n),
+    updated_at = NOW()
+`
+
+type WeaveBumpEntityCounterParams struct {
+	ProjectID string `json:"project_id"`
+	Kind      string `json:"kind"`
+	NextN     int64  `json:"next_n"`
+}
+
+// Raise a counter so the next allocation is at least @next_n. Never lowers
+// it. Used after a tree load, which writes entities with explicit ids.
+func (q *Queries) WeaveBumpEntityCounter(ctx context.Context, arg WeaveBumpEntityCounterParams) error {
+	_, err := q.db.Exec(ctx, weaveBumpEntityCounter, arg.ProjectID, arg.Kind, arg.NextN)
+	return err
+}
+
 const weaveReconcileEntityCounters = `-- name: WeaveReconcileEntityCounters :exec
 SELECT weave_reconcile_entity_counters()
 `

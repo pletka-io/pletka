@@ -25,6 +25,7 @@ func TestHydrateProjectSnapshot_FieldIDIsSemanticID(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_override_refs WHERE override_id IN (SELECT id FROM weave_field_overrides WHERE project_id = $1)`, projectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_field_overrides WHERE project_id = $1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_entity_counters WHERE project_id = $1`, projectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_models WHERE project_id = $1`, projectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_categories WHERE project_id = $1`, projectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_fields WHERE project_id = $1`, projectID)
@@ -65,6 +66,15 @@ func TestHydrateProjectSnapshot_FieldIDIsSemanticID(t *testing.T) {
 		t.Fatalf("category id = %q, want the semantic id", catID)
 	}
 
+	// A load that wrote entities with explicit ids must leave the entity
+	// counters ahead of them, or the next UI "add field" collides.
+	var nextField int64
+	if err := pool.QueryRow(ctx, `SELECT next_n FROM weave_entity_counters WHERE project_id = $1 AND kind = 'field'`, projectID).Scan(&nextField); err != nil {
+		t.Fatalf("field counter not reconciled after load: %v", err)
+	}
+	if nextField != 2 {
+		t.Fatalf("field counter next_n = %d, want 2", nextField)
+	}
 	dir := t.TempDir()
 	if err := m.writeProjectTree(ctx, dir, projectID); err != nil {
 		t.Fatalf("writeProjectTree: %v", err)
