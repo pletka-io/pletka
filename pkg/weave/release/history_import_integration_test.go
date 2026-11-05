@@ -123,12 +123,20 @@ func checkHistoryImport(ctx context.Context, t *testing.T, source *pgxpool.Pool,
 			}
 			continue
 		}
+		// A legacy release preserved from its archive is recorded in the
+		// import ledger at rebuild time; any other source release is a local
+		// capture and must not report import provenance.
+		var preserved bool
+		mustScan(t, source, `SELECT EXISTS(SELECT 1 FROM weave_release_imports WHERE project_id=$1 AND version_number=$2 AND document->>'source'='preserved-legacy-archive')`, []any{id.ProjectID(), id.Version()}, &preserved)
 		if err := readsession.NewFactory(source).Read(ctx, auth.Release(id.Version()), id.ProjectID(), func(s *readsession.Session) error {
 			origin, err := s.Origin(ctx)
 			if err != nil {
 				return err
 			}
-			if origin.Imported || origin.ImportedAt != "" {
+			if preserved && (!origin.Imported || origin.ImportedAt == "") {
+				t.Fatal("preserved legacy release lost its import provenance")
+			}
+			if !preserved && (origin.Imported || origin.ImportedAt != "") {
 				t.Fatal("local capture reported as imported")
 			}
 			return nil

@@ -129,6 +129,19 @@ func gitOut(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// gitIn runs a git command in dir with stdin and returns trimmed output.
+func gitIn(t *testing.T, dir, stdin string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Stdin = strings.NewReader(stdin)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // revParseQuiet resolves rev in dir, returning ("", false) when it does not
 // resolve.
 func revParseQuiet(t *testing.T, dir, rev string) (string, bool) {

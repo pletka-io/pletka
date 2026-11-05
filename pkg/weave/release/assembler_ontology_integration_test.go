@@ -4,6 +4,7 @@ package release
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -175,6 +176,7 @@ func TestProjectOntologyLinkActorMigrationDoesNotInventHistory(t *testing.T) {
 	mustExec(t, pool, "CREATE OR REPLACE VIEW weave_release_actor_references AS "+historicalView)
 	mustExec(t, pool, `INSERT INTO weave_actors(id,type,slug,display_name) VALUES ('legacy-link-author','person','author','Historical author')`)
 	mustExec(t, pool, `UPDATE weave_project_ontology_versions SET added_by_id='legacy-link-author'`)
+	mustExec(t, pool, `UPDATE weave_project_ontology_versions_archive SET added_by_id='legacy-link-author' WHERE project_id='legacy-root' AND version_number='0.1.0'`)
 	plan, err := svc.PlanLegacyRebuild(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -186,10 +188,15 @@ func TestProjectOntologyLinkActorMigrationDoesNotInventHistory(t *testing.T) {
 	mustScan(t, pool, `SELECT document::text FROM weave_release_descriptors WHERE project_id=$1 AND version_number=$2`, []any{legacyProject, legacyVersion}, &before)
 	// Rebuild uses the current maintenance inventory; now run the actual
 	// migration again over the historical descriptors produced with the old view.
-	for version := latest; version >= 40; version-- {
+	// The preserved release is retained imported history, so migration 041
+	// refuses to go further down; everything above it is re-run.
+	for version := latest; version > 41; version-- {
 		if err := database.MigrateDown(db); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade retained imported release history") {
+		t.Fatalf("downgrade: %v", err)
 	}
 	if err := database.Migrate(db); err != nil {
 		t.Fatal(err)

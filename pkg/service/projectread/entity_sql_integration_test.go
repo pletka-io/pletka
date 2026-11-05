@@ -66,6 +66,7 @@ INSERT INTO weave_example_values(id,example_id,override_id,field_id,part_of_coll
 	if _, err := pool.Exec(ctx, `INSERT INTO weave_releases(project_id,version,created_by_id) VALUES('DISC','1.0.0','DISCOWNER')`); err != nil {
 		t.Fatal(err)
 	}
+	testdb.ArchiveDraft(t, pool, "DISC", "1.0.0")
 	plan, err := service.PlanLegacyRebuild(ctx, []string{"DISC"})
 	if err != nil {
 		t.Fatal(err)

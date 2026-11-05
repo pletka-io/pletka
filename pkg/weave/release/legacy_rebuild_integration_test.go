@@ -40,7 +40,6 @@ func seedLegacyRebuild(t *testing.T, withSource bool) (context.Context, *pgxpool
 		`INSERT INTO weave_models(id,project_id) VALUES ('legacy-model','legacy-root')`,
 		`INSERT INTO weave_fields(id,project_id,path_elements) VALUES ('legacy-field','legacy-root','[{"position":0,"type":"class","uri":"https://example.org/crm/E1","prefix":"crm","local_name":"E1"},{"position":1,"type":"class","uri":"https://example.org/crm/E1","prefix":"crm","local_name":"E1","ontology_version_id":"legacy-crm-6.2"},{"position":2,"type":"literal","uri":"rdfs:Literal","local_name":"Literal","prefix":"rdfs","datatype":"rdf:literal"}]')`,
 		`INSERT INTO weave_releases(project_id,version,title,created_by_id) VALUES ('legacy-root','0.1.0','Old release','legacy-owner')`,
-		`INSERT INTO weave_projects_archive(id,owner_id,version_number,ui_name) VALUES ('legacy-root','legacy-owner','0.1.0','{"en":"Old archive"}')`,
 	} {
 		mustExec(t, p, sql)
 	}
@@ -70,6 +69,10 @@ func seedLegacyRebuild(t *testing.T, withSource bool) (context.Context, *pgxpool
 			mustExec(t, p, sql)
 		}
 	}
+	if withSource {
+		testdb.ArchiveDraft(t, p, "legacy-source", legacyVersion)
+	}
+	testdb.ArchiveDraft(t, p, legacyProject, legacyVersion)
 	return ctx, p, NewService(NewPostgresStore(p), p, nil)
 }
 
@@ -249,12 +252,12 @@ func TestLegacyRebuildFinalizesMixedEvidenceAndResumes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for version := latest; version > 36; version-- {
+	for version := latest; version > 41; version-- {
 		if err := database.MigrateDown(db); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade retained legacy content") {
+	if err := database.MigrateDown(db); err == nil || !strings.Contains(err.Error(), "cannot downgrade retained imported release history") {
 		t.Fatalf("downgrade: %v", err)
 	}
 }
@@ -271,7 +274,7 @@ func TestLegacyRebuildRejectsStaleOntologyAndRollsBackWholeBatch(t *testing.T) {
 				mustExec(t, p, `UPDATE weave_ontology_versions SET rdf_content='changed' WHERE id='legacy-crm-6.2'`)
 			} else {
 				mustExec(t, p, `CREATE FUNCTION fail_legacy_consumer() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.project_id='legacy-root' THEN RAISE EXCEPTION 'consumer failed'; END IF; RETURN NEW; END $$`)
-				mustExec(t, p, `CREATE TRIGGER fail_legacy_consumer BEFORE INSERT ON weave_models_archive FOR EACH ROW EXECUTE FUNCTION fail_legacy_consumer()`)
+				mustExec(t, p, `CREATE TRIGGER fail_legacy_consumer BEFORE INSERT ON weave_release_descriptors FOR EACH ROW EXECUTE FUNCTION fail_legacy_consumer()`)
 			}
 			_, err = svc.RunLegacyRebuild(ctx, LegacyRebuildRequest{Plan: plan}, checkRebuild, finishRebuild)
 			if err == nil {

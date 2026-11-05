@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pletka-io/pletka/internal/testdb"
@@ -132,5 +133,59 @@ func TestReleaseRepointRecoveryAndCAS(t *testing.T) {
 		if gitOut(t, repo, "rev-parse", "refs/heads/releases") != p.Commit || gitOut(t, repo, "rev-parse", "refs/tags/v7.0.1^{}") != p.Commit {
 			t.Fatal("tag/branch do not point to prepared commit")
 		}
+	}
+	if got := gitOut(t, dir, "rev-parse", "refs/legacy/v7.0.1"); got != oldTag {
+		t.Fatalf("old tag object not kept under refs/legacy: %s", got)
+	}
+	if err := m.PublishReleaseRepoint(ctx, finished.ID, prepared[0]); err != nil {
+		t.Fatalf("republish after completion is not a no-op: %v", err)
+	}
+}
+
+func TestPublishRefusesForeignLegacyRef(t *testing.T) {
+	skipIfNoGit(t)
+	pool := testdb.EmptyPool(t)
+	ctx := zmatAuthCtx(seedZMAT(t, pool))
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_releases(project_id,version,created_by_id) VALUES ('ZMAT','7.0.1','ZMAT_OWNER')`); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, "ZMAT")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	gitOut(t, dir, "init", "--initial-branch=main")
+	if err := os.WriteFile(filepath.Join(dir, "draft.txt"), []byte("draft\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gitOut(t, dir, "add", "draft.txt")
+	gitOut(t, dir, "-c", "user.name=Test", "-c", "user.email=test@example.org", "commit", "-m", "old")
+	old := gitOut(t, dir, "rev-parse", "HEAD")
+	gitOut(t, dir, "update-ref", "refs/heads/releases", old)
+	gitOut(t, dir, "-c", "user.name=Test", "-c", "user.email=test@example.org", "tag", "-a", "v7.0.1", "-m", "old tag")
+	// A stale legacy ref that points at the commit, not at the tag object.
+	gitOut(t, dir, "update-ref", "refs/legacy/v7.0.1", old)
+	m := gitmaterializer.NewMaterializer(pool, root, nil)
+	expected, err := m.InspectReleaseRefs(ctx, "ZMAT", "7.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Prepared objects: the same commit under a new tag object, so the publish
+	// is not the completed no-op and must reach the ref transaction.
+	newTag := gitIn(t, dir, "object "+old+"\ntype commit\ntag v7.0.1\ntagger T <t@example.org> 1 +0000\n\nnew tag\n", "mktag")
+	const op = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	prefix := "refs/pletka-rebuild/" + op + "/"
+	gitOut(t, dir, "update-ref", prefix+"prepared-commit", old)
+	gitOut(t, dir, "update-ref", prefix+"prepared-tag", newTag)
+	prepared := gitmaterializer.PreparedRelease{Expected: expected, Commit: old, Tag: newTag}
+	err = m.PublishReleaseRepoint(ctx, op, prepared)
+	if err == nil || !strings.Contains(err.Error(), "refs/legacy/v7.0.1") {
+		t.Fatalf("foreign legacy ref overwritten: %v", err)
+	}
+	if got := gitOut(t, dir, "rev-parse", "refs/legacy/v7.0.1"); got != old {
+		t.Fatal("foreign legacy ref changed")
+	}
+	if got := gitOut(t, dir, "rev-parse", "refs/tags/v7.0.1"); got != expected.Tag {
+		t.Fatal("tag moved despite the refused transaction")
 	}
 }

@@ -42,6 +42,9 @@ func (e *ErrConflict) Error() string { return e.Message }
 
 const releaseVersionField = "version"
 
+// dependenciesField is the validation field for project dependency errors.
+const dependenciesField = "dependencies"
+
 type CreateInput struct {
 	Version     string `json:"version"`
 	Title       string `json:"title"`
@@ -124,9 +127,18 @@ func (s *Service) createInTx(ctx context.Context, tx pgx.Tx, projectID string, i
 	return s.createWithEvidence(ctx, tx, projectID, in, actorID, publishedEvidence{})
 }
 
-// createLegacyInTx is reachable only from the explicit legacy rebuild lifecycle.
-func (s *Service) createLegacyInTx(ctx context.Context, tx pgx.Tx, projectID string, in CreateInput, actorID string) (*Release, error) {
-	return s.createWithEvidence(ctx, tx, projectID, in, actorID, legacyEvidence{})
+// evidenceError maps capture failures to the validation envelope operators see.
+func evidenceError(err error) error {
+	var validation interface{ ValidationFields() map[string][]string }
+	if errors.As(err, &validation) {
+		return &ErrValidation{Fields: validation.ValidationFields()}
+	}
+	var missing *releasedescriptor.UnavailableError
+	var invalid *releasedescriptor.InvalidError
+	if errors.As(err, &missing) || errors.As(err, &invalid) {
+		return &ErrValidation{Fields: map[string][]string{"descriptors": {err.Error()}}}
+	}
+	return fmt.Errorf("capture release descriptors: %w", err)
 }
 
 // createWithEvidence shares structural capture, ordering, outbox and rollback.
@@ -150,7 +162,7 @@ func (s *Service) createWithEvidence(ctx context.Context, tx pgx.Tx, projectID s
 	if err := releasedeps.Capture(ctx, sqlcgen.New(tx), projectID, in.Version); err != nil {
 		var unavailable *releasedeps.UnavailableError
 		if errors.As(err, &unavailable) {
-			return nil, &ErrValidation{Fields: map[string][]string{"dependencies": {unavailable.Error()}}}
+			return nil, &ErrValidation{Fields: map[string][]string{dependenciesField: {unavailable.Error()}}}
 		}
 		return nil, fmt.Errorf("capture release project dependencies: %w", err)
 	}
@@ -159,16 +171,7 @@ func (s *Service) createWithEvidence(ctx context.Context, tx pgx.Tx, projectID s
 	}
 
 	if err := evidence.capture(ctx, sqlcgen.New(tx), projectID, in.Version, s.hosts); err != nil {
-		var validation interface{ ValidationFields() map[string][]string }
-		if errors.As(err, &validation) {
-			return nil, &ErrValidation{Fields: validation.ValidationFields()}
-		}
-		var missing *releasedescriptor.UnavailableError
-		var invalid *releasedescriptor.InvalidError
-		if errors.As(err, &missing) || errors.As(err, &invalid) {
-			return nil, &ErrValidation{Fields: map[string][]string{"descriptors": {err.Error()}}}
-		}
-		return nil, fmt.Errorf("capture release descriptors: %w", err)
+		return nil, evidenceError(err)
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -181,13 +184,19 @@ func (s *Service) createWithEvidence(ctx context.Context, tx pgx.Tx, projectID s
 	}
 
 	if err := evidence.finalize(ctx, sqlcgen.New(tx), projectID, in.Version); err != nil {
-		var pgerr *pgconn.PgError
-		if errors.As(err, &pgerr) && pgerr.ConstraintName == "release_content_source_unverified" {
-			return nil, &ErrValidation{Fields: map[string][]string{"dependencies": {"source release has no verified content capture; cut a new source release"}}}
-		}
-		return nil, fmt.Errorf("mark release archive ownership: %w", err)
+		return nil, finalizeError(err)
 	}
 	return created, nil
+}
+
+// finalizeError maps a refused release finalization: an unverified source
+// release is a dependency validation error, anything else is internal.
+func finalizeError(err error) error {
+	var pgerr *pgconn.PgError
+	if errors.As(err, &pgerr) && pgerr.ConstraintName == "release_content_source_unverified" {
+		return &ErrValidation{Fields: map[string][]string{dependenciesField: {"source release has no verified content capture; cut a new source release"}}}
+	}
+	return fmt.Errorf("mark release archive ownership: %w", err)
 }
 
 func validateReleaseCandidates(ctx context.Context, tx pgx.Tx, projectID string) error {

@@ -278,6 +278,7 @@ func TestLegacySummaryPreservesEvidenceWithoutInventingUsage(t *testing.T) {
 		}
 	}
 	exec(`INSERT INTO weave_project_ontology_versions(project_id,ontology_version_id,is_primary,added_at) VALUES('LEG','LEGONT.1',true,now()),('LEG','LEGONT.2',false,now());`)
+	testdb.ArchiveDraft(t, pool, "LEG", "1.0.0")
 	service := release.NewService(release.NewPostgresStore(pool), pool, nil)
 	plan, err := service.PlanLegacyRebuild(ctx, []string{"LEG"})
 	if err != nil {

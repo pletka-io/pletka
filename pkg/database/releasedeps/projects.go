@@ -18,7 +18,12 @@ func Capture(ctx context.Context, q *sqlcgen.Queries, projectID, version string)
 	if err != nil {
 		return err
 	}
+	return persist(ctx, q, projectID, version, plan)
+}
 
+// persist writes a plan's source pins and entity closure and marks the
+// release's project dependencies captured.
+func persist(ctx context.Context, q *sqlcgen.Queries, projectID, version string, plan Plan) error {
 	for _, source := range sortedProjects(plan.pins) {
 		if err := q.WeaveInsertReleaseProjectDependency(ctx, sqlcgen.WeaveInsertReleaseProjectDependencyParams{ProjectID: projectID, Version: version, SourceProjectID: source, SourceVersion: plan.pins[source]}); err != nil {
 			return fmt.Errorf("retain source release %s@%s: %w", source, plan.pins[source], err)

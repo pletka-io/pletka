@@ -310,8 +310,23 @@ func (m *Materializer) PublishReleaseRepoint(ctx context.Context, operation stri
 	if tag == "" {
 		tag = zero
 	}
-	commands := fmt.Sprintf("start\nupdate %s %s %s\nupdate refs/tags/v%s %s %s\nprepare\ncommit\n", releasesBranchRef, prepared.Commit, branch, expected.Version, prepared.Tag, tag)
-	_, err = git.runOutStdin(ctx, nil, []byte(commands), "update-ref", "--stdin")
+	commands := fmt.Sprintf("start\nupdate %s %s %s\nupdate refs/tags/v%s %s %s\n", releasesBranchRef, prepared.Commit, branch, expected.Version, prepared.Tag, tag)
+	// The pre-repoint tag object stays reachable under a stable name, in the
+	// same ref transaction. A matching ref is a resume; another object is not ours.
+	if expected.Tag != "" {
+		legacy := "refs/legacy/v" + expected.Version
+		have, ok, err := git.RefSHA(ctx, legacy)
+		if err != nil {
+			return err
+		}
+		if ok && have != expected.Tag {
+			return fmt.Errorf("%s already holds another object; refusing to overwrite it", legacy)
+		}
+		if !ok {
+			commands += "create " + legacy + " " + expected.Tag + "\n"
+		}
+	}
+	_, err = git.runOutStdin(ctx, nil, []byte(commands+"prepare\ncommit\n"), "update-ref", "--stdin")
 	return err
 }
 
