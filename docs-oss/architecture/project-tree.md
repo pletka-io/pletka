@@ -13,7 +13,7 @@ project.yaml                 identity, parents, ontology links, namespaces
 pletka.mod                   module path and requirements
 pletka.sum                   tree hashes, only when vendor/ exists
 categories/<ID>.yaml
-concept-lists/<ID>.yaml      the list itself; entries stay in the database
+concept-lists/<ID>.yaml      the list itself (no deprecated flag); entries stay in the database
 fields/<ID>/field.yaml       + base-override.yaml
 models/<ID>/model.yaml       + overrides/<FIELD>@<token>.yaml, one per placement
 collections/<ID>/collection.yaml + overrides/...

@@ -10,13 +10,13 @@ const (
 	keyUIName      = "ui_name"
 	keyDescription = "description"
 	keyStatus      = "status"
-	keyDeprecated  = "deprecated"
 )
 
 // ConceptList serializes a domain.ConceptList to canonical YAML for the
 // project tree. Entries and broader edges are not part of the tree yet; the
 // file carries the list itself. Excluded: id, project_id, timestamps,
-// list_type and vocabulary_id (database-local references).
+// list_type and vocabulary_id (database-local references). Concept lists
+// have no deprecated flag, so the file has no such key.
 func ConceptList(l *domain.ConceptList) ([]byte, error) {
 	data := map[string]any{
 		keySemanticID:  l.SemanticID,
@@ -24,7 +24,6 @@ func ConceptList(l *domain.ConceptList) ([]byte, error) {
 		keyUIName:      translationsToMap(l.UIName),
 		keyDescription: translationsToMap(l.Description),
 		keyStatus:      l.Status,
-		keyDeprecated:  l.Deprecated,
 		"is_closed":    l.IsClosed,
 	}
 	return Encode(data)

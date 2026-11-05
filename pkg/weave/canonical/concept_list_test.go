@@ -18,7 +18,7 @@ func TestConceptList_CanonicalKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "deprecated: false\ndescription: {}\nis_closed: true\nsemantic_id: TPC.CL.3\nstatus: draft\nsystem_name: license\nui_name:\n  en: License\n"
+	want := "description: {}\nis_closed: true\nsemantic_id: TPC.CL.3\nstatus: draft\nsystem_name: license\nui_name:\n  en: License\n"
 	if string(got) != want {
 		t.Errorf("canonical concept list mismatch:\n got %q\nwant %q", got, want)
 	}
