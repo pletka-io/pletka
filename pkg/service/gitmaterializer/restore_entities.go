@@ -491,16 +491,41 @@ func decodePathElement(raw canonicalPathElement, defaultType string, position in
 	return pe, nil
 }
 
+// decodePathElements restores a field's path. The full map form carries its
+// own type; the compact qname form (an authored tree) is typed by position:
+// a path alternates property, class, property, ... and a literal terminal
+// (xsd:*, rdf:*, rdfs:Literal, rdfs:Resource) is a literal whatever its
+// position.
 func decodePathElements(items []canonicalPathElement) ([]domain.PathElement, error) {
 	out := make([]domain.PathElement, 0, len(items))
 	for i, item := range items {
-		pe, err := decodePathElement(item, "", i)
+		defaultType := "property"
+		if i%2 == 1 {
+			defaultType = "class"
+		}
+		pe, err := decodePathElement(item, defaultType, i)
 		if err != nil {
 			return nil, err
+		}
+		if isLiteralPathElement(pe) {
+			pe.Type = "literal"
 		}
 		out = append(out, pe)
 	}
 	return out, nil
+}
+
+// isLiteralPathElement reports whether a compact path element names a literal
+// type rather than a class: any xsd or rdf datatype, the generic rdfs:Literal,
+// or rdfs:Resource (an IRI value, which the path builder also ends a path with).
+func isLiteralPathElement(pe domain.PathElement) bool {
+	switch pe.Prefix {
+	case "xsd", "rdf":
+		return true
+	case "rdfs":
+		return pe.LocalName == "Literal" || pe.LocalName == "Resource"
+	}
+	return false
 }
 
 // decodeSubfieldPaths restores the legacy subfield paths with the same
