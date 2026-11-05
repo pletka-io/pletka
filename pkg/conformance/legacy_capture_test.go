@@ -26,12 +26,12 @@ func TestLegacyCapturePolicyHasOnlyExplicitLifecycleEntry(t *testing.T) {
 			}
 			ast.Inspect(fn, func(n ast.Node) bool {
 				if literal, ok := n.(*ast.CompositeLit); ok {
-					if name, ok := literal.Type.(*ast.Ident); ok && name.Name == "legacyEvidence" && (rel != "pkg/weave/release/service.go" || fn.Name.Name != "createLegacyInTx") {
+					if name, ok := literal.Type.(*ast.Ident); ok && name.Name == "legacyEvidence" && (rel != "pkg/weave/release/preserve.go" || fn.Name.Name != "preserveLegacyInTx") {
 						t.Errorf("%s:%s constructs legacy evidence outside its lifecycle", rel, fn.Name.Name)
 					}
 				}
 				if sel, ok := n.(*ast.SelectorExpr); ok {
-					if sel.Sel.Name == "createLegacyInTx" && (rel != "pkg/weave/release/rebuild.go" || fn.Name.Name != "legacyRebuild") {
+					if sel.Sel.Name == "preserveLegacyInTx" && (rel != "pkg/weave/release/rebuild.go" || fn.Name.Name != "legacyRebuild") {
 						t.Errorf("%s:%s bypasses explicit legacy rebuild", rel, fn.Name.Name)
 					}
 					if sel.Sel.Name == "WeaveFinalizeLegacyReleaseCapture" && rel != "pkg/weave/release/capture_evidence.go" {
