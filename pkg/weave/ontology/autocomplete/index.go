@@ -141,6 +141,11 @@ type indexStore interface {
 	ListRelationsByVersionsAndTypes(ctx context.Context, versionIDs, relTypes []string) ([]*domain.OntologyRelationWithSource, error)
 	GetVersion(ctx context.Context, id string) (*domain.OntologyVersion, error)
 	GetOntology(ctx context.Context, id string) (*domain.Ontology, error)
+	// GetOntologyByPrefix and GetActiveVersion back the implicit defaults
+	// lookup in IndexCache.resolve. Both return (nil, nil) when nothing
+	// matches.
+	GetOntologyByPrefix(ctx context.Context, prefix string) (*domain.Ontology, error)
+	GetActiveVersion(ctx context.Context, ontologyID string) (*domain.OntologyVersion, error)
 }
 
 // keyForRequest builds a canonical IndexKey from the supplied version IDs,

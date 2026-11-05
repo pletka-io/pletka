@@ -16,6 +16,18 @@ type fakeIndexStore struct {
 	relations  []*domain.OntologyRelationWithSource
 	versions   map[string]*domain.OntologyVersion
 	ontologies map[string]*domain.Ontology
+	// byPrefix and activeVersion back the defaults-ontology lookup in
+	// IndexCache.resolve. Both nil-safe: a missing key means "not imported".
+	byPrefix      map[string]*domain.Ontology
+	activeVersion map[string]*domain.OntologyVersion // keyed by ontology ID
+}
+
+func (f *fakeIndexStore) GetOntologyByPrefix(_ context.Context, prefix string) (*domain.Ontology, error) {
+	return f.byPrefix[prefix], nil
+}
+
+func (f *fakeIndexStore) GetActiveVersion(_ context.Context, ontologyID string) (*domain.OntologyVersion, error) {
+	return f.activeVersion[ontologyID], nil
 }
 
 func (f *fakeIndexStore) ListClassesByVersions(_ context.Context, _ []string) ([]*domain.OntologyClass, error) {

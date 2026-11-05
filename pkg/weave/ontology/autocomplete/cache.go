@@ -326,7 +326,12 @@ func (c *IndexCache) evictLocked() {
 
 // resolve returns the version IDs and primary version ID for req. When
 // req.VersionID is set, it pins to that single version (acting as its own
-// primary). Inherited links are skipped unless req.IncludeParentProjects.
+// primary) and no defaults are added. Otherwise the project's links are
+// resolved (inherited links skipped unless req.IncludeParentProjects) and the
+// defaults ontology's active version is appended, so the RDF basic
+// vocabulary is part of every project's index exactly as it is part of
+// every path audit. A project with no links of its own stays without an
+// index: defaults alone is not a project vocabulary.
 func (c *IndexCache) resolve(ctx context.Context, req Request) ([]string, string, error) {
 	if req.VersionID != "" {
 		return []string{req.VersionID}, req.VersionID, nil
@@ -338,18 +343,57 @@ func (c *IndexCache) resolve(ctx context.Context, req Request) ([]string, string
 	if err != nil {
 		return nil, "", fmt.Errorf("resolved ontology versions: %w", err)
 	}
-	out := make([]string, 0, len(resolved))
+	out := make([]string, 0, len(resolved)+1)
+	seen := map[string]struct{}{}
 	var primary string
 	for _, r := range resolved {
 		if r.SourceProjectID != "" && !req.IncludeParentProjects {
 			continue
 		}
-		out = append(out, r.Link.OntologyVersionID)
+		id := r.Link.OntologyVersionID
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
 		if r.Link.IsPrimary {
-			primary = r.Link.OntologyVersionID
+			primary = id
 		}
 	}
+	if len(out) == 0 {
+		return nil, primary, nil
+	}
+	defaultsID, err := c.defaultsVersionID(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	if _, dup := seen[defaultsID]; defaultsID != "" && !dup {
+		out = append(out, defaultsID)
+	}
 	return out, primary, nil
+}
+
+// defaultsVersionID returns the active version ID of the defaults ontology,
+// or "" when the ontology or an active version is missing. The lookup is
+// cheap (two primary-key reads) and the result lands in the cache key, so a
+// defaults re-import invalidates every project index through the existing
+// InvalidateForVersion path.
+func (c *IndexCache) defaultsVersionID(ctx context.Context) (string, error) {
+	ont, err := c.store.GetOntologyByPrefix(ctx, domain.DefaultsOntologyPrefix)
+	if err != nil {
+		return "", fmt.Errorf("look up defaults ontology: %w", err)
+	}
+	if ont == nil {
+		return "", nil
+	}
+	v, err := c.store.GetActiveVersion(ctx, ont.ID)
+	if err != nil {
+		return "", fmt.Errorf("look up defaults ontology active version: %w", err)
+	}
+	if v == nil {
+		return "", nil
+	}
+	return v.ID, nil
 }
 
 // cacheKeyString converts an IndexKey to a flat string for singleflight.Group.
