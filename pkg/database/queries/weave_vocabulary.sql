@@ -463,3 +463,29 @@ ON CONFLICT (project_id, kind)
 DO UPDATE SET
     next_n = GREATEST(weave_entity_counters.next_n, EXCLUDED.next_n),
     updated_at = NOW();
+
+-- name: WeaveListConceptListsForTree :many
+SELECT * FROM weave_concept_lists
+WHERE project_id = $1
+ORDER BY semantic_id;
+
+-- name: WeaveListConceptListsArchiveForTree :many
+SELECT * FROM weave_concept_lists_archive
+WHERE project_id = $1 AND version_number = $2
+ORDER BY semantic_id;
+
+-- name: WeaveUpsertConceptList :one
+INSERT INTO weave_concept_lists (
+    id, created_at, updated_at, semantic_id, system_name,
+    ui_name, description, status, project_id, is_closed
+) VALUES (
+    $1, NOW(), NOW(), $2, $3, $4, $5, $6, $7, $8
+)
+ON CONFLICT (project_id, semantic_id) WHERE ((semantic_id IS NOT NULL) AND (semantic_id <> ''::text))
+DO UPDATE SET system_name = EXCLUDED.system_name,
+              ui_name     = EXCLUDED.ui_name,
+              description = EXCLUDED.description,
+              status      = EXCLUDED.status,
+              is_closed   = EXCLUDED.is_closed,
+              updated_at  = NOW()
+RETURNING *;

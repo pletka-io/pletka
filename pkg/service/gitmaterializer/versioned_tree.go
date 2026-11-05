@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
@@ -25,6 +26,9 @@ func (m *Materializer) writeProjectTreeVersion(ctx context.Context, workDir, pro
 		return err
 	}
 	if err := m.writeCategoriesVersion(ctx, workDir, projectID, version); err != nil {
+		return err
+	}
+	if err := m.writeConceptListsVersion(ctx, workDir, projectID, version); err != nil {
 		return err
 	}
 	if err := m.writeFieldsVersion(ctx, workDir, projectID, version); err != nil {
@@ -371,6 +375,26 @@ func (m *Materializer) writeCategoriesVersion(ctx context.Context, workDir, proj
 			return fmt.Errorf("encode archived category %s: %w", cat.ID, err)
 		}
 		path := domain.FilePath(domain.PathSpec{EntityType: "category", EntityID: identifierFor(cat.SemanticID, cat.ID)})
+		if err := writeEntityFile(workDir, path, payload); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeConceptListsVersion materializes the concept lists a release archived.
+func (m *Materializer) writeConceptListsVersion(ctx context.Context, workDir, projectID, version string) error {
+	rows, err := m.queries.WeaveListConceptListsArchiveForTree(ctx, sqlcgen.WeaveListConceptListsArchiveForTreeParams{ProjectID: projectID, VersionNumber: version})
+	if err != nil {
+		return fmt.Errorf("list archived concept lists: %w", err)
+	}
+	for _, row := range rows {
+		list := archivedRowToConceptList(row)
+		payload, err := canonical.ConceptList(list)
+		if err != nil {
+			return fmt.Errorf("encode archived concept list %s: %w", list.ID, err)
+		}
+		path := domain.FilePath(domain.PathSpec{EntityType: entityTypeConceptList, EntityID: identifierFor(list.SemanticID, list.ID)})
 		if err := writeEntityFile(workDir, path, payload); err != nil {
 			return err
 		}

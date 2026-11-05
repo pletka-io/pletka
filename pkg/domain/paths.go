@@ -12,6 +12,9 @@ type PathSpec struct {
 	OwnerID   string // semantic ID of the owning model/collection
 }
 
+// EntityTypeConceptListPath is the PathSpec.EntityType of a concept-list file.
+const EntityTypeConceptListPath = "concept_list"
+
 // FilePath returns the path relative to the project working tree where
 // an entity should be materialized.
 func FilePath(spec PathSpec) string {
@@ -20,6 +23,8 @@ func FilePath(spec PathSpec) string {
 		return "project.yaml"
 	case "category":
 		return fmt.Sprintf("categories/%s.yaml", spec.EntityID)
+	case EntityTypeConceptListPath:
+		return fmt.Sprintf("concept-lists/%s.yaml", spec.EntityID)
 	case "field":
 		return fmt.Sprintf("fields/%s/field.yaml", spec.EntityID)
 	case "model":

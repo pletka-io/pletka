@@ -22,6 +22,7 @@ const (
 	entityTypeCollection   = "collection"
 	entityTypeField        = "field"
 	entityTypeCategory     = "category"
+	entityTypeConceptList  = "concept_list"
 	entityTypeBaseOverride = "base_override"
 	opDelete               = "delete"
 )

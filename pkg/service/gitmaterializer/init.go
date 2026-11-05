@@ -94,6 +94,30 @@ func (m *Materializer) writeCategories(ctx context.Context, workDir, projectID s
 	return nil
 }
 
+// writeConceptLists materializes concept-lists/<SEMID>.yaml for every concept
+// list the project owns. Entries and broader edges stay in the database.
+func (m *Materializer) writeConceptLists(ctx context.Context, workDir, projectID string) error {
+	rows, err := m.queries.WeaveListConceptListsForTree(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("list concept lists: %w", err)
+	}
+	for _, row := range rows {
+		list := rowToConceptList(row)
+		payload, err := canonical.ConceptList(list)
+		if err != nil {
+			return fmt.Errorf("encode concept list %s: %w", list.ID, err)
+		}
+		path := domain.FilePath(domain.PathSpec{
+			EntityType: entityTypeConceptList,
+			EntityID:   identifierFor(list.SemanticID, list.ID),
+		})
+		if err := writeEntityFile(workDir, path, payload); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // writeOneCategory materializes a single category's file. Shared by
 // writeCategories (loop) and the scoped rewrite so both paths are
 // byte-identical.

@@ -1189,6 +1189,90 @@ func (q *Queries) WeaveListConceptLists(ctx context.Context, projectID string) (
 	return items, nil
 }
 
+const weaveListConceptListsArchiveForTree = `-- name: WeaveListConceptListsArchiveForTree :many
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id, version_number, is_closed FROM weave_concept_lists_archive
+WHERE project_id = $1 AND version_number = $2
+ORDER BY semantic_id
+`
+
+type WeaveListConceptListsArchiveForTreeParams struct {
+	ProjectID     string `json:"project_id"`
+	VersionNumber string `json:"version_number"`
+}
+
+func (q *Queries) WeaveListConceptListsArchiveForTree(ctx context.Context, arg WeaveListConceptListsArchiveForTreeParams) ([]WeaveConceptListsArchive, error) {
+	rows, err := q.db.Query(ctx, weaveListConceptListsArchiveForTree, arg.ProjectID, arg.VersionNumber)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveConceptListsArchive{}
+	for rows.Next() {
+		var i WeaveConceptListsArchive
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SemanticID,
+			&i.SystemName,
+			&i.UiName,
+			&i.Description,
+			&i.Status,
+			&i.ProjectID,
+			&i.ListType,
+			&i.VocabularyID,
+			&i.VersionNumber,
+			&i.IsClosed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveListConceptListsForTree = `-- name: WeaveListConceptListsForTree :many
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id, is_closed FROM weave_concept_lists
+WHERE project_id = $1
+ORDER BY semantic_id
+`
+
+func (q *Queries) WeaveListConceptListsForTree(ctx context.Context, projectID string) ([]WeaveConceptList, error) {
+	rows, err := q.db.Query(ctx, weaveListConceptListsForTree, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveConceptList{}
+	for rows.Next() {
+		var i WeaveConceptList
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SemanticID,
+			&i.SystemName,
+			&i.UiName,
+			&i.Description,
+			&i.Status,
+			&i.ProjectID,
+			&i.ListType,
+			&i.VocabularyID,
+			&i.IsClosed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveListProjectScopedVocabularies = `-- name: WeaveListProjectScopedVocabularies :many
 SELECT v.id, v.created_at, v.updated_at, v.semantic_id, v.system_name, v.ui_name, v.description, v.status, v.project_id, v.connector_type, v.base_uri, v.config, v.config_encrypted, v.deprecated
 FROM weave_vocabularies v
@@ -1635,6 +1719,63 @@ type WeaveUpdateConceptListEntryLabelParams struct {
 func (q *Queries) WeaveUpdateConceptListEntryLabel(ctx context.Context, arg WeaveUpdateConceptListEntryLabelParams) error {
 	_, err := q.db.Exec(ctx, weaveUpdateConceptListEntryLabel, arg.Column1, arg.ID, arg.ConceptListID)
 	return err
+}
+
+const weaveUpsertConceptList = `-- name: WeaveUpsertConceptList :one
+INSERT INTO weave_concept_lists (
+    id, created_at, updated_at, semantic_id, system_name,
+    ui_name, description, status, project_id, is_closed
+) VALUES (
+    $1, NOW(), NOW(), $2, $3, $4, $5, $6, $7, $8
+)
+ON CONFLICT (project_id, semantic_id) WHERE ((semantic_id IS NOT NULL) AND (semantic_id <> ''::text))
+DO UPDATE SET system_name = EXCLUDED.system_name,
+              ui_name     = EXCLUDED.ui_name,
+              description = EXCLUDED.description,
+              status      = EXCLUDED.status,
+              is_closed   = EXCLUDED.is_closed,
+              updated_at  = NOW()
+RETURNING id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, list_type, vocabulary_id, is_closed
+`
+
+type WeaveUpsertConceptListParams struct {
+	ID          string  `json:"id"`
+	SemanticID  *string `json:"semantic_id"`
+	SystemName  *string `json:"system_name"`
+	UiName      []byte  `json:"ui_name"`
+	Description []byte  `json:"description"`
+	Status      string  `json:"status"`
+	ProjectID   string  `json:"project_id"`
+	IsClosed    bool    `json:"is_closed"`
+}
+
+func (q *Queries) WeaveUpsertConceptList(ctx context.Context, arg WeaveUpsertConceptListParams) (WeaveConceptList, error) {
+	row := q.db.QueryRow(ctx, weaveUpsertConceptList,
+		arg.ID,
+		arg.SemanticID,
+		arg.SystemName,
+		arg.UiName,
+		arg.Description,
+		arg.Status,
+		arg.ProjectID,
+		arg.IsClosed,
+	)
+	var i WeaveConceptList
+	err := row.Scan(
+		&i.ID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.SemanticID,
+		&i.SystemName,
+		&i.UiName,
+		&i.Description,
+		&i.Status,
+		&i.ProjectID,
+		&i.ListType,
+		&i.VocabularyID,
+		&i.IsClosed,
+	)
+	return i, err
 }
 
 const weaveUpsertVocabularyEntry = `-- name: WeaveUpsertVocabularyEntry :one

@@ -283,3 +283,44 @@ func rowToOverrideRef(row sqlcgen.WeaveOverrideRef) domain.OverrideRef {
 		Position:   int(row.Position),
 	}
 }
+
+// rowToConceptList maps a live concept-list row to the domain type.
+func rowToConceptList(row sqlcgen.WeaveConceptList) *domain.ConceptList {
+	return &domain.ConceptList{
+		Entity: domain.Entity{
+			ID:          row.ID,
+			CreatedAt:   row.CreatedAt,
+			UpdatedAt:   row.UpdatedAt,
+			SemanticID:  derefStr(row.SemanticID),
+			SystemName:  derefStr(row.SystemName),
+			UIName:      unmarshalTranslations(row.UiName),
+			Description: unmarshalTranslations(row.Description),
+			Status:      domain.Status(row.Status),
+			ProjectID:   row.ProjectID,
+		},
+		ListType:     row.ListType,
+		VocabularyID: row.VocabularyID,
+		IsClosed:     row.IsClosed,
+	}
+}
+
+// archivedRowToConceptList maps a release-archived concept-list row to the
+// domain type. The archive has no deprecated column; a released list is live.
+func archivedRowToConceptList(row sqlcgen.WeaveConceptListsArchive) *domain.ConceptList {
+	return &domain.ConceptList{
+		Entity: domain.Entity{
+			ID:          row.ID,
+			CreatedAt:   row.CreatedAt,
+			UpdatedAt:   row.UpdatedAt,
+			SemanticID:  derefStr(row.SemanticID),
+			SystemName:  derefStr(row.SystemName),
+			UIName:      unmarshalTranslations(row.UiName),
+			Description: unmarshalTranslations(row.Description),
+			Status:      domain.Status(row.Status),
+			ProjectID:   row.ProjectID,
+		},
+		ListType:     row.ListType,
+		VocabularyID: row.VocabularyID,
+		IsClosed:     row.IsClosed,
+	}
+}
