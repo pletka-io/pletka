@@ -59,7 +59,20 @@ func (s *Service) Audit(ctx context.Context, projectID string) (errs []PathEleme
 	}
 
 	const query = `
-WITH elems AS (
+WITH RECURSIVE lineage(project_id, ancestor_id) AS (
+    -- every project is its own ancestor, then each inheritance hop upwards
+    SELECT id, id FROM weave_projects
+    UNION
+    SELECT l.project_id, i.parent_project_id
+    FROM lineage l
+    JOIN weave_project_inheritance i ON i.project_id = l.ancestor_id
+), scope AS (
+    -- ontology versions a project sees: its own links and its ancestors'
+    SELECT p.system_name AS project, pov.ontology_version_id
+    FROM lineage l
+    JOIN weave_projects p ON p.id = l.project_id
+    JOIN weave_project_ontology_versions pov ON pov.project_id = l.ancestor_id
+), elems AS (
     -- Primary path elements.
     SELECT
         pr.system_name AS project,
@@ -108,10 +121,9 @@ WITH elems AS (
               AND (
                 c.ontology_version_id = $2
                 OR EXISTS (
-                    SELECT 1 FROM weave_project_ontology_versions pov
-                    JOIN weave_projects p2 ON p2.id = pov.project_id
-                    WHERE p2.system_name = e.project
-                      AND pov.ontology_version_id = c.ontology_version_id
+                    SELECT 1 FROM scope s
+                    WHERE s.project = e.project
+                      AND s.ontology_version_id = c.ontology_version_id
                 )
               )
         ) AS in_classes,
@@ -122,10 +134,9 @@ WITH elems AS (
               AND (
                 pr2.ontology_version_id = $2
                 OR EXISTS (
-                    SELECT 1 FROM weave_project_ontology_versions pov
-                    JOIN weave_projects p2 ON p2.id = pov.project_id
-                    WHERE p2.system_name = e.project
-                      AND pov.ontology_version_id = pr2.ontology_version_id
+                    SELECT 1 FROM scope s
+                    WHERE s.project = e.project
+                      AND s.ontology_version_id = pr2.ontology_version_id
                 )
               )
         ) AS in_props
