@@ -189,7 +189,6 @@ type canonicalConceptListDoc struct {
 	UIName      map[string]string `json:"ui_name"`
 	Description map[string]string `json:"description"`
 	Status      string            `json:"status"`
-	Deprecated  bool              `json:"deprecated"`
 	IsClosed    bool              `json:"is_closed"`
 }
 
@@ -506,7 +505,7 @@ func decodePathElements(items []canonicalPathElement) ([]domain.PathElement, err
 		if err != nil {
 			return nil, err
 		}
-		if isLiteralPathElement(pe) {
+		if isCompactPathElement(item) && isLiteralPathElement(pe) {
 			pe.Type = "literal"
 		}
 		out = append(out, pe)
@@ -514,13 +513,28 @@ func decodePathElements(items []canonicalPathElement) ([]domain.PathElement, err
 	return out, nil
 }
 
+// isCompactPathElement reports whether a raw element is the authored qname
+// string form rather than the full map the materializer writes.
+func isCompactPathElement(raw canonicalPathElement) bool {
+	var compact string
+	return json.Unmarshal(raw, &compact) == nil
+}
+
 // isLiteralPathElement reports whether a compact path element names a literal
-// type rather than a class: any xsd or rdf datatype, the generic rdfs:Literal,
-// or rdfs:Resource (an IRI value, which the path builder also ends a path with).
+// type rather than a class: any xsd datatype, the rdf datatypes, the generic
+// rdfs:Literal, or rdfs:Resource (an IRI value, which the path builder also
+// ends a path with). rdf:type and rdf:value are properties and stay typed by
+// position.
 func isLiteralPathElement(pe domain.PathElement) bool {
 	switch pe.Prefix {
-	case "xsd", "rdf":
+	case "xsd":
 		return true
+	case "rdf":
+		switch pe.LocalName {
+		case "langString", "HTML", "XMLLiteral", "JSON", "PlainLiteral":
+			return true
+		}
+		return false
 	case "rdfs":
 		return pe.LocalName == "Literal" || pe.LocalName == "Resource"
 	}

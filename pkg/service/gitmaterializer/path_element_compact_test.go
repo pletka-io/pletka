@@ -21,6 +21,8 @@ func TestDecodePathElements_CompactTypesByPosition(t *testing.T) {
 		{"generic literal terminal", []string{"rdfs:comment", "rdfs:Literal"}, []string{"property", "literal"}},
 		{"resource terminal", []string{"owl:sameAs", "rdfs:Resource"}, []string{"property", "literal"}},
 		{"two hops", []string{"sdo:dataFeedElement", "sdo:DataFeedItem", "sdo:item", "obo:BFO_0000001"}, []string{"property", "class", "property", "class"}},
+		{"rdf datatype terminal", []string{"rdfs:label", "rdf:langString"}, []string{"property", "literal"}},
+		{"rdf property is a property", []string{"rdf:value", "xsd:string"}, []string{"property", "literal"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -41,5 +43,22 @@ func TestDecodePathElements_CompactTypesByPosition(t *testing.T) {
 				t.Errorf("types mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestDecodePathElements_FullMapKeepsItsType pins that the literal rule is
+// a compact-form convenience only: a full path-element map carries its own
+// type and is stored verbatim, even for an rdf: or rdfs: term.
+func TestDecodePathElements_FullMapKeepsItsType(t *testing.T) {
+	raw := []canonicalPathElement{
+		canonicalPathElement(`{"type":"property","prefix":"rdf","local_name":"value","uri":"http://www.w3.org/1999/02/22-rdf-syntax-ns#value","position":0}`),
+		canonicalPathElement(`{"type":"class","prefix":"rdfs","local_name":"Resource","uri":"http://www.w3.org/2000/01/rdf-schema#Resource","position":1}`),
+	}
+	got, err := decodePathElements(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].Type != "property" || got[1].Type != "class" {
+		t.Fatalf("full-map types changed: %q, %q", got[0].Type, got[1].Type)
 	}
 }
