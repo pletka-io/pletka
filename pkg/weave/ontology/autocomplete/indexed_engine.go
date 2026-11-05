@@ -39,9 +39,9 @@ func (e *IndexedEngine) GetSuggestions(ctx context.Context, req Request) ([]Sugg
 		return nil, nil
 	}
 	switch n.Type {
-	case "class":
+	case nodeTypeClass:
 		return e.suggestPropertiesForClass(idx, n, req), nil
-	case "property":
+	case nodeTypeProperty:
 		return e.suggestRangeForProperty(idx, n, req), nil
 	}
 	return nil, nil
@@ -55,7 +55,7 @@ func (e *IndexedEngine) suggestRootClasses(idx *Index, req Request) []Suggestion
 	q := strings.TrimSpace(req.Query)
 	out := make([]Suggestion, 0)
 	for _, n := range idx.ByQname {
-		if n.Type != "class" || n.Ghost {
+		if n.Type != nodeTypeClass || n.Ghost {
 			continue
 		}
 		if q != "" && !matchesQuery(n.LocalName, n.Label, q) && !strings.Contains(strings.ToLower(n.Qname), strings.ToLower(q)) {
