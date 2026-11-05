@@ -112,6 +112,28 @@ selected + inherited ontology versions into one pointer graph:
 loops back on itself — a malformed import signal; the closure walker
 tolerates cycles regardless because it is pointer-keyed and O(graph size).
 
+### The defaults ontology and the implicit root
+
+`IndexCache.resolve` appends the active version of the `defaults` ontology
+(prefix `domain.DefaultsOntologyPrefix`, the curated RDF basic vocabulary)
+to every project's version set, the same way the path audit unions it. The
+version ID is part of the `IndexKey`, so a defaults re-import invalidates
+every project index through `InvalidateForVersion`. A request pinned to a
+single `VersionID` does not gain it.
+
+After pass 2, `wireImplicitRoot` makes `rdfs:Resource` the superclass of
+every class that has no real (non-ghost) superclass. A property whose
+domain is `rdfs:Resource` therefore reaches every class through the
+ordinary superclass closure: that is how `rdfs:label`, `rdfs:comment`,
+`rdfs:seeAlso` and `owl:sameAs` are offered everywhere. Domain-less
+defaults properties stay audit-only (their URIs sit outside the defaults
+namespace, so `collectDomainlessProps` skips them).
+
+Ranges are decided on the qname: a literal-valued property, an `xsd:*` or
+`rdfs:Literal` range, or an `rdfs:Resource` range ends the path in one
+terminal suggestion, whether or not the target is a real node. The root's
+subclass closure (every class) is never walked as a range.
+
 ### `closure`: the shared BFS walker
 
 `closure.go` implements one breadth-first walk used by both suggestion
