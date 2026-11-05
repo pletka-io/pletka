@@ -134,8 +134,9 @@ func (e *IndexedEngine) suggestRangeForProperty(idx *Index, prop *Node, req Requ
 	out := make([]Suggestion, 0)
 	for _, rng := range prop.Ranges {
 		if rng.Ghost {
-			// Dangling range target — for a DatatypeProperty this is a literal.
-			if isDatatype {
+			// Dangling range target — for a DatatypeProperty, or an
+			// rdfs:Resource range (an IRI value), this is a literal.
+			if isDatatype || isResourceRange(rng.Qname) {
 				s := literalSuggestionFromQname(rng.Qname)
 				if _, dup := seen[s.Qname]; !dup && (q == "" || matchesQuery(s.LocalName, s.Label, q)) {
 					seen[s.Qname] = struct{}{}

@@ -10,7 +10,8 @@ import (
 // TestAnnotationProperty_TerminatesInLiteral checks that an AnnotationProperty
 // ends a path the way a DatatypeProperty does: with no range it yields the
 // generic rdfs:Literal, and with a literal range (xsd:string) it yields that
-// literal instead of a dead end.
+// literal instead of a dead end. It also checks that an rdfs:Resource range
+// (an IRI value) ends the path for any property type.
 func TestAnnotationProperty_TerminatesInLiteral(t *testing.T) {
 	const (
 		versionID  = "v1"
@@ -25,9 +26,11 @@ func TestAnnotationProperty_TerminatesInLiteral(t *testing.T) {
 			{ID: "p-acr", OntologyVersionID: versionID, Prefix: "ex", LocalName: "acronym", URI: ns + "acronym", Qname: "ex:acronym", PropertyType: "AnnotationProperty"},
 			{ID: "p-lbl", OntologyVersionID: versionID, Prefix: "ex", LocalName: "label", URI: ns + "label", Qname: "ex:label", PropertyType: "AnnotationProperty"},
 			{ID: "p-obj", OntologyVersionID: versionID, Prefix: "ex", LocalName: "rel", URI: ns + "rel", Qname: "ex:rel", PropertyType: "ObjectProperty"},
+			{ID: "p-see", OntologyVersionID: versionID, Prefix: "ex", LocalName: "seeAlso", URI: ns + "seeAlso", Qname: "ex:seeAlso", PropertyType: "ObjectProperty"},
 		},
 		relations: []*domain.OntologyRelationWithSource{
 			{OntologyRelation: domain.OntologyRelation{SourceID: "p-lbl", SourceKind: "property", RelType: "range", TargetQname: "xsd:string"}, SourceQname: "ex:label"},
+			{OntologyRelation: domain.OntologyRelation{SourceID: "p-see", SourceKind: "property", RelType: "range", TargetQname: "rdfs:Resource"}, SourceQname: "ex:seeAlso"},
 		},
 		versions:   map[string]*domain.OntologyVersion{versionID: {ID: versionID, OntologyID: ontologyID, VersionString: "1.0"}},
 		ontologies: map[string]*domain.Ontology{ontologyID: {ID: ontologyID, Prefix: "ex", Namespace: ns}},
@@ -46,6 +49,9 @@ func TestAnnotationProperty_TerminatesInLiteral(t *testing.T) {
 	}
 	if got := suggestionQnames(eng.suggestRangeForProperty(idx, idx.ByQname["ex:label"], req)); !got["xsd:string"] {
 		t.Errorf("annotation property with xsd:string range: expected xsd:string, got %v", got)
+	}
+	if got := suggestionQnames(eng.suggestRangeForProperty(idx, idx.ByQname["ex:seeAlso"], req)); !got[resourceQname] {
+		t.Errorf("object property with rdfs:Resource range: expected %s terminal, got %v", resourceQname, got)
 	}
 	if got := suggestionQnames(eng.suggestRangeForProperty(idx, idx.ByQname["ex:rel"], req)); len(got) != 0 {
 		t.Errorf("range-less object property must still be a dead end, got %v", got)
