@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -29,11 +30,25 @@ type LegacyRebuildRequest struct {
 type rebuildContract struct {
 	format         int
 	contentVersion int16
-	create         func(context.Context, pgx.Tx, string, CreateInput, string) (*Release, error)
+	source         string
+	// capture cuts or preserves one release inside the rebuild transaction.
+	capture func(ctx context.Context, tx pgx.Tx, p RebuildProject, actorID, operation string) error
 }
 
-func (s *Service) verifiedRebuild() rebuildContract { return rebuildContract{1, 1, s.createInTx} }
-func (s *Service) legacyRebuild() rebuildContract   { return rebuildContract{2, 2, s.createLegacyInTx} }
+func (c rebuildContract) preserves() bool { return c.source == "preserved-archive" }
+
+func (s *Service) verifiedRebuild() rebuildContract {
+	return rebuildContract{format: 1, contentVersion: 1, source: "current-drafts", capture: func(ctx context.Context, tx pgx.Tx, p RebuildProject, actorID, _ string) error {
+		_, err := s.createInTx(ctx, tx, p.ProjectID, CreateInput{Version: p.Version, Title: p.Title, Description: p.Description}, actorID)
+		return err
+	}}
+}
+
+// legacyRebuild preserves the archived rows of each selected release and
+// rebuilds only its evidence. It never reads the working draft.
+func (s *Service) legacyRebuild() rebuildContract {
+	return rebuildContract{format: 2, contentVersion: 2, source: "preserved-archive", capture: s.preserveLegacyInTx}
+}
 
 // PlanLegacyRebuild reviews current drafts for immutable legacy preservation.
 // This does not enable an ordinary release request to bypass semantic validation.
@@ -57,12 +72,16 @@ func (s *Service) RunLegacyRebuild(ctx context.Context, request LegacyRebuildReq
 	return s.runRebuild(ctx, legacyRequest(request), check, publish, s.legacyRebuild())
 }
 
-// RebuildProject preserves a legacy release name while replacing its content.
+// RebuildProject names one release. Format 1 replaces its content from the
+// draft; format 2 preserves its archive, whose digest the apply re-checks.
 type RebuildProject struct {
-	ProjectID   string `json:"project_id"`
-	Version     string `json:"version"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	ProjectID     string    `json:"project_id"`
+	Version       string    `json:"version"`
+	Title         string    `json:"title"`
+	Description   string    `json:"description"`
+	CreatedAt     time.Time `json:"created_at"`
+	CreatedByID   string    `json:"created_by_id"`
+	ArchiveDigest string    `json:"archive_digest,omitempty"`
 }
 
 // RebuildPin explicitly converts a draft-following inheritance edge to a release.
@@ -72,7 +91,7 @@ type RebuildPin struct {
 	Version         string `json:"version"`
 }
 
-// RebuildPlan is a reviewable, fingerprinted plan over current working content.
+// RebuildPlan is a reviewable, fingerprinted plan over current drafts (format 1) or the retained archives (format 2).
 type RebuildPlan struct {
 	Format       int              `json:"format"`
 	Source       string           `json:"source"`
@@ -135,7 +154,7 @@ func (s *Service) planRebuildSession(ctx context.Context, projectIDs []string, c
 }
 
 func (s *Service) planRebuild(ctx context.Context, q *sqlcgen.Queries, projectIDs []string, actor string, contract rebuildContract) (RebuildPlan, error) {
-	plan := RebuildPlan{Format: contract.format, Source: "current-drafts", ActorID: actor, ModuleHost: s.hosts.Project, OntologyHost: s.hosts.Ontology, Pins: []RebuildPin{}}
+	plan := RebuildPlan{Format: contract.format, Source: contract.source, ActorID: actor, ModuleHost: s.hosts.Project, OntologyHost: s.hosts.Ontology, Pins: []RebuildPin{}}
 	catalog, err := q.WeaveRebuildCatalog(ctx)
 	if err != nil {
 		return plan, err
@@ -147,6 +166,24 @@ func (s *Service) planRebuild(ctx context.Context, q *sqlcgen.Queries, projectID
 	ids, selected, projects, err := selectRebuildProjects(byProject, projectIDs)
 	if err != nil {
 		return plan, err
+	}
+	if contract.preserves() {
+		for _, id := range ids {
+			count, err := q.WeavePreservedArchiveState(ctx, sqlcgen.WeavePreservedArchiveStateParams{ProjectID: id, Version: projects[id].Version})
+			if err != nil {
+				return plan, err
+			}
+			if count != 1 {
+				return plan, fmt.Errorf("project %s has no archived rows for release %s; nothing to preserve", id, projects[id].Version)
+			}
+			digest, err := q.WeaveLegacyArchiveDigest(ctx, sqlcgen.WeaveLegacyArchiveDigestParams{ProjectID: id, Version: projects[id].Version})
+			if err != nil {
+				return plan, err
+			}
+			p := projects[id]
+			p.ArchiveDigest = digest
+			projects[id] = p
+		}
 	}
 	oldEdges := map[string][]string{}
 	retained, err := q.WeaveRebuildRetainedSources(ctx)
@@ -225,7 +262,7 @@ func selectRebuildProjects(byProject map[string][]sqlcgen.WeaveRebuildCatalogRow
 			return nil, nil, nil, fmt.Errorf("project %s has unsupported release version %q", id, r.Version)
 		}
 		selected[id] = true
-		projects[id] = RebuildProject{id, r.Version, r.Title, r.Description}
+		projects[id] = RebuildProject{ProjectID: id, Version: r.Version, Title: r.Title, Description: r.Description, CreatedAt: r.CreatedAt.UTC(), CreatedByID: r.CreatedByID}
 	}
 	return ids, selected, projects, nil
 }
@@ -348,7 +385,7 @@ func (s *Service) runRebuild(ctx context.Context, request RebuildRequest, check 
 	if err != nil {
 		return RebuildOperation{}, err
 	}
-	if actor != request.Plan.ActorID || request.Plan.Format != contract.format || request.Plan.Source != "current-drafts" || check == nil || publish == nil {
+	if actor != request.Plan.ActorID || request.Plan.Format != contract.format || request.Plan.Source != contract.source || check == nil || publish == nil {
 		return RebuildOperation{}, errors.New("invalid rebuild request, principal or publisher")
 	}
 	id, err := RebuildID(request)
@@ -466,9 +503,12 @@ func (s *Service) captureRebuild(ctx context.Context, request RebuildRequest, id
 			return op, err
 		}
 	}
-	for _, p := range request.Plan.Projects {
-		if err := q.WeaveRebuildClearArchive(ctx, sqlcgen.WeaveRebuildClearArchiveParams{ProjectID: p.ProjectID, Version: p.Version}); err != nil {
-			return op, err
+	// Preserve mode keeps the archive rows; FK cascades on the release row drop the old evidence.
+	if !contract.preserves() {
+		for _, p := range request.Plan.Projects {
+			if err := q.WeaveRebuildClearArchive(ctx, sqlcgen.WeaveRebuildClearArchiveParams{ProjectID: p.ProjectID, Version: p.Version}); err != nil {
+				return op, err
+			}
 		}
 	}
 	if err := pinRebuildInheritance(ctx, q, request.Plan.Pins); err != nil {
@@ -478,7 +518,7 @@ func (s *Service) captureRebuild(ctx context.Context, request RebuildRequest, id
 		return op, err
 	}
 	for _, p := range request.Plan.Projects {
-		if _, err := contract.create(ctx, tx, p.ProjectID, CreateInput{Version: p.Version, Title: p.Title, Description: p.Description}, request.Plan.ActorID); err != nil {
+		if err := contract.capture(ctx, tx, p, request.Plan.ActorID, id); err != nil {
 			return op, fmt.Errorf("rebuild %s@%s: %w", p.ProjectID, p.Version, err)
 		}
 		captured, err := q.WeaveRebuildCapturedResult(ctx, sqlcgen.WeaveRebuildCapturedResultParams{ProjectID: p.ProjectID, Version: p.Version})

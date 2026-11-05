@@ -124,9 +124,18 @@ func (s *Service) createInTx(ctx context.Context, tx pgx.Tx, projectID string, i
 	return s.createWithEvidence(ctx, tx, projectID, in, actorID, publishedEvidence{})
 }
 
-// createLegacyInTx is reachable only from the explicit legacy rebuild lifecycle.
-func (s *Service) createLegacyInTx(ctx context.Context, tx pgx.Tx, projectID string, in CreateInput, actorID string) (*Release, error) {
-	return s.createWithEvidence(ctx, tx, projectID, in, actorID, legacyEvidence{})
+// evidenceError maps capture failures to the validation envelope operators see.
+func evidenceError(err error) error {
+	var validation interface{ ValidationFields() map[string][]string }
+	if errors.As(err, &validation) {
+		return &ErrValidation{Fields: validation.ValidationFields()}
+	}
+	var missing *releasedescriptor.UnavailableError
+	var invalid *releasedescriptor.InvalidError
+	if errors.As(err, &missing) || errors.As(err, &invalid) {
+		return &ErrValidation{Fields: map[string][]string{"descriptors": {err.Error()}}}
+	}
+	return fmt.Errorf("capture release descriptors: %w", err)
 }
 
 // createWithEvidence shares structural capture, ordering, outbox and rollback.
@@ -159,16 +168,7 @@ func (s *Service) createWithEvidence(ctx context.Context, tx pgx.Tx, projectID s
 	}
 
 	if err := evidence.capture(ctx, sqlcgen.New(tx), projectID, in.Version, s.hosts); err != nil {
-		var validation interface{ ValidationFields() map[string][]string }
-		if errors.As(err, &validation) {
-			return nil, &ErrValidation{Fields: validation.ValidationFields()}
-		}
-		var missing *releasedescriptor.UnavailableError
-		var invalid *releasedescriptor.InvalidError
-		if errors.As(err, &missing) || errors.As(err, &invalid) {
-			return nil, &ErrValidation{Fields: map[string][]string{"descriptors": {err.Error()}}}
-		}
-		return nil, fmt.Errorf("capture release descriptors: %w", err)
+		return nil, evidenceError(err)
 	}
 
 	if _, err := tx.Exec(ctx, `

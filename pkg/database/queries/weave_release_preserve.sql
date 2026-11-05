@@ -124,3 +124,34 @@ FROM weave_release_project_dependencies d
 WHERE a.project_id = @project_id::text AND a.version_number = @version::text
   AND d.project_id = a.project_id AND d.version_number = a.version_number
   AND d.source_project_id = a.source_project_id AND a.source_version = '';
+
+-- name: WeavePreservedArchiveState :one
+SELECT count(*)::bigint AS project_rows FROM weave_projects_archive
+WHERE id = sqlc.arg(project_id)::text AND version_number = sqlc.arg(version)::text;
+
+-- name: WeavePreserveReleaseRow :exec
+-- Re-insert a release with its reviewed original catalog metadata. The
+-- ordinary insert (insertReleaseInTx) stamps now() and the rebuild actor.
+INSERT INTO weave_releases (project_id, version, title, description, created_at, created_by_id)
+VALUES (sqlc.arg(project_id)::text, sqlc.arg(version)::text, sqlc.arg(title)::text, sqlc.arg(description)::text,
+        sqlc.arg(created_at)::timestamptz, sqlc.arg(created_by_id)::text);
+
+-- name: WeaveInsertReleaseChangeSet :exec
+INSERT INTO weave_change_set (project_id, actor_id, actor_name, actor_email, commit_message, started_at, closed_at, kind, release_version)
+VALUES (sqlc.arg(project_id)::text, sqlc.arg(actor_id)::text, 'pletka-system', 'system@pletka.local',
+        sqlc.arg(commit_message)::text, now(), now(), 'release', sqlc.arg(version)::text);
+
+-- name: WeaveInsertPreservedReleaseImport :exec
+-- The migration 041 ledger row for a preserved release. Header values come from
+-- the release row inserted in this transaction; the receipt is computed from
+-- the archive rows and must equal what finalization computes.
+INSERT INTO weave_release_imports (project_id, version_number, document)
+SELECT r.project_id, r.version, jsonb_build_object(
+    'header', jsonb_build_object('project_id', r.project_id, 'version', r.version,
+        'created_at', to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+        'created_by_id', r.created_by_id, 'title', r.title, 'description', r.description),
+    'receipt', weave_legacy_archive_receipt(r.project_id, r.version),
+    'source', 'preserved-legacy-archive',
+    'rebuild_operation', sqlc.arg(operation)::text)
+FROM weave_releases r
+WHERE r.project_id = sqlc.arg(project_id)::text AND r.version = sqlc.arg(version)::text;

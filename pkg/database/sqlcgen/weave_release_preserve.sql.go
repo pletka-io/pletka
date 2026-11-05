@@ -8,6 +8,7 @@ package sqlcgen
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 const weaveArchivedDependencyEntityOwner = `-- name: WeaveArchivedDependencyEntityOwner :one
@@ -194,6 +195,56 @@ func (q *Queries) WeaveArchivedFollowingDependencies(ctx context.Context, arg We
 	return items, nil
 }
 
+const weaveInsertPreservedReleaseImport = `-- name: WeaveInsertPreservedReleaseImport :exec
+INSERT INTO weave_release_imports (project_id, version_number, document)
+SELECT r.project_id, r.version, jsonb_build_object(
+    'header', jsonb_build_object('project_id', r.project_id, 'version', r.version,
+        'created_at', to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+        'created_by_id', r.created_by_id, 'title', r.title, 'description', r.description),
+    'receipt', weave_legacy_archive_receipt(r.project_id, r.version),
+    'source', 'preserved-legacy-archive',
+    'rebuild_operation', $1::text)
+FROM weave_releases r
+WHERE r.project_id = $2::text AND r.version = $3::text
+`
+
+type WeaveInsertPreservedReleaseImportParams struct {
+	Operation string `json:"operation"`
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+// The migration 041 ledger row for a preserved release. Header values come from
+// the release row inserted in this transaction; the receipt is computed from
+// the archive rows and must equal what finalization computes.
+func (q *Queries) WeaveInsertPreservedReleaseImport(ctx context.Context, arg WeaveInsertPreservedReleaseImportParams) error {
+	_, err := q.db.Exec(ctx, weaveInsertPreservedReleaseImport, arg.Operation, arg.ProjectID, arg.Version)
+	return err
+}
+
+const weaveInsertReleaseChangeSet = `-- name: WeaveInsertReleaseChangeSet :exec
+INSERT INTO weave_change_set (project_id, actor_id, actor_name, actor_email, commit_message, started_at, closed_at, kind, release_version)
+VALUES ($1::text, $2::text, 'pletka-system', 'system@pletka.local',
+        $3::text, now(), now(), 'release', $4::text)
+`
+
+type WeaveInsertReleaseChangeSetParams struct {
+	ProjectID     string `json:"project_id"`
+	ActorID       string `json:"actor_id"`
+	CommitMessage string `json:"commit_message"`
+	Version       string `json:"version"`
+}
+
+func (q *Queries) WeaveInsertReleaseChangeSet(ctx context.Context, arg WeaveInsertReleaseChangeSetParams) error {
+	_, err := q.db.Exec(ctx, weaveInsertReleaseChangeSet,
+		arg.ProjectID,
+		arg.ActorID,
+		arg.CommitMessage,
+		arg.Version,
+	)
+	return err
+}
+
 const weaveLegacyArchiveDigest = `-- name: WeaveLegacyArchiveDigest :one
 
 SELECT encode(sha256(convert_to(weave_legacy_archive_sections($1::text,$2::text)::text,'UTF8')),'hex')::text AS digest
@@ -249,4 +300,50 @@ type WeavePinArchivedAdoptionsParams struct {
 func (q *Queries) WeavePinArchivedAdoptions(ctx context.Context, arg WeavePinArchivedAdoptionsParams) error {
 	_, err := q.db.Exec(ctx, weavePinArchivedAdoptions, arg.ProjectID, arg.Version)
 	return err
+}
+
+const weavePreserveReleaseRow = `-- name: WeavePreserveReleaseRow :exec
+INSERT INTO weave_releases (project_id, version, title, description, created_at, created_by_id)
+VALUES ($1::text, $2::text, $3::text, $4::text,
+        $5::timestamptz, $6::text)
+`
+
+type WeavePreserveReleaseRowParams struct {
+	ProjectID   string    `json:"project_id"`
+	Version     string    `json:"version"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+	CreatedByID string    `json:"created_by_id"`
+}
+
+// Re-insert a release with its reviewed original catalog metadata. The
+// ordinary insert (insertReleaseInTx) stamps now() and the rebuild actor.
+func (q *Queries) WeavePreserveReleaseRow(ctx context.Context, arg WeavePreserveReleaseRowParams) error {
+	_, err := q.db.Exec(ctx, weavePreserveReleaseRow,
+		arg.ProjectID,
+		arg.Version,
+		arg.Title,
+		arg.Description,
+		arg.CreatedAt,
+		arg.CreatedByID,
+	)
+	return err
+}
+
+const weavePreservedArchiveState = `-- name: WeavePreservedArchiveState :one
+SELECT count(*)::bigint AS project_rows FROM weave_projects_archive
+WHERE id = $1::text AND version_number = $2::text
+`
+
+type WeavePreservedArchiveStateParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+func (q *Queries) WeavePreservedArchiveState(ctx context.Context, arg WeavePreservedArchiveStateParams) (int64, error) {
+	row := q.db.QueryRow(ctx, weavePreservedArchiveState, arg.ProjectID, arg.Version)
+	var project_rows int64
+	err := row.Scan(&project_rows)
+	return project_rows, err
 }
