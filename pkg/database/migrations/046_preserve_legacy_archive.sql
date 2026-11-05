@@ -34,5 +34,16 @@ BEGIN
 END $$;
 -- +goose StatementEnd
 
+-- Archived project rows cut before migrations 031/032 never received the
+-- concept-policy columns those migrations added. Only unsealed releases
+-- (archive ownership 0) can still have NULLs, so the content guard permits the
+-- update. The effective namespace is the function's default for an absent
+-- concept namespace and lists were not enforced before the feature existed:
+-- the only values a release cut then could have carried.
+UPDATE weave_projects_archive SET effective_concept_namespace = weave_effective_concept_namespace_v1(concept_namespace)
+WHERE effective_concept_namespace IS NULL;
+UPDATE weave_projects_archive SET enforce_concept_lists = false
+WHERE enforce_concept_lists IS NULL;
+
 -- +goose Down
 DROP FUNCTION weave_legacy_archive_receipt(text,text),weave_legacy_archive_sections(text,text);
