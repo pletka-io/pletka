@@ -9,17 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/domain"
 )
-
-// defaultsOntologyPrefix is the well-known prefix of the implicit defaults
-// ontology (standard-vocabulary terms: rdfs:Literal, skos:Concept, xsd
-// datatypes, rdfs:label, ...). No project ever links it through
-// weave_project_ontology_versions — per the linkage decision it is an
-// ontology-level dependency implicit to every project — so its active
-// version is unioned into the resolution scope directly instead of being
-// discovered via a project link. Matches the constant gitmaterializer uses
-// to vendor it (pkg/service/gitmaterializer/vendor_snapshot.go).
-const defaultsOntologyPrefix = "defaults"
 
 // PathElementError is one invalid path step found by Audit.
 type PathElementError struct {
@@ -188,7 +179,7 @@ ORDER BY project, semantic_id, position`
 // leaving Audit's behavior identical to before defaults existed.
 func (s *Service) resolveDefaultsVersionID(ctx context.Context) (string, error) {
 	queries := sqlcgen.New(s.pool)
-	ontology, err := queries.WeaveGetOntologyByPrefix(ctx, defaultsOntologyPrefix)
+	ontology, err := queries.WeaveGetOntologyByPrefix(ctx, domain.DefaultsOntologyPrefix)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}

@@ -33,6 +33,13 @@ const (
 // extensions). The (Prefix, Namespace) pair is the key bridge between
 // RDF and weave: RDF refers to URIs; weave queries by qname; the
 // ontology row stores the conversion.
+// DefaultsOntologyPrefix is the well-known prefix of the implicit defaults
+// ontology: the curated RDF basic vocabulary (rdfs:Resource, rdfs:Literal,
+// xsd datatypes, rdfs:label, ...). No project links it; the path audit, the
+// autocomplete index and the git vendor snapshot resolve its active version
+// directly and treat it as part of every project.
+const DefaultsOntologyPrefix = "defaults"
+
 type Ontology struct {
 	ID                string       `json:"id"`
 	Prefix            string       `json:"prefix"`

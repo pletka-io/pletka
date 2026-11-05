@@ -13,15 +13,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/canonical"
 )
-
-// defaultsOntologyPrefix is the well-known prefix of the implicit defaults
-// ontology (standard-vocabulary terms: rdfs:Literal, skos:Concept, xsd
-// datatypes). No project ever links it directly, so it never appears in
-// ontologyReqs — it is vendored unconditionally whenever any other ontology
-// is, since a restored database needs it for path audits and qname joins.
-const defaultsOntologyPrefix = "defaults"
 
 type InitProjectOptions struct {
 	SelfContained bool
@@ -215,7 +209,7 @@ func (m *Materializer) vendorOntologyVersion(ctx context.Context, rootDir, modul
 // nothing — older deployments, and any DB predating the defaults ontology's
 // introduction, stay snapshot-compatible.
 func (m *Materializer) vendorDefaultsOntology(ctx context.Context, rootDir string, state *vendorState) (*pletkaSumEntry, error) {
-	ontology, err := m.queries.WeaveGetOntologyByPrefix(ctx, defaultsOntologyPrefix)
+	ontology, err := m.queries.WeaveGetOntologyByPrefix(ctx, domain.DefaultsOntologyPrefix)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
