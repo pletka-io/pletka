@@ -56,6 +56,14 @@ type Node struct {
 	Ghost bool
 }
 
+// literalValued reports whether a property of this type terminates a path in
+// a literal rather than a class. DatatypeProperty does by definition;
+// AnnotationProperty does in practice (labels, acronyms, notes) and is never
+// declared with a class range an engine could continue from.
+func literalValued(propertyType string) bool {
+	return propertyType == "DatatypeProperty" || propertyType == "AnnotationProperty"
+}
+
 // IndexKey fully determines a project's autocomplete contract.
 type IndexKey struct {
 	VersionSet string // sorted version IDs joined by "|"
@@ -173,7 +181,7 @@ func buildIndex(ctx context.Context, store indexStore, namespaceBindings Namespa
 		return nil, fmt.Errorf("list classes: %w", err)
 	}
 	for _, c := range classes {
-		upsertNode(idx, primary, c.Qname, "class", c.URI, c.Prefix, c.LocalName, c.Label, c.Comment, metaFor(c.OntologyVersionID), c.OntologyVersionID)
+		upsertNode(idx, primary, c.Qname, nodeTypeClass, c.URI, c.Prefix, c.LocalName, c.Label, c.Comment, metaFor(c.OntologyVersionID), c.OntologyVersionID)
 	}
 
 	// Pass 1b: properties.
@@ -182,7 +190,7 @@ func buildIndex(ctx context.Context, store indexStore, namespaceBindings Namespa
 		return nil, fmt.Errorf("list properties: %w", err)
 	}
 	for _, p := range props {
-		upsertNode(idx, primary, p.Qname, "property", p.URI, p.Prefix, p.LocalName, p.Label, p.Comment, metaFor(p.OntologyVersionID), p.OntologyVersionID)
+		upsertNode(idx, primary, p.Qname, nodeTypeProperty, p.URI, p.Prefix, p.LocalName, p.Label, p.Comment, metaFor(p.OntologyVersionID), p.OntologyVersionID)
 		// Carry PropertyType onto the node so IndexedEngine can reproduce
 		// DirectEngine's literal-suggestion logic without a DB round-trip.
 		// Primary version wins (same rule as Meta); set unconditionally
@@ -243,7 +251,7 @@ func buildIndex(ctx context.Context, store indexStore, namespaceBindings Namespa
 			// ontology defines under obo:). Merge into that node so its
 			// domain/subclass edges are not stranded on a ghost.
 			targetQname = canonical
-		} else if r.RelType == "range" && src.Type == "property" && src.PropertyType == "DatatypeProperty" {
+		} else if r.RelType == "range" && src.Type == nodeTypeProperty && literalValued(src.PropertyType) {
 			var err error
 			targetQname, err = normalizeRelationQname(ctx, qnames, targetQname)
 			if err != nil {
@@ -353,7 +361,7 @@ func metaResolver(ctx context.Context, store indexStore, log *slog.Logger) func(
 func collectDomainlessProps(idx *Index) []*Node {
 	var out []*Node
 	for _, n := range idx.ByQname {
-		if n == nil || n.Ghost || n.Type != "property" || len(n.Domains) > 0 {
+		if n == nil || n.Ghost || n.Type != nodeTypeProperty || len(n.Domains) > 0 {
 			continue
 		}
 		if n.Meta.Namespace == "" || !strings.HasPrefix(n.URI, n.Meta.Namespace) {

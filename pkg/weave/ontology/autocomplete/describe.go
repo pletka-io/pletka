@@ -11,6 +11,9 @@ import (
 // literal.
 const nodeTypeClass = "class"
 
+// nodeTypeProperty is the Node.Type value for property nodes.
+const nodeTypeProperty = "property"
+
 // TermDescription is the flat, serialization-safe projection of a Node.
 // It carries only strings/slices/Translations (no *Node) so it can cross a
 // package boundary — or a jsonschema inference pass — without exposing the

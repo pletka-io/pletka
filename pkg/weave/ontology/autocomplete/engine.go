@@ -388,7 +388,7 @@ func (e *DirectEngine) suggestRangeForProperty(ctx context.Context, versionIDs [
 		return nil, fmt.Errorf("range relations: %w", err)
 	}
 
-	isDatatypeProperty := prop.PropertyType == "DatatypeProperty"
+	isDatatypeProperty := literalValued(prop.PropertyType)
 	literals := qnameResolver{namespaceBindings: e.namespaceBindings}
 
 	for _, r := range rels {
@@ -448,7 +448,7 @@ func (e *DirectEngine) suggestRangeForProperty(ctx context.Context, versionIDs [
 		// engine never needs a hardcoded literal-name list — the
 		// ontology's PropertyType + range relation already say "this
 		// terminates in a literal".
-		if isDatatypeProperty {
+		if isDatatypeProperty || isResourceRange(r.TargetQname) {
 			s, err := literals.literalSuggestion(ctx, r.TargetQname)
 			if err != nil {
 				return nil, err
@@ -617,6 +617,14 @@ func isFullURI(value string) bool {
 // the RDFS class of all literal values — the standards-correct generic type,
 // used in place of the non-standard "rdf:literal" that has no such term.
 const genericLiteralQname = "rdfs:Literal"
+
+// resourceQname is rdfs:Resource, the class of everything. Bridging RDFS
+// profiles use it as the range of IRI-valued properties (sameAs, seeAlso,
+// image): the value is an identifier, not an entity to model further, so the
+// path ends there the way it ends in a literal.
+const resourceQname = "rdfs:Resource"
+
+func isResourceRange(qname string) bool { return qname == resourceQname }
 
 func literalSuggestionFromQname(qname string) Suggestion {
 	prefix, local, ok := strings.Cut(qname, ":")
