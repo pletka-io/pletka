@@ -12,7 +12,6 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
-	"github.com/pletka-io/pletka/pkg/ids"
 )
 
 type canonicalCategoryDoc struct {
@@ -145,7 +144,7 @@ func hydrateCategoryFile(ctx context.Context, q *sqlcgen.Queries, projectID stri
 		SemanticID: nullableString(semanticID),
 	})
 	createParams := sqlcgen.WeaveCreateCategoryParams{
-		ID:             ids.GenerateULID(),
+		ID:             semanticID, // categories are keyed by their semantic id, like fields
 		SemanticID:     nullableString(semanticID),
 		SystemName:     nullableString(doc.SystemName),
 		UiName:         marshalTranslationsForRestore(doc.UIName),

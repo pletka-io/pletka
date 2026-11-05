@@ -26,6 +26,7 @@ func TestHydrateProjectSnapshot_FieldIDIsSemanticID(t *testing.T) {
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_override_refs WHERE override_id IN (SELECT id FROM weave_field_overrides WHERE project_id = $1)`, projectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_field_overrides WHERE project_id = $1`, projectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_models WHERE project_id = $1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM weave_categories WHERE project_id = $1`, projectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_fields WHERE project_id = $1`, projectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_concept_lists WHERE project_id = $1`, projectID)
 		_, _ = pool.Exec(ctx, `DELETE FROM weave_namespace_bindings WHERE project_id = $1`, projectID)
@@ -36,6 +37,8 @@ func TestHydrateProjectSnapshot_FieldIDIsSemanticID(t *testing.T) {
 		t.Fatalf("create actor: %v", err)
 	}
 	root := conceptListFixture(t, projectID, ownerID)
+	mustWrite(t, root, domain.FilePath(domain.PathSpec{EntityType: "category", EntityID: projectID + ".CAT.1"}), []byte(
+		"canonical_order: 0\ndeprecated: false\ndescription: {}\nsemantic_id: "+projectID+".CAT.1\nstatus: draft\nsystem_name: general\nui_name:\n  en: General\n"))
 	mustWrite(t, root, domain.FilePath(domain.PathSpec{EntityType: "model", EntityID: projectID + "M.1"}), []byte(
 		"deprecated: false\ndescription: {}\nontology_scope: crm:E21_Person\nsemantic_id: "+projectID+"M.1\nstatus: draft\nsystem_name: person\nui_name:\n  en: Person\n"))
 	mustWrite(t, root, domain.FilePath(domain.PathSpec{EntityType: "model_override", OwnerID: projectID + "M.1", FieldID: projectID + "F.1", EntityID: "1"}), []byte(
@@ -51,6 +54,15 @@ func TestHydrateProjectSnapshot_FieldIDIsSemanticID(t *testing.T) {
 	}
 	if id != projectID+"F.1" {
 		t.Fatalf("field id = %q, want the semantic id", id)
+	}
+	// Categories follow the same convention, so an adopted field's base
+	// override (which names the category by id) is stable across restores.
+	var catID string
+	if err := pool.QueryRow(ctx, `SELECT id FROM weave_categories WHERE project_id = $1 AND semantic_id = $2`, projectID, projectID+".CAT.1").Scan(&catID); err != nil {
+		t.Fatalf("category not created: %v", err)
+	}
+	if catID != projectID+".CAT.1" {
+		t.Fatalf("category id = %q, want the semantic id", catID)
 	}
 
 	dir := t.TempDir()
