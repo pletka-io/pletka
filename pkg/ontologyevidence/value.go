@@ -174,8 +174,8 @@ func (a Artifact) Reference() (Reference, error) {
 }
 
 type bodyDocument struct {
-	FormatVersion int                 `json:"format_version"`
-	Ontology      struct{ ID string } `json:"ontology"`
+	FormatVersion int                         `json:"format_version"`
+	Ontology      struct{ ID, Prefix string } `json:"ontology"`
 	Version       struct {
 		ID         string
 		OntologyID string `json:"ontology_id"`

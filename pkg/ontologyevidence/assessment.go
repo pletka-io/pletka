@@ -14,6 +14,7 @@ const propertyKind = "property"
 
 func assess(ref TermReference, inventory []Body, bodies []bodyDocument, aliases []namespace.Binding) (Status, []Candidate) {
 	matches := make([]Candidate, 0)
+	native := make([]Candidate, 0, 1) // matches declared under the owner's own prefix
 	if invalidReference(ref, inventory) {
 		return Invalid, matches
 	}
@@ -35,10 +36,21 @@ func assess(ref TermReference, inventory []Body, bodies []bodyDocument, aliases 
 				continue
 			}
 			if !seen[t.URI] {
-				matches = append(matches, Candidate{OntologyID: pin.OntologyID, VersionID: pin.VersionID, Digest: pin.Digest, URI: t.URI})
+				c := Candidate{OntologyID: pin.OntologyID, VersionID: pin.VersionID, Digest: pin.Digest, URI: t.URI}
+				matches = append(matches, c)
+				if t.Prefix != "" && t.Prefix == body.Ontology.Prefix {
+					native = append(native, c)
+				}
 				seen[t.URI] = true
 			}
 		}
+	}
+	// An extension may redeclare a parent's term under the parent's URI (Linked
+	// Art 0.9 carries six CRM classes). The same URI is the same term, so when
+	// every match shares one URI the owner declaring it under its own prefix is
+	// the identity; foreign copies alone, or differing URIs, stay ambiguous.
+	if len(matches) > 1 && len(native) == 1 && sameURI(matches) {
+		matches = native
 	}
 	slices.SortFunc(matches, func(a, b Candidate) int {
 		if c := strings.Compare(a.VersionID, b.VersionID); c != 0 {
@@ -202,4 +214,13 @@ func (r Resolver) Resolve(entityKind, entityID, location string) (Definition, er
 		}
 	}
 	return Definition{}, &UnresolvedError{Status: Missing}
+}
+
+func sameURI(matches []Candidate) bool {
+	for _, m := range matches[1:] {
+		if m.URI != matches[0].URI {
+			return false
+		}
+	}
+	return true
 }
