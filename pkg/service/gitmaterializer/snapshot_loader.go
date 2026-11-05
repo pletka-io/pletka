@@ -58,6 +58,7 @@ type SnapshotEntityFile struct {
 
 type SnapshotEntityTree struct {
 	Categories          []SnapshotEntityFile
+	ConceptLists        []SnapshotEntityFile
 	Fields              []SnapshotEntityFile
 	Models              []SnapshotEntityFile
 	Collections         []SnapshotEntityFile
@@ -445,6 +446,8 @@ func scanProjectEntities(rootDir string) (SnapshotEntityTree, error) {
 		switch entity.EntityType {
 		case "category":
 			out.Categories = append(out.Categories, entity)
+		case entityTypeConceptList:
+			out.ConceptLists = append(out.ConceptLists, entity)
 		case "field":
 			out.Fields = append(out.Fields, entity)
 		case "model":
@@ -464,6 +467,7 @@ func scanProjectEntities(rootDir string) (SnapshotEntityTree, error) {
 		return SnapshotEntityTree{}, fmt.Errorf("scan project entity files: %w", err)
 	}
 	sortSnapshotEntityFiles(out.Categories)
+	sortSnapshotEntityFiles(out.ConceptLists)
 	sortSnapshotEntityFiles(out.Fields)
 	sortSnapshotEntityFiles(out.Models)
 	sortSnapshotEntityFiles(out.Collections)
@@ -488,6 +492,15 @@ func classifySnapshotEntityFile(rel string) (SnapshotEntityFile, bool) {
 		return SnapshotEntityFile{
 			Path:       rel,
 			EntityType: "category",
+			EntityID:   strings.TrimSuffix(segments[1], ".yaml"),
+		}, true
+	case "concept-lists":
+		if len(segments) != 2 || !strings.HasSuffix(segments[1], ".yaml") {
+			return SnapshotEntityFile{}, false
+		}
+		return SnapshotEntityFile{
+			Path:       rel,
+			EntityType: entityTypeConceptList,
 			EntityID:   strings.TrimSuffix(segments[1], ".yaml"),
 		}, true
 	case "fields":

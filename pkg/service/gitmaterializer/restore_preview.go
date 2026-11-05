@@ -32,6 +32,7 @@ type RestorePreviewOntology struct {
 
 type RestorePreviewCounts struct {
 	Categories          int `json:"categories"`
+	ConceptLists        int `json:"concept_lists"`
 	Fields              int `json:"fields"`
 	Models              int `json:"models"`
 	Collections         int `json:"collections"`
@@ -73,6 +74,7 @@ func BuildRestorePreview(snapshot *ProjectSnapshot, plan *RestorePlan) *RestoreP
 		SelfContained: len(snapshot.Vendor.Projects) > 0 || len(snapshot.Vendor.Ontologies) > 0,
 		Counts: RestorePreviewCounts{
 			Categories:          len(snapshot.Entities.Categories),
+			ConceptLists:        len(snapshot.Entities.ConceptLists),
 			Fields:              len(snapshot.Entities.Fields),
 			Models:              len(snapshot.Entities.Models),
 			Collections:         len(snapshot.Entities.Collections),

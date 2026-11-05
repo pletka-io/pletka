@@ -100,6 +100,11 @@ func (m *Materializer) HydrateProjectEntities(ctx context.Context, plan *Restore
 			return err
 		}
 	}
+	for _, item := range plan.Snapshot.Entities.ConceptLists {
+		if err := hydrateConceptListFile(ctx, q, projectID, item); err != nil {
+			return err
+		}
+	}
 	for _, item := range plan.Snapshot.Entities.Fields {
 		if err := hydrateFieldFile(ctx, q, projectID, item); err != nil {
 			return err
@@ -175,6 +180,46 @@ func hydrateCategoryFile(ctx context.Context, q *sqlcgen.Queries, projectID stri
 	}
 	if err := setDeprecatedStateCategory(ctx, q, existing.ID, doc.Deprecated); err != nil {
 		return fmt.Errorf("hydrate category %s: set deprecated: %w", item.Path, err)
+	}
+	return nil
+}
+
+type canonicalConceptListDoc struct {
+	SemanticID  string            `json:"semantic_id"`
+	SystemName  string            `json:"system_name"`
+	UIName      map[string]string `json:"ui_name"`
+	Description map[string]string `json:"description"`
+	Status      string            `json:"status"`
+	Deprecated  bool              `json:"deprecated"`
+	IsClosed    bool              `json:"is_closed"`
+}
+
+// hydrateConceptListFile upserts a concept list by (project, semantic id).
+// The row id is the semantic id, the convention the vocabulary slice uses.
+// Entries and broader edges are not in the tree and are left untouched.
+func hydrateConceptListFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile) error {
+	doc, err := decodeCanonicalYAML[canonicalConceptListDoc](item.Payload)
+	if err != nil {
+		return fmt.Errorf("hydrate concept list %s: decode payload: %w", item.Path, err)
+	}
+	semanticID := strings.TrimSpace(doc.SemanticID)
+	if semanticID == "" {
+		return fmt.Errorf("hydrate concept list %s: missing semantic_id", item.Path)
+	}
+	if semanticID != item.EntityID {
+		return fmt.Errorf("hydrate concept list %s: semantic_id %q must equal the file name", item.Path, semanticID)
+	}
+	if _, err := q.WeaveUpsertConceptList(ctx, sqlcgen.WeaveUpsertConceptListParams{
+		ID:          semanticID,
+		SemanticID:  nullableString(semanticID),
+		SystemName:  nullableString(doc.SystemName),
+		UiName:      marshalTranslationsForRestore(doc.UIName),
+		Description: marshalTranslationsForRestore(doc.Description),
+		Status:      restoreStatus(doc.Status),
+		ProjectID:   projectID,
+		IsClosed:    doc.IsClosed,
+	}); err != nil {
+		return fmt.Errorf("hydrate concept list %s: upsert: %w", item.Path, err)
 	}
 	return nil
 }

@@ -9,6 +9,7 @@ const (
 	RestoreVendoredOntology   RestoreOperationKind = "vendored_ontology"
 	RestoreProjectManifest    RestoreOperationKind = "project_manifest"
 	RestoreCategory           RestoreOperationKind = "category"
+	RestoreConceptList        RestoreOperationKind = "concept_list"
 	RestoreField              RestoreOperationKind = "field"
 	RestoreModel              RestoreOperationKind = "model"
 	RestoreCollection         RestoreOperationKind = "collection"
@@ -106,6 +107,9 @@ func appendProjectOperations(plan *RestorePlan, snapshot *ProjectSnapshot) {
 
 	for _, item := range snapshot.Entities.Categories {
 		plan.Operations = append(plan.Operations, restoreOpForEntity(projectID, RestoreCategory, item))
+	}
+	for _, item := range snapshot.Entities.ConceptLists {
+		plan.Operations = append(plan.Operations, restoreOpForEntity(projectID, RestoreConceptList, item))
 	}
 	for _, item := range snapshot.Entities.Fields {
 		plan.Operations = append(plan.Operations, restoreOpForEntity(projectID, RestoreField, item))

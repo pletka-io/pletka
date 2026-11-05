@@ -3,6 +3,7 @@ package gitmaterializer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -263,7 +264,7 @@ func (m *Materializer) hydrateBaseOverridesTx(ctx context.Context, q *sqlcgen.Qu
 		if err != nil {
 			return fmt.Errorf("hydrate base override %s: upsert: %w", item.Path, err)
 		}
-		if err := setOverrideRefsTx(ctx, q, row.ID, doc.Refs); err != nil {
+		if err := setOverrideRefsTx(ctx, q, projectID, row.ID, doc.Refs); err != nil {
 			return fmt.Errorf("hydrate base override %s: set refs: %w", item.Path, err)
 		}
 	}
@@ -332,7 +333,7 @@ func (m *Materializer) hydrateScopedOverridesTx(ctx context.Context, q *sqlcgen.
 			if err != nil {
 				return fmt.Errorf("hydrate %s overrides for %s: create override %d: %w", entityType, ownerID, i, err)
 			}
-			if err := setOverrideRefsTx(ctx, q, row.ID, refSets[i]); err != nil {
+			if err := setOverrideRefsTx(ctx, q, projectID, row.ID, refSets[i]); err != nil {
 				return fmt.Errorf("hydrate %s overrides for %s: set refs %d: %w", entityType, ownerID, i, err)
 			}
 		}
@@ -340,7 +341,7 @@ func (m *Materializer) hydrateScopedOverridesTx(ctx context.Context, q *sqlcgen.
 	return nil
 }
 
-func setOverrideRefsTx(ctx context.Context, q *sqlcgen.Queries, overrideID int64, refs []canonicalOverrideRefDoc) error {
+func setOverrideRefsTx(ctx context.Context, q *sqlcgen.Queries, projectID string, overrideID int64, refs []canonicalOverrideRefDoc) error {
 	if err := q.WeaveDeleteOverrideRefs(ctx, overrideID); err != nil {
 		return err
 	}
@@ -348,6 +349,17 @@ func setOverrideRefsTx(ctx context.Context, q *sqlcgen.Queries, overrideID int64
 		semanticID := strings.TrimSpace(ref.SemanticID)
 		if semanticID == "" {
 			continue
+		}
+		// A concept-list ref must point at a list the project has, either
+		// declared in the tree (hydrated before overrides) or already in the
+		// database. Writing a dangling ref would show an empty list in the UI.
+		if strings.TrimSpace(ref.RefType) == entityTypeConceptList {
+			if _, err := q.WeaveGetProjectConceptList(ctx, sqlcgen.WeaveGetProjectConceptListParams{ProjectID: projectID, ID: semanticID}); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return fmt.Errorf("concept list %s not found", semanticID)
+				}
+				return fmt.Errorf("look up concept list %s: %w", semanticID, err)
+			}
 		}
 		if err := q.WeaveCreateOverrideRef(ctx, sqlcgen.WeaveCreateOverrideRefParams{
 			OverrideID: overrideID,
