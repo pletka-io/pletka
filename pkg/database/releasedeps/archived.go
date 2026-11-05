@@ -39,7 +39,7 @@ func (a archivedDraft) WeaveDraftDependencyEntityOwner(ctx context.Context, p sq
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return owner, err
 	}
-	return a.q.WeaveArchivedDependencyEntityOwner(ctx, sqlcgen.WeaveArchivedDependencyEntityOwnerParams{EntityType: p.EntityType, EntityID: p.EntityID})
+	return a.q.WeaveArchivedDependencyEntityOwner(ctx, sqlcgen.WeaveArchivedDependencyEntityOwnerParams(p))
 }
 func (a archivedDraft) WeaveDraftDependencyReferences(ctx context.Context, project string) ([]sqlcgen.WeaveDraftDependencyReferencesRow, error) {
 	rows, err := a.q.WeaveArchivedDependencyReferences(ctx, sqlcgen.WeaveArchivedDependencyReferencesParams{ProjectID: project, Version: a.version})

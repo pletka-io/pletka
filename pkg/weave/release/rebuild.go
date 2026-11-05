@@ -168,21 +168,8 @@ func (s *Service) planRebuild(ctx context.Context, q *sqlcgen.Queries, projectID
 		return plan, err
 	}
 	if contract.preserves() {
-		for _, id := range ids {
-			count, err := q.WeavePreservedArchiveState(ctx, sqlcgen.WeavePreservedArchiveStateParams{ProjectID: id, Version: projects[id].Version})
-			if err != nil {
-				return plan, err
-			}
-			if count != 1 {
-				return plan, fmt.Errorf("project %s has no archived rows for release %s; nothing to preserve", id, projects[id].Version)
-			}
-			digest, err := q.WeaveLegacyArchiveDigest(ctx, sqlcgen.WeaveLegacyArchiveDigestParams{ProjectID: id, Version: projects[id].Version})
-			if err != nil {
-				return plan, err
-			}
-			p := projects[id]
-			p.ArchiveDigest = digest
-			projects[id] = p
+		if err := preserveDigests(ctx, q, ids, projects); err != nil {
+			return plan, err
 		}
 	}
 	oldEdges := map[string][]string{}
@@ -228,6 +215,28 @@ func (s *Service) planRebuild(ctx context.Context, q *sqlcgen.Queries, projectID
 	}
 	plan.Fingerprint, err = q.WeaveRebuildFingerprint(ctx, ids)
 	return plan, err
+}
+
+// preserveDigests checks that each selected release has exactly one archived
+// project row and records the digest of its archive for the run to verify.
+func preserveDigests(ctx context.Context, q *sqlcgen.Queries, ids []string, projects map[string]RebuildProject) error {
+	for _, id := range ids {
+		count, err := q.WeavePreservedArchiveState(ctx, sqlcgen.WeavePreservedArchiveStateParams{ProjectID: id, Version: projects[id].Version})
+		if err != nil {
+			return err
+		}
+		if count != 1 {
+			return fmt.Errorf("project %s has no archived rows for release %s; nothing to preserve", id, projects[id].Version)
+		}
+		digest, err := q.WeaveLegacyArchiveDigest(ctx, sqlcgen.WeaveLegacyArchiveDigestParams{ProjectID: id, Version: projects[id].Version})
+		if err != nil {
+			return err
+		}
+		p := projects[id]
+		p.ArchiveDigest = digest
+		projects[id] = p
+	}
+	return nil
 }
 
 func selectRebuildProjects(byProject map[string][]sqlcgen.WeaveRebuildCatalogRow, projectIDs []string) ([]string, map[string]bool, map[string]RebuildProject, error) {
@@ -497,24 +506,7 @@ func (s *Service) captureRebuild(ctx context.Context, request RebuildRequest, id
 		}
 		return op, errors.New("another rebuild is unfinished")
 	}
-	for _, project := range request.Plan.DeleteOrder {
-		p := byID[project]
-		if err := q.WeaveRebuildDeleteRelease(ctx, sqlcgen.WeaveRebuildDeleteReleaseParams{ProjectID: project, Version: p.Version}); err != nil {
-			return op, err
-		}
-	}
-	// Preserve mode keeps the archive rows; FK cascades on the release row drop the old evidence.
-	if !contract.preserves() {
-		for _, p := range request.Plan.Projects {
-			if err := q.WeaveRebuildClearArchive(ctx, sqlcgen.WeaveRebuildClearArchiveParams{ProjectID: p.ProjectID, Version: p.Version}); err != nil {
-				return op, err
-			}
-		}
-	}
-	if err := pinRebuildInheritance(ctx, q, request.Plan.Pins); err != nil {
-		return op, err
-	}
-	if err := q.WeaveRebuildSupersedeOutbox(ctx, ids); err != nil {
+	if err := replaceRebuildInputs(ctx, q, request, byID, ids, contract); err != nil {
 		return op, err
 	}
 	for _, p := range request.Plan.Projects {
@@ -536,6 +528,30 @@ func (s *Service) captureRebuild(ctx context.Context, request RebuildRequest, id
 		return op, err
 	}
 	return op, nil
+}
+
+// replaceRebuildInputs drops the selected releases in retained-graph order,
+// clears their archives unless the contract preserves them, re-pins
+// inheritance and supersedes pending outbox work, ready for capture.
+func replaceRebuildInputs(ctx context.Context, q *sqlcgen.Queries, request RebuildRequest, byID map[string]RebuildProject, ids []string, contract rebuildContract) error {
+	for _, project := range request.Plan.DeleteOrder {
+		p := byID[project]
+		if err := q.WeaveRebuildDeleteRelease(ctx, sqlcgen.WeaveRebuildDeleteReleaseParams{ProjectID: project, Version: p.Version}); err != nil {
+			return err
+		}
+	}
+	// Preserve mode keeps the archive rows; FK cascades on the release row drop the old evidence.
+	if !contract.preserves() {
+		for _, p := range request.Plan.Projects {
+			if err := q.WeaveRebuildClearArchive(ctx, sqlcgen.WeaveRebuildClearArchiveParams{ProjectID: p.ProjectID, Version: p.Version}); err != nil {
+				return err
+			}
+		}
+	}
+	if err := pinRebuildInheritance(ctx, q, request.Plan.Pins); err != nil {
+		return err
+	}
+	return q.WeaveRebuildSupersedeOutbox(ctx, ids)
 }
 
 func pinRebuildInheritance(ctx context.Context, q *sqlcgen.Queries, pins []RebuildPin) error {

@@ -42,7 +42,7 @@ func (s *Service) preserveLegacyInTx(ctx context.Context, tx pgx.Tx, p RebuildPr
 	if err := releasedeps.CaptureArchived(ctx, q, p.ProjectID, p.Version); err != nil {
 		var unavailable *releasedeps.UnavailableError
 		if errors.As(err, &unavailable) {
-			return &ErrValidation{Fields: map[string][]string{"dependencies": {unavailable.Error()}}}
+			return &ErrValidation{Fields: map[string][]string{dependenciesField: {unavailable.Error()}}}
 		}
 		return fmt.Errorf("capture archived project dependencies: %w", err)
 	}

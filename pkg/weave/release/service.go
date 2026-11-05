@@ -42,6 +42,9 @@ func (e *ErrConflict) Error() string { return e.Message }
 
 const releaseVersionField = "version"
 
+// dependenciesField is the validation field for project dependency errors.
+const dependenciesField = "dependencies"
+
 type CreateInput struct {
 	Version     string `json:"version"`
 	Title       string `json:"title"`
@@ -159,7 +162,7 @@ func (s *Service) createWithEvidence(ctx context.Context, tx pgx.Tx, projectID s
 	if err := releasedeps.Capture(ctx, sqlcgen.New(tx), projectID, in.Version); err != nil {
 		var unavailable *releasedeps.UnavailableError
 		if errors.As(err, &unavailable) {
-			return nil, &ErrValidation{Fields: map[string][]string{"dependencies": {unavailable.Error()}}}
+			return nil, &ErrValidation{Fields: map[string][]string{dependenciesField: {unavailable.Error()}}}
 		}
 		return nil, fmt.Errorf("capture release project dependencies: %w", err)
 	}
@@ -183,7 +186,7 @@ func (s *Service) createWithEvidence(ctx context.Context, tx pgx.Tx, projectID s
 	if err := evidence.finalize(ctx, sqlcgen.New(tx), projectID, in.Version); err != nil {
 		var pgerr *pgconn.PgError
 		if errors.As(err, &pgerr) && pgerr.ConstraintName == "release_content_source_unverified" {
-			return nil, &ErrValidation{Fields: map[string][]string{"dependencies": {"source release has no verified content capture; cut a new source release"}}}
+			return nil, &ErrValidation{Fields: map[string][]string{dependenciesField: {"source release has no verified content capture; cut a new source release"}}}
 		}
 		return nil, fmt.Errorf("mark release archive ownership: %w", err)
 	}
