@@ -155,3 +155,14 @@ SELECT r.project_id, r.version, jsonb_build_object(
     'rebuild_operation', sqlc.arg(operation)::text)
 FROM weave_releases r
 WHERE r.project_id = sqlc.arg(project_id)::text AND r.version = sqlc.arg(version)::text;
+
+-- name: WeavePreserveArchivedConceptPolicy :exec
+-- A project row archived before migrations 031/032 has no concept policy
+-- and publication refuses it. Preserve fills the only values such a cut
+-- could have carried: the effective namespace of an absent concept
+-- namespace and lists not enforced. Explicit per-release, never a migration.
+UPDATE weave_projects_archive
+SET effective_concept_namespace = COALESCE(effective_concept_namespace, weave_effective_concept_namespace_v1(concept_namespace)),
+    enforce_concept_lists = COALESCE(enforce_concept_lists, false)
+WHERE id = sqlc.arg(project_id)::text AND version_number = sqlc.arg(version)::text
+  AND (effective_concept_namespace IS NULL OR enforce_concept_lists IS NULL);

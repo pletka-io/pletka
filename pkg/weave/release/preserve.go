@@ -25,6 +25,9 @@ func (s *Service) preserveLegacyInTx(ctx context.Context, tx pgx.Tx, p RebuildPr
 	if count != 1 {
 		return fmt.Errorf("expected one archived project row, found %d", count)
 	}
+	if err := q.WeavePreserveArchivedConceptPolicy(ctx, sqlcgen.WeavePreserveArchivedConceptPolicyParams{ProjectID: p.ProjectID, Version: p.Version}); err != nil {
+		return fmt.Errorf("fill archived concept policy: %w", err)
+	}
 	if err := q.WeavePreserveReleaseRow(ctx, sqlcgen.WeavePreserveReleaseRowParams{
 		ProjectID: p.ProjectID, Version: p.Version, Title: p.Title, Description: p.Description,
 		CreatedAt: p.CreatedAt, CreatedByID: p.CreatedByID,

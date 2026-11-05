@@ -6,10 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/jackc/pgx/v5/stdlib"
-
 	"github.com/pletka-io/pletka/internal/testdb"
-	"github.com/pletka-io/pletka/pkg/database"
 )
 
 // The preserve path writes the import ledger before finalization, so it must
@@ -60,34 +57,4 @@ func TestLegacyArchiveReceiptMatchesFinalizerShape(t *testing.T) {
 	// A snapshot row cannot be inserted outside a capture (migration 035
 	// trigger), so the receipt's full shape is asserted in the preserve test
 	// (Task 4), where it must equal the finalized content_capture_receipt.
-}
-
-// Archived project rows from before migrations 031/032 carry NULL concept
-// policy, which publication refuses. Migration 046 backfills the only values
-// such a cut could have had; a row sealed later is never touched (it has no
-// NULLs), so re-running the migration is a no-op.
-func TestMigration046BackfillsArchivedConceptPolicy(t *testing.T) {
-	p := testdb.EmptyPool(t)
-	for _, sql := range []string{
-		`INSERT INTO weave_actors(id,type,slug,display_name) VALUES ('bf-owner','organization','bf-owner','Owner')`,
-		`INSERT INTO weave_projects(id,owner_id) VALUES ('bf','bf-owner')`,
-		`INSERT INTO weave_releases(project_id,version,created_by_id) VALUES ('bf','0.1.0','bf-owner')`,
-		`INSERT INTO weave_projects_archive(id,owner_id,version_number) VALUES ('bf','bf-owner','0.1.0')`,
-	} {
-		mustExec(t, p, sql)
-	}
-	db := stdlib.OpenDB(*p.Config().ConnConfig)
-	defer db.Close()
-	if err := database.MigrateDown(db); err != nil { // 046 down
-		t.Fatal(err)
-	}
-	if err := database.Migrate(db); err != nil { // 046 up: backfill runs
-		t.Fatal(err)
-	}
-	var effective string
-	var enforce bool
-	mustScan(t, p, `SELECT effective_concept_namespace, enforce_concept_lists FROM weave_projects_archive WHERE id='bf' AND version_number='0.1.0'`, nil, &effective, &enforce)
-	if effective != "https://vocab.pletka.io/" || enforce {
-		t.Fatalf("backfill wrong: %q %v", effective, enforce)
-	}
 }

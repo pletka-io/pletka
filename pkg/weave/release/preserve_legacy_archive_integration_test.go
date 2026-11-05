@@ -26,6 +26,7 @@ func seedPreserve(t *testing.T) (context.Context, *pgxpool.Pool, *Service, time.
 	mustExec(t, p, `UPDATE weave_releases SET created_at=$1 WHERE project_id IN ('legacy-root','legacy-source')`, cut)
 	testdb.ArchiveDraft(t, p, "legacy-source", "0.1.0")
 	testdb.ArchiveDraft(t, p, "legacy-root", "0.1.0")
+	mustExec(t, p, "UPDATE weave_projects_archive SET effective_concept_namespace=NULL, enforce_concept_lists=NULL WHERE id='legacy-root' AND version_number='0.1.0'")
 	for _, sql := range []string{
 		`INSERT INTO weave_adoptions_archive(project_id,context_entity_type,context_entity_id,entity_type,source_project_id,source_entity_id,adopted_at,version_number)
 		 VALUES ('legacy-root','model','legacy-model','field','legacy-source','legacy-source-field',now(),'0.1.0')`,
@@ -53,6 +54,12 @@ func TestPreserveLegacyArchiveKeepsOriginalRows(t *testing.T) {
 	op, err := svc.RunLegacyRebuild(ctx, LegacyRebuildRequest{Plan: plan}, checkRebuild, finishRebuild)
 	if err != nil || !op.Complete {
 		t.Fatalf("preserve failed: %+v %v", op, err)
+	}
+	var effective string
+	var enforce bool
+	mustScan(t, p, `SELECT effective_concept_namespace, enforce_concept_lists FROM weave_projects_archive WHERE id='legacy-root' AND version_number='0.1.0'`, nil, &effective, &enforce)
+	if effective != "https://vocab.pletka.io/" || enforce {
+		t.Fatalf("absent archived concept policy not filled: %q %v", effective, enforce)
 	}
 	var later, kept, credits, draftLater int
 	mustScan(t, p, `SELECT

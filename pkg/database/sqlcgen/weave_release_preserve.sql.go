@@ -302,6 +302,28 @@ func (q *Queries) WeavePinArchivedAdoptions(ctx context.Context, arg WeavePinArc
 	return err
 }
 
+const weavePreserveArchivedConceptPolicy = `-- name: WeavePreserveArchivedConceptPolicy :exec
+UPDATE weave_projects_archive
+SET effective_concept_namespace = COALESCE(effective_concept_namespace, weave_effective_concept_namespace_v1(concept_namespace)),
+    enforce_concept_lists = COALESCE(enforce_concept_lists, false)
+WHERE id = $1::text AND version_number = $2::text
+  AND (effective_concept_namespace IS NULL OR enforce_concept_lists IS NULL)
+`
+
+type WeavePreserveArchivedConceptPolicyParams struct {
+	ProjectID string `json:"project_id"`
+	Version   string `json:"version"`
+}
+
+// A project row archived before migrations 031/032 has no concept policy
+// and publication refuses it. Preserve fills the only values such a cut
+// could have carried: the effective namespace of an absent concept
+// namespace and lists not enforced. Explicit per-release, never a migration.
+func (q *Queries) WeavePreserveArchivedConceptPolicy(ctx context.Context, arg WeavePreserveArchivedConceptPolicyParams) error {
+	_, err := q.db.Exec(ctx, weavePreserveArchivedConceptPolicy, arg.ProjectID, arg.Version)
+	return err
+}
+
 const weavePreserveReleaseRow = `-- name: WeavePreserveReleaseRow :exec
 INSERT INTO weave_releases (project_id, version, title, description, created_at, created_by_id)
 VALUES ($1::text, $2::text, $3::text, $4::text,
