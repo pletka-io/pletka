@@ -192,6 +192,14 @@ func (m *Materializer) writeAdoptedBaseOverride(
 	}
 
 	o := rowToOverride(row)
+	if o.CategoryID != "" {
+		// the tree names categories by semantic id, as writeOverride does
+		catIdentifier, err := m.categoryIdentifierFor(ctx, o.CategoryID)
+		if err != nil {
+			return fmt.Errorf("resolve category identifier for adopted override %d: %w", o.ID, err)
+		}
+		o.CategoryID = catIdentifier
+	}
 
 	refRows, err := m.queries.WeaveListOverrideRefs(ctx, o.ID)
 	if err != nil {
