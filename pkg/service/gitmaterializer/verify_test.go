@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -288,6 +289,46 @@ func TestVerify_OntologiesDirFlag(t *testing.T) {
 	ont := t.TempDir()
 	vendorBase(t, ont)
 	rep, err := Verify(context.Background(), root, VerifyOptions{OntologiesDir: filepath.Join(ont, "vendor", "ontologies")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Findings) != 0 || rep.Steps != 6 {
+		t.Fatalf("findings=%v steps=%d", rep.Findings, rep.Steps)
+	}
+}
+
+// TestVerify_OntologyAliasAndForeignPrefix pins two things the database
+// import tolerates and the offline loader must too: an RDF file written
+// against a namespace the manifest lists only as an alias, and a file whose
+// own xmlns prefix (geo) is bound to another namespace in the tree's
+// effective bindings.
+func TestVerify_OntologyAliasAndForeignPrefix(t *testing.T) {
+	root := verifyFixture(t)
+	write(t, root, "project.yaml", `schema_version: 1
+project:
+  id: TPC
+  system_name: test_project
+  title: {en: Test}
+namespaces:
+  effective_bindings:
+    - {prefix: base, namespace: https://example.org/base/, source: ontology}
+    - {prefix: geo, namespace: http://www.opengis.net/ont/geosparql#, source: global}
+ontologies:
+  linked_versions:
+    - {prefix: base, version: "1.0", is_primary: true}
+manifests:
+  adoptions: adoptions/index.yaml
+`)
+	aliasRDF := strings.ReplaceAll(verifyTestRDF, "https://example.org/base/", "https://alias.example.org/base/")
+	aliasRDF = strings.Replace(aliasRDF, `xmlns:base="https://alias.example.org/base/"`, `xmlns:geo="https://alias.example.org/base/"`, 1)
+	write(t, root, "vendor/ontologies/ontology.pletka.io/base/1.0/ontology.yaml", "schema_version: 1\nontology:\n  module: ontology.pletka.io/base\n  ontology_id: ont-base\n  version_id: ver-base-1\n  version: \"1.0\"\n  slug: base\n  title: Base\n  kind: base\n  namespace: https://example.org/base/\n  namespace_aliases: [https://alias.example.org/base/]\n  prefixes: [base]\nsources:\n  files: [src/base.rdf]\n  primary: src/base.rdf\n")
+	write(t, root, "vendor/ontologies/ontology.pletka.io/base/1.0/src/base.rdf", aliasRDF)
+	h, err := hashDirectoryTree(filepath.Join(root, "vendor", "ontologies", "ontology.pletka.io", "base", "1.0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "pletka.sum", "ontology.pletka.io/base 1.0 tree:sha256:"+h+"\n")
+	rep, err := Verify(context.Background(), root, VerifyOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

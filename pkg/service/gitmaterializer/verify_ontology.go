@@ -2,15 +2,16 @@ package gitmaterializer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/domain"
 	weaveontology "github.com/pletka-io/pletka/pkg/weave/ontology"
 	"github.com/pletka-io/pletka/pkg/weave/ontology/autocomplete"
+	"github.com/pletka-io/pletka/pkg/weave/ontology/rdf"
 )
 
 // versionRef names one linked ontology version by prefix+version or by id.
@@ -59,7 +60,7 @@ func (v *verifyContext) checkOntology(ctx context.Context, opts VerifyOptions, r
 	if defaults := highestWithPrefix(available, domain.DefaultsOntologyPrefix); defaults != nil && !seen[defaults] {
 		specs = append(specs, defaults)
 	}
-	eng, expand, ok := v.buildOfflineEngine(ctx, specs, available)
+	eng, expand, ok := v.buildOfflineEngine(ctx, specs)
 	if !ok {
 		return
 	}
@@ -109,6 +110,7 @@ func (v *verifyContext) availableOntologies(opts VerifyOptions) map[string]*Onto
 	if opts.OntologiesDir == "" {
 		for _, vo := range v.snap.Vendor.Ontologies {
 			if vo.Snapshot != nil {
+				v.vendored = append(v.vendored, vo)
 				index(vo.Snapshot)
 			}
 		}
@@ -125,6 +127,7 @@ func (v *verifyContext) availableOntologies(opts VerifyOptions) map[string]*Onto
 			v.add("project.yaml", 0, "ontology-load", "--ontologies %s: %v", r.root, err)
 			continue
 		}
+		v.vendored = append(v.vendored, VendoredOntologySnapshot{Module: r.module, Version: snap.Manifest.Ontology.Version, Snapshot: snap})
 		index(snap)
 	}
 	return out
@@ -147,12 +150,14 @@ func highestWithPrefix(available map[string]*OntologySnapshot, prefix string) *O
 
 // buildOfflineEngine loads every snapshot into the in-memory store and builds
 // the index with the tree's effective bindings plus every vendored namespace.
-func (v *verifyContext) buildOfflineEngine(ctx context.Context, specs []*OntologySnapshot, available map[string]*OntologySnapshot) (*autocomplete.OfflineEngine, prefixExpander, bool) {
-	bindings := v.namespaceBindings(available)
-	parserBindings := make([]weaveontology.NamespaceBinding, 0, len(bindings))
-	for _, b := range bindings {
-		parserBindings = append(parserBindings, weaveontology.NamespaceBinding{Prefix: b.Prefix, Namespace: b.Namespace})
-	}
+func (v *verifyContext) buildOfflineEngine(ctx context.Context, specs []*OntologySnapshot) (*autocomplete.OfflineEngine, prefixExpander, bool) {
+	// The parser sees the same bindings the database's vendored import gets:
+	// every vendored ontology's prefix bound to its namespace and aliases.
+	// The tree's effective bindings stay out of the parser: a file's own
+	// xmlns prefix (geo for CRMgeo) must not clash with a global one.
+	pooled := poolVendoredOntologyBindings(nil, v.vendored)
+	parserBindings := v.parserBindings()
+	bindings := v.namespaceBindings(pooled)
 	versions := make([]autocomplete.MemoryVersion, 0, len(specs))
 	for _, snap := range specs {
 		ont := snap.Manifest.Ontology
@@ -175,7 +180,7 @@ func (v *verifyContext) buildOfflineEngine(ctx context.Context, specs []*Ontolog
 				companions = append(companions, f)
 			}
 		}
-		mv, err := weaveontology.LoadOfflineVersion(weaveontology.OfflineVersionSpec{
+		mv, err := loadOfflineVersionRetrying(weaveontology.OfflineVersionSpec{
 			Ontology:   &domain.Ontology{ID: id, Prefix: prefix, Namespace: ont.Namespace},
 			VersionID:  prefix + "@" + ont.Version,
 			Version:    ont.Version,
@@ -208,30 +213,88 @@ func (v *verifyContext) buildOfflineEngine(ctx context.Context, specs []*Ontolog
 	return eng, expand, true
 }
 
-// namespaceBindings lists the tree's effective bindings first, then every
-// vendored ontology's prefixes, sorted for a stable index.
-func (v *verifyContext) namespaceBindings(available map[string]*OntologySnapshot) []autocomplete.NamespaceBinding {
-	var out []autocomplete.NamespaceBinding
+// globalBindingWeight is the weight of the tree's effective bindings in the
+// parser set: below every vendored namespace, above a file's own declaration.
+const globalBindingWeight = 100
+
+// loadOfflineVersionRetrying parses the file; when its own xmlns prefix
+// clashes with a pooled binding (geo for CRMgeo in one file, geo for
+// geosparql elsewhere), the pooled bindings of that prefix that disagree
+// with the declaration are dropped for this file and the parse retried:
+// inside the file its declaration is authoritative, and the namespace it
+// names keeps its own vendored prefix.
+func loadOfflineVersionRetrying(spec weaveontology.OfflineVersionSpec) (autocomplete.MemoryVersion, error) {
+	for attempt := 0; attempt < 8; attempt++ {
+		mv, err := weaveontology.LoadOfflineVersion(spec)
+		var conflict *rdf.PrefixConflictError
+		if err == nil || !errors.As(err, &conflict) {
+			return mv, err
+		}
+		kept := spec.Bindings[:0:0]
+		dropped := false
+		for _, b := range spec.Bindings {
+			if b.Prefix == conflict.Prefix && b.Namespace != conflict.Declared {
+				dropped = true
+				continue
+			}
+			kept = append(kept, b)
+		}
+		if !dropped {
+			return mv, err
+		}
+		spec.Bindings = kept
+	}
+	return weaveontology.LoadOfflineVersion(spec)
+}
+
+// parserBindings binds every vendored ontology's prefix to its namespace
+// (weight 300) and to its aliases (weight 200, above a file's own declaration): the prefix resolves to the
+// main namespace, while a file written against an alias still parses.
+func (v *verifyContext) parserBindings() []weaveontology.NamespaceBinding {
+	var out []weaveontology.NamespaceBinding
+	// The tree's effective bindings stand in for the instance's global
+	// bindings (weight 100, below everything vendored): a file written
+	// against a namespace no vendored manifest lists still resolves.
+	if v.snap.Manifest.Namespaces != nil {
+		for _, b := range v.snap.Manifest.Namespaces.EffectiveBindings {
+			if strings.TrimSpace(b.Prefix) != "" && strings.TrimSpace(b.Namespace) != "" {
+				out = append(out, weaveontology.NamespaceBinding{Prefix: strings.TrimSpace(b.Prefix), Namespace: strings.TrimSpace(b.Namespace), Weight: globalBindingWeight})
+			}
+		}
+	}
+	for _, dep := range v.vendored {
+		if dep.Snapshot == nil {
+			continue
+		}
+		root := dep.Snapshot.Manifest.Ontology
+		prefix := strings.TrimSpace(root.Slug)
+		if len(root.Prefixes) > 0 && strings.TrimSpace(root.Prefixes[0]) != "" {
+			prefix = strings.TrimSpace(root.Prefixes[0])
+		}
+		if prefix == "" || strings.TrimSpace(root.Namespace) == "" {
+			continue
+		}
+		out = append(out, weaveontology.NamespaceBinding{Prefix: prefix, Namespace: strings.TrimSpace(root.Namespace), Weight: 300})
+		for _, alias := range root.NamespaceAliases {
+			if strings.TrimSpace(alias) != "" {
+				out = append(out, weaveontology.NamespaceBinding{Prefix: prefix, Namespace: strings.TrimSpace(alias), Weight: 200})
+			}
+		}
+	}
+	return out
+}
+
+// namespaceBindings lists the tree's effective bindings first, then the
+// pooled vendored bindings, for the index's qname resolution.
+func (v *verifyContext) namespaceBindings(pooled []VendoredOntologyExternalBinding) []autocomplete.NamespaceBinding {
+	out := make([]autocomplete.NamespaceBinding, 0, len(pooled))
 	if v.snap.Manifest.Namespaces != nil {
 		for _, b := range v.snap.Manifest.Namespaces.EffectiveBindings {
 			out = append(out, autocomplete.NamespaceBinding{Prefix: b.Prefix, Namespace: b.Namespace})
 		}
 	}
-	keys := make([]string, 0, len(available))
-	for k := range available {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	seen := map[*OntologySnapshot]bool{}
-	for _, k := range keys {
-		snap := available[k]
-		if seen[snap] || snap.Manifest.Ontology.Namespace == "" {
-			continue
-		}
-		seen[snap] = true
-		for _, p := range snap.Manifest.Ontology.Prefixes {
-			out = append(out, autocomplete.NamespaceBinding{Prefix: p, Namespace: snap.Manifest.Ontology.Namespace})
-		}
+	for _, b := range pooled {
+		out = append(out, autocomplete.NamespaceBinding{Prefix: b.Prefix, Namespace: b.Namespace})
 	}
 	return out
 }

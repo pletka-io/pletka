@@ -53,6 +53,7 @@ type verifyContext struct {
 	root         string
 	snap         *ProjectSnapshot
 	parents      map[string]*ProjectSnapshot
+	vendored     []VendoredOntologySnapshot // the ontologies the offline index is built from
 	declared     map[string]bool
 	fields       map[string]bool
 	categories   map[string]bool
