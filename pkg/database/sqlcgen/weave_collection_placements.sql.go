@@ -249,6 +249,52 @@ func (q *Queries) WeaveListPlacementsAtVersion(ctx context.Context, arg WeaveLis
 	return items, nil
 }
 
+const weaveRestoreCollectionPlacement = `-- name: WeaveRestoreCollectionPlacement :one
+INSERT INTO weave_collection_placements (
+    project_id, model_id, category_id, collection_id,
+    is_required, min_occurs, max_occurs, is_hidden
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+)
+ON CONFLICT (model_id, category_id, collection_id) DO UPDATE SET
+    is_required = EXCLUDED.is_required,
+    min_occurs  = EXCLUDED.min_occurs,
+    max_occurs  = EXCLUDED.max_occurs,
+    is_hidden   = EXCLUDED.is_hidden,
+    updated_at  = now()
+WHERE weave_collection_placements.project_id = EXCLUDED.project_id
+RETURNING id
+`
+
+type WeaveRestoreCollectionPlacementParams struct {
+	ProjectID    string `json:"project_id"`
+	ModelID      string `json:"model_id"`
+	CategoryID   string `json:"category_id"`
+	CollectionID string `json:"collection_id"`
+	IsRequired   bool   `json:"is_required"`
+	MinOccurs    int32  `json:"min_occurs"`
+	MaxOccurs    *int32 `json:"max_occurs"`
+	IsHidden     bool   `json:"is_hidden"`
+}
+
+// Hydration's upsert: unlike WeaveUpsertCollectionPlacement it never takes
+// over a row of another project sharing the unique key (no row returned).
+func (q *Queries) WeaveRestoreCollectionPlacement(ctx context.Context, arg WeaveRestoreCollectionPlacementParams) (int64, error) {
+	row := q.db.QueryRow(ctx, weaveRestoreCollectionPlacement,
+		arg.ProjectID,
+		arg.ModelID,
+		arg.CategoryID,
+		arg.CollectionID,
+		arg.IsRequired,
+		arg.MinOccurs,
+		arg.MaxOccurs,
+		arg.IsHidden,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const weaveUpsertCollectionPlacement = `-- name: WeaveUpsertCollectionPlacement :one
 
 INSERT INTO weave_collection_placements (

@@ -2,12 +2,15 @@ package gitmaterializer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -179,10 +182,14 @@ func (m *Materializer) hydratePlacementsTx(ctx context.Context, q *sqlcgen.Queri
 			n := int32(v)
 			max = &n
 		}
-		if _, err := q.WeaveUpsertCollectionPlacement(ctx, sqlcgen.WeaveUpsertCollectionPlacementParams{
+		_, err = q.WeaveRestoreCollectionPlacement(ctx, sqlcgen.WeaveRestoreCollectionPlacementParams{
 			ProjectID: projectID, ModelID: doc.ModelID, CategoryID: doc.CategoryID, CollectionID: doc.CollectionID,
 			IsRequired: doc.IsRequired, MinOccurs: int32(doc.MinOccurs), MaxOccurs: max, IsHidden: doc.IsHidden,
-		}); err != nil {
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%s: placement belongs to another project", item.Path)
+		}
+		if err != nil {
 			return fmt.Errorf("%s: %w", item.Path, err)
 		}
 	}

@@ -271,3 +271,47 @@ func TestInitProjectSkipsUnplacedPlacementRows(t *testing.T) {
 		t.Fatalf("tree from init-git does not load: %v", err)
 	}
 }
+
+// TestLoadGitRefusesAnotherProjectsPlacement pins that hydration never takes
+// over a placement row of another project that shares the table's unique
+// key (model, category, collection).
+func TestLoadGitRefusesAnotherProjectsPlacement(t *testing.T) {
+	ctx := context.Background()
+	modelID, categoryID, collectionID := placedCollection(t, ctx)
+	q := sqlcgen.New(testdb.Pool(t))
+	five := int32(5)
+	if _, err := q.WeaveUpsertCollectionPlacement(ctx, sqlcgen.WeaveUpsertCollectionPlacementParams{
+		ProjectID: "OTHERPRJ", ModelID: modelID, CategoryID: categoryID, CollectionID: collectionID,
+		MinOccurs: 2, MaxOccurs: &five,
+	}); err != nil {
+		t.Fatalf("seed other project's placement: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = q.WeaveDeleteCollectionPlacement(context.Background(), sqlcgen.WeaveDeleteCollectionPlacementParams{
+			ModelID: modelID, CategoryID: categoryID, CollectionID: collectionID,
+		})
+	})
+
+	var rel string
+	err := roundTripLA(t, ctx, func(root string) {
+		p := placementFile(root, modelID, categoryID, collectionID)
+		rel, _ = filepath.Rel(root, p)
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+		body := "category_id: " + categoryID + "\ncollection_id: " + collectionID + "\nis_hidden: true\nis_required: true\nmax_occurs: 1\nmin_occurs: 1\nmodel_id: " + modelID + "\n"
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err == nil || !strings.Contains(err.Error(), filepath.ToSlash(rel)) || !strings.Contains(err.Error(), "belongs to another project") {
+		t.Fatalf("want error naming %s with %q, got %v", rel, "belongs to another project", err)
+	}
+	r, err := q.WeaveGetCollectionPlacement(ctx, sqlcgen.WeaveGetCollectionPlacementParams{
+		ModelID: modelID, CategoryID: categoryID, CollectionID: collectionID,
+	})
+	if err != nil {
+		t.Fatalf("other project's placement gone: %v", err)
+	}
+	if r.ProjectID != "OTHERPRJ" || r.IsRequired || r.IsHidden || r.MinOccurs != 2 || r.MaxOccurs == nil || *r.MaxOccurs != 5 {
+		t.Fatalf("other project's placement changed: %+v", r)
+	}
+}

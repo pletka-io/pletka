@@ -67,3 +67,21 @@ WHERE p.project_id = $1
       AND o.part_of_collection_id = p.collection_id
   )
 ORDER BY p.model_id, p.category_id, p.collection_id;
+
+-- name: WeaveRestoreCollectionPlacement :one
+-- Hydration's upsert: unlike WeaveUpsertCollectionPlacement it never takes
+-- over a row of another project sharing the unique key (no row returned).
+INSERT INTO weave_collection_placements (
+    project_id, model_id, category_id, collection_id,
+    is_required, min_occurs, max_occurs, is_hidden
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+)
+ON CONFLICT (model_id, category_id, collection_id) DO UPDATE SET
+    is_required = EXCLUDED.is_required,
+    min_occurs  = EXCLUDED.min_occurs,
+    max_occurs  = EXCLUDED.max_occurs,
+    is_hidden   = EXCLUDED.is_hidden,
+    updated_at  = now()
+WHERE weave_collection_placements.project_id = EXCLUDED.project_id
+RETURNING id;
