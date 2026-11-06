@@ -196,3 +196,102 @@ func TestVerify_ParentNotDeclared(t *testing.T) {
 		t.Fatalf("(-want +got):\n%s\n%v", diff, rep.Findings)
 	}
 }
+
+const verifyTestRDF = `<?xml version="1.0"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+         xmlns:owl="http://www.w3.org/2002/07/owl#"
+         xmlns:base="https://example.org/base/">
+  <owl:Ontology rdf:about="https://example.org/base/"/>
+  <owl:Class rdf:about="https://example.org/base/Thing"><rdfs:label xml:lang="en">Thing</rdfs:label></owl:Class>
+  <owl:Class rdf:about="https://example.org/base/Person"><rdfs:subClassOf rdf:resource="https://example.org/base/Thing"/></owl:Class>
+  <owl:DatatypeProperty rdf:about="https://example.org/base/name">
+    <rdfs:domain rdf:resource="https://example.org/base/Thing"/>
+    <rdfs:range rdf:resource="http://www.w3.org/2001/XMLSchema#string"/>
+  </owl:DatatypeProperty>
+  <owl:ObjectProperty rdf:about="https://example.org/base/knows">
+    <rdfs:domain rdf:resource="https://example.org/base/Person"/>
+    <rdfs:range rdf:resource="https://example.org/base/Person"/>
+  </owl:ObjectProperty>
+</rdf:RDF>`
+
+// vendorBase writes the base ontology under <root>/vendor/ontologies with a
+// valid pletka.sum.
+func vendorBase(t *testing.T, root string) {
+	t.Helper()
+	write(t, root, "vendor/ontologies/ontology.pletka.io/base/1.0/ontology.yaml", "schema_version: 1\nontology:\n  module: ontology.pletka.io/base\n  ontology_id: ont-base\n  version_id: ver-base-1\n  version: \"1.0\"\n  slug: base\n  title: Base\n  kind: base\n  namespace: https://example.org/base/\n  prefixes: [base]\nsources:\n  files: [src/base.rdf]\n  primary: src/base.rdf\n")
+	write(t, root, "vendor/ontologies/ontology.pletka.io/base/1.0/src/base.rdf", verifyTestRDF)
+	h, err := hashDirectoryTree(filepath.Join(root, "vendor", "ontologies", "ontology.pletka.io", "base", "1.0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "pletka.sum", "ontology.pletka.io/base 1.0 tree:sha256:"+h+"\n")
+}
+
+func TestVerify_OntologyCleanTree(t *testing.T) {
+	root := verifyFixture(t)
+	vendorBase(t, root)
+	rep, err := Verify(context.Background(), root, VerifyOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Findings) != 0 || rep.Fields != 2 || rep.Steps != 6 {
+		t.Fatalf("findings=%v fields=%d steps=%d", rep.Findings, rep.Fields, rep.Steps)
+	}
+}
+
+func TestVerify_OntologyFindings(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(root string)
+		want   []string
+	}{
+		{"not offered", func(r string) {
+			write(t, r, "fields/TPCF.2/field.yaml", "semantic_id: TPCF.2\nsystem_name: knows\nui_name: {en: K}\nontology_scope: base:Thing\npath_elements: [base:knows, base:Person]\nexpected_value_type: Model\nstatus: draft\n")
+		}, []string{"not-offered"}},
+		{"path incomplete", func(r string) {
+			write(t, r, "fields/TPCF.2/field.yaml", "semantic_id: TPCF.2\nsystem_name: knows\nui_name: {en: K}\nontology_scope: base:Person\npath_elements: [base:knows]\nexpected_value_type: Model\nstatus: draft\n")
+		}, []string{"path-incomplete"}},
+		{"terminal mismatch", func(r string) {
+			write(t, r, "fields/TPCF.1/field.yaml", "semantic_id: TPCF.1\nsystem_name: name\nui_name: {en: N}\nontology_scope: base:Thing\npath_elements: [base:name, xsd:string]\nexpected_value_type: Model\nstatus: draft\n")
+		}, []string{"terminal-mismatch"}},
+		{"unbound prefix", func(r string) {
+			write(t, r, "fields/TPCF.1/field.yaml", "semantic_id: TPCF.1\nsystem_name: name\nui_name: {en: N}\nontology_scope: base:Thing\npath_elements: [zzz:name, xsd:string]\nexpected_value_type: String\nstatus: draft\n")
+		}, []string{"unbound-prefix"}},
+		{"missing vendored ontology", func(r string) {
+			if err := os.RemoveAll(filepath.Join(r, "vendor")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(filepath.Join(r, "pletka.sum")); err != nil {
+				t.Fatal(err)
+			}
+		}, []string{"ontology-missing", "ontology-skipped"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := verifyFixture(t)
+			vendorBase(t, root)
+			tc.mutate(root)
+			rep, err := Verify(context.Background(), root, VerifyOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(tc.want, codes(rep)); diff != "" {
+				t.Fatalf("(-want +got):\n%s\n%v", diff, rep.Findings)
+			}
+		})
+	}
+}
+
+func TestVerify_OntologiesDirFlag(t *testing.T) {
+	root := verifyFixture(t)
+	ont := t.TempDir()
+	vendorBase(t, ont)
+	rep, err := Verify(context.Background(), root, VerifyOptions{OntologiesDir: filepath.Join(ont, "vendor", "ontologies")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Findings) != 0 || rep.Steps != 6 {
+		t.Fatalf("findings=%v steps=%d", rep.Findings, rep.Steps)
+	}
+}
