@@ -2,6 +2,7 @@ package gitmaterializer
 
 import (
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -418,13 +419,14 @@ func (v *verifyContext) checkPlacements() {
 			v.add(item.Path, yamlKeyLine(item.Payload, "category_id"), "placement-category",
 				"category %s is not in the tree, its adoptions or its parents", doc.CategoryID)
 		}
-		if doc.MinOccurs < 0 || (doc.MaxOccurs != nil && *doc.MaxOccurs < doc.MinOccurs) {
+		if doc.MinOccurs < 0 || doc.MinOccurs > math.MaxInt32 ||
+			(doc.MaxOccurs != nil && (*doc.MaxOccurs < doc.MinOccurs || *doc.MaxOccurs > math.MaxInt32)) {
 			maxOccurs := "unbounded"
 			if doc.MaxOccurs != nil {
 				maxOccurs = strconv.Itoa(*doc.MaxOccurs)
 			}
 			v.add(item.Path, yamlKeyLine(item.Payload, "max_occurs"), "placement-range",
-				"min_occurs %d and max_occurs %s do not form a range", doc.MinOccurs, maxOccurs)
+				"min_occurs %d and max_occurs %s do not form a range within 0..%d", doc.MinOccurs, maxOccurs, math.MaxInt32)
 		}
 	}
 }

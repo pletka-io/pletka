@@ -3,6 +3,7 @@ package gitmaterializer
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -157,6 +158,8 @@ func (m *Materializer) hydratePlacementsTx(ctx context.Context, q *sqlcgen.Queri
 			return fmt.Errorf("%s: model_id, collection_id and category_id must match the file's place in the tree", item.Path)
 		case doc.MinOccurs < 0:
 			return fmt.Errorf("%s: min_occurs must be >= 0", item.Path)
+		case doc.MinOccurs > math.MaxInt32:
+			return fmt.Errorf("%s: min_occurs must be <= %d", item.Path, math.MaxInt32)
 		case doc.MaxOccurs != nil && *doc.MaxOccurs < doc.MinOccurs:
 			return fmt.Errorf("%s: max_occurs must be >= min_occurs", item.Path)
 		case placed[doc.ModelID] == nil:
@@ -166,7 +169,11 @@ func (m *Materializer) hydratePlacementsTx(ctx context.Context, q *sqlcgen.Queri
 		}
 		var max *int32
 		if doc.MaxOccurs != nil {
-			n := int32(*doc.MaxOccurs)
+			v := *doc.MaxOccurs // >= min_occurs >= 0, checked above
+			if v < 0 || v > math.MaxInt32 {
+				return fmt.Errorf("%s: max_occurs must be <= %d", item.Path, math.MaxInt32)
+			}
+			n := int32(v)
 			max = &n
 		}
 		if _, err := q.WeaveUpsertCollectionPlacement(ctx, sqlcgen.WeaveUpsertCollectionPlacementParams{
