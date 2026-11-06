@@ -43,6 +43,13 @@ func TestPlacementEditsAreChangeLogged(t *testing.T) {
 	if e := entries(); len(e) != 1 || e[0].Operation != "update" {
 		t.Fatalf("update entries: %+v", e)
 	}
+	before := runner.lastChangeSetID
+	if err := svc.UpsertPlacement(ctx, p); err != nil {
+		t.Fatalf("unchanged: %v", err)
+	}
+	if runner.lastChangeSetID != before {
+		t.Fatalf("unchanged upsert opened change set %d", runner.lastChangeSetID)
+	}
 	if err := svc.DeletePlacement(ctx, "LA", "TSTPLACE.1", "", "LAC.1"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}

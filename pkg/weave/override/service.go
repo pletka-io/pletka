@@ -534,18 +534,30 @@ func (s *Service) UpsertPlacement(ctx context.Context, p *domain.CollectionPlace
 	if err != nil {
 		return err
 	}
+	if prev != nil && samePlacement(prev, p) {
+		return nil // unchanged: no write, no change-log entry
+	}
+	payload, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("marshal placement: %w", err)
+	}
+	var prevPayload []byte
+	if prev != nil {
+		if prevPayload, err = json.Marshal(prev); err != nil {
+			return fmt.Errorf("marshal previous placement: %w", err)
+		}
+	}
 	return s.runner.Run(ctx, func(ctx context.Context, rec domain.ChangeLogRecorder) error {
 		if err := s.store.UpsertPlacement(ctx, p); err != nil {
 			return fmt.Errorf("upsert placement: %w", err)
 		}
-		payload, _ := json.Marshal(p)
 		entry := domain.ChangeLogEntry{
 			EntityType: "collection_placement", EntityID: p.ModelID, Operation: "create",
 			ProjectID: p.ProjectID, Payload: payload,
 		}
 		if prev != nil {
 			entry.Operation = "update"
-			entry.PreviousPayload, _ = json.Marshal(prev)
+			entry.PreviousPayload = prevPayload
 		}
 		return rec.Record(ctx, entry)
 	})
@@ -558,16 +570,32 @@ func (s *Service) DeletePlacement(ctx context.Context, projectID, modelID, categ
 	if err != nil || prev == nil {
 		return err
 	}
+	previous, err := json.Marshal(prev)
+	if err != nil {
+		return fmt.Errorf("marshal previous placement: %w", err)
+	}
 	return s.runner.Run(ctx, func(ctx context.Context, rec domain.ChangeLogRecorder) error {
 		if err := s.store.DeletePlacement(ctx, modelID, categoryID, collectionID); err != nil {
 			return fmt.Errorf("delete placement: %w", err)
 		}
-		previous, _ := json.Marshal(prev)
 		return rec.Record(ctx, domain.ChangeLogEntry{
 			EntityType: "collection_placement", EntityID: modelID, Operation: "delete",
 			ProjectID: projectID, PreviousPayload: previous,
 		})
 	})
+}
+
+// samePlacement compares the values a placement carries, ignoring ID and
+// ProjectID.
+func samePlacement(a, b *domain.CollectionPlacement) bool {
+	if a.ModelID != b.ModelID || a.CategoryID != b.CategoryID || a.CollectionID != b.CollectionID ||
+		a.IsRequired != b.IsRequired || a.MinOccurs != b.MinOccurs || a.IsHidden != b.IsHidden {
+		return false
+	}
+	if (a.MaxOccurs == nil) != (b.MaxOccurs == nil) {
+		return false
+	}
+	return a.MaxOccurs == nil || *a.MaxOccurs == *b.MaxOccurs
 }
 
 // findPlacement returns the draft placement for the key, nil when absent.
