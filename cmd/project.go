@@ -63,6 +63,7 @@ a closure gap. Safe to run repeatedly — a clean tree is a no-op.`,
 
 	projectCmd.AddCommand(initGitCmd)
 	projectCmd.AddCommand(loadGitCmd)
+	projectCmd.AddCommand(newProjectVerifyGitCommand())
 	projectCmd.AddCommand(reconcileCmd)
 	projectCmd.AddCommand(newReleaseBaselineCommand())
 	projectCmd.AddCommand(newProjectDeleteCommand())
