@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 
@@ -396,8 +397,9 @@ func (v *verifyContext) checkAdoptions() {
 	}
 }
 
-// checkPlacements reports placement files whose collection the model does not
-// place, whose category is unknown, or whose range is invalid.
+// checkPlacements reports placement files whose ids disagree with their path,
+// whose collection the model does not place, whose category is unknown, or
+// whose range is invalid.
 func (v *verifyContext) checkPlacements() {
 	if len(v.snap.Entities.Placements) == 0 {
 		return
@@ -410,6 +412,11 @@ func (v *verifyContext) checkPlacements() {
 		doc, ok := decodeDoc[canonicalPlacementDoc](v, item)
 		if !ok {
 			continue
+		}
+		collectionID, categoryID, _ := parsePlacementFileName(path.Base(item.Path))
+		if doc.ModelID != item.OwnerID || doc.CollectionID != collectionID || doc.CategoryID != categoryID {
+			v.add(item.Path, yamlKeyLine(item.Payload, "model_id"), "placement-path",
+				"model_id %s, collection_id %s and category_id %q must match the file's place in the tree", doc.ModelID, doc.CollectionID, doc.CategoryID)
 		}
 		if !placed[item.OwnerID][doc.CollectionID] {
 			v.add(item.Path, yamlKeyLine(item.Payload, "collection_id"), "placement-orphan",

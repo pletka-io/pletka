@@ -469,6 +469,8 @@ func TestVerify_PlacementFindings(t *testing.T) {
 			"category_id: TPC.CAT.1\ncollection_id: TPCC.1\nis_hidden: false\nis_required: true\nmax_occurs: 0\nmin_occurs: 1\nmodel_id: TPCM.1\n", "placement-range"},
 		{"overflow", "models/TPCM.1/placements/TPCC.1@TPC.CAT.1.yaml",
 			"category_id: TPC.CAT.1\ncollection_id: TPCC.1\nis_hidden: false\nis_required: false\nmax_occurs: 3000000000\nmin_occurs: 0\nmodel_id: TPCM.1\n", "placement-range"},
+		{"path", "models/TPCM.1/placements/TPCC.1@TPC.CAT.1.yaml",
+			"category_id: TPC.CAT.1\ncollection_id: TPCC.1\nis_hidden: false\nis_required: false\nmax_occurs: null\nmin_occurs: 0\nmodel_id: TPCM.2\n", "placement-path"},
 	}
 	for _, c := range cases {
 		root := placementFixture(t)
