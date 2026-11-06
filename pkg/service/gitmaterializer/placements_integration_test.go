@@ -131,18 +131,65 @@ func placementRow(t *testing.T, ctx context.Context, modelID, categoryID, collec
 	return true, r.MaxOccurs
 }
 
-func TestLoadGitRoundTripsPlacements(t *testing.T) {
-	ctx := context.Background()
-	modelID, categoryID, collectionID := placedCollection(t, ctx)
+// upsertFullPlacement seeds a placement with non-default values.
+func upsertFullPlacement(t *testing.T, ctx context.Context, modelID, categoryID, collectionID string) {
+	t.Helper()
+	q := sqlcgen.New(testdb.Pool(t))
 	one := int32(1)
-	upsertPlacement(t, ctx, modelID, categoryID, collectionID, &one)
-	if err := roundTripLA(t, ctx, nil); err != nil {
+	if _, err := q.WeaveUpsertCollectionPlacement(ctx, sqlcgen.WeaveUpsertCollectionPlacementParams{
+		ProjectID: "LA", ModelID: modelID, CategoryID: categoryID, CollectionID: collectionID,
+		IsRequired: true, MinOccurs: 1, MaxOccurs: &one, IsHidden: true,
+	}); err != nil {
+		t.Fatalf("upsert placement: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = q.WeaveDeleteCollectionPlacement(context.Background(), sqlcgen.WeaveDeleteCollectionPlacementParams{
+			ModelID: modelID, CategoryID: categoryID, CollectionID: collectionID,
+		})
+	})
+}
+
+// assertFullPlacementRoundTrip seeds a non-default placement, deletes its row
+// after materialization, hydrates, and expects every value back from the file.
+func assertFullPlacementRoundTrip(t *testing.T, categoryID string, wantSuffix string) {
+	t.Helper()
+	ctx := context.Background()
+	modelID, _, collectionID := placedCollection(t, ctx)
+	upsertFullPlacement(t, ctx, modelID, categoryID, collectionID)
+	err := roundTripLA(t, ctx, func(root string) {
+		if _, err := os.Stat(placementFile(root, modelID, categoryID, collectionID)); err != nil {
+			t.Fatalf("placement file missing: %v", err)
+		}
+		if wantSuffix != "" && !strings.HasSuffix(placementFile(root, modelID, categoryID, collectionID), wantSuffix) {
+			t.Fatalf("file name does not end in %s", wantSuffix)
+		}
+		if err := sqlcgen.New(testdb.Pool(t)).WeaveDeleteCollectionPlacement(ctx, sqlcgen.WeaveDeleteCollectionPlacementParams{
+			ModelID: modelID, CategoryID: categoryID, CollectionID: collectionID,
+		}); err != nil {
+			t.Fatalf("delete row: %v", err)
+		}
+	})
+	if err != nil {
 		t.Fatalf("hydrate: %v", err)
 	}
-	found, max := placementRow(t, ctx, modelID, categoryID, collectionID)
-	if !found || max == nil || *max != 1 {
-		t.Fatalf("placement after round trip: found=%v max=%v", found, max)
+	r, err := sqlcgen.New(testdb.Pool(t)).WeaveGetCollectionPlacement(ctx, sqlcgen.WeaveGetCollectionPlacementParams{
+		ModelID: modelID, CategoryID: categoryID, CollectionID: collectionID,
+	})
+	if err != nil {
+		t.Fatalf("placement not restored from the file: %v", err)
 	}
+	if r.CategoryID != categoryID || !r.IsRequired || r.MinOccurs != 1 || r.MaxOccurs == nil || *r.MaxOccurs != 1 || !r.IsHidden {
+		t.Fatalf("restored placement = %+v", r)
+	}
+}
+
+func TestLoadGitRoundTripsPlacements(t *testing.T) {
+	_, categoryID, _ := placedCollection(t, context.Background())
+	assertFullPlacementRoundTrip(t, categoryID, "")
+}
+
+func TestLoadGitRoundTripsUncategorizedPlacement(t *testing.T) {
+	assertFullPlacementRoundTrip(t, "", "@_.yaml")
 }
 
 func TestLoadGitClearsPlacementsMissingFromTree(t *testing.T) {
@@ -167,6 +214,7 @@ func TestLoadGitRejectsBadPlacements(t *testing.T) {
 	var before int
 	_ = testdb.Pool(t).QueryRow(ctx, `SELECT count(*) FROM weave_field_overrides WHERE project_id='LA'`).Scan(&before)
 
+	reasons := map[string]string{"range": "max_occurs must be", "orphan": "places no field"}
 	cases := map[string]string{
 		"range":  "category_id: " + categoryID + "\ncollection_id: " + collectionID + "\nis_hidden: false\nis_required: true\nmax_occurs: 0\nmin_occurs: 1\nmodel_id: " + modelID + "\n",
 		"orphan": "category_id: " + categoryID + "\ncollection_id: NOPE.1\nis_hidden: false\nis_required: false\nmax_occurs: null\nmin_occurs: 0\nmodel_id: " + modelID + "\n",
@@ -183,8 +231,11 @@ func TestLoadGitRejectsBadPlacements(t *testing.T) {
 			_ = os.MkdirAll(filepath.Dir(p), 0o755)
 			_ = os.WriteFile(p, []byte(body), 0o644)
 		})
-		if err == nil || !strings.Contains(err.Error(), filepath.ToSlash(rel)) {
-			t.Fatalf("%s: want error naming %s, got %v", name, rel, err)
+		if err == nil || !strings.Contains(err.Error(), filepath.ToSlash(rel)) || !strings.Contains(err.Error(), reasons[name]) {
+			t.Fatalf("%s: want error naming %s with %q, got %v", name, rel, reasons[name], err)
+		}
+		if found, _ := placementRow(t, ctx, modelID, categoryID, collectionID); !found {
+			t.Fatalf("%s: pre-existing placement lost by a failed hydration (clear was committed)", name)
 		}
 		var after int
 		_ = testdb.Pool(t).QueryRow(ctx, `SELECT count(*) FROM weave_field_overrides WHERE project_id='LA'`).Scan(&after)
