@@ -48,3 +48,28 @@ writes the override row id there and restore ignores it.
 - Phases commit separately (vendored ontologies, project shell, entities,
   overrides and provenance). After a failure, fix the file and load again.
 - A loaded project is a draft. Releases are cut from the database.
+
+## Verifying a tree without a database
+
+`pletka project verify-git <dir>` reads the tree and reports, as
+`file:line: code: message`, what `load-git` would reject and what the path
+builder could not rebuild. It needs no database: the autocomplete index is
+built in memory from the tree's `vendor/ontologies/` (checked against
+`pletka.sum`) or from `--ontologies <dir>` in the same layout, and every
+field path is replayed step by step through that index exactly as the
+builder asks its questions. Parents come from `--parent <dir>` (repeatable)
+or `vendor/projects/`. A self-contained tree (`init-git --self-contained`)
+verifies on its own; `--structure-only` skips the ontology part; `--format
+json` is for CI. Any finding makes the command exit non-zero.
+
+Finding codes: `load`, `unknown-file`, `decode`, `unknown-key`,
+`semantic-id`, `unresolved-field`, `unresolved-category`,
+`unresolved-collection`, `unresolved-concept-list`, `orphan-overrides`,
+`adoption-unknown-parent`, `adoption-missing-source`, `parent-tree-missing`,
+`parent-not-declared`, `vendor-checksum`, `ontology-missing`,
+`ontology-skipped`, `ontology-load`, `unbound-prefix`, `path-incomplete`,
+`terminal-mismatch`, `not-offered`. An unknown top-level key is a finding
+because the loader drops it silently. The ontology part uses the same index
+build and the same stepping as the server (`pkg/weave/ontology/autocomplete`
+`MemoryStore`, `OfflineEngine`, `ReplayPath`); `pletka weave replay-paths`
+asks the live database the same questions, so the two agree.
