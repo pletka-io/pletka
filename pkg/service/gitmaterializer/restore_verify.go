@@ -61,6 +61,15 @@ func verifyVendorTree(sum []pletkaSumEntry, module, version, rootDir string) err
 // cannot be resolved by picking the first match and instead returns a
 // descriptive error.
 func findPletkaSumEntry(sum []pletkaSumEntry, module, version string) (pletkaSumEntry, error) {
+	if version == "" {
+		// A draft tree's own entry is labeled "draft"; prefer it over a
+		// release of the same module vendored by another dependency.
+		for _, entry := range sum {
+			if entry.Module == module && entry.Version == parentDependencyVersionDraft {
+				return entry, nil
+			}
+		}
+	}
 	var match pletkaSumEntry
 	matched := false
 	ambiguous := false

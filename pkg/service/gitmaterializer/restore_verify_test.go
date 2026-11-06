@@ -171,11 +171,28 @@ func TestVerifyVendorChecksums(t *testing.T) {
 		}
 	})
 
-	t.Run("draft version lookup with multiple sum entries for the module is ambiguous", func(t *testing.T) {
+	t.Run("draft version lookup prefers the draft entry beside a release of the same module", func(t *testing.T) {
 		snapshot, _, _ := buildVerifyFixture(t)
 		// buildVerifyFixture's project dependency has Version "" (draft: no
-		// version subdirectory). A second, unrelated version entry for the
-		// same module makes the version-less wildcard lookup ambiguous.
+		// version subdirectory). Another dependency may vendor a release of
+		// the same module; the draft tree still finds its own "draft" entry.
+		snapshot.Sum = append(snapshot.Sum, PletkaSumEntry{
+			Module:  "example.org/parent-project",
+			Version: "v1.0.0",
+			TreeSHA: "deadbeef",
+		})
+		if err := verifyVendorChecksums(snapshot); err != nil {
+			t.Fatalf("verifyVendorChecksums() = %v, want nil (draft entry preferred)", err)
+		}
+	})
+
+	t.Run("draft version lookup with several release entries and no draft entry is ambiguous", func(t *testing.T) {
+		snapshot, _, _ := buildVerifyFixture(t)
+		for i := range snapshot.Sum {
+			if snapshot.Sum[i].Module == "example.org/parent-project" {
+				snapshot.Sum[i].Version = "v0.9.0" // a legacy sum without the draft label
+			}
+		}
 		snapshot.Sum = append(snapshot.Sum, PletkaSumEntry{
 			Module:  "example.org/parent-project",
 			Version: "v1.0.0",
