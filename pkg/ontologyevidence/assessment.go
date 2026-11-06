@@ -19,31 +19,9 @@ func assess(ref TermReference, inventory []Body, bodies []bodyDocument, aliases 
 		return Invalid, matches
 	}
 	for i, body := range bodies {
-		pin := inventory[i]
-		if ref.VersionID != "" && ref.VersionID != pin.VersionID {
-			continue
-		}
-		terms := body.Classes
-		if ref.Kind == propertyKind {
-			terms = body.Properties
-		}
-		seen := map[string]bool{}
-		for _, t := range terms {
-			if ref.URI != "" && !matchesTerm(ref.URI, t, aliases, body.Bindings) {
-				continue
-			}
-			if ref.Prefix != "" && !matchesTerm(ref.Prefix+":"+ref.LocalName, t, aliases, body.Bindings) {
-				continue
-			}
-			if !seen[t.URI] {
-				c := Candidate{OntologyID: pin.OntologyID, VersionID: pin.VersionID, Digest: pin.Digest, URI: t.URI}
-				matches = append(matches, c)
-				if t.Prefix != "" && t.Prefix == body.Ontology.Prefix {
-					native = append(native, c)
-				}
-				seen[t.URI] = true
-			}
-		}
+		all, own := bodyMatches(ref, inventory[i], body, aliases)
+		matches = append(matches, all...)
+		native = append(native, own...)
 	}
 	// An extension may redeclare a parent's term under the parent's URI (Linked
 	// Art 0.9 carries six CRM classes). The same URI is the same term, so when
@@ -223,4 +201,36 @@ func sameURI(matches []Candidate) bool {
 		}
 	}
 	return true
+}
+
+// bodyMatches lists the body's terms the reference matches (one candidate per
+// URI), and separately those the owner declares under its own prefix.
+func bodyMatches(ref TermReference, pin Body, body bodyDocument, aliases []namespace.Binding) (all, native []Candidate) {
+	if ref.VersionID != "" && ref.VersionID != pin.VersionID {
+		return nil, nil
+	}
+	terms := body.Classes
+	if ref.Kind == propertyKind {
+		terms = body.Properties
+	}
+	seen, own := map[string]bool{}, map[string]bool{}
+	for _, t := range terms {
+		if ref.URI != "" && !matchesTerm(ref.URI, t, aliases, body.Bindings) {
+			continue
+		}
+		if ref.Prefix != "" && !matchesTerm(ref.Prefix+":"+ref.LocalName, t, aliases, body.Bindings) {
+			continue
+		}
+		c := Candidate{OntologyID: pin.OntologyID, VersionID: pin.VersionID, Digest: pin.Digest, URI: t.URI}
+		if !seen[t.URI] {
+			seen[t.URI] = true
+			all = append(all, c)
+		}
+		// Any declaration of the URI under the owner's own prefix makes it native.
+		if t.Prefix != "" && t.Prefix == body.Ontology.Prefix && !own[t.URI] {
+			own[t.URI] = true
+			native = append(native, c)
+		}
+	}
+	return all, native
 }

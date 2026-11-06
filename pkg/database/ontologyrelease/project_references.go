@@ -93,7 +93,7 @@ func (p *publisher) ownerMatches(owner string, ref TermReference, aliases []name
 	if ref.Kind == "property" {
 		terms = body.Properties
 	}
-	seen := map[string]bool{}
+	seen, own := map[string]bool{}, map[string]bool{}
 	for _, term := range terms {
 		if ref.URI != "" && !namespace.MatchesTerm(ref.URI, term.URI, term.Prefix, term.LocalName, bindings) {
 			continue
@@ -101,13 +101,14 @@ func (p *publisher) ownerMatches(owner string, ref TermReference, aliases []name
 		if ref.Prefix != "" && !namespace.MatchesTerm(ref.Prefix+":"+ref.LocalName, term.URI, term.Prefix, term.LocalName, bindings) {
 			continue
 		}
-		if seen[term.URI] {
-			continue
-		}
-		seen[term.URI] = true
 		match := TermResolution{Reference: ref, OntologyID: owner, VersionID: pin.VersionID, Digest: pin.Digest, URI: term.URI}
-		all = append(all, match)
-		if term.Prefix != "" && term.Prefix == body.Ontology.Prefix {
+		if !seen[term.URI] {
+			seen[term.URI] = true
+			all = append(all, match)
+		}
+		// Any declaration of the URI under the owner's own prefix makes it native.
+		if term.Prefix != "" && term.Prefix == body.Ontology.Prefix && !own[term.URI] {
+			own[term.URI] = true
 			native = append(native, match)
 		}
 	}
