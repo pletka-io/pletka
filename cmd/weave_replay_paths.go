@@ -51,7 +51,23 @@ included, query = the local name of the step being looked for.`,
 type replayStep struct {
 	Position    int      `json:"position"` // -1 = the scope class in the root picker
 	Want        string   `json:"want"`     // qname the stored path has at this position
+	WantURI     string   `json:"want_uri,omitempty"`
 	CurrentPath []string `json:"current_path"`
+}
+
+// replayOffered reports whether the stored element is among the suggestions:
+// by qname, or by IRI when the stored path carries another prefix for the
+// same namespace than the one the builder shows.
+func replayOffered(sugs []autocomplete.Suggestion, wantQname, wantURI string) bool {
+	for _, s := range sugs {
+		if s.Qname == wantQname {
+			return true
+		}
+		if wantURI != "" && strings.Contains(wantURI, "://") && s.URI == wantURI {
+			return true
+		}
+	}
+	return false
 }
 
 // replayFinding is a step the engine did not offer.
@@ -72,6 +88,18 @@ func replaySteps(scope string, path []string) []replayStep {
 	for i, q := range path {
 		cur := append([]string{scope}, path[:i]...)
 		steps = append(steps, replayStep{Position: i, Want: q, CurrentPath: cur})
+	}
+	return steps
+}
+
+// withURIs attaches the stored IRIs to the steps built from qnames.
+func withURIs(steps []replayStep, scope domain.PathElement, elems []domain.PathElement) []replayStep {
+	for i := range steps {
+		if steps[i].Position < 0 {
+			steps[i].WantURI = scope.URI
+		} else if steps[i].Position < len(elems) {
+			steps[i].WantURI = elems[steps[i].Position].URI
+		}
 	}
 	return steps
 }
@@ -163,7 +191,7 @@ func replayField(ctx context.Context, svc *weaveontology.Service, projectID stri
 	}
 	scopeQ := pathElementQname(scope)
 	var findings []replayFinding
-	steps := replaySteps(scopeQ, path)
+	steps := withURIs(replaySteps(scopeQ, path), scope, elems)
 	for _, step := range steps {
 		req := autocomplete.Request{
 			ProjectID:               projectID,
@@ -181,16 +209,11 @@ func replayField(ctx context.Context, svc *weaveontology.Service, projectID stri
 		if err != nil {
 			return nil, 0, fmt.Errorf("field %s step %d: %w", row.ID, step.Position, err)
 		}
-		offered := make([]string, 0, len(sugs))
-		hit := false
-		for _, s := range sugs {
-			offered = append(offered, s.Qname)
-			if s.Qname == step.Want {
-				hit = true
-				break
+		if !replayOffered(sugs, step.Want, step.WantURI) {
+			offered := make([]string, 0, len(sugs))
+			for _, s := range sugs {
+				offered = append(offered, s.Qname)
 			}
-		}
-		if !hit {
 			findings = append(findings, replayFinding{Project: projectID, SemanticID: derefSemanticID(row.SemanticID, row.ID), Position: step.Position, Want: step.Want, Offered: offered})
 		}
 	}
