@@ -65,6 +65,7 @@ type SnapshotEntityTree struct {
 	BaseOverrides       []SnapshotEntityFile
 	ModelOverrides      []SnapshotEntityFile
 	CollectionOverrides []SnapshotEntityFile
+	Placements          []SnapshotEntityFile
 }
 
 type AdoptionManifestSet struct {
@@ -460,6 +461,8 @@ func scanProjectEntities(rootDir string) (SnapshotEntityTree, error) {
 			out.ModelOverrides = append(out.ModelOverrides, entity)
 		case "collection_override":
 			out.CollectionOverrides = append(out.CollectionOverrides, entity)
+		case entityTypeCollectionPlacement:
+			out.Placements = append(out.Placements, entity)
 		}
 		return nil
 	})
@@ -474,6 +477,7 @@ func scanProjectEntities(rootDir string) (SnapshotEntityTree, error) {
 	sortSnapshotEntityFiles(out.BaseOverrides)
 	sortSnapshotEntityFiles(out.ModelOverrides)
 	sortSnapshotEntityFiles(out.CollectionOverrides)
+	sortSnapshotEntityFiles(out.Placements)
 	return out, nil
 }
 
@@ -537,6 +541,19 @@ func classifySnapshotEntityFile(rel string) (SnapshotEntityFile, bool) {
 				FieldID:    fieldID,
 				EntityID:   entityID,
 				OwnerType:  "model",
+				OwnerID:    segments[1],
+			}, true
+		}
+		if len(segments) == 4 && segments[2] == "placements" {
+			collectionID, _, ok := parsePlacementFileName(segments[3])
+			if !ok {
+				return SnapshotEntityFile{}, false
+			}
+			return SnapshotEntityFile{
+				Path:       rel,
+				EntityType: entityTypeCollectionPlacement,
+				EntityID:   collectionID,
+				OwnerType:  entityTypeModel,
 				OwnerID:    segments[1],
 			}, true
 		}
