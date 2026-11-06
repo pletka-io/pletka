@@ -320,6 +320,14 @@ func upsertNode(idx *Index, primary, qname, typ, uri, prefix, local string, labe
 				n.Meta = meta // primary wins
 			}
 			n.ownerNamespaces = append(n.ownerNamespaces, meta.Namespace)
+			// A re-declaration without a label (an extension importing a
+			// term) must not hide the label the defining ontology gives it.
+			if len(n.Label) == 0 && len(label) > 0 {
+				n.Label = label
+			}
+			if len(n.Comment) == 0 && len(comment) > 0 {
+				n.Comment = comment
+			}
 			return
 		}
 		// Promote ghost to real node.
