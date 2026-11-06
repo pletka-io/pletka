@@ -190,7 +190,7 @@ func (h *Handler) saveOverrides(w http.ResponseWriter, r *http.Request, entityTy
 				}
 			}
 			for _, key := range placementDeletes {
-				if err := h.overrides.DeletePlacement(ctx, entityID, key.CategoryID, key.CollectionID); err != nil {
+				if err := h.overrides.DeletePlacement(ctx, projectID, entityID, key.CategoryID, key.CollectionID); err != nil {
 					return err
 				}
 			}

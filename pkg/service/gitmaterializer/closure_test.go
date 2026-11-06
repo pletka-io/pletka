@@ -546,3 +546,19 @@ func TestClosureCategoryDeleteFallsBackToRawIDWhenPayloadMissing(t *testing.T) {
 		t.Fatalf("closure mismatch (-want +got):\n%s", diff)
 	}
 }
+
+// TestClosureCollectionPlacementRewritesItsModel: a placement edit lives in
+// the model's directory, so its change-log entry maps to a model ref.
+func TestClosureCollectionPlacementRewritesItsModel(t *testing.T) {
+	f := setupClosureFixture(t)
+	cs := f.changeSet(entry("collection_placement", "TSTPLACE.1", "update"))
+
+	refs, err := f.mat.closure(f.ctx, cs)
+	if err != nil {
+		t.Fatalf("closure: %v", err)
+	}
+	want := []ScopedRef{{EntityType: "model", EntityID: "TSTPLACE.1", Delete: false}}
+	if diff := cmp.Diff(want, refs, sortRefs); diff != "" {
+		t.Fatalf("closure mismatch (-want +got):\n%s", diff)
+	}
+}
