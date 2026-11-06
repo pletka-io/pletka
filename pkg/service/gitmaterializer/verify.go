@@ -55,6 +55,7 @@ type verifyContext struct {
 	parents      map[string]*ProjectSnapshot
 	vendored     []VendoredOntologySnapshot // the ontologies the offline index is built from
 	declared     map[string]bool
+	receipts     map[string]bool // field ids backed by an adoption receipt
 	fields       map[string]bool
 	categories   map[string]bool
 	collections  map[string]bool
@@ -76,6 +77,7 @@ func Verify(ctx context.Context, rootDir string, opts VerifyOptions) (*VerifyRep
 		root:     rootDir,
 		parents:  map[string]*ProjectSnapshot{},
 		declared: map[string]bool{},
+		receipts: map[string]bool{},
 		fields:   map[string]bool{}, categories: map[string]bool{}, collections: map[string]bool{}, conceptLists: map[string]bool{},
 	}
 	snap, err := LoadProjectSnapshot(rootDir)
@@ -85,6 +87,7 @@ func Verify(ctx context.Context, rootDir string, opts VerifyOptions) (*VerifyRep
 	}
 	v.snap = snap
 	v.loadParents(opts.ParentDirs)
+	v.checkProjectManifestKeys()
 	v.checkVendorChecksums()
 	v.checkUnknownFiles()
 	v.collectIdentities()
@@ -136,6 +139,16 @@ func (v *verifyContext) readRel(rel string) []byte {
 // ponytail: a regex over lines, no YAML positions; enough to point at a key.
 func yamlKeyLine(payload []byte, key string) int {
 	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(key) + `\s*:`)
+	loc := re.FindIndex(payload)
+	if loc == nil {
+		return 0
+	}
+	return bytes.Count(payload[:loc[0]], []byte("\n")) + 1
+}
+
+// yamlNestedKeyLine is the 1-based line of the first "key:" at any indent.
+func yamlNestedKeyLine(payload []byte, key string) int {
+	re := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(key) + `\s*:`)
 	loc := re.FindIndex(payload)
 	if loc == nil {
 		return 0

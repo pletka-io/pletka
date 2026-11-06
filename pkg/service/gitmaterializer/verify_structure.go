@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
@@ -84,8 +86,17 @@ func snapshotIDs(ps *ProjectSnapshot, fields, categories, collections, conceptLi
 	for _, f := range ps.Entities.Fields {
 		fields[f.EntityID] = true
 	}
+	receiptFields := map[string]bool{}
+	if ps.Adoptions != nil {
+		for _, r := range ps.Adoptions.Index.Receipts {
+			if r.EntityType == entityTypeField {
+				receiptFields[r.EntityID] = true
+			}
+		}
+	}
 	for _, o := range ps.Entities.BaseOverrides {
-		if hasAdoptionMarker(o.Payload) {
+		// an adopted field is only usable when a receipt backs the marker
+		if hasAdoptionMarker(o.Payload) && receiptFields[o.FieldID] {
 			fields[o.FieldID] = true
 		}
 	}
@@ -120,6 +131,13 @@ func snapshotIDs(ps *ProjectSnapshot, fields, categories, collections, conceptLi
 }
 
 func (v *verifyContext) collectIdentities() {
+	if v.snap.Adoptions != nil {
+		for _, r := range v.snap.Adoptions.Index.Receipts {
+			if r.EntityType == entityTypeField {
+				v.receipts[r.EntityID] = true
+			}
+		}
+	}
 	snapshotIDs(v.snap, v.fields, v.categories, v.collections, v.conceptLists)
 	for _, ps := range v.parents {
 		snapshotIDs(ps, v.fields, v.categories, v.collections, v.conceptLists)
@@ -233,8 +251,20 @@ func (v *verifyContext) checkOverrideRefs(item SnapshotEntityFile) {
 	if !ok {
 		return
 	}
-	if doc.AdoptedFrom == "" && doc.FieldID != "" && !v.fields[doc.FieldID] {
-		v.add(item.Path, yamlKeyLine(item.Payload, "field_id"), "unresolved-field", "field %s is neither in this tree, adopted, nor in a parent tree", doc.FieldID)
+	v.checkOverrideLocation(item, doc)
+	// restore resolves the field as the written field_id, else the file name
+	fieldID := firstNonEmpty(doc.FieldID, item.FieldID)
+	fieldLine := yamlKeyLine(item.Payload, "field_id")
+	switch {
+	case doc.AdoptedFrom != "":
+		// restore skips a marker override; its placement comes from the receipt
+		if !v.receipts[fieldID] && !v.inLoadedParent(fieldID) {
+			v.add(item.Path, yamlKeyLine(item.Payload, "_adopted_from"), "adoption-receipt-missing", "field %s is marked adopted but no receipt in adoptions/ names it; the loader drops this placement", fieldID)
+		}
+	case fieldID == "":
+		v.add(item.Path, 0, "unresolved-field", "no field_id and no field name in the file name")
+	case !v.fields[fieldID] && !v.inUnloadedParent(fieldID):
+		v.add(item.Path, fieldLine, "unresolved-field", "field %s is neither in this tree, adopted, nor in a parent tree", fieldID)
 	}
 	if doc.CategoryID != "" && !v.categories[doc.CategoryID] {
 		v.add(item.Path, yamlKeyLine(item.Payload, "category_id"), "unresolved-category", "category %s not found", doc.CategoryID)
@@ -245,6 +275,84 @@ func (v *verifyContext) checkOverrideRefs(item SnapshotEntityFile) {
 	for _, ref := range doc.Refs {
 		if ref.RefType == "concept_list" && !v.conceptLists[ref.SemanticID] {
 			v.add(item.Path, yamlKeyLine(item.Payload, "refs"), "unresolved-concept-list", "concept list %s not found", ref.SemanticID)
+		}
+	}
+}
+
+// checkOverrideLocation reports an override whose own entity_id,
+// entity_type or field_id disagrees with the directory it sits in: restore
+// takes the written value and attaches the placement elsewhere.
+func (v *verifyContext) checkOverrideLocation(item SnapshotEntityFile, doc canonicalOverrideDoc) {
+	if item.EntityType == "base_override" {
+		if doc.FieldID != "" && doc.FieldID != item.FieldID {
+			v.add(item.Path, yamlKeyLine(item.Payload, "field_id"), "override-location", "field_id %s but the file sits under fields/%s; the loader attaches it to %s", doc.FieldID, item.FieldID, doc.FieldID)
+		}
+		return
+	}
+	if doc.EntityID != "" && doc.EntityID != item.OwnerID {
+		v.add(item.Path, yamlKeyLine(item.Payload, "entity_id"), "override-location", "entity_id %s but the file sits under %s %s; the loader attaches it to %s", doc.EntityID, item.OwnerType, item.OwnerID, doc.EntityID)
+	}
+	if doc.EntityType != "" && doc.EntityType != item.OwnerType {
+		v.add(item.Path, yamlKeyLine(item.Payload, "entity_type"), "override-location", "entity_type %s but the file sits under a %s", doc.EntityType, item.OwnerType)
+	}
+}
+
+// inUnloadedParent reports whether the id belongs to a declared parent
+// whose tree is not available; such references are reported once as
+// parent-tree-missing, never per placement.
+func (v *verifyContext) inUnloadedParent(id string) bool {
+	pid := domain.ParseSemanticID(id).ProjectID
+	return pid != "" && v.declared[pid] && v.parents[pid] == nil
+}
+
+// inLoadedParent reports whether a loaded parent tree carries the field.
+func (v *verifyContext) inLoadedParent(fieldID string) bool {
+	for _, ps := range v.parents {
+		fields := map[string]bool{}
+		snapshotIDs(ps, fields, map[string]bool{}, map[string]bool{}, map[string]bool{})
+		if fields[fieldID] {
+			return true
+		}
+	}
+	return false
+}
+
+// checkProjectManifestKeys reports unknown keys in project.yaml, at the top
+// level and inside its sections, which the loader drops silently.
+func (v *verifyContext) checkProjectManifestKeys() {
+	payload := v.readRel("project.yaml")
+	if payload == nil {
+		return
+	}
+	keys, err := topLevelKeys(payload)
+	if err != nil {
+		return // the loader already decoded it
+	}
+	known := jsonTagNames(projectManifest{})
+	for _, k := range keys {
+		if !known[k] {
+			v.add("project.yaml", yamlKeyLine(payload, k), "unknown-key", "%q is not a key of project.yaml; the loader drops it silently", k)
+		}
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(payload, &doc); err != nil {
+		return
+	}
+	sections := map[string]any{
+		"project": projectManifestProject{}, "inheritance": projectManifestInheritance{},
+		"ontologies": projectManifestOntologies{}, "namespaces": projectManifestNamespaces{},
+		"manifests": projectManifestManifests{},
+	}
+	for name, zero := range sections {
+		section, ok := doc[name].(map[string]any)
+		if !ok {
+			continue
+		}
+		known := jsonTagNames(zero)
+		for k := range section {
+			if !known[k] {
+				v.add("project.yaml", yamlNestedKeyLine(payload, k), "unknown-key", "%q is not a key of %s; the loader drops it silently", k, name)
+			}
 		}
 	}
 }

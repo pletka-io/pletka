@@ -38,6 +38,10 @@ func (v *verifyContext) checkOntology(ctx context.Context, opts VerifyOptions, r
 	available := v.availableOntologies(opts)
 	required := v.requiredVersions()
 	ontologiesLine := yamlKeyLine(v.readRel("project.yaml"), "ontologies")
+	if len(required) == 0 {
+		v.add("project.yaml", ontologiesLine, "ontology-none", "no linked ontology versions (ontologies.linked_versions); path checks skipped")
+		return
+	}
 	missing := 0
 	var specs []*OntologySnapshot
 	seen := map[*OntologySnapshot]bool{}
@@ -305,8 +309,18 @@ func (v *verifyContext) replayFieldFile(ctx context.Context, eng *autocomplete.O
 		return
 	}
 	doc, err := decodeCanonicalYAML[canonicalFieldDoc](item.Payload)
-	if err != nil || len(doc.OntologyScope) == 0 || len(doc.PathElements) == 0 {
-		return // decode problems are structure findings; a field without a path has nothing to replay
+	if err != nil {
+		return // decode problems are structure findings
+	}
+	idLine := yamlKeyLine(item.Payload, "semantic_id")
+	if len(doc.OntologyScope) == 0 {
+		v.add(item.Path, idLine, "scope-missing", "field has no ontology_scope")
+	}
+	if len(doc.PathElements) == 0 {
+		v.add(item.Path, idLine, "path-missing", "field has no path_elements")
+	}
+	if len(doc.OntologyScope) == 0 || len(doc.PathElements) == 0 {
+		return
 	}
 	scopeLine := yamlKeyLine(item.Payload, "ontology_scope")
 	pathLine := yamlKeyLine(item.Payload, "path_elements")

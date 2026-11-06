@@ -336,3 +336,68 @@ manifests:
 		t.Fatalf("findings=%v steps=%d", rep.Findings, rep.Steps)
 	}
 }
+
+// Fix pass after review: cases where verify said clean and load-git would
+// fail or attach a placement elsewhere.
+func TestVerify_ReviewFixPass(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(root string)
+		want   []string
+	}{
+		{"override without field_id falls back to the file name", func(r string) {
+			write(t, r, "models/TPCM.1/overrides/TPCF.9@z.yaml", "entity_type: model\nentity_id: TPCM.1\n")
+		}, []string{"unresolved-field"}},
+		{"base override without field.yaml and without field_id", func(r string) {
+			write(t, r, "fields/TPCF.9/base-override.yaml", "entity_type: \"\"\n")
+		}, []string{"unresolved-field"}},
+		{"override entity_id disagrees with its directory", func(r string) {
+			write(t, r, "models/TPCM.1/overrides/TPCF.1@a.yaml", "field_id: TPCF.1\nentity_type: collection\nentity_id: TPCM.9\n")
+		}, []string{"override-location", "override-location"}},
+		{"base override field_id disagrees with its directory", func(r string) {
+			write(t, r, "fields/TPCF.1/base-override.yaml", "field_id: TPCF.2\nentity_type: \"\"\n")
+		}, []string{"override-location"}},
+		{"adoption marker without a receipt", func(r string) {
+			write(t, r, "models/TPCM.1/overrides/OTHF.7@c.yaml", "_adopted_from: OTHER\nfield_id: OTHF.7\nentity_type: model\nentity_id: TPCM.1\n")
+		}, []string{"adoption-receipt-missing"}},
+		{"field without a path", func(r string) {
+			write(t, r, "fields/TPCF.2/field.yaml", "semantic_id: TPCF.2\nsystem_name: knows\nui_name: {en: K}\nontology_scope: base:Person\nexpected_value_type: Model\nstatus: draft\n")
+		}, []string{"path-missing"}},
+		{"field without a scope", func(r string) {
+			write(t, r, "fields/TPCF.2/field.yaml", "semantic_id: TPCF.2\nsystem_name: knows\nui_name: {en: K}\npath_elements: [base:knows, base:Person]\nexpected_value_type: Model\nstatus: draft\n")
+		}, []string{"scope-missing"}},
+		{"project.yaml typo in a nested key", func(r string) {
+			write(t, r, "project.yaml", "schema_version: 1\nproject:\n  id: TPC\n  system_name: test_project\n  title: {en: Test}\nnamespaces:\n  effective_bindings:\n    - {prefix: base, namespace: https://example.org/base/, source: ontology}\nontologies:\n  linked_version:\n    - {prefix: base, version: \"1.0\"}\nmanifests:\n  adoptions: adoptions/index.yaml\n")
+		}, []string{"ontology-none", "unknown-key"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := verifyFixture(t)
+			vendorBase(t, root)
+			tc.mutate(root)
+			rep, err := Verify(context.Background(), root, VerifyOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(tc.want, codes(rep)); diff != "" {
+				t.Fatalf("(-want +got):\n%s\n%v", diff, rep.Findings)
+			}
+		})
+	}
+}
+
+// TestVerify_UnloadedParentDoesNotFlood pins that placements on fields of
+// a declared parent whose tree is not given produce no unresolved-field
+// lines: parent-tree-missing already says they are unchecked.
+func TestVerify_UnloadedParentDoesNotFlood(t *testing.T) {
+	child, _ := childFixture(t)
+	write(t, child, "models/TCHM.1/overrides/TPCF.2@b.yaml", "field_id: TPCF.2\nentity_type: model\nentity_id: TCHM.1\n")
+	write(t, child, "models/TCHM.1/overrides/TPCF.3@c.yaml", "field_id: TPCF.3\nentity_type: model\nentity_id: TCHM.1\n")
+	rep, err := Verify(context.Background(), child, VerifyOptions{SkipOntology: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff([]string{"parent-tree-missing"}, codes(rep)); diff != "" {
+		t.Fatalf("(-want +got):\n%s\n%v", diff, rep.Findings)
+	}
+}
