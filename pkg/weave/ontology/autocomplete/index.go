@@ -54,6 +54,13 @@ type Node struct {
 
 	Meta  OntologyMeta
 	Ghost bool
+
+	// ownerNamespaces collects the namespace of every linked ontology version
+	// that defines this qname. A node is collapsed across versions and Meta
+	// keeps one of them; the "domain-less property under its own namespace"
+	// rule must consider all, or an extension re-declaring a base term (to
+	// add a range) would steal ownership and silence the property.
+	ownerNamespaces []string
 }
 
 // literalValued reports whether a property of this type terminates a path in
@@ -312,17 +319,30 @@ func upsertNode(idx *Index, primary, qname, typ, uri, prefix, local string, labe
 			if versionID == primary {
 				n.Meta = meta // primary wins
 			}
+			n.ownerNamespaces = append(n.ownerNamespaces, meta.Namespace)
 			return
 		}
 		// Promote ghost to real node.
 		n.Ghost = false
 		n.Type, n.URI, n.Prefix, n.LocalName, n.Label, n.Comment, n.Meta = typ, uri, prefix, local, label, comment, meta
+		n.ownerNamespaces = append(n.ownerNamespaces, meta.Namespace)
 		return
 	}
 	idx.ByQname[qname] = &Node{
 		URI: uri, Qname: qname, Prefix: prefix, LocalName: local, Type: typ,
-		Label: label, Comment: comment, Meta: meta,
+		Label: label, Comment: comment, Meta: meta, ownerNamespaces: []string{meta.Namespace},
 	}
+}
+
+// definedByOwner reports whether the node's URI sits under the namespace of
+// any linked ontology version that defines it.
+func definedByOwner(n *Node) bool {
+	for _, ns := range n.ownerNamespaces {
+		if ns != "" && strings.HasPrefix(n.URI, ns) {
+			return true
+		}
+	}
+	return false
 }
 
 // metaResolver returns a memoised function that resolves an OntologyVersionID
@@ -370,7 +390,7 @@ func collectDomainlessProps(idx *Index) []*Node {
 		if n == nil || n.Ghost || n.Type != nodeTypeProperty || len(n.Domains) > 0 {
 			continue
 		}
-		if n.Meta.Namespace == "" || !strings.HasPrefix(n.URI, n.Meta.Namespace) {
+		if !definedByOwner(n) {
 			continue
 		}
 		out = append(out, n)
