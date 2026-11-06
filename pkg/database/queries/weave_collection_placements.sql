@@ -53,3 +53,17 @@ ORDER BY model_id, category_id, collection_id;
 -- name: WeaveDeleteCollectionPlacementsByProject :exec
 DELETE FROM weave_collection_placements
 WHERE project_id = $1;
+
+-- name: WeaveListPlacedCollectionPlacementsByProject :many
+-- Placements whose model places a field of the collection through a
+-- model-scoped override: the rows a project tree may carry.
+SELECT p.* FROM weave_collection_placements p
+WHERE p.project_id = $1
+  AND EXISTS (
+    SELECT 1 FROM weave_field_overrides o
+    WHERE o.project_id = p.project_id
+      AND o.entity_type = 'model'
+      AND o.entity_id = p.model_id
+      AND o.part_of_collection_id = p.collection_id
+  )
+ORDER BY p.model_id, p.category_id, p.collection_id;

@@ -67,9 +67,11 @@ func writePlacementFile(workDir string, p domain.CollectionPlacement) error {
 	return writeEntityFile(workDir, placementFilePath(p.ModelID, p.CategoryID, p.CollectionID), payload)
 }
 
-// writeProjectPlacements writes every placement row of projectID.
+// writeProjectPlacements writes every placement row of projectID whose model
+// places the collection through a model override; any other row would be a
+// file load-git rejects.
 func (m *Materializer) writeProjectPlacements(ctx context.Context, workDir, projectID string) error {
-	rows, err := m.queries.WeaveListCollectionPlacementsByProject(ctx, projectID)
+	rows, err := m.queries.WeaveListPlacedCollectionPlacementsByProject(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("list placements for project %s: %w", projectID, err)
 	}
@@ -82,13 +84,14 @@ func (m *Materializer) writeProjectPlacements(ctx context.Context, workDir, proj
 }
 
 // writePlacementsForModel regenerates one model's placements/ directory from
-// the database: cleared first, so deleted rows drop their files.
+// the database: cleared first, so deleted rows drop their files. Like
+// writeProjectPlacements it writes only rows whose collection the model places.
 func (m *Materializer) writePlacementsForModel(ctx context.Context, workDir, projectID, modelID string) error {
 	dir := filepath.Join(workDir, filepath.FromSlash(path.Dir(placementFilePath(modelID, "", "x"))))
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("clear placements dir for model %s: %w", modelID, err)
 	}
-	rows, err := m.queries.WeaveListCollectionPlacementsByProject(ctx, projectID)
+	rows, err := m.queries.WeaveListPlacedCollectionPlacementsByProject(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("list placements for project %s: %w", projectID, err)
 	}

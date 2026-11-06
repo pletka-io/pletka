@@ -151,6 +151,53 @@ func (q *Queries) WeaveListCollectionPlacementsByProject(ctx context.Context, pr
 	return items, nil
 }
 
+const weaveListPlacedCollectionPlacementsByProject = `-- name: WeaveListPlacedCollectionPlacementsByProject :many
+SELECT p.id, p.project_id, p.model_id, p.category_id, p.collection_id, p.is_required, p.min_occurs, p.max_occurs, p.is_hidden, p.created_at, p.updated_at FROM weave_collection_placements p
+WHERE p.project_id = $1
+  AND EXISTS (
+    SELECT 1 FROM weave_field_overrides o
+    WHERE o.project_id = p.project_id
+      AND o.entity_type = 'model'
+      AND o.entity_id = p.model_id
+      AND o.part_of_collection_id = p.collection_id
+  )
+ORDER BY p.model_id, p.category_id, p.collection_id
+`
+
+// Placements whose model places a field of the collection through a
+// model-scoped override: the rows a project tree may carry.
+func (q *Queries) WeaveListPlacedCollectionPlacementsByProject(ctx context.Context, projectID string) ([]WeaveCollectionPlacement, error) {
+	rows, err := q.db.Query(ctx, weaveListPlacedCollectionPlacementsByProject, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveCollectionPlacement{}
+	for rows.Next() {
+		var i WeaveCollectionPlacement
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.ModelID,
+			&i.CategoryID,
+			&i.CollectionID,
+			&i.IsRequired,
+			&i.MinOccurs,
+			&i.MaxOccurs,
+			&i.IsHidden,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveListPlacementsAtVersion = `-- name: WeaveListPlacementsAtVersion :many
 SELECT id, project_id, model_id, category_id, collection_id,
        is_required, min_occurs, max_occurs, is_hidden,

@@ -245,3 +245,29 @@ func TestLoadGitRejectsBadPlacements(t *testing.T) {
 		}
 	}
 }
+
+// TestInitProjectSkipsUnplacedPlacementRows pins that a placement row whose
+// model places no field of the collection (left behind by an edit or a
+// delete) is not written, so the tree init-git produces still loads.
+func TestInitProjectSkipsUnplacedPlacementRows(t *testing.T) {
+	ctx := context.Background()
+	modelID, categoryID, _ := placedCollection(t, ctx)
+	upsertPlacement(t, ctx, modelID, categoryID, "NOPE.1", nil)
+
+	err := roundTripLA(t, ctx, func(root string) {
+		file := placementFile(root, modelID, categoryID, "NOPE.1")
+		if _, err := os.Stat(file); !os.IsNotExist(err) {
+			t.Fatalf("unplaced placement row was written by InitProject: %v", err)
+		}
+		m := gitmaterializer.NewMaterializer(testdb.Pool(t), filepath.Dir(root), nil)
+		if err := gitmaterializer.ExportWritePlacementsForModel(ctx, m, root, "LA", modelID); err != nil {
+			t.Fatalf("rewrite: %v", err)
+		}
+		if _, err := os.Stat(file); !os.IsNotExist(err) {
+			t.Fatalf("unplaced placement row was written by the scoped rewrite: %v", err)
+		}
+	})
+	if err != nil {
+		t.Fatalf("tree from init-git does not load: %v", err)
+	}
+}
