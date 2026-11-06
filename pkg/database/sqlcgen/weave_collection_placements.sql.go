@@ -35,6 +35,16 @@ func (q *Queries) WeaveDeleteCollectionPlacementsByModel(ctx context.Context, mo
 	return err
 }
 
+const weaveDeleteCollectionPlacementsByProject = `-- name: WeaveDeleteCollectionPlacementsByProject :exec
+DELETE FROM weave_collection_placements
+WHERE project_id = $1
+`
+
+func (q *Queries) WeaveDeleteCollectionPlacementsByProject(ctx context.Context, projectID string) error {
+	_, err := q.db.Exec(ctx, weaveDeleteCollectionPlacementsByProject, projectID)
+	return err
+}
+
 const weaveGetCollectionPlacement = `-- name: WeaveGetCollectionPlacement :one
 SELECT id, project_id, model_id, category_id, collection_id, is_required, min_occurs, max_occurs, is_hidden, created_at, updated_at FROM weave_collection_placements
 WHERE model_id = $1 AND category_id = $2 AND collection_id = $3

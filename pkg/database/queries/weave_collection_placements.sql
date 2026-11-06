@@ -49,3 +49,7 @@ ORDER BY model_id, category_id, collection_id;
 SELECT * FROM weave_collection_placements
 WHERE project_id = $1
 ORDER BY model_id, category_id, collection_id;
+
+-- name: WeaveDeleteCollectionPlacementsByProject :exec
+DELETE FROM weave_collection_placements
+WHERE project_id = $1;
