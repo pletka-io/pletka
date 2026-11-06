@@ -10,3 +10,9 @@ import "context"
 func (m *Materializer) BuildReleaseTree(ctx context.Context, dstDir, projectID, version string) error {
 	return m.buildReleaseTree(ctx, dstDir, projectID, version)
 }
+
+// ExportWritePlacementsForModel exposes writePlacementsForModel to the
+// external test package.
+func ExportWritePlacementsForModel(ctx context.Context, m *Materializer, workDir, projectID, modelID string) error {
+	return m.writePlacementsForModel(ctx, workDir, projectID, modelID)
+}

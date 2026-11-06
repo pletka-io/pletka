@@ -103,6 +103,44 @@ func (q *Queries) WeaveListCollectionPlacementsByModel(ctx context.Context, mode
 	return items, nil
 }
 
+const weaveListCollectionPlacementsByProject = `-- name: WeaveListCollectionPlacementsByProject :many
+SELECT id, project_id, model_id, category_id, collection_id, is_required, min_occurs, max_occurs, is_hidden, created_at, updated_at FROM weave_collection_placements
+WHERE project_id = $1
+ORDER BY model_id, category_id, collection_id
+`
+
+func (q *Queries) WeaveListCollectionPlacementsByProject(ctx context.Context, projectID string) ([]WeaveCollectionPlacement, error) {
+	rows, err := q.db.Query(ctx, weaveListCollectionPlacementsByProject, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveCollectionPlacement{}
+	for rows.Next() {
+		var i WeaveCollectionPlacement
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.ModelID,
+			&i.CategoryID,
+			&i.CollectionID,
+			&i.IsRequired,
+			&i.MinOccurs,
+			&i.MaxOccurs,
+			&i.IsHidden,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveListPlacementsAtVersion = `-- name: WeaveListPlacementsAtVersion :many
 SELECT id, project_id, model_id, category_id, collection_id,
        is_required, min_occurs, max_occurs, is_hidden,
