@@ -101,3 +101,80 @@ func (m *Materializer) writePlacementsForModel(ctx context.Context, workDir, pro
 	}
 	return nil
 }
+
+// canonicalPlacementDoc is the decoded form of a placement file.
+type canonicalPlacementDoc struct {
+	ModelID      string `json:"model_id"`
+	CategoryID   string `json:"category_id"`
+	CollectionID string `json:"collection_id"`
+	IsRequired   bool   `json:"is_required"`
+	MinOccurs    int    `json:"min_occurs"`
+	MaxOccurs    *int   `json:"max_occurs"`
+	IsHidden     bool   `json:"is_hidden"`
+}
+
+// placedCollectionsByModel returns, per model of the snapshot, the
+// collections its override files place (part_of_collection_id).
+func placedCollectionsByModel(snap *ProjectSnapshot) (map[string]map[string]bool, error) {
+	out := map[string]map[string]bool{}
+	for _, item := range snap.Entities.Models {
+		out[item.EntityID] = map[string]bool{}
+	}
+	for _, item := range snap.Entities.ModelOverrides {
+		doc, err := decodeCanonicalYAML[canonicalOverrideDoc](item.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", item.Path, err)
+		}
+		if doc.PartOfCollectionID == "" {
+			continue
+		}
+		if out[item.OwnerID] == nil {
+			out[item.OwnerID] = map[string]bool{}
+		}
+		out[item.OwnerID][doc.PartOfCollectionID] = true
+	}
+	return out, nil
+}
+
+// hydratePlacementsTx inserts the snapshot's placement files. The caller has
+// cleared the project's rows in the same transaction.
+func (m *Materializer) hydratePlacementsTx(ctx context.Context, q *sqlcgen.Queries, projectID string, snap *ProjectSnapshot) error {
+	if len(snap.Entities.Placements) == 0 {
+		return nil
+	}
+	placed, err := placedCollectionsByModel(snap)
+	if err != nil {
+		return err
+	}
+	for _, item := range snap.Entities.Placements {
+		doc, err := decodeCanonicalYAML[canonicalPlacementDoc](item.Payload)
+		if err != nil {
+			return fmt.Errorf("%s: %w", item.Path, err)
+		}
+		collectionID, categoryID, _ := parsePlacementFileName(path.Base(item.Path))
+		switch {
+		case doc.ModelID != item.OwnerID || doc.CollectionID != collectionID || doc.CategoryID != categoryID:
+			return fmt.Errorf("%s: model_id, collection_id and category_id must match the file's place in the tree", item.Path)
+		case doc.MinOccurs < 0:
+			return fmt.Errorf("%s: min_occurs must be >= 0", item.Path)
+		case doc.MaxOccurs != nil && *doc.MaxOccurs < doc.MinOccurs:
+			return fmt.Errorf("%s: max_occurs must be >= min_occurs", item.Path)
+		case placed[doc.ModelID] == nil:
+			return fmt.Errorf("%s: model %s is not in the tree", item.Path, doc.ModelID)
+		case !placed[doc.ModelID][doc.CollectionID]:
+			return fmt.Errorf("%s: model %s places no field of collection %s", item.Path, doc.ModelID, doc.CollectionID)
+		}
+		var max *int32
+		if doc.MaxOccurs != nil {
+			n := int32(*doc.MaxOccurs)
+			max = &n
+		}
+		if _, err := q.WeaveUpsertCollectionPlacement(ctx, sqlcgen.WeaveUpsertCollectionPlacementParams{
+			ProjectID: projectID, ModelID: doc.ModelID, CategoryID: doc.CategoryID, CollectionID: doc.CollectionID,
+			IsRequired: doc.IsRequired, MinOccurs: int32(doc.MinOccurs), MaxOccurs: max, IsHidden: doc.IsHidden,
+		}); err != nil {
+			return fmt.Errorf("%s: %w", item.Path, err)
+		}
+	}
+	return nil
+}

@@ -99,3 +99,97 @@ func TestScopedRewriteRemovesDeletedPlacements(t *testing.T) {
 		t.Fatalf("placement file still there after delete: %v", err)
 	}
 }
+
+// roundTripLA materializes LA, then hydrates the overrides (and placements)
+// back from the tree into the same database.
+func roundTripLA(t *testing.T, ctx context.Context, mutate func(root string)) error {
+	t.Helper()
+	dir := t.TempDir()
+	m := gitmaterializer.NewMaterializer(testdb.Pool(t), dir, nil)
+	if err := m.InitProject(ctx, "LA"); err != nil {
+		t.Fatalf("InitProject: %v", err)
+	}
+	root := filepath.Join(dir, "LA")
+	if mutate != nil {
+		mutate(root)
+	}
+	snap, err := gitmaterializer.LoadProjectSnapshot(root)
+	if err != nil {
+		t.Fatalf("LoadProjectSnapshot: %v", err)
+	}
+	return m.HydrateProjectOverrides(ctx, gitmaterializer.BuildRestorePlan(snap))
+}
+
+func placementRow(t *testing.T, ctx context.Context, modelID, categoryID, collectionID string) (found bool, max *int32) {
+	t.Helper()
+	r, err := sqlcgen.New(testdb.Pool(t)).WeaveGetCollectionPlacement(ctx, sqlcgen.WeaveGetCollectionPlacementParams{
+		ModelID: modelID, CategoryID: categoryID, CollectionID: collectionID,
+	})
+	if err != nil {
+		return false, nil
+	}
+	return true, r.MaxOccurs
+}
+
+func TestLoadGitRoundTripsPlacements(t *testing.T) {
+	ctx := context.Background()
+	modelID, categoryID, collectionID := placedCollection(t, ctx)
+	one := int32(1)
+	upsertPlacement(t, ctx, modelID, categoryID, collectionID, &one)
+	if err := roundTripLA(t, ctx, nil); err != nil {
+		t.Fatalf("hydrate: %v", err)
+	}
+	found, max := placementRow(t, ctx, modelID, categoryID, collectionID)
+	if !found || max == nil || *max != 1 {
+		t.Fatalf("placement after round trip: found=%v max=%v", found, max)
+	}
+}
+
+func TestLoadGitClearsPlacementsMissingFromTree(t *testing.T) {
+	ctx := context.Background()
+	modelID, categoryID, collectionID := placedCollection(t, ctx)
+	upsertPlacement(t, ctx, modelID, categoryID, collectionID, nil)
+	err := roundTripLA(t, ctx, func(root string) {
+		_ = os.RemoveAll(filepath.Join(root, "models", modelID, "placements"))
+	})
+	if err != nil {
+		t.Fatalf("hydrate tree without placements/: %v", err)
+	}
+	if found, _ := placementRow(t, ctx, modelID, categoryID, collectionID); found {
+		t.Fatal("placement survived a tree without it")
+	}
+}
+
+func TestLoadGitRejectsBadPlacements(t *testing.T) {
+	ctx := context.Background()
+	modelID, categoryID, collectionID := placedCollection(t, ctx)
+	upsertPlacement(t, ctx, modelID, categoryID, collectionID, nil)
+	var before int
+	_ = testdb.Pool(t).QueryRow(ctx, `SELECT count(*) FROM weave_field_overrides WHERE project_id='LA'`).Scan(&before)
+
+	cases := map[string]string{
+		"range":  "category_id: " + categoryID + "\ncollection_id: " + collectionID + "\nis_hidden: false\nis_required: true\nmax_occurs: 0\nmin_occurs: 1\nmodel_id: " + modelID + "\n",
+		"orphan": "category_id: " + categoryID + "\ncollection_id: NOPE.1\nis_hidden: false\nis_required: false\nmax_occurs: null\nmin_occurs: 0\nmodel_id: " + modelID + "\n",
+	}
+	for name, body := range cases {
+		var rel string
+		err := roundTripLA(t, ctx, func(root string) {
+			coll := collectionID
+			if name == "orphan" {
+				coll = "NOPE.1"
+			}
+			p := placementFile(root, modelID, categoryID, coll)
+			rel, _ = filepath.Rel(root, p)
+			_ = os.MkdirAll(filepath.Dir(p), 0o755)
+			_ = os.WriteFile(p, []byte(body), 0o644)
+		})
+		if err == nil || !strings.Contains(err.Error(), filepath.ToSlash(rel)) {
+			t.Fatalf("%s: want error naming %s, got %v", name, rel, err)
+		}
+		var after int
+		_ = testdb.Pool(t).QueryRow(ctx, `SELECT count(*) FROM weave_field_overrides WHERE project_id='LA'`).Scan(&after)
+		if after != before {
+			t.Fatalf("%s: overrides changed by a failed hydration: %d -> %d", name, before, after)
+		}
+	}
+}
