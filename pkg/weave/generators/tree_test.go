@@ -8,7 +8,9 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/views"
 )
 
-func TestBuildModelSnapshotPreservesModelViewTree(t *testing.T) {
+// birthView builds a Person model with a direct-fields group and a Birth
+// collection group, shared by the snapshot tests.
+func birthView() (domain.Model, *domain.Collection, domain.ModelView) {
 	model := domain.Model{
 		Entity: domain.Entity{
 			ID:         "model-1",
@@ -57,6 +59,11 @@ func TestBuildModelSnapshotPreservesModelViewTree(t *testing.T) {
 			},
 		},
 	}
+	return model, collection, view
+}
+
+func TestBuildModelSnapshotPreservesModelViewTree(t *testing.T) {
+	model, collection, view := birthView()
 
 	snapshot := BuildModelSnapshot(ModelSnapshotInput{
 		Project:     domain.Project{Entity: domain.Entity{ID: "LA"}},
@@ -347,5 +354,42 @@ func TestAssignShortPathNodeIDsSharesNodes(t *testing.T) {
 			}
 			chainByID[e.PathNodeID] = e.PathNode
 		}
+	}
+}
+
+func TestBuildModelSnapshotCarriesCollectionPlacement(t *testing.T) {
+	model, collection, view := birthView()
+	one := 1
+	view.Categories[0].Collections[1].Placement = &domain.CollectionPlacement{CollectionID: collection.ID, MaxOccurs: &one}
+	snap := BuildModelSnapshot(ModelSnapshotInput{
+		Project: domain.Project{Entity: domain.Entity{ID: "LA"}}, Model: model, View: view,
+		Collections: map[string]*domain.Collection{collection.ID: collection},
+		Namespaces:  BuildNamespaceSet(domain.Project{Entity: domain.Entity{ID: "LA"}}, nil),
+		Options:     Options{Lang: "en"},
+	})
+	var birth, name *FieldNode
+	for i := range snap.Fields {
+		switch snap.Fields[i].Field.SemanticID {
+		case "LA.F.2":
+			birth = &snap.Fields[i]
+		case "LA.F.1":
+			name = &snap.Fields[i]
+		}
+	}
+	if birth == nil || birth.CollectionMaxOccurs == nil || *birth.CollectionMaxOccurs != 1 {
+		t.Fatalf("placed collection field: %+v", birth)
+	}
+	if name == nil || name.CollectionMaxOccurs != nil {
+		t.Fatalf("direct field carries a collection max: %+v", name)
+	}
+}
+
+func TestGraftedFieldTakesTheStubsMax(t *testing.T) {
+	two := 2
+	stub := FieldNode{Field: domain.ResolvedField{SemanticID: "S.1", MaxOccurs: &two}}
+	child := domain.ResolvedField{SemanticID: "C.1"}
+	got := graftField(stub, child, nil)
+	if got.CollectionMaxOccurs == nil || *got.CollectionMaxOccurs != 2 {
+		t.Fatalf("grafted CollectionMaxOccurs = %v, want the stub's 2", got.CollectionMaxOccurs)
 	}
 }

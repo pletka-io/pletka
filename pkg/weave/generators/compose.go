@@ -286,6 +286,7 @@ func graftField(stub FieldNode, child domain.ResolvedField, sharedPrefix []domai
 		CollectionSemanticID: stub.CollectionSemanticID,
 		CollectionSystemName: stub.CollectionSystemName,
 		CollectionName:       stub.CollectionName,
+		CollectionMaxOccurs:  stub.Field.MaxOccurs,
 	}
 }
 
