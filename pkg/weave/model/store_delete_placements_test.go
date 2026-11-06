@@ -19,8 +19,10 @@ import (
 // `DELETE FROM weave_models` used to leave these rows behind — permanently
 // inflating any category they were tagged with.
 //
-// It also proves deleting one model's placements does not touch a
-// different model's placements (a sibling override+ref pair survives).
+// It also proves the model's collection placements (weave_collection_placements)
+// go in the same transaction, and that deleting one model's placements does
+// not touch a different model's (a sibling override+ref pair and collection
+// placement survive).
 func TestDelete_RemovesOwnPlacementsAndRefs(t *testing.T) {
 	pool := testdb.Pool(t)
 	ctx := context.Background()
@@ -63,7 +65,11 @@ func seedActAndAssertPlacementDelete(t *testing.T, pool *pgxpool.Pool, ctx conte
 	mustExec(t, pool, ctx, `INSERT INTO weave_override_refs (override_id, ref_type, target_id, semantic_id, position)
 		VALUES ($1,'resource_model','TSTDELP_TARGET','TSTDELP_TARGET',0)`, otherOverrideID)
 
+	mustExec(t, pool, ctx, `INSERT INTO weave_collection_placements (project_id, model_id, category_id, collection_id)
+		VALUES ($1,$2,'','TSTDELPC.1'), ($1,$3,'','TSTDELPC.1')`, projectID, modelID, otherID)
+
 	t.Cleanup(func() {
+		mustExecCleanup(pool, ctx, `DELETE FROM weave_collection_placements WHERE project_id = $1`, projectID)
 		mustExecCleanup(pool, ctx, `DELETE FROM weave_override_refs WHERE override_id IN ($1,$2)`, overrideID, otherOverrideID)
 		mustExecCleanup(pool, ctx, `DELETE FROM weave_field_overrides WHERE id IN ($1,$2)`, overrideID, otherOverrideID)
 		mustExecCleanup(pool, ctx, `DELETE FROM weave_models WHERE project_id = $1`, projectID)
@@ -99,6 +105,21 @@ func seedActAndAssertPlacementDelete(t *testing.T, pool *pgxpool.Pool, ctx conte
 	}
 	if refRows != 0 {
 		t.Errorf("override ref survived model delete: got %d, want 0 (should cascade from weave_field_overrides)", refRows)
+	}
+
+	var collPlacementRows int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM weave_collection_placements WHERE model_id = $1`, modelID).Scan(&collPlacementRows); err != nil {
+		t.Fatalf("count collection placement rows: %v", err)
+	}
+	if collPlacementRows != 0 {
+		t.Errorf("collection placement survived model delete: got %d, want 0", collPlacementRows)
+	}
+	var otherCollPlacementRows int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM weave_collection_placements WHERE model_id = $1`, otherID).Scan(&otherCollPlacementRows); err != nil {
+		t.Fatalf("count other collection placement rows: %v", err)
+	}
+	if otherCollPlacementRows != 1 {
+		t.Errorf("sibling model's collection placement was touched: got %d rows, want 1", otherCollPlacementRows)
 	}
 
 	var otherOverrideRows int
