@@ -401,3 +401,34 @@ func TestVerify_UnloadedParentDoesNotFlood(t *testing.T) {
 		t.Fatalf("(-want +got):\n%s\n%v", diff, rep.Findings)
 	}
 }
+
+// TestVerify_GlobalBindingDoesNotStealVendoredNamespace pins that a tree's
+// global binding naming a vendored namespace under another prefix
+// (schemaorg beside the vendored sdo) does not change the qnames the index
+// offers: the vendored prefix wins.
+func TestVerify_GlobalBindingDoesNotStealVendoredNamespace(t *testing.T) {
+	root := verifyFixture(t)
+	write(t, root, "project.yaml", `schema_version: 1
+project:
+  id: TPC
+  system_name: test_project
+  title: {en: Test}
+namespaces:
+  effective_bindings:
+    - {prefix: alt, namespace: https://example.org/base/, source: global}
+    - {prefix: base, namespace: https://example.org/base/, source: ontology}
+ontologies:
+  linked_versions:
+    - {prefix: base, version: "1.0", is_primary: true}
+manifests:
+  adoptions: adoptions/index.yaml
+`)
+	vendorBase(t, root)
+	rep, err := Verify(context.Background(), root, VerifyOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Findings) != 0 || rep.Steps != 6 {
+		t.Fatalf("findings=%v steps=%d", rep.Findings, rep.Steps)
+	}
+}

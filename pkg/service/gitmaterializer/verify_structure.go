@@ -283,7 +283,7 @@ func (v *verifyContext) checkOverrideRefs(item SnapshotEntityFile) {
 // entity_type or field_id disagrees with the directory it sits in: restore
 // takes the written value and attaches the placement elsewhere.
 func (v *verifyContext) checkOverrideLocation(item SnapshotEntityFile, doc canonicalOverrideDoc) {
-	if item.EntityType == "base_override" {
+	if item.EntityType == entityTypeBaseOverride {
 		if doc.FieldID != "" && doc.FieldID != item.FieldID {
 			v.add(item.Path, yamlKeyLine(item.Payload, "field_id"), "override-location", "field_id %s but the file sits under fields/%s; the loader attaches it to %s", doc.FieldID, item.FieldID, doc.FieldID)
 		}
@@ -317,6 +317,8 @@ func (v *verifyContext) inLoadedParent(fieldID string) bool {
 	return false
 }
 
+const manifestSectionProject = "project"
+
 // checkProjectManifestKeys reports unknown keys in project.yaml, at the top
 // level and inside its sections, which the loader drops silently.
 func (v *verifyContext) checkProjectManifestKeys() {
@@ -339,7 +341,7 @@ func (v *verifyContext) checkProjectManifestKeys() {
 		return
 	}
 	sections := map[string]any{
-		"project": projectManifestProject{}, "inheritance": projectManifestInheritance{},
+		manifestSectionProject: projectManifestProject{}, "inheritance": projectManifestInheritance{},
 		"ontologies": projectManifestOntologies{}, "namespaces": projectManifestNamespaces{},
 		"manifests": projectManifestManifests{},
 	}

@@ -256,16 +256,9 @@ func loadOfflineVersionRetrying(spec weaveontology.OfflineVersionSpec) (autocomp
 // main namespace, while a file written against an alias still parses.
 func (v *verifyContext) parserBindings() []weaveontology.NamespaceBinding {
 	var out []weaveontology.NamespaceBinding
-	// The tree's effective bindings stand in for the instance's global
-	// bindings (weight 100, below everything vendored): a file written
-	// against a namespace no vendored manifest lists still resolves.
-	if v.snap.Manifest.Namespaces != nil {
-		for _, b := range v.snap.Manifest.Namespaces.EffectiveBindings {
-			if strings.TrimSpace(b.Prefix) != "" && strings.TrimSpace(b.Namespace) != "" {
-				out = append(out, weaveontology.NamespaceBinding{Prefix: strings.TrimSpace(b.Prefix), Namespace: strings.TrimSpace(b.Namespace), Weight: globalBindingWeight})
-			}
-		}
-	}
+	// Vendored bindings come first: the merge keeps the first prefix seen
+	// per namespace, and a tree's global bindings may name the same
+	// namespace under another prefix (schemaorg beside sdo).
 	for _, dep := range v.vendored {
 		if dep.Snapshot == nil {
 			continue
@@ -282,6 +275,16 @@ func (v *verifyContext) parserBindings() []weaveontology.NamespaceBinding {
 		for _, alias := range root.NamespaceAliases {
 			if strings.TrimSpace(alias) != "" {
 				out = append(out, weaveontology.NamespaceBinding{Prefix: prefix, Namespace: strings.TrimSpace(alias), Weight: 200})
+			}
+		}
+	}
+	// The tree's effective bindings stand in for the instance's global
+	// bindings (weight 100, below everything vendored): a file written
+	// against a namespace no vendored manifest lists still resolves.
+	if v.snap.Manifest.Namespaces != nil {
+		for _, b := range v.snap.Manifest.Namespaces.EffectiveBindings {
+			if strings.TrimSpace(b.Prefix) != "" && strings.TrimSpace(b.Namespace) != "" {
+				out = append(out, weaveontology.NamespaceBinding{Prefix: strings.TrimSpace(b.Prefix), Namespace: strings.TrimSpace(b.Namespace), Weight: globalBindingWeight})
 			}
 		}
 	}
