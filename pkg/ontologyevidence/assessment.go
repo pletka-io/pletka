@@ -102,9 +102,24 @@ func elementReferences(e Element) ([]Assessment, error) {
 		add(fmt.Sprintf("%s/additional_types/%d", e.Location, i), reference(additional, classKind))
 	}
 	if o.Datatype != "" {
-		add(e.Location+"/datatype", TermReference{Kind: classKind, URI: o.Datatype})
+		add(e.Location+"/datatype", TermReference{Kind: classKind, URI: literalDatatype(o.Datatype)})
 	}
 	return refs, nil
+}
+
+// genericLiteralQname is the standards term for a literal of no specific
+// datatype. Path elements write the house spelling "rdf:literal", which names
+// no RDF term; the derived reference follows the alias the path builder also
+// applies, while the stored element keeps its original spelling. Storage
+// mirrors this in weave_project_semantic_references.
+const genericLiteralQname = "rdfs:Literal"
+
+func literalDatatype(datatype string) string {
+	switch datatype {
+	case "rdf:literal", "rdf:Literal":
+		return genericLiteralQname
+	}
+	return datatype
 }
 
 // UnresolvedError retains the actual assessment; callers must not retry against

@@ -24,7 +24,10 @@ import (
 func integrityFixture(t *testing.T) ontologysnapshot.Artifact {
 	t.Helper()
 	p := fixture(t)
-	exec(t, p, `INSERT INTO weave_fields_archive(id,project_id,version_number,path_elements) VALUES ('extra-references','legacy-project','1','[{"type":"complete","additional_types":[{"uri":"crm:E1"}],"datatype":"rdf:literal"},{"type":"class","uri":"crm:E1"},{"type":"class","uri":"crm:E1"}]')`)
+	// The datatype is one no later derivation rule rewrites (migration 048
+	// aliases "rdf:literal" to rdfs:Literal), so the captured document stays
+	// valid under migration 039's own upgrade check as well as under today's.
+	exec(t, p, `INSERT INTO weave_fields_archive(id,project_id,version_number,path_elements) VALUES ('extra-references','legacy-project','1','[{"type":"complete","additional_types":[{"uri":"crm:E1"}],"datatype":"xsd:date"},{"type":"class","uri":"crm:E1"},{"type":"class","uri":"crm:E1"}]')`)
 	capture(t, p, "source")
 	return capture(t, p, "legacy-project")
 }
@@ -314,7 +317,7 @@ func TestImportedIntegrityUpgradeAndDowngrade(t *testing.T) {
 			}
 			if mode != "empty" {
 				restoreIntegrityBodies(t, p, a, false)
-				payload := a.JSON
+				payload := derivedAsOf039(t, a.JSON)
 				if mode == "invalid existing" {
 					d := decodeSnapshot(t, a)
 					d.Assessments = nil
@@ -346,4 +349,33 @@ func TestImportedIntegrityUpgradeAndDowngrade(t *testing.T) {
 			}
 		})
 	}
+}
+
+// derivedAsOf039 rewrites a document captured today into the one migration 039
+// would have captured from the same elements: 039 derived the generic literal
+// datatype reference as written ("rdf:literal"), where later derivation (048)
+// aliases it to rdfs:Literal. The fixture's only such element resolves to
+// nothing either way, so status and candidates are unchanged. The upgrade check
+// in 039 validates existing imported rows with its own derivation, which is
+// what this test exercises.
+func derivedAsOf039(t *testing.T, document string) string {
+	t.Helper()
+	var d map[string]any
+	if err := json.Unmarshal([]byte(document), &d); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range d["assessments"].([]any) {
+		assessment := a.(map[string]any)
+		if !strings.HasSuffix(assessment["location"].(string), "/datatype") {
+			continue
+		}
+		if ref := assessment["reference"].(map[string]any); ref["uri"] == "rdfs:Literal" {
+			ref["uri"] = "rdf:literal"
+		}
+	}
+	out, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }

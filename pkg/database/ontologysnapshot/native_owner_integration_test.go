@@ -60,3 +60,46 @@ func TestRedeclaredParentTermResolvesToItsNativeOwner(t *testing.T) {
 		t.Fatalf("definition: %+v %v", c, err)
 	}
 }
+
+// A literal path element written in the house spelling "rdf:literal" must
+// resolve its datatype against the rdfs:Literal term, in storage (the
+// reference view) and in Go (Decode re-derives the references) alike.
+func TestGenericLiteralDatatypeResolvesThroughItsAlias(t *testing.T) {
+	p := testdb.EmptyPool(t)
+	store := ontology.NewPostgresStore(p)
+	if _, err := store.CreateOntology(t.Context(), ontology.CreateOntologyInput{ID: "native-basics", Prefix: "nbasics", Namespace: "https://example.org/nbasics/", Name: "basics", OntologyType: domain.OntologyTypeBase}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.StageLegacyVersion(t.Context(), ontology.ImportVersionInput{
+		Version:           ontology.CreateVersionInput{ID: "native-basics-v1", OntologyID: "native-basics", VersionString: "1", RDFContent: "<rdf/>"},
+		Classes:           []ontology.ImportClass{{ID: "native-basics-Literal", Prefix: "rdfs", LocalName: "Literal", URI: "http://www.w3.org/2000/01/rdf-schema#Literal", Label: domain.Translations{"en": "Literal"}}},
+		NamespaceBindings: []ontology.NamespaceBinding{{Prefix: "rdfs", Namespace: "http://www.w3.org/2000/01/rdf-schema#"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{
+		`INSERT INTO weave_actors(id,type,slug,display_name) VALUES ('literal-owner','organization','literal-owner','Owner')`,
+		`INSERT INTO weave_projects(id,owner_id) VALUES ('literal-project','literal-owner')`,
+		`INSERT INTO weave_releases(project_id,version,created_by_id) VALUES ('literal-project','1','literal-owner')`,
+		`INSERT INTO weave_project_ontology_versions_archive(project_id,version_number,ontology_version_id,added_at,is_primary) VALUES ('literal-project','1','native-basics-v1',now(),true)`,
+		`INSERT INTO weave_fields_archive(id,project_id,version_number,path_elements) VALUES ('literal-ref','literal-project','1','[{"type":"literal","uri":"rdfs:Literal","prefix":"rdfs","local_name":"Literal","datatype":"rdf:literal"}]')`,
+	} {
+		exec(t, p, s)
+	}
+	a := capture(t, p, "literal-project")
+	d, err := a.Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Assessments) != 2 {
+		t.Fatalf("assessments: %+v", d.Assessments)
+	}
+	for _, as := range d.Assessments {
+		if as.Status != ontologysnapshot.Resolved || as.Candidates[0].URI != "http://www.w3.org/2000/01/rdf-schema#Literal" {
+			t.Fatalf("%s: %+v", as.Location, as)
+		}
+	}
+	if _, err := a.Resolve("field", "literal-ref", "/path_elements/0/datatype"); err != nil {
+		t.Fatalf("datatype alias not resolved: %v", err)
+	}
+}
