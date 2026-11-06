@@ -95,7 +95,7 @@ func (m *Materializer) HydrateProjectEntities(ctx context.Context, plan *Restore
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	q := m.queries.WithTx(tx)
-	expand := snapshotPrefixExpander(plan.Snapshot.Manifest.Namespaces)
+	expand := snapshotPrefixExpanderWith(plan.Snapshot.Manifest.Namespaces, ontologyPrefixLookup(ctx, q))
 	for _, item := range plan.Snapshot.Entities.Categories {
 		if err := hydrateCategoryFile(ctx, q, projectID, item); err != nil {
 			return err
@@ -230,23 +230,58 @@ func hydrateConceptListFile(ctx context.Context, q *sqlcgen.Queries, projectID s
 // indistinguishable from one built in the UI.
 type prefixExpander func(prefix string) (string, bool)
 
-// snapshotPrefixExpander builds the expander for a tree: the standard
-// namespaces plus the project's effective bindings from project.yaml.
+// snapshotPrefixExpander builds the expander for a tree without a database
+// fallback; see snapshotPrefixExpanderWith.
 func snapshotPrefixExpander(ns *projectManifestNamespaces) prefixExpander {
-	mgr := nsutil.NewDefaultManager()
+	return snapshotPrefixExpanderWith(ns, nil)
+}
+
+// snapshotPrefixExpanderWith resolves a prefix in this order: the project's
+// effective bindings from project.yaml (first binding of a prefix wins;
+// several prefixes may share one namespace), then lookup (the linked
+// ontologies' own prefixes, which are not always binding rows), then the
+// standard set.
+func snapshotPrefixExpanderWith(ns *projectManifestNamespaces, lookup func(prefix string) (string, bool)) prefixExpander {
+	bound := map[string]string{}
 	if ns != nil {
-		for i, b := range ns.EffectiveBindings {
-			// A prefix already bound to another base keeps its first binding;
-			// the manifest lists bindings in resolution order.
-			_, _ = mgr.Put(strings.TrimSpace(b.Prefix), strings.TrimSpace(b.Namespace), 100+i)
+		for _, b := range ns.EffectiveBindings {
+			prefix, base := strings.TrimSpace(b.Prefix), strings.TrimSpace(b.Namespace)
+			if prefix == "" || base == "" {
+				continue
+			}
+			if _, seen := bound[prefix]; !seen {
+				bound[prefix] = base
+			}
 		}
 	}
+	standard := nsutil.NewDefaultManager()
 	return func(prefix string) (string, bool) {
-		n, err := mgr.GetWithPrefix(prefix)
+		if base, ok := bound[prefix]; ok {
+			return base, true
+		}
+		if lookup != nil {
+			if base, ok := lookup(prefix); ok {
+				bound[prefix] = base
+				return base, true
+			}
+		}
+		n, err := standard.GetWithPrefix(prefix)
 		if err != nil || n == nil || n.URI == "" {
 			return "", false
 		}
 		return n.URI, true
+	}
+}
+
+// ontologyPrefixLookup resolves a prefix to the namespace of the ontology
+// that owns it, for prefixes an authored tree uses without binding them.
+func ontologyPrefixLookup(ctx context.Context, q *sqlcgen.Queries) func(prefix string) (string, bool) {
+	return func(prefix string) (string, bool) {
+		ont, err := q.WeaveGetOntologyByPrefix(ctx, prefix)
+		if err != nil || strings.TrimSpace(ont.Namespace) == "" {
+			return "", false
+		}
+		return ont.Namespace, true
 	}
 }
 

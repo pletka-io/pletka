@@ -100,3 +100,42 @@ func TestDecodePathElementsWith_ExpandsCompactURIs(t *testing.T) {
 		t.Fatalf("full map uri changed: %q err %v", got[0].URI, err)
 	}
 }
+
+// TestSnapshotPrefixExpander_SharedBase pins that two prefixes bound to one
+// namespace (a project's own prefix beside the importer's) both expand, and
+// that a manifest binding wins over the standard set for the same prefix.
+func TestSnapshotPrefixExpander_SharedBase(t *testing.T) {
+	expand := snapshotPrefixExpander(&projectManifestNamespaces{EffectiveBindings: []projectManifestNamespaceBinding{
+		{Prefix: "nfdicore", Namespace: "https://example.org/nfdi/", Source: "global"},
+		{Prefix: "nfdi", Namespace: "https://example.org/nfdi/", Source: "ontology"},
+		{Prefix: "sdo", Namespace: "https://example.org/schema-extension#", Source: "ontology"},
+	}})
+	for prefix, want := range map[string]string{"nfdicore": "https://example.org/nfdi/", "nfdi": "https://example.org/nfdi/", "sdo": "https://example.org/schema-extension#", "xsd": "http://www.w3.org/2001/XMLSchema#"} {
+		got, ok := expand(prefix)
+		if !ok || got != want {
+			t.Errorf("expand(%q) = %q, %v; want %q", prefix, got, ok, want)
+		}
+	}
+	if _, ok := expand("nope"); ok {
+		t.Errorf("unbound prefix must not expand")
+	}
+}
+
+// TestSnapshotPrefixExpander_OntologyPrefixFallback pins that a prefix absent
+// from the manifest's bindings resolves through the linked ontologies (an
+// ontology's own prefix is not necessarily a namespace binding row).
+func TestSnapshotPrefixExpander_OntologyPrefixFallback(t *testing.T) {
+	lookup := func(prefix string) (string, bool) {
+		if prefix == "nfdi" {
+			return "https://example.org/nfdi/", true
+		}
+		return "", false
+	}
+	expand := snapshotPrefixExpanderWith(&projectManifestNamespaces{}, lookup)
+	if got, ok := expand("nfdi"); !ok || got != "https://example.org/nfdi/" {
+		t.Fatalf("expand(nfdi) = %q, %v", got, ok)
+	}
+	if _, ok := expand("nope"); ok {
+		t.Fatalf("unknown prefix must not expand")
+	}
+}
