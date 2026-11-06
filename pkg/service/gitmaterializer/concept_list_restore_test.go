@@ -19,6 +19,9 @@ func conceptListFixture(t *testing.T, projectID, ownerID string) string {
 			ID: projectID, Title: map[string]string{"en": projectID}, Namespace: "https://example.org/" + projectID + "/", Visibility: "private",
 			Owner: &manifestActor{ActorID: ownerID, Type: "organization", Slug: "cl-org", DisplayName: "CL Org"},
 		},
+		Namespaces: &projectManifestNamespaces{EffectiveBindings: []projectManifestNamespaceBinding{
+			{Prefix: "crm", Namespace: "http://www.cidoc-crm.org/cidoc-crm/", Source: "ontology"},
+		}},
 		Manifests: &projectManifestManifests{},
 	})
 	if err != nil {

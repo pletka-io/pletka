@@ -12,6 +12,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
+	nsutil "github.com/pletka-io/pletka/pkg/namespace"
 )
 
 type canonicalCategoryDoc struct {
@@ -94,6 +95,7 @@ func (m *Materializer) HydrateProjectEntities(ctx context.Context, plan *Restore
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	q := m.queries.WithTx(tx)
+	expand := snapshotPrefixExpander(plan.Snapshot.Manifest.Namespaces)
 	for _, item := range plan.Snapshot.Entities.Categories {
 		if err := hydrateCategoryFile(ctx, q, projectID, item); err != nil {
 			return err
@@ -105,17 +107,17 @@ func (m *Materializer) HydrateProjectEntities(ctx context.Context, plan *Restore
 		}
 	}
 	for _, item := range plan.Snapshot.Entities.Fields {
-		if err := hydrateFieldFile(ctx, q, projectID, item); err != nil {
+		if err := hydrateFieldFile(ctx, q, projectID, item, expand); err != nil {
 			return err
 		}
 	}
 	for _, item := range plan.Snapshot.Entities.Models {
-		if err := hydrateModelFile(ctx, q, projectID, item); err != nil {
+		if err := hydrateModelFile(ctx, q, projectID, item, expand); err != nil {
 			return err
 		}
 	}
 	for _, item := range plan.Snapshot.Entities.Collections {
-		if err := hydrateCollectionFile(ctx, q, projectID, item); err != nil {
+		if err := hydrateCollectionFile(ctx, q, projectID, item, expand); err != nil {
 			return err
 		}
 	}
@@ -222,7 +224,33 @@ func hydrateConceptListFile(ctx context.Context, q *sqlcgen.Queries, projectID s
 	return nil
 }
 
-func hydrateFieldFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile) error {
+// prefixExpander resolves a prefix to its namespace base. Compact path
+// elements in an authored tree carry qnames; the expander turns them into the
+// full IRIs the rest of the system stores, so a loaded field is
+// indistinguishable from one built in the UI.
+type prefixExpander func(prefix string) (string, bool)
+
+// snapshotPrefixExpander builds the expander for a tree: the standard
+// namespaces plus the project's effective bindings from project.yaml.
+func snapshotPrefixExpander(ns *projectManifestNamespaces) prefixExpander {
+	mgr := nsutil.NewDefaultManager()
+	if ns != nil {
+		for i, b := range ns.EffectiveBindings {
+			// A prefix already bound to another base keeps its first binding;
+			// the manifest lists bindings in resolution order.
+			_, _ = mgr.Put(strings.TrimSpace(b.Prefix), strings.TrimSpace(b.Namespace), 100+i)
+		}
+	}
+	return func(prefix string) (string, bool) {
+		n, err := mgr.GetWithPrefix(prefix)
+		if err != nil || n == nil || n.URI == "" {
+			return "", false
+		}
+		return n.URI, true
+	}
+}
+
+func hydrateFieldFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile, expand prefixExpander) error {
 	doc, err := decodeCanonicalYAML[canonicalFieldDoc](item.Payload)
 	if err != nil {
 		return fmt.Errorf("hydrate field %s: decode payload: %w", item.Path, err)
@@ -234,15 +262,15 @@ func hydrateFieldFile(ctx context.Context, q *sqlcgen.Queries, projectID string,
 	if semanticID == "" {
 		return fmt.Errorf("hydrate field %s: missing semantic_id", item.Path)
 	}
-	scope, err := decodePathElement(doc.OntologyScope, "class", 0)
+	scope, err := decodePathElementWith(doc.OntologyScope, "class", 0, expand)
 	if err != nil {
 		return fmt.Errorf("hydrate field %s: parse ontology_scope: %w", item.Path, err)
 	}
-	pathElements, err := decodePathElements(doc.PathElements)
+	pathElements, err := decodePathElementsWith(doc.PathElements, expand)
 	if err != nil {
 		return fmt.Errorf("hydrate field %s: parse path_elements: %w", item.Path, err)
 	}
-	subfieldPaths, err := decodeSubfieldPaths(doc.SubfieldPaths)
+	subfieldPaths, err := decodeSubfieldPathsWith(doc.SubfieldPaths, expand)
 	if err != nil {
 		return fmt.Errorf("hydrate field %s: parse subfield_paths: %w", item.Path, err)
 	}
@@ -307,7 +335,7 @@ func hydrateFieldFile(ctx context.Context, q *sqlcgen.Queries, projectID string,
 	return nil
 }
 
-func hydrateModelFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile) error {
+func hydrateModelFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile, expand prefixExpander) error {
 	doc, err := decodeCanonicalYAML[canonicalModelDoc](item.Payload)
 	if err != nil {
 		return fmt.Errorf("hydrate model %s: decode payload: %w", item.Path, err)
@@ -319,7 +347,7 @@ func hydrateModelFile(ctx context.Context, q *sqlcgen.Queries, projectID string,
 	if semanticID == "" {
 		return fmt.Errorf("hydrate model %s: missing semantic_id", item.Path)
 	}
-	scope, err := decodePathElement(doc.OntologyScope, "class", 0)
+	scope, err := decodePathElementWith(doc.OntologyScope, "class", 0, expand)
 	if err != nil {
 		return fmt.Errorf("hydrate model %s: parse ontology_scope: %w", item.Path, err)
 	}
@@ -368,7 +396,7 @@ func hydrateModelFile(ctx context.Context, q *sqlcgen.Queries, projectID string,
 	return nil
 }
 
-func hydrateCollectionFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile) error {
+func hydrateCollectionFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile, expand prefixExpander) error {
 	doc, err := decodeCanonicalYAML[canonicalCollectionDoc](item.Payload)
 	if err != nil {
 		return fmt.Errorf("hydrate collection %s: decode payload: %w", item.Path, err)
@@ -380,7 +408,7 @@ func hydrateCollectionFile(ctx context.Context, q *sqlcgen.Queries, projectID st
 	if semanticID == "" {
 		return fmt.Errorf("hydrate collection %s: missing semantic_id", item.Path)
 	}
-	scope, err := decodePathElement(doc.OntologyScope, "class", 0)
+	scope, err := decodePathElementWith(doc.OntologyScope, "class", 0, expand)
 	if err != nil {
 		return fmt.Errorf("hydrate collection %s: parse ontology_scope: %w", item.Path, err)
 	}
@@ -475,12 +503,31 @@ func restoreStatus(v string) string {
 // sub_property_of, complete) survives verbatim. The legacy compact string
 // form falls back to parsePathElement's best-effort reconstruction.
 func decodePathElement(raw canonicalPathElement, defaultType string, position int) (domain.PathElement, error) {
+	return decodePathElementWith(raw, defaultType, position, nil)
+}
+
+// decodePathElementWith decodes one element. A full map is taken verbatim.
+// A compact qname string is typed by defaultType and, when an expander is
+// given, gets its IRI from the prefix; an unbound prefix is an error. With a
+// nil expander the IRI stays the qname (legacy callers and tests).
+func decodePathElementWith(raw canonicalPathElement, defaultType string, position int, expand prefixExpander) (domain.PathElement, error) {
 	if len(raw) == 0 {
 		return domain.PathElement{}, nil
 	}
 	var compact string
 	if err := json.Unmarshal(raw, &compact); err == nil {
-		return parsePathElement(compact, defaultType, position)
+		pe, err := parsePathElement(compact, defaultType, position)
+		if err != nil {
+			return domain.PathElement{}, err
+		}
+		if expand != nil {
+			base, ok := expand(pe.Prefix)
+			if !ok {
+				return domain.PathElement{}, fmt.Errorf("unbound prefix %q in %q", pe.Prefix, compact)
+			}
+			pe.URI = base + pe.LocalName
+		}
+		return pe, nil
 	}
 	var pe domain.PathElement
 	if err := json.Unmarshal(raw, &pe); err != nil {
@@ -489,19 +536,23 @@ func decodePathElement(raw canonicalPathElement, defaultType string, position in
 	return pe, nil
 }
 
-// decodePathElements restores a field's path. The full map form carries its
-// own type; the compact qname form (an authored tree) is typed by position:
-// a path alternates property, class, property, ... and a literal terminal
-// (xsd:*, rdf:*, rdfs:Literal, rdfs:Resource) is a literal whatever its
-// position.
 func decodePathElements(items []canonicalPathElement) ([]domain.PathElement, error) {
+	return decodePathElementsWith(items, nil)
+}
+
+// decodePathElementsWith restores a field's path. The full map form carries
+// its own type and IRI; the compact qname form (an authored tree) is typed by
+// position: a path alternates property, class, property, ... and a literal
+// terminal (xsd:*, the rdf datatypes, rdfs:Literal, rdfs:Resource) is a
+// literal whatever its position.
+func decodePathElementsWith(items []canonicalPathElement, expand prefixExpander) ([]domain.PathElement, error) {
 	out := make([]domain.PathElement, 0, len(items))
 	for i, item := range items {
 		defaultType := "property"
 		if i%2 == 1 {
 			defaultType = "class"
 		}
-		pe, err := decodePathElement(item, defaultType, i)
+		pe, err := decodePathElementWith(item, defaultType, i, expand)
 		if err != nil {
 			return nil, err
 		}
@@ -545,12 +596,16 @@ func isLiteralPathElement(pe domain.PathElement) bool {
 // element fidelity as the primary path. Returns nil for none, so the
 // subfield_paths column stays NULL rather than becoming an empty array.
 func decodeSubfieldPaths(items []canonicalSubfieldPathDoc) ([]domain.SubfieldPath, error) {
+	return decodeSubfieldPathsWith(items, nil)
+}
+
+func decodeSubfieldPathsWith(items []canonicalSubfieldPathDoc, expand prefixExpander) ([]domain.SubfieldPath, error) {
 	if len(items) == 0 {
 		return nil, nil
 	}
 	out := make([]domain.SubfieldPath, 0, len(items))
 	for _, item := range items {
-		elements, err := decodePathElements(item.PathElements)
+		elements, err := decodePathElementsWith(item.PathElements, expand)
 		if err != nil {
 			return nil, err
 		}

@@ -56,6 +56,15 @@ func TestHydrateProjectSnapshot_FieldIDIsSemanticID(t *testing.T) {
 	if id != projectID+"F.1" {
 		t.Fatalf("field id = %q, want the semantic id", id)
 	}
+	// Compact path elements are stored with full IRIs, expanded through the
+	// manifest's namespace bindings, exactly like UI-built fields.
+	var pathJSON []byte
+	if err := pool.QueryRow(ctx, `SELECT path_elements FROM weave_fields WHERE id = $1`, projectID+"F.1").Scan(&pathJSON); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(pathJSON), "http://www.cidoc-crm.org/cidoc-crm/P1_is_identified_by") || strings.Contains(string(pathJSON), `"crm:P1_is_identified_by"`) {
+		t.Fatalf("compact path element not expanded to an IRI: %s", pathJSON)
+	}
 	// Categories follow the same convention, so an adopted field's base
 	// override (which names the category by id) is stable across restores.
 	var catID string

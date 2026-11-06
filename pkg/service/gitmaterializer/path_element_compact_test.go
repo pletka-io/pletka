@@ -2,6 +2,7 @@ package gitmaterializer
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -60,5 +61,42 @@ func TestDecodePathElements_FullMapKeepsItsType(t *testing.T) {
 	}
 	if got[0].Type != "property" || got[1].Type != "class" {
 		t.Fatalf("full-map types changed: %q, %q", got[0].Type, got[1].Type)
+	}
+}
+
+// TestDecodePathElementsWith_ExpandsCompactURIs pins that a compact element
+// gets a full IRI from the prefix expander, as the materializer writes for
+// UI-built fields, and that an unbound prefix is an error rather than a
+// qname stored where an IRI belongs.
+func TestDecodePathElementsWith_ExpandsCompactURIs(t *testing.T) {
+	expand := snapshotPrefixExpander(&projectManifestNamespaces{EffectiveBindings: []projectManifestNamespaceBinding{
+		{Prefix: "crm", Namespace: "http://www.cidoc-crm.org/cidoc-crm/", Source: "ontology"},
+	}})
+	raw := func(qs ...string) []canonicalPathElement {
+		out := make([]canonicalPathElement, 0, len(qs))
+		for _, q := range qs {
+			b, _ := json.Marshal(q)
+			out = append(out, canonicalPathElement(b))
+		}
+		return out
+	}
+	got, err := decodePathElementsWith(raw("crm:P1_is_identified_by", "xsd:string"), expand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"http://www.cidoc-crm.org/cidoc-crm/P1_is_identified_by", "http://www.w3.org/2001/XMLSchema#string"}
+	for i, w := range want {
+		if got[i].URI != w {
+			t.Errorf("element %d uri = %q, want %q", i, got[i].URI, w)
+		}
+	}
+	if _, err := decodePathElementsWith(raw("zzz:unknown"), expand); err == nil || !strings.Contains(err.Error(), "unbound prefix") {
+		t.Fatalf("unbound prefix must fail, got %v", err)
+	}
+	// A full map keeps its own uri untouched.
+	full := []canonicalPathElement{canonicalPathElement(`{"type":"property","prefix":"crm","local_name":"P2_has_type","uri":"http://example.org/kept","position":0}`)}
+	got, err = decodePathElementsWith(full, expand)
+	if err != nil || got[0].URI != "http://example.org/kept" {
+		t.Fatalf("full map uri changed: %q err %v", got[0].URI, err)
 	}
 }
