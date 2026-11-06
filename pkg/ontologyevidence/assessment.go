@@ -14,31 +14,21 @@ const propertyKind = "property"
 
 func assess(ref TermReference, inventory []Body, bodies []bodyDocument, aliases []namespace.Binding) (Status, []Candidate) {
 	matches := make([]Candidate, 0)
+	native := make([]Candidate, 0, 1) // matches declared under the owner's own prefix
 	if invalidReference(ref, inventory) {
 		return Invalid, matches
 	}
 	for i, body := range bodies {
-		pin := inventory[i]
-		if ref.VersionID != "" && ref.VersionID != pin.VersionID {
-			continue
-		}
-		terms := body.Classes
-		if ref.Kind == propertyKind {
-			terms = body.Properties
-		}
-		seen := map[string]bool{}
-		for _, t := range terms {
-			if ref.URI != "" && !matchesTerm(ref.URI, t, aliases, body.Bindings) {
-				continue
-			}
-			if ref.Prefix != "" && !matchesTerm(ref.Prefix+":"+ref.LocalName, t, aliases, body.Bindings) {
-				continue
-			}
-			if !seen[t.URI] {
-				matches = append(matches, Candidate{OntologyID: pin.OntologyID, VersionID: pin.VersionID, Digest: pin.Digest, URI: t.URI})
-				seen[t.URI] = true
-			}
-		}
+		all, own := bodyMatches(ref, inventory[i], body, aliases)
+		matches = append(matches, all...)
+		native = append(native, own...)
+	}
+	// An extension may redeclare a parent's term under the parent's URI (Linked
+	// Art 0.9 carries six CRM classes). The same URI is the same term, so when
+	// every match shares one URI the owner declaring it under its own prefix is
+	// the identity; foreign copies alone, or differing URIs, stay ambiguous.
+	if len(matches) > 1 && len(native) == 1 && sameURI(matches) {
+		matches = native
 	}
 	slices.SortFunc(matches, func(a, b Candidate) int {
 		if c := strings.Compare(a.VersionID, b.VersionID); c != 0 {
@@ -202,4 +192,45 @@ func (r Resolver) Resolve(entityKind, entityID, location string) (Definition, er
 		}
 	}
 	return Definition{}, &UnresolvedError{Status: Missing}
+}
+
+func sameURI(matches []Candidate) bool {
+	for _, m := range matches[1:] {
+		if m.URI != matches[0].URI {
+			return false
+		}
+	}
+	return true
+}
+
+// bodyMatches lists the body's terms the reference matches (one candidate per
+// URI), and separately those the owner declares under its own prefix.
+func bodyMatches(ref TermReference, pin Body, body bodyDocument, aliases []namespace.Binding) (all, native []Candidate) {
+	if ref.VersionID != "" && ref.VersionID != pin.VersionID {
+		return nil, nil
+	}
+	terms := body.Classes
+	if ref.Kind == propertyKind {
+		terms = body.Properties
+	}
+	seen, own := map[string]bool{}, map[string]bool{}
+	for _, t := range terms {
+		if ref.URI != "" && !matchesTerm(ref.URI, t, aliases, body.Bindings) {
+			continue
+		}
+		if ref.Prefix != "" && !matchesTerm(ref.Prefix+":"+ref.LocalName, t, aliases, body.Bindings) {
+			continue
+		}
+		c := Candidate{OntologyID: pin.OntologyID, VersionID: pin.VersionID, Digest: pin.Digest, URI: t.URI}
+		if !seen[t.URI] {
+			seen[t.URI] = true
+			all = append(all, c)
+		}
+		// Any declaration of the URI under the owner's own prefix makes it native.
+		if t.Prefix != "" && t.Prefix == body.Ontology.Prefix && !own[t.URI] {
+			own[t.URI] = true
+			native = append(native, c)
+		}
+	}
+	return all, native
 }

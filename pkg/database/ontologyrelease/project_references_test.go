@@ -49,3 +49,40 @@ func TestResolveProjectReferenceUsesExactPublishedTerms(t *testing.T) {
 		t.Fatalf("explicit version did not disambiguate: %+v, %v", got, err)
 	}
 }
+
+// An extension may redeclare a parent class under the parent's URI (Linked Art
+// 0.9 redeclares six CRM classes). The same URI is the same term: a reference
+// resolves to the owner whose own prefix the term carries, not to "two
+// matches". Two foreign copies, or two different URIs for one QName, stay
+// ambiguous.
+func TestResolveProjectReferencePrefersNativeOwnerOfIdenticalURI(t *testing.T) {
+	group := bodyTerm{URI: "http://www.cidoc-crm.org/cidoc-crm/E74_Group", Prefix: "crm", LocalName: "E74_Group"}
+	crm := bodyDocument{Classes: []bodyTerm{group}}
+	crm.Ontology.ID, crm.Ontology.Prefix = "crm", "crm"
+	la := bodyDocument{Classes: []bodyTerm{group}}
+	la.Ontology.ID, la.Ontology.Prefix = "la", "la"
+	p := publisher{
+		pins:    map[string]Pin{"crm": {OntologyID: "crm", VersionID: "crm-7"}, "la": {OntologyID: "la", VersionID: "la-0.9"}},
+		sources: map[string]bodyDocument{"crm": crm, "la": la},
+	}
+	got, err := resolveProjectReference(&p, TermReference{Kind: "class", URI: "crm:E74_Group", Prefix: "crm", LocalName: "E74_Group"}, nil)
+	if err != nil || got.OntologyID != "crm" || got.VersionID != "crm-7" || got.URI != group.URI {
+		t.Fatalf("native owner not preferred: %+v, %v", got, err)
+	}
+	// Two foreign copies and no native owner: still ambiguous.
+	sdh := bodyDocument{Classes: []bodyTerm{group}}
+	sdh.Ontology.ID, sdh.Ontology.Prefix = "sdh", "sdh"
+	q := publisher{pins: map[string]Pin{"la": p.pins["la"], "sdh": {OntologyID: "sdh", VersionID: "sdh-1"}}, sources: map[string]bodyDocument{"la": la, "sdh": sdh}}
+	if _, err := resolveProjectReference(&q, TermReference{Kind: "class", URI: "crm:E74_Group", Prefix: "crm", LocalName: "E74_Group"}, nil); err == nil {
+		t.Fatal("two foreign copies accepted")
+	}
+	// Same QName, different URIs (la-addons 1.0's S19 against crmsci 2.0's): ambiguous.
+	other := bodyDocument{Classes: []bodyTerm{{URI: "http://www.ics.forth.gr/isl/CRMsci/S19", Prefix: "crmsci", LocalName: "S19"}}}
+	other.Ontology.ID, other.Ontology.Prefix = "addons", "addons"
+	sci := bodyDocument{Classes: []bodyTerm{{URI: "http://www.cidoc-crm.org/extensions/crmsci/S19", Prefix: "crmsci", LocalName: "S19"}}}
+	sci.Ontology.ID, sci.Ontology.Prefix = "crmsci", "crmsci"
+	r := publisher{pins: map[string]Pin{"addons": {OntologyID: "addons", VersionID: "a1"}, "crmsci": {OntologyID: "crmsci", VersionID: "s2"}}, sources: map[string]bodyDocument{"addons": other, "crmsci": sci}}
+	if _, err := resolveProjectReference(&r, TermReference{Kind: "class", URI: "crmsci:S19", Prefix: "crmsci", LocalName: "S19"}, nil); err == nil {
+		t.Fatal("different URIs for one QName accepted")
+	}
+}
