@@ -93,6 +93,8 @@ func (m *Materializer) writeAdoptionManifests(ctx context.Context, workDir, proj
 	if err != nil {
 		return err
 	}
+	// receipts name entities by semantic id, as the tree does
+	adoptions = rewriteAdoptionIDs(ctx, adoptions, semanticAdoptionIDs(m.queries))
 	grouped := groupProjectAdoptions(adoptions)
 
 	index := adoptionsIndexManifest{

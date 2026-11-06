@@ -432,15 +432,26 @@ func (m *Materializer) hydrateAdoptionsTx(ctx context.Context, tx pgx.Tx, projec
 	if set == nil {
 		return nil
 	}
+	// a receipt names entities by semantic id (or any identifier); rows
+	// carry row ids, so resolve on this instance and keep what is unknown
+	resolve := rowAdoptionIDs(sqlcgen.New(tx))
 	for _, entry := range set.Index.Receipts {
 		receipt, ok := set.Receipts[filepathToSlash(entry.File)]
 		if !ok {
 			return fmt.Errorf("hydrate adoptions: receipt %s not loaded", entry.File)
 		}
+		sourceID := receipt.Adoption.Source.EntityID
+		if id, ok := resolve(ctx, receipt.Adoption.EntityType, receipt.Adoption.Source.ProjectID, sourceID); ok {
+			sourceID = id
+		}
 		for _, ctxRow := range receipt.Adoption.Contexts {
 			adoptedAt, err := parseManifestTime(ctxRow.AdoptedAt)
 			if err != nil {
 				return fmt.Errorf("hydrate adoptions: parse adopted_at for %s: %w", entry.File, err)
+			}
+			contextID := ctxRow.ContextEntityID
+			if id, ok := resolve(ctx, ctxRow.ContextEntityType, projectID, contextID); ok {
+				contextID = id
 			}
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO weave_adoptions (
@@ -448,7 +459,7 @@ func (m *Materializer) hydrateAdoptionsTx(ctx context.Context, tx pgx.Tx, projec
 					entity_type, source_project_id, source_entity_id, source_version,
 					adopted_at, created_by_id
 				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-			`, projectID, ctxRow.ContextEntityType, ctxRow.ContextEntityID, receipt.Adoption.EntityType, receipt.Adoption.Source.ProjectID, receipt.Adoption.Source.EntityID, receipt.Adoption.Source.Version, adoptedAt, actorIDPtrFromManifest(ctxRow.AdoptedBy)); err != nil {
+			`, projectID, ctxRow.ContextEntityType, contextID, receipt.Adoption.EntityType, receipt.Adoption.Source.ProjectID, sourceID, receipt.Adoption.Source.Version, adoptedAt, actorIDPtrFromManifest(ctxRow.AdoptedBy)); err != nil {
 				return fmt.Errorf("hydrate adoptions: insert %s: %w", entry.File, err)
 			}
 		}
