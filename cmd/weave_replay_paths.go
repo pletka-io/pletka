@@ -47,29 +47,6 @@ included, query = the local name of the step being looked for.`,
 	return cmd
 }
 
-// replayStep is one question put to the engine while rebuilding a path.
-type replayStep struct {
-	Position    int      `json:"position"` // -1 = the scope class in the root picker
-	Want        string   `json:"want"`     // qname the stored path has at this position
-	WantURI     string   `json:"want_uri,omitempty"`
-	CurrentPath []string `json:"current_path"`
-}
-
-// replayOffered reports whether the stored element is among the suggestions:
-// by qname, or by IRI when the stored path carries another prefix for the
-// same namespace than the one the builder shows.
-func replayOffered(sugs []autocomplete.Suggestion, wantQname, wantURI string) bool {
-	for _, s := range sugs {
-		if s.Qname == wantQname {
-			return true
-		}
-		if wantURI != "" && strings.Contains(wantURI, "://") && s.URI == wantURI {
-			return true
-		}
-	}
-	return false
-}
-
 // replayFinding is a step the engine did not offer.
 type replayFinding struct {
 	Project    string   `json:"project"`
@@ -79,40 +56,8 @@ type replayFinding struct {
 	Offered    []string `json:"offered"`
 }
 
-// replaySteps lists the questions for one field: the scope class in the root
-// picker, then each path element with the scope and the elements before it
-// as current_path.
-func replaySteps(scope string, path []string) []replayStep {
-	steps := make([]replayStep, 0, 1+len(path))
-	steps = append(steps, replayStep{Position: -1, Want: scope, CurrentPath: nil})
-	for i, q := range path {
-		cur := append([]string{scope}, path[:i]...)
-		steps = append(steps, replayStep{Position: i, Want: q, CurrentPath: cur})
-	}
-	return steps
-}
-
-// withURIs attaches the stored IRIs to the steps built from qnames.
-func withURIs(steps []replayStep, scope domain.PathElement, elems []domain.PathElement) []replayStep {
-	for i := range steps {
-		if steps[i].Position < 0 {
-			steps[i].WantURI = scope.URI
-		} else if steps[i].Position < len(elems) {
-			steps[i].WantURI = elems[steps[i].Position].URI
-		}
-	}
-	return steps
-}
-
 func pathElementQname(pe domain.PathElement) string {
 	return strings.TrimSpace(pe.Prefix) + ":" + strings.TrimSpace(pe.LocalName)
-}
-
-func qnameLocal(q string) string {
-	if i := strings.Index(q, ":"); i >= 0 {
-		return q[i+1:]
-	}
-	return q
 }
 
 func runWeaveReplayPaths(cmd *cobra.Command, args []string) error {
@@ -145,7 +90,7 @@ func runWeaveReplayPaths(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("list fields of %s: %w", projectID, err)
 		}
 		for _, row := range rows {
-			fieldFindings, steps, err := replayField(ctx, svc, projectID, row)
+			fieldFindings, steps, err := replayField(ctx, svc.GetSuggestions, projectID, row)
 			if err != nil {
 				return err
 			}
@@ -169,7 +114,7 @@ func runWeaveReplayPaths(cmd *cobra.Command, args []string) error {
 // replayField asks the engine every question the builder would ask for one
 // stored field. Returns the steps not offered and the number of steps asked
 // (0 for a field without a scope or path).
-func replayField(ctx context.Context, svc *weaveontology.Service, projectID string, row sqlcgen.WeaveListFieldsRow) ([]replayFinding, int, error) {
+func replayField(ctx context.Context, suggest autocomplete.Suggester, projectID string, row sqlcgen.WeaveListFieldsRow) ([]replayFinding, int, error) {
 	var scope domain.PathElement
 	var elems []domain.PathElement
 	if len(row.OntologyScope) > 0 {
@@ -186,38 +131,20 @@ func replayField(ctx context.Context, svc *weaveontology.Service, projectID stri
 		return nil, 0, nil
 	}
 	path := make([]string, 0, len(elems))
+	uris := make([]string, 0, len(elems))
 	for _, pe := range elems {
 		path = append(path, pathElementQname(pe))
+		uris = append(uris, pe.URI)
 	}
-	scopeQ := pathElementQname(scope)
-	var findings []replayFinding
-	steps := withURIs(replaySteps(scopeQ, path), scope, elems)
-	for _, step := range steps {
-		req := autocomplete.Request{
-			ProjectID:               projectID,
-			CurrentPath:             step.CurrentPath,
-			Query:                   qnameLocal(step.Want),
-			MaxResults:              200,
-			IncludeParentProjects:   true,
-			IncludeRangeSuggestions: true,
-			Source:                  "replay",
-		}
-		if step.Position >= 0 {
-			req.ScopeClass = scopeQ
-		}
-		sugs, err := svc.GetSuggestions(ctx, req)
-		if err != nil {
-			return nil, 0, fmt.Errorf("field %s step %d: %w", row.ID, step.Position, err)
-		}
-		if !replayOffered(sugs, step.Want, step.WantURI) {
-			offered := make([]string, 0, len(sugs))
-			for _, s := range sugs {
-				offered = append(offered, s.Qname)
-			}
-			findings = append(findings, replayFinding{Project: projectID, SemanticID: derefSemanticID(row.SemanticID, row.ID), Position: step.Position, Want: step.Want, Offered: offered})
-		}
+	misses, steps, err := autocomplete.ReplayPath(ctx, suggest, projectID, pathElementQname(scope), scope.URI, path, uris)
+	if err != nil {
+		return nil, 0, fmt.Errorf("field %s: %w", row.ID, err)
 	}
-	return findings, len(steps), nil
+	findings := make([]replayFinding, 0, len(misses))
+	for _, m := range misses {
+		findings = append(findings, replayFinding{Project: projectID, SemanticID: derefSemanticID(row.SemanticID, row.ID), Position: m.Position, Want: m.Want, Offered: m.Offered})
+	}
+	return findings, steps, nil
 }
 
 func printReplay(format string, fieldsSeen, checked int, findings []replayFinding) error {
