@@ -103,6 +103,9 @@ func BuildModelSnapshot(in ModelSnapshotInput) *Snapshot {
 				fieldNode.CollectionSemanticID = collMembership.semanticID
 				fieldNode.CollectionSystemName = collMembership.systemName
 				fieldNode.CollectionName = collMembership.name
+				if collection.Placement != nil {
+					fieldNode.CollectionMaxOccurs = collection.Placement.MaxOccurs
+				}
 				collNode.Children = append(collNode.Children, node)
 				fields = append(fields, fieldNode)
 			}

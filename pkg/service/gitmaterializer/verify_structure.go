@@ -2,8 +2,11 @@ package gitmaterializer
 
 import (
 	"io/fs"
+	"math"
 	"os"
+	"path"
 	"path/filepath"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 
@@ -390,6 +393,47 @@ func (v *verifyContext) checkAdoptions() {
 		}
 		if !ids[src.EntityID] {
 			v.add(file, line, "adoption-missing-source", "%s %s is not in parent %s", receipt.Adoption.EntityType, src.EntityID, src.ProjectID)
+		}
+	}
+}
+
+// checkPlacements reports placement files whose ids disagree with their path,
+// whose collection the model does not place, whose category is unknown, or
+// whose range is invalid.
+func (v *verifyContext) checkPlacements() {
+	if len(v.snap.Entities.Placements) == 0 {
+		return
+	}
+	placed, err := placedCollectionsByModel(v.snap)
+	if err != nil {
+		return // the override checks already report undecodable override files
+	}
+	for _, item := range v.snap.Entities.Placements {
+		doc, ok := decodeDoc[canonicalPlacementDoc](v, item)
+		if !ok {
+			continue
+		}
+		collectionID, categoryID, _ := parsePlacementFileName(path.Base(item.Path))
+		if doc.ModelID != item.OwnerID || doc.CollectionID != collectionID || doc.CategoryID != categoryID {
+			v.add(item.Path, yamlKeyLine(item.Payload, "model_id"), "placement-path",
+				"model_id %s, collection_id %s and category_id %q must match the file's place in the tree", doc.ModelID, doc.CollectionID, doc.CategoryID)
+		}
+		if !placed[item.OwnerID][doc.CollectionID] {
+			v.add(item.Path, yamlKeyLine(item.Payload, "collection_id"), "placement-orphan",
+				"model %s places no field of collection %s", item.OwnerID, doc.CollectionID)
+		}
+		if doc.CategoryID != "" && !v.categories[doc.CategoryID] {
+			v.add(item.Path, yamlKeyLine(item.Payload, "category_id"), "placement-category",
+				"category %s is not in the tree, its adoptions or its parents", doc.CategoryID)
+		}
+		if doc.MinOccurs < 0 || doc.MinOccurs > math.MaxInt32 ||
+			(doc.MaxOccurs != nil && (*doc.MaxOccurs < doc.MinOccurs || *doc.MaxOccurs > math.MaxInt32)) {
+			maxOccurs := "unbounded"
+			if doc.MaxOccurs != nil {
+				maxOccurs = strconv.Itoa(*doc.MaxOccurs)
+			}
+			v.add(item.Path, yamlKeyLine(item.Payload, "max_occurs"), "placement-range",
+				"min_occurs %d and max_occurs %s do not form a range within 0..%d", doc.MinOccurs, maxOccurs, math.MaxInt32)
 		}
 	}
 }

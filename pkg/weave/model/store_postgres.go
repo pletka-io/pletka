@@ -190,7 +190,9 @@ func (s *postgresStore) Update(ctx context.Context, m *domain.Model) error {
 // weave_field_overrides. That table carries no FK on entity_id, so
 // nothing cascades on a bare model delete — leaving those rows behind
 // permanently inflates category usage counts. weave_override_refs cascade
-// from the deleted override rows via their own FK.
+// from the deleted override rows via their own FK. The model's collection
+// placements (weave_collection_placements, no FK either) go in the same
+// transaction.
 func (s *postgresStore) Delete(ctx context.Context, id string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -204,6 +206,9 @@ func (s *postgresStore) Delete(ctx context.Context, id string) error {
 		EntityID:   id,
 	}); err != nil {
 		return fmt.Errorf("delete model placements: %w", err)
+	}
+	if err := q.WeaveDeleteCollectionPlacementsByModel(ctx, id); err != nil {
+		return fmt.Errorf("delete model collection placements: %w", err)
 	}
 	if err := q.WeaveDeleteModel(ctx, id); err != nil {
 		return fmt.Errorf("delete weave model: %w", err)

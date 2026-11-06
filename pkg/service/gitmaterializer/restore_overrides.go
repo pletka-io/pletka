@@ -80,6 +80,9 @@ func (m *Materializer) HydrateProjectOverrides(ctx context.Context, plan *Restor
 	if err := m.hydrateScopedOverridesTx(ctx, q, projectID, "collection", plan.Snapshot.Entities.CollectionOverrides); err != nil {
 		return err
 	}
+	if err := m.hydratePlacementsTx(ctx, q, projectID, plan.Snapshot); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("hydrate project overrides: commit tx: %w", err)
 	}
@@ -211,6 +214,9 @@ func clearProjectOverrideState(ctx context.Context, tx pgx.Tx, projectID string)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM weave_field_overrides WHERE project_id = $1`, projectID); err != nil {
 		return fmt.Errorf("hydrate project overrides: clear overrides: %w", err)
+	}
+	if err := sqlcgen.New(tx).WeaveDeleteCollectionPlacementsByProject(ctx, projectID); err != nil {
+		return fmt.Errorf("hydrate project overrides: clear collection placements: %w", err)
 	}
 	return nil
 }

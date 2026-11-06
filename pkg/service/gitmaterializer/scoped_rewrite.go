@@ -68,7 +68,12 @@ func (m *Materializer) applyRef(ctx context.Context, workDir, projectID string, 
 		return nil
 	}
 	if r.EntityType == entityTypeModel || r.EntityType == entityTypeCollection {
-		return m.writeOverridesForOwner(ctx, workDir, projectID, r.EntityType, r.EntityID)
+		if err := m.writeOverridesForOwner(ctx, workDir, projectID, r.EntityType, r.EntityID); err != nil {
+			return err
+		}
+	}
+	if r.EntityType == entityTypeModel {
+		return m.writePlacementsForModel(ctx, workDir, projectID, r.EntityID)
 	}
 	return nil
 }

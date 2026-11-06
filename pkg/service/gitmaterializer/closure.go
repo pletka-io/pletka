@@ -85,6 +85,9 @@ func (m *Materializer) closure(ctx context.Context, cs sqlcgen.WeaveChangeSet) (
 		switch e.EntityType {
 		case entityTypeModel, entityTypeCollection:
 			add(e.EntityType, e.EntityID, e.Operation == opDelete)
+		case entityTypeCollectionPlacement:
+			// placements live in the model's directory; any edit rewrites it
+			add(entityTypeModel, e.EntityID, false)
 		case entityTypeCategory:
 			del := e.Operation == opDelete
 			id := e.EntityID
