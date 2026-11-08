@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pletka-io/pletka/pkg/database/adoptionsource"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
@@ -434,7 +435,8 @@ func (m *Materializer) hydrateAdoptionsTx(ctx context.Context, tx pgx.Tx, projec
 	}
 	// a receipt names entities by semantic id (or any identifier); rows
 	// carry row ids, so resolve on this instance and keep what is unknown
-	resolve := rowAdoptionIDs(sqlcgen.New(tx))
+	queries := sqlcgen.New(tx)
+	resolve := rowAdoptionIDs(queries)
 	for _, entry := range set.Index.Receipts {
 		receipt, ok := set.Receipts[filepathToSlash(entry.File)]
 		if !ok {
@@ -453,13 +455,19 @@ func (m *Materializer) hydrateAdoptionsTx(ctx context.Context, tx pgx.Tx, projec
 			if id, ok := resolve(ctx, ctxRow.ContextEntityType, projectID, contextID); ok {
 				contextID = id
 			}
+			version := receipt.Adoption.Source.Version
+			if version == "" {
+				if version, err = adoptionsource.Version(ctx, queries, projectID, receipt.Adoption.Source.ProjectID, receipt.Adoption.EntityType, sourceID); err != nil {
+					return fmt.Errorf("hydrate adoptions: source version for %s: %w", entry.File, err)
+				}
+			}
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO weave_adoptions (
 					project_id, context_entity_type, context_entity_id,
 					entity_type, source_project_id, source_entity_id, source_version,
 					adopted_at, created_by_id
 				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-			`, projectID, ctxRow.ContextEntityType, contextID, receipt.Adoption.EntityType, receipt.Adoption.Source.ProjectID, sourceID, receipt.Adoption.Source.Version, adoptedAt, actorIDPtrFromManifest(ctxRow.AdoptedBy)); err != nil {
+			`, projectID, ctxRow.ContextEntityType, contextID, receipt.Adoption.EntityType, receipt.Adoption.Source.ProjectID, sourceID, version, adoptedAt, actorIDPtrFromManifest(ctxRow.AdoptedBy)); err != nil {
 				return fmt.Errorf("hydrate adoptions: insert %s: %w", entry.File, err)
 			}
 		}

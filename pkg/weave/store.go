@@ -362,7 +362,7 @@ func (a *overrideStoreAdapter) GetRefs(ctx context.Context, overrideID int64) ([
 
 // Adoptions returns an AdoptionStore backed by weave_adoptions.
 func (s *PostgresStore) Adoptions() domain.AdoptionStore {
-	return &adoptionStore{pool: s.pool}
+	return &adoptionStore{pool: s.pool, queries: s.queries}
 }
 
 // Forks returns a ForkStore backed by weave_entity_forks.

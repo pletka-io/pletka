@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	weaveauth "github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 )
 
 // semverRE matches MAJOR.MINOR.PATCH with an optional pre-release or
@@ -113,6 +114,15 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 	if len(blockingParents) > 0 {
 		return nil, &ErrValidation{Fields: map[string][]string{
 			"parent_dependencies": {fmt.Sprintf("cannot create a release while parent dependencies still follow draft: %s", strings.Join(blockingParents, ", "))},
+		}}
+	}
+	draftSources, err := sqlcgen.New(tx).WeaveDraftFollowingAdoptionSources(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("check adoption source versions: %w", err)
+	}
+	if len(draftSources) > 0 {
+		return nil, &ErrValidation{Fields: map[string][]string{
+			"adoption_dependencies": {fmt.Sprintf("cannot create a release while adoptions still read a source draft: %s", strings.Join(draftSources, ", "))},
 		}}
 	}
 
