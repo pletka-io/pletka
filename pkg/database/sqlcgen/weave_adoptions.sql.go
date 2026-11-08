@@ -34,13 +34,17 @@ func (q *Queries) WeaveAdoptionSourcePin(ctx context.Context, arg WeaveAdoptionS
 }
 
 const weaveDraftFollowingAdoptionSources = `-- name: WeaveDraftFollowingAdoptionSources :many
-SELECT DISTINCT source_project_id
-FROM weave_adoptions
-WHERE project_id = $1 AND COALESCE(source_version, '') = ''
-ORDER BY source_project_id
+SELECT DISTINCT a.source_project_id
+FROM weave_adoptions a
+WHERE a.project_id = $1 AND COALESCE(a.source_version, '') = ''
+  AND (a.context_entity_type NOT IN ('model', 'collection')
+    OR (a.context_entity_type = 'model' AND EXISTS (SELECT 1 FROM weave_models m WHERE m.id = a.context_entity_id))
+    OR (a.context_entity_type = 'collection' AND EXISTS (SELECT 1 FROM weave_collections c WHERE c.id = a.context_entity_id)))
+ORDER BY a.source_project_id
 `
 
-// Sources the project's receipts still read at their draft.
+// Sources the project's receipts still read at their draft. A receipt left by
+// a deleted model or collection has no context to re-save and is not counted.
 func (q *Queries) WeaveDraftFollowingAdoptionSources(ctx context.Context, projectID string) ([]string, error) {
 	rows, err := q.db.Query(ctx, weaveDraftFollowingAdoptionSources, projectID)
 	if err != nil {

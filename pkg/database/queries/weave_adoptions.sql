@@ -35,8 +35,12 @@ ORDER BY r.created_at DESC
 LIMIT 1;
 
 -- name: WeaveDraftFollowingAdoptionSources :many
--- Sources the project's receipts still read at their draft.
-SELECT DISTINCT source_project_id
-FROM weave_adoptions
-WHERE project_id = sqlc.arg(project_id) AND COALESCE(source_version, '') = ''
-ORDER BY source_project_id;
+-- Sources the project's receipts still read at their draft. A receipt left by
+-- a deleted model or collection has no context to re-save and is not counted.
+SELECT DISTINCT a.source_project_id
+FROM weave_adoptions a
+WHERE a.project_id = sqlc.arg(project_id) AND COALESCE(a.source_version, '') = ''
+  AND (a.context_entity_type NOT IN ('model', 'collection')
+    OR (a.context_entity_type = 'model' AND EXISTS (SELECT 1 FROM weave_models m WHERE m.id = a.context_entity_id))
+    OR (a.context_entity_type = 'collection' AND EXISTS (SELECT 1 FROM weave_collections c WHERE c.id = a.context_entity_id)))
+ORDER BY a.source_project_id;

@@ -141,3 +141,27 @@ func TestCreateRefusesWhileAnAdoptionReadsASourceDraft(t *testing.T) {
 		t.Fatalf("adoption_dependencies = %#v", verr.Fields)
 	}
 }
+
+// A receipt left behind by a deleted model or collection has no context to
+// re-save; it must not block the cut.
+func TestCreateIgnoresDraftReceiptsOfDeletedContexts(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx, ownerID, projectID := seedZREL(t, pool)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM weave_adoptions WHERE project_id = $1`, projectID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM weave_projects WHERE id = 'ZRELSRC'`)
+	})
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_projects (id, owner_id, system_name) VALUES ('ZRELSRC', $1, 'zrelsrc') ON CONFLICT (id) DO NOTHING`, ownerID); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"model", "collection"} {
+		if _, err := pool.Exec(ctx, `INSERT INTO weave_adoptions (project_id, context_entity_type, context_entity_id, entity_type, source_project_id, source_entity_id, source_version, created_by_id) VALUES ($1, $2, 'ZRELGONE', 'field', 'ZRELSRC', 'ZRELSRCF.1', '', $3)`, projectID, kind, ownerID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	authCtx := weaveauth.WithSnapshot(ctx, &weaveauth.AuthSnapshot{IsSuperAdmin: true})
+	authCtx = weaveauth.WithPrincipal(authCtx, &weaveauth.Principal{ActorID: ownerID})
+	if _, err := NewService(nil, pool, nil).Create(authCtx, projectID, CreateInput{Version: "9.0.2"}); err != nil {
+		t.Fatalf("cut refused over receipts of deleted contexts: %v", err)
+	}
+}
