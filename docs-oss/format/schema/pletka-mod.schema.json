@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pletka.io/schema/format/2/pletka-mod.schema.json",
+  "title": "pletka.mod",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "module"],
+  "$defs": {
+    "modulePath": {"type": "string", "pattern": "^[^\\s@]+$"},
+    "selector": {"type": "string", "minLength": 1, "description": "A release version, a branch name, a 40-hex commit id, or draft (= main)."}
+  },
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schemaVersion"},
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "project_id"],
+      "properties": {
+        "path": {"$ref": "#/$defs/modulePath"},
+        "project_id": {"$ref": "common.schema.json#/$defs/projectId"}
+      }
+    },
+    "require": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["module", "project_id"],
+            "properties": {
+              "module": {"$ref": "#/$defs/modulePath"},
+              "project_id": {"$ref": "common.schema.json#/$defs/projectId"},
+              "version": {"$ref": "#/$defs/selector", "description": "v1 omits it for draft."},
+              "mode": {"const": "parent", "deprecated": true}
+            }
+          }
+        },
+        "ontologies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["module", "version"],
+            "properties": {
+              "module": {"$ref": "#/$defs/modulePath"},
+              "prefix": {"type": "string"},
+              "version": {"$ref": "#/$defs/selector"},
+              "ontology_id": {"type": "string", "deprecated": true},
+              "ontology_version_id": {"type": "string", "deprecated": true},
+              "artifact_digest": {"type": "string", "deprecated": true, "description": "Written by an unmerged branch; belongs in pletka.sum."}
+            }
+          }
+        }
+      }
+    },
+    "replace": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["module"],
+        "oneOf": [{"required": ["path"]}, {"required": ["with", "version"]}],
+        "properties": {
+          "module": {"$ref": "#/$defs/modulePath"},
+          "path": {"type": "string", "description": "Local directory, relative to the tree root."},
+          "with": {"$ref": "#/$defs/modulePath"},
+          "version": {"$ref": "#/$defs/selector"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pletka.io/schema/format/2/project.schema.json",
+  "title": "project.yaml",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schemaVersion"},
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {"$ref": "common.schema.json#/$defs/projectId"},
+        "system_name": {"type": "string"},
+        "title": {"$ref": "common.schema.json#/$defs/translations"},
+        "description": {"$ref": "common.schema.json#/$defs/translations"},
+        "readme": {"$ref": "common.schema.json#/$defs/translations"},
+        "namespace": {"type": "string"},
+        "visibility": {"type": "string", "examples": ["public", "private", "internal"]},
+        "owner": {"$ref": "common.schema.json#/$defs/actor"},
+        "created_by": {"$ref": "common.schema.json#/$defs/actor"},
+        "license": {"type": "string"},
+        "base_url": {"type": "string"},
+        "topics": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "inheritance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "parents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["project_id"],
+            "properties": {
+              "project_id": {"$ref": "common.schema.json#/$defs/projectId"},
+              "is_primary": {"type": "boolean"},
+              "canonical_order": {"type": "integer"},
+              "source_mode": {"enum": ["draft", "release"], "deprecated": true, "description": "v1; the version lives in pletka.mod in v2."},
+              "source_version": {"type": "string", "deprecated": true}
+            }
+          }
+        }
+      }
+    },
+    "ontologies": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "linked_versions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["version"],
+            "anyOf": [{"required": ["prefix"]}, {"required": ["ontology_id"]}],
+            "properties": {
+              "prefix": {"type": "string"},
+              "version": {"type": "string"},
+              "is_primary": {"type": "boolean"},
+              "ontology_id": {"type": "string", "deprecated": true},
+              "ontology_version_id": {"type": "string", "deprecated": true}
+            }
+          }
+        }
+      }
+    },
+    "namespaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "effective_bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["prefix", "namespace"],
+            "properties": {
+              "prefix": {"type": "string"},
+              "namespace": {"type": "string"},
+              "source": {"enum": ["project", "ontology", "system", "global"]}
+            }
+          }
+        }
+      }
+    },
+    "manifests": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "adoptions": {"type": "string"},
+        "forks": {"type": "string"}
+      }
+    }
+  }
+}

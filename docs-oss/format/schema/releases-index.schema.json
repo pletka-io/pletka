@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pletka.io/schema/format/2/releases-index.schema.json",
+  "title": "releases/index.yaml",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "releases"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schemaVersion"},
+    "releases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "tag", "created_at", "created_by"],
+        "properties": {
+          "version": {"type": "string", "pattern": "^[0-9][0-9A-Za-z.+-]*$"},
+          "tag": {"type": "string"},
+          "title": {"type": "string"},
+          "description": {"type": "string"},
+          "created_at": {"type": "string", "description": "RFC 3339, UTC."},
+          "created_by": {"type": "string"},
+          "archived_at": {"type": "string"},
+          "archived_message": {"type": "string"}
+        }
+      }
+    }
+  }
+}

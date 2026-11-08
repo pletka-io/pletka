@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pletka.io/schema/format/2/fork-receipt.schema.json",
+  "title": "forks/<entity_type>-<entity_id>.yaml",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "fork"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schemaVersion"},
+    "fork": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity_type", "entity_id", "source"],
+      "properties": {
+        "entity_type": {"type": "string", "examples": ["field", "model", "collection", "category", "concept_list"]},
+        "entity_id": {"type": "string"},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["project_id", "entity_id"],
+          "properties": {
+            "project_id": {"$ref": "common.schema.json#/$defs/projectId"},
+            "entity_id": {"type": "string"},
+            "version": {"type": "string", "deprecated": true, "description": "v1 pin; in v2 the source version is what pletka.mod resolves."}
+          }
+        },
+        "forked_at": {"type": "string"},
+        "created_by": {"$ref": "common.schema.json#/$defs/actor"}
+      }
+    }
+  }
+}
