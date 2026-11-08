@@ -115,3 +115,29 @@ func containsAll(s string, subs ...string) bool {
 	}
 	return true
 }
+
+func TestCreateRefusesWhileAnAdoptionReadsASourceDraft(t *testing.T) {
+	pool := testdb.Pool(t)
+	ctx, ownerID, projectID := seedZREL(t, pool)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM weave_adoptions WHERE project_id = $1`, projectID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM weave_projects WHERE id = 'ZRELSRC'`)
+	})
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_projects (id, owner_id, system_name) VALUES ('ZRELSRC', $1, 'zrelsrc') ON CONFLICT (id) DO NOTHING`, ownerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_adoptions (project_id, context_entity_type, context_entity_id, entity_type, source_project_id, source_entity_id, source_version, created_by_id) VALUES ($1, 'project', $1, 'field', 'ZRELSRC', 'ZRELSRCF.1', '', $2)`, projectID, ownerID); err != nil {
+		t.Fatal(err)
+	}
+	authCtx := weaveauth.WithSnapshot(ctx, &weaveauth.AuthSnapshot{IsSuperAdmin: true})
+	authCtx = weaveauth.WithPrincipal(authCtx, &weaveauth.Principal{ActorID: ownerID})
+	_, err := NewService(nil, pool, nil).Create(authCtx, projectID, CreateInput{Version: "9.0.2"})
+	var verr *ErrValidation
+	if !errors.As(err, &verr) {
+		t.Fatalf("expected ErrValidation, got %T: %v", err, err)
+	}
+	msgs := verr.Fields["adoption_dependencies"]
+	if len(msgs) != 1 || !containsAll(msgs[0], "source draft", "ZRELSRC") {
+		t.Fatalf("adoption_dependencies = %#v", verr.Fields)
+	}
+}
