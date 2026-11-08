@@ -2,17 +2,20 @@ package weave
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 type adoptionStore struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	queries *sqlcgen.Queries
 }
 
 var _ domain.AdoptionStore = (*adoptionStore)(nil)
@@ -183,6 +186,19 @@ func (s *adoptionStore) ReplaceForContext(ctx context.Context, projectID, contex
 		dedup[key] = adoption
 	}
 
+	q := s.queries.WithTx(tx)
+	for key, adoption := range dedup {
+		if adoption.SourceVersion != "" {
+			continue
+		}
+		version, err := sourceVersionFor(ctx, q, projectID, adoption)
+		if err != nil {
+			return err
+		}
+		adoption.SourceVersion = version
+		dedup[key] = adoption
+	}
+
 	for _, adoption := range dedup {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO weave_adoptions (
@@ -227,4 +243,36 @@ func adoptionKey(a domain.Adoption) string {
 		a.SourceEntityID,
 		a.SourceVersion,
 	}, "|")
+}
+
+// sourceVersionFor names the release a receipt was taken from when the writer
+// gave none: the consumer's pinned release of that source when it holds the
+// entity, else the newest live release that does. A consumer that follows the
+// source's draft on purpose, or an entity no release holds, keeps an empty
+// version; a release cut refuses while one remains.
+func sourceVersionFor(ctx context.Context, q *sqlcgen.Queries, projectID string, a domain.Adoption) (string, error) {
+	pin, err := q.WeaveAdoptionSourcePin(ctx, sqlcgen.WeaveAdoptionSourcePinParams{ProjectID: projectID, ParentProjectID: a.SourceProjectID})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return "", fmt.Errorf("read parent link for adoption: %w", err)
+	case pin.SourceMode == string(domain.DependencySourceDraft):
+		return "", nil
+	case pin.SourceVersion != "":
+		ok, err := q.WeaveReleaseContainsEntity(ctx, sqlcgen.WeaveReleaseContainsEntityParams{SourceProjectID: a.SourceProjectID, Version: pin.SourceVersion, EntityType: a.EntityType, EntityID: a.SourceEntityID})
+		if err != nil {
+			return "", fmt.Errorf("check pinned release for adoption: %w", err)
+		}
+		if ok {
+			return pin.SourceVersion, nil
+		}
+	}
+	version, err := q.WeaveLatestReleaseContaining(ctx, sqlcgen.WeaveLatestReleaseContainingParams{SourceProjectID: a.SourceProjectID, EntityType: a.EntityType, EntityID: a.SourceEntityID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("find release holding adopted entity: %w", err)
+	}
+	return version, nil
 }
