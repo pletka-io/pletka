@@ -17,7 +17,7 @@
     "@types/node": "^25.2.3",
     "postcss": "^8.5.31",
     "svelte": "^5.57",
-    "svelte-check": "^4.7.7",
+    "svelte-check": "^4.7.8",
     "tailwindcss": "^4",
     "typescript": "^5.7.0",
     "vite": "^8",
