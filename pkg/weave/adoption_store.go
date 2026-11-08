@@ -173,29 +173,26 @@ func (s *adoptionStore) ReplaceForContext(ctx context.Context, projectID, contex
 		return fmt.Errorf("delete adoptions for context: %w", err)
 	}
 
+	// Fill before deduplicating: an older receipt without a version and a new
+	// one with it name the same receipt once filled.
+	q := s.queries.WithTx(tx)
 	dedup := make(map[string]domain.Adoption, len(adoptions))
 	for _, adoption := range adoptions {
 		adoption.ProjectID = projectID
 		adoption.ContextEntityType = contextEntityType
 		adoption.ContextEntityID = contextEntityID
 		adoption.SourceVersion = strings.TrimSpace(adoption.SourceVersion)
+		if adoption.SourceVersion == "" {
+			version, err := sourceVersionFor(ctx, q, projectID, adoption)
+			if err != nil {
+				return err
+			}
+			adoption.SourceVersion = version
+		}
 		key := adoptionKey(adoption)
 		if _, ok := dedup[key]; ok {
 			continue
 		}
-		dedup[key] = adoption
-	}
-
-	q := s.queries.WithTx(tx)
-	for key, adoption := range dedup {
-		if adoption.SourceVersion != "" {
-			continue
-		}
-		version, err := sourceVersionFor(ctx, q, projectID, adoption)
-		if err != nil {
-			return err
-		}
-		adoption.SourceVersion = version
 		dedup[key] = adoption
 	}
 

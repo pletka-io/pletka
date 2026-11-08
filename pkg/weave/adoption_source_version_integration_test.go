@@ -87,3 +87,44 @@ func TestReplaceForContextFillsTheSourceVersion(t *testing.T) {
 		t.Fatalf("explicit version = %q (%v), want 1.0.0", kept, err)
 	}
 }
+
+// A context may hold an older receipt without a version next to a new one
+// for the same entity with a version; once the old one is filled they are the
+// same receipt and must be stored once, not fail on the unique key.
+func TestReplaceForContextStoresAFilledDuplicateOnce(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	owner := seedTestActor(t, pool, "rsvdup-owner")
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, s := range []string{
+			`DELETE FROM weave_adoptions WHERE project_id LIKE 'RSD%'`,
+			`DELETE FROM weave_fields_archive WHERE project_id LIKE 'RSD%'`,
+			`DELETE FROM weave_releases WHERE project_id LIKE 'RSD%'`,
+			`DELETE FROM weave_projects WHERE id LIKE 'RSD%'`,
+		} {
+			_, _ = pool.Exec(context.Background(), s)
+		}
+	})
+	for _, p := range []string{"RSDSRC", "RSDUSE"} {
+		exec(`INSERT INTO weave_projects (id, owner_id, system_name) VALUES ($1, $2, lower($1))`, p, owner)
+	}
+	exec(`INSERT INTO weave_releases (project_id, version, created_by_id) VALUES ('RSDSRC', '2.0.0', $1)`, owner)
+	exec(`INSERT INTO weave_fields_archive (id, project_id, version_number) VALUES ('RSDSRCF.1', 'RSDSRC', '2.0.0')`)
+	store := weave.NewPostgresStore(pool).Adoptions()
+	if err := store.ReplaceForContext(ctx, "RSDUSE", "project", "RSDUSE", []domain.Adoption{
+		{EntityType: "field", SourceProjectID: "RSDSRC", SourceEntityID: "RSDSRCF.1", CreatedByID: &owner},
+		{EntityType: "field", SourceProjectID: "RSDSRC", SourceEntityID: "RSDSRCF.1", SourceVersion: "2.0.0", CreatedByID: &owner},
+	}); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM weave_adoptions WHERE project_id = 'RSDUSE'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("receipts = %d (%v), want 1", n, err)
+	}
+}
