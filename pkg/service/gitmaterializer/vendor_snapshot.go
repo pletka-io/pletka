@@ -67,6 +67,9 @@ func (m *Materializer) writeProjectTree(ctx context.Context, workDir, projectID 
 	if err := m.writeScopedOverridesByProject(ctx, workDir, projectID, "collection"); err != nil {
 		return err
 	}
+	if err := m.writeProjectPlacements(ctx, workDir, projectID); err != nil {
+		return err
+	}
 	if err := m.writeAdoptedEntities(ctx, workDir, projectID); err != nil {
 		return err
 	}

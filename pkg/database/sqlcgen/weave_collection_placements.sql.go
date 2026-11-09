@@ -35,6 +35,16 @@ func (q *Queries) WeaveDeleteCollectionPlacementsByModel(ctx context.Context, mo
 	return err
 }
 
+const weaveDeleteCollectionPlacementsByProject = `-- name: WeaveDeleteCollectionPlacementsByProject :exec
+DELETE FROM weave_collection_placements
+WHERE project_id = $1
+`
+
+func (q *Queries) WeaveDeleteCollectionPlacementsByProject(ctx context.Context, projectID string) error {
+	_, err := q.db.Exec(ctx, weaveDeleteCollectionPlacementsByProject, projectID)
+	return err
+}
+
 const weaveGetCollectionPlacement = `-- name: WeaveGetCollectionPlacement :one
 SELECT id, project_id, model_id, category_id, collection_id, is_required, min_occurs, max_occurs, is_hidden, created_at, updated_at FROM weave_collection_placements
 WHERE model_id = $1 AND category_id = $2 AND collection_id = $3
@@ -73,6 +83,91 @@ ORDER BY category_id, collection_id
 
 func (q *Queries) WeaveListCollectionPlacementsByModel(ctx context.Context, modelID string) ([]WeaveCollectionPlacement, error) {
 	rows, err := q.db.Query(ctx, weaveListCollectionPlacementsByModel, modelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveCollectionPlacement{}
+	for rows.Next() {
+		var i WeaveCollectionPlacement
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.ModelID,
+			&i.CategoryID,
+			&i.CollectionID,
+			&i.IsRequired,
+			&i.MinOccurs,
+			&i.MaxOccurs,
+			&i.IsHidden,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveListCollectionPlacementsByProject = `-- name: WeaveListCollectionPlacementsByProject :many
+SELECT id, project_id, model_id, category_id, collection_id, is_required, min_occurs, max_occurs, is_hidden, created_at, updated_at FROM weave_collection_placements
+WHERE project_id = $1
+ORDER BY model_id, category_id, collection_id
+`
+
+func (q *Queries) WeaveListCollectionPlacementsByProject(ctx context.Context, projectID string) ([]WeaveCollectionPlacement, error) {
+	rows, err := q.db.Query(ctx, weaveListCollectionPlacementsByProject, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveCollectionPlacement{}
+	for rows.Next() {
+		var i WeaveCollectionPlacement
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.ModelID,
+			&i.CategoryID,
+			&i.CollectionID,
+			&i.IsRequired,
+			&i.MinOccurs,
+			&i.MaxOccurs,
+			&i.IsHidden,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveListPlacedCollectionPlacementsByProject = `-- name: WeaveListPlacedCollectionPlacementsByProject :many
+SELECT p.id, p.project_id, p.model_id, p.category_id, p.collection_id, p.is_required, p.min_occurs, p.max_occurs, p.is_hidden, p.created_at, p.updated_at FROM weave_collection_placements p
+WHERE p.project_id = $1
+  AND EXISTS (
+    SELECT 1 FROM weave_field_overrides o
+    WHERE o.project_id = p.project_id
+      AND o.entity_type = 'model'
+      AND o.entity_id = p.model_id
+      AND o.part_of_collection_id = p.collection_id
+  )
+ORDER BY p.model_id, p.category_id, p.collection_id
+`
+
+// Placements whose model places a field of the collection through a
+// model-scoped override: the rows a project tree may carry.
+func (q *Queries) WeaveListPlacedCollectionPlacementsByProject(ctx context.Context, projectID string) ([]WeaveCollectionPlacement, error) {
+	rows, err := q.db.Query(ctx, weaveListPlacedCollectionPlacementsByProject, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +247,52 @@ func (q *Queries) WeaveListPlacementsAtVersion(ctx context.Context, arg WeaveLis
 		return nil, err
 	}
 	return items, nil
+}
+
+const weaveRestoreCollectionPlacement = `-- name: WeaveRestoreCollectionPlacement :one
+INSERT INTO weave_collection_placements (
+    project_id, model_id, category_id, collection_id,
+    is_required, min_occurs, max_occurs, is_hidden
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8
+)
+ON CONFLICT (model_id, category_id, collection_id) DO UPDATE SET
+    is_required = EXCLUDED.is_required,
+    min_occurs  = EXCLUDED.min_occurs,
+    max_occurs  = EXCLUDED.max_occurs,
+    is_hidden   = EXCLUDED.is_hidden,
+    updated_at  = now()
+WHERE weave_collection_placements.project_id = EXCLUDED.project_id
+RETURNING id
+`
+
+type WeaveRestoreCollectionPlacementParams struct {
+	ProjectID    string `json:"project_id"`
+	ModelID      string `json:"model_id"`
+	CategoryID   string `json:"category_id"`
+	CollectionID string `json:"collection_id"`
+	IsRequired   bool   `json:"is_required"`
+	MinOccurs    int32  `json:"min_occurs"`
+	MaxOccurs    *int32 `json:"max_occurs"`
+	IsHidden     bool   `json:"is_hidden"`
+}
+
+// Hydration's upsert: unlike WeaveUpsertCollectionPlacement it never takes
+// over a row of another project sharing the unique key (no row returned).
+func (q *Queries) WeaveRestoreCollectionPlacement(ctx context.Context, arg WeaveRestoreCollectionPlacementParams) (int64, error) {
+	row := q.db.QueryRow(ctx, weaveRestoreCollectionPlacement,
+		arg.ProjectID,
+		arg.ModelID,
+		arg.CategoryID,
+		arg.CollectionID,
+		arg.IsRequired,
+		arg.MinOccurs,
+		arg.MaxOccurs,
+		arg.IsHidden,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const weaveUpsertCollectionPlacement = `-- name: WeaveUpsertCollectionPlacement :one

@@ -432,3 +432,55 @@ manifests:
 		t.Fatalf("findings=%v steps=%d", rep.Findings, rep.Steps)
 	}
 }
+
+// placementFixture extends verifyFixture with a collection TPCC.1 placed on
+// TPCM.1 by an override, and a valid placement file for it.
+func placementFixture(t *testing.T) string {
+	t.Helper()
+	root := verifyFixture(t)
+	write(t, root, "collections/TPCC.1/collection.yaml", "semantic_id: TPCC.1\nsystem_name: naming\nui_name: {en: Naming}\nstatus: draft\n")
+	write(t, root, "models/TPCM.1/overrides/TPCF.1@a.yaml", "field_id: TPCF.1\nentity_type: model\nentity_id: TPCM.1\nposition: 0\ncategory_id: TPC.CAT.1\npart_of_collection_id: TPCC.1\n")
+	write(t, root, "models/TPCM.1/placements/TPCC.1@TPC.CAT.1.yaml", "category_id: TPC.CAT.1\ncollection_id: TPCC.1\nis_hidden: false\nis_required: false\nmax_occurs: 1\nmin_occurs: 0\nmodel_id: TPCM.1\n")
+	return root
+}
+
+func TestVerify_PlacementClean(t *testing.T) {
+	rep, err := Verify(context.Background(), placementFixture(t), VerifyOptions{SkipOntology: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Findings) != 0 {
+		t.Fatalf("findings: %v", rep.Findings)
+	}
+}
+
+func TestVerify_PlacementFindings(t *testing.T) {
+	cases := []struct {
+		name string
+		file string
+		body string
+		want string
+	}{
+		{"orphan", "models/TPCM.1/placements/TPCC.9@TPC.CAT.1.yaml",
+			"category_id: TPC.CAT.1\ncollection_id: TPCC.9\nis_hidden: false\nis_required: false\nmax_occurs: null\nmin_occurs: 0\nmodel_id: TPCM.1\n", "placement-orphan"},
+		{"category", "models/TPCM.1/placements/TPCC.1@TPC.CAT.9.yaml",
+			"category_id: TPC.CAT.9\ncollection_id: TPCC.1\nis_hidden: false\nis_required: false\nmax_occurs: null\nmin_occurs: 0\nmodel_id: TPCM.1\n", "placement-category"},
+		{"range", "models/TPCM.1/placements/TPCC.1@TPC.CAT.1.yaml",
+			"category_id: TPC.CAT.1\ncollection_id: TPCC.1\nis_hidden: false\nis_required: true\nmax_occurs: 0\nmin_occurs: 1\nmodel_id: TPCM.1\n", "placement-range"},
+		{"overflow", "models/TPCM.1/placements/TPCC.1@TPC.CAT.1.yaml",
+			"category_id: TPC.CAT.1\ncollection_id: TPCC.1\nis_hidden: false\nis_required: false\nmax_occurs: 3000000000\nmin_occurs: 0\nmodel_id: TPCM.1\n", "placement-range"},
+		{"path", "models/TPCM.1/placements/TPCC.1@TPC.CAT.1.yaml",
+			"category_id: TPC.CAT.1\ncollection_id: TPCC.1\nis_hidden: false\nis_required: false\nmax_occurs: null\nmin_occurs: 0\nmodel_id: TPCM.2\n", "placement-path"},
+	}
+	for _, c := range cases {
+		root := placementFixture(t)
+		write(t, root, c.file, c.body)
+		rep, err := Verify(context.Background(), root, VerifyOptions{SkipOntology: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := codes(rep); len(got) != 1 || got[0] != c.want || rep.Findings[0].File != c.file {
+			t.Fatalf("%s: findings %v", c.name, rep.Findings)
+		}
+	}
+}
