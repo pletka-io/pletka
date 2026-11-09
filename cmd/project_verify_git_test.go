@@ -26,7 +26,14 @@ func TestVerifyGitCommand_JSONOnBrokenTree(t *testing.T) {
 	var rep struct {
 		Findings []struct{ Code string } `json:"findings"`
 	}
-	if jerr := json.Unmarshal(out.Bytes(), &rep); jerr != nil || len(rep.Findings) == 0 || rep.Findings[0].Code != "load" {
+	if jerr := json.Unmarshal(out.Bytes(), &rep); jerr != nil {
 		t.Fatalf("report: %s (%v)", out.String(), jerr)
+	}
+	hasLoad := false
+	for _, f := range rep.Findings {
+		hasLoad = hasLoad || f.Code == "load"
+	}
+	if !hasLoad {
+		t.Fatalf("want a load finding: %s", out.String())
 	}
 }

@@ -345,12 +345,12 @@ func TestVerify_ReviewFixPass(t *testing.T) {
 		mutate func(root string)
 		want   []string
 	}{
-		{"override without field_id falls back to the file name", func(r string) {
+		{"override without field_id: schema finding, the loader falls back to the file name", func(r string) {
 			write(t, r, "models/TPCM.1/overrides/TPCF.9@z.yaml", "entity_type: model\nentity_id: TPCM.1\n")
-		}, []string{"unresolved-field"}},
+		}, []string{"schema", "unresolved-field"}},
 		{"base override without field.yaml and without field_id", func(r string) {
 			write(t, r, "fields/TPCF.9/base-override.yaml", "entity_type: \"\"\n")
-		}, []string{"unresolved-field"}},
+		}, []string{"schema", "unresolved-field"}},
 		{"override entity_id disagrees with its directory", func(r string) {
 			write(t, r, "models/TPCM.1/overrides/TPCF.1@a.yaml", "field_id: TPCF.1\nentity_type: collection\nentity_id: TPCM.9\n")
 		}, []string{"override-location", "override-location"}},
@@ -483,4 +483,66 @@ func TestVerify_PlacementFindings(t *testing.T) {
 			t.Fatalf("%s: findings %v", c.name, rep.Findings)
 		}
 	}
+}
+
+func TestVerify_SchemaFindings(t *testing.T) {
+	root := verifyFixture(t)
+	write(t, root, "models/TPCM.1/overrides/TPCF.2@b.yaml", "field_id: TPCF.2\nentity_type: model\nentity_id: TPCM.1\nposition: 1\ncategory_id: TPC.CAT.1\nrefs:\n  - {ref_type: concept_list, semantic_id: TPC.CL.1, position: 0, color: red}\n")
+	write(t, root, "fields/TPCF.1/base-override.yaml", "field_id: TPCF.1\nentity_type: \"\"\ncategory_id: TPC.CAT.1\nmax_occurs: many\n")
+	write(t, root, "pletka.mod", "schema_version: 1\nmodule:\n  path: pletka.io/orgs/test/projects/TPC\n  project_id: TPC\nrequire:\n  ontologies:\n    - {module: ontology.pletka.io/base, version: \"1.0\"}\n  projects: []\nreplace: []\nextra: 1\n")
+	write(t, root, "categories/TPC.CAT.2.yaml", "semantic_id: [unclosed\n")
+
+	rep, err := Verify(context.Background(), root, VerifyOptions{SkipOntology: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int{}
+	for _, f := range rep.Findings {
+		got[f.File+" "+f.Code]++
+	}
+	want := map[string]int{
+		"models/TPCM.1/overrides/TPCF.2@b.yaml unknown-key": 1,
+		"fields/TPCF.1/base-override.yaml decode":           1, // once: schema, not again by the decoder
+		"pletka.mod unknown-key":                            1,
+		"categories/TPC.CAT.2.yaml decode":                  1,
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("findings (-want +got):\n%s\n%v", diff, rep.Findings)
+	}
+	for _, f := range rep.Findings {
+		if f.File == "models/TPCM.1/overrides/TPCF.2@b.yaml" && f.Line != 7 {
+			t.Errorf("unknown-key line = %d; want 7 (the refs item)", f.Line)
+		}
+	}
+}
+
+func TestVerify_SchemaVersionUnknown(t *testing.T) {
+	root := verifyFixture(t)
+	body, _ := os.ReadFile(filepath.Join(root, "project.yaml"))
+	write(t, root, "project.yaml", strings.Replace(string(body), "schema_version: 1", "schema_version: 9", 1))
+	rep, _ := Verify(context.Background(), root, VerifyOptions{SkipOntology: true})
+	if !hasCode(rep.Findings, "project.yaml", "schema-version") {
+		t.Errorf("want schema-version on project.yaml, got %v", rep.Findings)
+	}
+}
+
+func TestVerify_VendoredProjectValidatedFromItsOwnRoot(t *testing.T) {
+	root := verifyFixture(t)
+	parent := "vendor/projects/pletka.io/orgs/test/projects/PAR/"
+	write(t, root, parent+"project.yaml", "schema_version: 1\nproject: {id: PAR}\n")
+	write(t, root, parent+"pletka.mod", "schema_version: 1\nmodule: {path: pletka.io/orgs/test/projects/PAR, project_id: PAR}\nrequire: {projects: [], ontologies: []}\nreplace: []\n")
+	write(t, root, parent+"fields/PARF.1/field.yaml", "semantic_id: PARF.1\ncolor: red\n")
+	rep, _ := Verify(context.Background(), root, VerifyOptions{SkipOntology: true})
+	if !hasCode(rep.Findings, parent+"fields/PARF.1/field.yaml", "unknown-key") {
+		t.Errorf("want unknown-key in the vendored field, got %v", rep.Findings)
+	}
+}
+
+func hasCode(fs []Finding, file, code string) bool {
+	for _, f := range fs {
+		if f.File == file && f.Code == code {
+			return true
+		}
+	}
+	return false
 }
