@@ -335,6 +335,14 @@
         const data = await res.json().catch(() => null);
         if (data?.errors) {
           errors = data.errors;
+          // A refusal about something the form has no input for (for example a
+          // release blocked by its dependencies) has no field to show under;
+          // surface it as the form's message instead of dropping it.
+          const fieldNames = new Set(schema.sections.flatMap((section) => section.fields.map((field) => field.name)));
+          const unplaced = Object.entries(data.errors as Record<string, string[]>)
+            .filter(([key]) => !fieldNames.has(key))
+            .flatMap(([, messages]) => messages);
+          if (unplaced.length > 0) errorMessage = unplaced.join(' ');
         } else {
           errorMessage = data?.message || `Error: ${res.status}`;
         }
