@@ -27,7 +27,8 @@ func (v *verifyContext) checkSchemas() {
 			}
 			return nil
 		}
-		kind, ok := formatschema.KindForPath(moduleRel(v.root, p))
+		mrel := moduleRel(v.root, p)
+		kind, ok := formatschema.KindForPath(mrel)
 		if !ok {
 			return nil
 		}
@@ -39,16 +40,23 @@ func (v *verifyContext) checkSchemas() {
 		}
 		viols, err := val.Validate(kind, payload)
 		if err != nil {
-			v.schemaFailed[rel] = true
+			v.flagSchema(rel, mrel)
 			v.add(rel, 0, "decode", "%v", err)
 			return nil
 		}
 		for _, viol := range viols {
-			v.schemaFailed[rel] = true
+			v.flagSchema(rel, mrel)
 			v.add(rel, formatschema.Line(payload, viol.Pointer), schemaFindingCode(viol), "%s: %s", pointerLabel(viol.Pointer), viol.Message)
 		}
 		return nil
 	})
+}
+
+// flagSchema remembers a flagged file by its tree path and, for matching
+// loader errors (which name module-relative paths), by its module path.
+func (v *verifyContext) flagSchema(rel, mrel string) {
+	v.schemaFailed[rel] = true
+	v.schemaFailedModule[mrel] = true
 }
 
 func schemaFindingCode(viol formatschema.Violation) string {
@@ -72,16 +80,18 @@ func pointerLabel(pointer string) string {
 }
 
 // moduleRel is p relative to the nearest enclosing module root under root: a
-// directory holding project.yaml or ontology.yaml, or root itself.
+// directory holding project.yaml or ontology.yaml, or root itself. It walks
+// the segments of the root-relative path, so root may be "." or relative.
 func moduleRel(root, p string) string {
-	for d := filepath.Dir(p); d != root && strings.HasPrefix(d, root); d = filepath.Dir(d) {
+	rel, _ := filepath.Rel(root, p)
+	segs := strings.Split(filepath.ToSlash(rel), "/")
+	for i := len(segs) - 1; i > 0; i-- {
+		d := filepath.Join(root, filepath.FromSlash(strings.Join(segs[:i], "/")))
 		if isFile(filepath.Join(d, "project.yaml")) || isFile(filepath.Join(d, "ontology.yaml")) {
-			r, _ := filepath.Rel(d, p)
-			return filepath.ToSlash(r)
+			return strings.Join(segs[i:], "/")
 		}
 	}
-	r, _ := filepath.Rel(root, p)
-	return filepath.ToSlash(r)
+	return filepath.ToSlash(rel)
 }
 
 func isFile(p string) bool {

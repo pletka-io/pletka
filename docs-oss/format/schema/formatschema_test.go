@@ -68,6 +68,9 @@ func TestValidate(t *testing.T) {
 			[]Violation{{Pointer: "/schema_version", Keyword: "enum"}}},
 		{"v1 keys still valid", KindMod,
 			"schema_version: 1\nmodule: {path: pletka.io/orgs/example/projects/X, project_id: X}\nrequire:\n  projects: [{module: pletka.io/orgs/example/projects/P, project_id: P, mode: parent, version: draft}]\n  ontologies: [{module: ontology.pletka.io/crm, ontology_id: A, ontology_version_id: B, version: 7.1.3}]\nreplace: []\n", nil},
+		{"malformed path element: the real cause, not the other oneOf branch", KindField,
+			"semantic_id: XF.1\npath_elements: [{type: class, urii: x}]\n",
+			[]Violation{{Pointer: "/path_elements/0", Keyword: "required"}, {Pointer: "/path_elements/0/urii", Keyword: "additionalProperties"}}},
 		{"empty file", KindCategory, "",
 			[]Violation{{Pointer: "", Keyword: "type"}}},
 	}

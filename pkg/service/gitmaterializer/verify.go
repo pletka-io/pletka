@@ -58,7 +58,9 @@ type verifyContext struct {
 	collections  map[string]bool
 	conceptLists map[string]bool
 	schemaFailed map[string]bool // tree-relative paths the schema pass flagged
-	findings     []Finding
+	// module-relative paths of the same files, as loader errors name them
+	schemaFailedModule map[string]bool
+	findings           []Finding
 }
 
 func (v *verifyContext) add(file string, line int, code, format string, args ...any) {
@@ -76,8 +78,8 @@ func Verify(ctx context.Context, rootDir string, opts VerifyOptions) (*VerifyRep
 		parents:      map[string]*ProjectSnapshot{},
 		declared:     map[string]bool{},
 		receipts:     map[string]bool{},
-		schemaFailed: map[string]bool{},
-		fields:       map[string]bool{}, categories: map[string]bool{}, collections: map[string]bool{}, conceptLists: map[string]bool{},
+		schemaFailed: map[string]bool{}, schemaFailedModule: map[string]bool{},
+		fields: map[string]bool{}, categories: map[string]bool{}, collections: map[string]bool{}, conceptLists: map[string]bool{},
 	}
 	v.checkSchemas()
 	snap, err := LoadProjectSnapshot(rootDir)
@@ -120,10 +122,14 @@ func (v *verifyContext) report(projectID string) *VerifyReport {
 	return &VerifyReport{ProjectID: projectID, Findings: v.sorted()}
 }
 
-// schemaReported reports whether err names a file the schema pass flagged.
+// schemaReported reports whether err is the loader refusing a file the schema
+// pass flagged: decodeTreeFile names it "<module path>:<line>: " or
+// "<module path>: yaml: ".
 func (v *verifyContext) schemaReported(err error) bool {
-	for rel := range v.schemaFailed {
-		if strings.Contains(err.Error(), rel) {
+	msg := err.Error()
+	for rel := range v.schemaFailedModule {
+		re := regexp.MustCompile(`(^|[ /])` + regexp.QuoteMeta(rel) + `(:\d+: |: yaml: )`)
+		if re.MatchString(msg) {
 			return true
 		}
 	}

@@ -546,3 +546,47 @@ func hasCode(fs []Finding, file, code string) bool {
 	}
 	return false
 }
+
+// TestVerify_VendoredCheckedFromRelativeRoot pins that `verify-git .`, as CI
+// runs it, still classifies vendored files from their own module root.
+func TestVerify_VendoredCheckedFromRelativeRoot(t *testing.T) {
+	root := verifyFixture(t)
+	parent := "vendor/projects/pletka.io/orgs/test/projects/PAR/"
+	write(t, root, parent+"project.yaml", "schema_version: 1\nproject: {id: PAR}\n")
+	write(t, root, parent+"fields/PARF.1/field.yaml", "semantic_id: PARF.1\ncolor: red\n")
+	t.Chdir(root)
+	rep, err := Verify(context.Background(), ".", VerifyOptions{SkipOntology: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasCode(rep.Findings, parent+"fields/PARF.1/field.yaml", "unknown-key") {
+		t.Errorf("want unknown-key in the vendored field, got %v", rep.Findings)
+	}
+}
+
+// TestVerify_VendoredManifestOneFinding pins one finding for a vendored
+// manifest that breaks the schema: no second load finding on the root.
+func TestVerify_VendoredManifestOneFinding(t *testing.T) {
+	root := verifyFixture(t)
+	parent := "vendor/projects/pletka.io/orgs/test/projects/PAR/"
+	write(t, root, parent+"project.yaml", "schema_version: 1\nproject: {id: PAR}\ncolor: red\n")
+	write(t, root, parent+"pletka.mod", "schema_version: 1\nmodule: {path: pletka.io/orgs/test/projects/PAR, project_id: PAR}\nrequire: {projects: [], ontologies: []}\nreplace: []\n")
+	rep, _ := Verify(context.Background(), root, VerifyOptions{SkipOntology: true})
+	if hasCode(rep.Findings, "project.yaml", "load") {
+		t.Errorf("load finding repeats the schema finding: %v", rep.Findings)
+	}
+	if !hasCode(rep.Findings, parent+"project.yaml", "unknown-key") {
+		t.Errorf("want unknown-key on the vendored manifest, got %v", rep.Findings)
+	}
+}
+
+// TestVerify_MalformedSemanticIDOneFinding pins that a semantic id the
+// schema pattern rejects is not reported again by the structure check.
+func TestVerify_MalformedSemanticIDOneFinding(t *testing.T) {
+	root := verifyFixture(t)
+	write(t, root, "models/TPCM.1/model.yaml", "semantic_id: tpcm-1\nsystem_name: person\nui_name: {en: Person}\nontology_scope: base:Person\nstatus: draft\n")
+	rep, _ := Verify(context.Background(), root, VerifyOptions{SkipOntology: true})
+	if diff := cmp.Diff([]string{"schema"}, codes(rep)); diff != "" {
+		t.Errorf("codes (-want +got):\n%s\n%v", diff, rep.Findings)
+	}
+}

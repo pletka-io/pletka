@@ -694,23 +694,54 @@ func readOptionalTreeFile[T any](root, rel string) (*T, error) {
 // because the schema has already closed every map.
 func decodeTreeFile[T any](rel string, payload []byte) (T, error) {
 	var zero T
+	if err := checkTreeFile(rel, payload); err != nil {
+		return zero, err
+	}
+	return decodeCanonicalYAML[T](payload)
+}
+
+// checkTreeFile checks payload against the format schema for rel.
+func checkTreeFile(rel string, payload []byte) error {
 	kind, ok := formatschema.KindForPath(rel)
 	if !ok {
-		return zero, fmt.Errorf("%s: not a format file", rel)
+		return fmt.Errorf("%s: not a format file", rel)
 	}
 	viols, err := formatschema.Default().Validate(kind, payload)
 	if err != nil {
-		return zero, fmt.Errorf("%s: %w", rel, err)
+		return fmt.Errorf("%s: %w", rel, err)
 	}
-	if len(viols) > 0 {
-		first := viols[0]
-		more := ""
-		if len(viols) > 1 {
-			more = fmt.Sprintf(" (and %d more)", len(viols)-1)
+	if len(viols) == 0 {
+		return nil
+	}
+	first := viols[0]
+	more := ""
+	if len(viols) > 1 {
+		more = fmt.Sprintf(" (and %d more)", len(viols)-1)
+	}
+	return fmt.Errorf("%s:%d: %s: %s%s", rel, formatschema.Line(payload, first.Pointer), strings.TrimPrefix(first.Pointer, "/"), first.Message, more)
+}
+
+// checkEntityFiles checks every entity and override file of the snapshot and
+// of its vendored projects against the format schemas, so a restore refuses a
+// bad tree before it writes anything.
+func (s *ProjectSnapshot) checkEntityFiles() error {
+	e := s.Entities
+	for _, group := range [][]SnapshotEntityFile{e.Categories, e.ConceptLists, e.Fields, e.Models, e.Collections, e.BaseOverrides, e.ModelOverrides, e.CollectionOverrides} {
+		for _, item := range group {
+			if err := checkTreeFile(item.Path, item.Payload); err != nil {
+				return err
+			}
 		}
-		return zero, fmt.Errorf("%s:%d: %s: %s%s", rel, formatschema.Line(payload, first.Pointer), strings.TrimPrefix(first.Pointer, "/"), first.Message, more)
 	}
-	return decodeCanonicalYAML[T](payload)
+	for _, vp := range s.Vendor.Projects {
+		if vp.Snapshot == nil {
+			continue
+		}
+		if err := vp.Snapshot.checkEntityFiles(); err != nil {
+			return fmt.Errorf("vendored project %s: %w", vp.Module, err)
+		}
+	}
+	return nil
 }
 
 func decodeCanonicalYAML[T any](payload []byte) (T, error) {

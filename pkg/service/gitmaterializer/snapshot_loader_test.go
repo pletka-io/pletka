@@ -748,3 +748,15 @@ func TestDecodeTreeFile_AcceptsWriterOnlyAndV1Keys(t *testing.T) {
 		t.Fatalf("got %v, %v", doc, err)
 	}
 }
+
+// TestPrepareRestorePlan_RejectsBadEntityFile pins that a restore checks
+// every entity file before it writes anything: a bad override must not
+// surface only after categories, fields and models are committed.
+func TestPrepareRestorePlan_RejectsBadEntityFile(t *testing.T) {
+	root := verifyFixture(t)
+	write(t, root, "models/TPCM.1/overrides/TPCF.1@a.yaml", "field_id: TPCF.1\nentity_type: model\nentity_id: TPCM.1\ncolor: red\n")
+	_, err := PrepareRestorePlan(root, "")
+	if err == nil || !strings.Contains(err.Error(), "models/TPCM.1/overrides/TPCF.1@a.yaml:4: ") {
+		t.Fatalf("want an error naming the override and line, got %v", err)
+	}
+}

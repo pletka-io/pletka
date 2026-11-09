@@ -56,6 +56,9 @@ func PreviewRestoreSnapshot(rootDir string) (*RestorePreview, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := snapshot.checkEntityFiles(); err != nil {
+		return nil, err
+	}
 	return BuildRestorePreview(snapshot, BuildRestorePlan(snapshot)), nil
 }
 

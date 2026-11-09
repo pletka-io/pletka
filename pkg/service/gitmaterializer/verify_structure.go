@@ -161,11 +161,14 @@ func (v *verifyContext) checkSemanticID(item SnapshotEntityFile, adoptedFrom, id
 		return
 	}
 	line := yamlKeyLine(item.Payload, "semantic_id")
+	parsed := domain.ParseSemanticID(id)
+	if (id == "" || !parsed.Valid()) && v.schemaFailed[item.Path] {
+		return // the schema pass reported the missing or malformed id
+	}
 	if id == "" {
 		v.add(item.Path, line, "semantic-id", "semantic_id is required")
 		return
 	}
-	parsed := domain.ParseSemanticID(id)
 	project := v.snap.Manifest.Project.ID
 	switch {
 	case !parsed.Valid():

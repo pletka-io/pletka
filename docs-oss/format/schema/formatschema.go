@@ -199,7 +199,7 @@ func (v *Validator) Validate(fileKind string, payload []byte) ([]Violation, erro
 // an additionalProperties leaf becomes one violation per extra key.
 func collect(e *jsonschema.ValidationError, out *[]Violation, seen map[string]bool) {
 	if len(e.Causes) > 0 {
-		for _, c := range e.Causes {
+		for _, c := range branchCauses(e) {
 			collect(c, out, seen)
 		}
 		return
@@ -228,6 +228,36 @@ func collect(e *jsonschema.ValidationError, out *[]Violation, seen map[string]bo
 	}
 	seen[pointer] = true
 	*out = append(*out, Violation{Pointer: pointer, Keyword: keyword, Message: e.ErrorKind.LocalizedString(printer)})
+}
+
+// branchCauses drops, for a oneOf/anyOf, the branches that failed only on
+// the value's type: a path step given as a map is not reported as "want
+// string" when the map branch says what is actually wrong.
+func branchCauses(e *jsonschema.ValidationError) []*jsonschema.ValidationError {
+	switch e.ErrorKind.(type) {
+	case *kind.OneOf, *kind.AnyOf:
+	default:
+		return e.Causes
+	}
+	var kept []*jsonschema.ValidationError
+	for _, c := range e.Causes {
+		if !typeMiss(c) {
+			kept = append(kept, c)
+		}
+	}
+	if len(kept) == 0 {
+		return e.Causes
+	}
+	return kept
+}
+
+// typeMiss reports whether e fails only because the value has another type.
+func typeMiss(e *jsonschema.ValidationError) bool {
+	for len(e.Causes) == 1 {
+		e = e.Causes[0]
+	}
+	_, ok := e.ErrorKind.(*kind.Type)
+	return ok && len(e.Causes) == 0
 }
 
 // Line is the 1-based line of the node pointer names in payload, or of its
