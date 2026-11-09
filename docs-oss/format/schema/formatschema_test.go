@@ -52,11 +52,11 @@ func TestValidate(t *testing.T) {
 		{"valid field, compact path", KindField,
 			"semantic_id: XF.1\nontology_scope: crm:E21_Person\npath_elements: [crm:P1_is_identified_by, crm:E41_Appellation]\nontology_path: ->crm:P1\n", nil},
 		{"unknown top-level key", KindField,
-			"semantic_id: XF.1\ncolour: red\n",
-			[]Violation{{Pointer: "/colour", Keyword: "additionalProperties"}}},
+			"semantic_id: XF.1\ncolor: red\n",
+			[]Violation{{Pointer: "/color", Keyword: "additionalProperties"}}},
 		{"unknown nested key in a ref", KindOverride,
-			"field_id: XF.1\nrefs:\n  - {ref_type: concept_list, semantic_id: X.CL.1, colour: red}\n",
-			[]Violation{{Pointer: "/refs/0/colour", Keyword: "additionalProperties"}}},
+			"field_id: XF.1\nrefs:\n  - {ref_type: concept_list, semantic_id: X.CL.1, color: red}\n",
+			[]Violation{{Pointer: "/refs/0/color", Keyword: "additionalProperties"}}},
 		{"semantic id numbered 0", KindModel,
 			"semantic_id: XM.0\n",
 			[]Violation{{Pointer: "/semantic_id", Keyword: "pattern"}}},
@@ -95,8 +95,8 @@ func TestValidateSyntaxError(t *testing.T) {
 }
 
 func TestLine(t *testing.T) {
-	payload := []byte("field_id: XF.1\nrefs:\n  - ref_type: concept_list\n    semantic_id: X.CL.1\n    colour: red\n")
-	for pointer, want := range map[string]int{"": 1, "/field_id": 1, "/refs/0/colour": 5, "/refs/0": 3, "/missing": 1} {
+	payload := []byte("field_id: XF.1\nrefs:\n  - ref_type: concept_list\n    semantic_id: X.CL.1\n    color: red\n")
+	for pointer, want := range map[string]int{"": 1, "/field_id": 1, "/refs/0/color": 5, "/refs/0": 3, "/missing": 1} {
 		if got := Line(payload, pointer); got != want {
 			t.Errorf("Line(%q) = %d; want %d", pointer, got, want)
 		}

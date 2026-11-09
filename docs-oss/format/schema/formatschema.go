@@ -47,40 +47,52 @@ var allKinds = []string{
 	KindOverride, KindReceiptsIndex, KindAdoptionReceipt, KindForkReceipt, KindOntology, KindReleasesIndex,
 }
 
+// Kinds by the whole path, by the first directory (two segments), and by
+// first directory plus file name (three segments).
+var (
+	pathKinds = map[string]string{
+		"project.yaml":         KindProject,
+		"pletka.mod":           KindMod,
+		"ontology.yaml":        KindOntology,
+		"releases/index.yaml":  KindReleasesIndex,
+		"adoptions/index.yaml": KindReceiptsIndex,
+		"forks/index.yaml":     KindReceiptsIndex,
+	}
+	dirKinds = map[string]string{
+		"adoptions":     KindAdoptionReceipt,
+		"forks":         KindForkReceipt,
+		"categories":    KindCategory,
+		"concept-lists": KindConceptList,
+	}
+	entityFileKinds = map[string]string{
+		"fields/field.yaml":           KindField,
+		"fields/base-override.yaml":   KindOverride,
+		"models/model.yaml":           KindModel,
+		"collections/collection.yaml": KindCollection,
+	}
+)
+
 // KindForPath returns the file kind of rel, a slash-separated path relative
 // to a module root, or false when rel is not a format file.
 func KindForPath(rel string) (string, bool) {
+	if k, ok := pathKinds[rel]; ok {
+		return k, true
+	}
+	if !strings.HasSuffix(rel, ".yaml") {
+		return "", false
+	}
 	p := strings.Split(rel, "/")
-	yamlFile := strings.HasSuffix(rel, ".yaml")
-	switch {
-	case rel == "project.yaml":
-		return KindProject, true
-	case rel == "pletka.mod":
-		return KindMod, true
-	case rel == "ontology.yaml":
-		return KindOntology, true
-	case rel == "releases/index.yaml":
-		return KindReleasesIndex, true
-	case len(p) == 2 && (p[0] == "adoptions" || p[0] == "forks") && p[1] == "index.yaml":
-		return KindReceiptsIndex, true
-	case len(p) == 2 && p[0] == "adoptions" && yamlFile:
-		return KindAdoptionReceipt, true
-	case len(p) == 2 && p[0] == "forks" && yamlFile:
-		return KindForkReceipt, true
-	case len(p) == 2 && p[0] == "categories" && yamlFile:
-		return KindCategory, true
-	case len(p) == 2 && p[0] == "concept-lists" && yamlFile:
-		return KindConceptList, true
-	case len(p) == 3 && p[0] == "fields" && p[2] == "field.yaml":
-		return KindField, true
-	case len(p) == 3 && p[0] == "fields" && p[2] == "base-override.yaml":
-		return KindOverride, true
-	case len(p) == 3 && p[0] == "models" && p[2] == "model.yaml":
-		return KindModel, true
-	case len(p) == 3 && p[0] == "collections" && p[2] == "collection.yaml":
-		return KindCollection, true
-	case len(p) == 4 && (p[0] == "models" || p[0] == "collections") && p[2] == "overrides" && yamlFile:
-		return KindOverride, true
+	switch len(p) {
+	case 2:
+		k, ok := dirKinds[p[0]]
+		return k, ok
+	case 3:
+		k, ok := entityFileKinds[p[0]+"/"+p[2]]
+		return k, ok
+	case 4:
+		if (p[0] == "models" || p[0] == "collections") && p[2] == "overrides" {
+			return KindOverride, true
+		}
 	}
 	return "", false
 }
