@@ -61,7 +61,7 @@ func TestRestoreVendoredOntologyCompanions(t *testing.T) {
 
 	const (
 		ownerID      = "CMP_RESTORE_OWNER"
-		projectID    = "CMP_RESTORE_PROJECT"
+		projectID    = "CMPRESTOREPROJECT"
 		ontologySlug = "pletka-cmp-restore"
 		namespace    = "https://example.org/cmp-restore/"
 	)

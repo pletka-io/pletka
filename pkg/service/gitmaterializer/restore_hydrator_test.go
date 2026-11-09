@@ -334,7 +334,7 @@ func TestHydrateProjectSnapshot(t *testing.T) {
 
 	ownerID := "RESTORE_SNAPSHOT_OWNER"
 	creatorID := "RESTORE_SNAPSHOT_CREATOR"
-	projectID := "RESTORE_SNAPSHOT_CHILD"
+	projectID := "RESTORESNAPSHOTCHILD"
 	root := t.TempDir()
 
 	t.Cleanup(func() {
@@ -406,7 +406,7 @@ func TestHydrateProjectSnapshot(t *testing.T) {
 	modPayload, err := encodePletkaModManifest(pletkaModManifest{
 		SchemaVersion: 1,
 		Module: pletkaModModule{
-			Path:      "pletka.io/orgs/restore-snapshot-org/projects/RESTORE_SNAPSHOT_CHILD",
+			Path:      "pletka.io/orgs/restore-snapshot-org/projects/RESTORESNAPSHOTCHILD",
 			ProjectID: projectID,
 		},
 		Require: pletkaModRequire{
@@ -553,10 +553,10 @@ func TestHydrateProjectEntities(t *testing.T) {
 			Description: domain.Translations{"en": "Primary name"},
 			Status:      "published",
 		},
-		OntologyScope: domain.PathElement{Prefix: "crm", LocalName: "E21_Person"},
+		OntologyScope: domain.PathElement{Type: "class", Prefix: "crm", LocalName: "E21_Person"},
 		PathElements: []domain.PathElement{
-			{Prefix: "crm", LocalName: "P1_is_identified_by", Position: 0},
-			{Prefix: "rdfs", LocalName: "Literal", Position: 1},
+			{Type: "property", Prefix: "crm", LocalName: "P1_is_identified_by", Position: 0},
+			{Type: "literal", Prefix: "rdfs", LocalName: "Literal", Position: 1},
 		},
 		ExpectedValueType: "text",
 	})
@@ -571,7 +571,7 @@ func TestHydrateProjectEntities(t *testing.T) {
 			Description: domain.Translations{"en": "Person model"},
 			Status:      "published",
 		},
-		OntologyScope: domain.PathElement{Prefix: "crm", LocalName: "E21_Person"},
+		OntologyScope: domain.PathElement{Type: "class", Prefix: "crm", LocalName: "E21_Person"},
 	})
 	if err != nil {
 		t.Fatalf("encode model: %v", err)
@@ -585,7 +585,7 @@ func TestHydrateProjectEntities(t *testing.T) {
 			Status:      "draft",
 			Deprecated:  true,
 		},
-		OntologyScope:            domain.PathElement{Prefix: "crm", LocalName: "E67_Birth"},
+		OntologyScope:            domain.PathElement{Type: "class", Prefix: "crm", LocalName: "E67_Birth"},
 		CollectionNumber:         3,
 		CanonicalCollectionOrder: 4,
 	})
@@ -600,7 +600,7 @@ func TestHydrateProjectEntities(t *testing.T) {
 			Description: domain.Translations{"en": "Upstream"},
 			Status:      "published",
 		},
-		OntologyScope: domain.PathElement{Prefix: "crm", LocalName: "E21_Person"},
+		OntologyScope: domain.PathElement{Type: "class", Prefix: "crm", LocalName: "E21_Person"},
 	})
 	if err != nil {
 		t.Fatalf("encode adopted model: %v", err)

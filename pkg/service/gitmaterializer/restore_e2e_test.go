@@ -65,7 +65,7 @@ func TestRestoreIntoEmptyDB(t *testing.T) {
 
 	const (
 		ownerID      = "E2E_RESTORE_OWNER"
-		projectID    = "E2E_RESTORE_PROJECT"
+		projectID    = "E2ERESTOREPROJECT"
 		ontologySlug = "pletka-e2e-restore"
 		namespace    = "https://example.org/e2e-restore/"
 	)

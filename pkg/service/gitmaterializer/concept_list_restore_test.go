@@ -40,7 +40,7 @@ func conceptListFixture(t *testing.T, projectID, ownerID string) string {
 		"field_id: "+fieldID+"\nentity_type: \"\"\nentity_id: \"\"\nposition: 0\ncollection_order: 0\ndisplay_name:\n  en: Name\ndescription: {}\ncollection_name: {}\ncategory_id: \"\"\npart_of_collection_id: \"\"\nset_value: \"\"\nis_required: false\nmin_occurs: 0\nmax_occurs: null\nis_hidden: false\nvisibility: \"\"\nrefs: []\n"))
 	listID := projectID + ".CL.1"
 	mustWrite(t, root, domain.FilePath(domain.PathSpec{EntityType: "concept_list", EntityID: listID}), []byte(
-		"deprecated: false\ndescription: {}\nis_closed: true\nsemantic_id: "+listID+"\nstatus: draft\nsystem_name: license\nui_name:\n  en: License\n"))
+		"description: {}\nis_closed: true\nsemantic_id: "+listID+"\nstatus: draft\nsystem_name: license\nui_name:\n  en: License\n"))
 	return root
 }
 
