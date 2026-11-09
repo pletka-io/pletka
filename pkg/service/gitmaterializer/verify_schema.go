@@ -75,7 +75,7 @@ func pointerLabel(pointer string) string {
 // directory holding project.yaml or ontology.yaml, or root itself.
 func moduleRel(root, p string) string {
 	for d := filepath.Dir(p); d != root && strings.HasPrefix(d, root); d = filepath.Dir(d) {
-		if fileExists(filepath.Join(d, "project.yaml")) || fileExists(filepath.Join(d, "ontology.yaml")) {
+		if isFile(filepath.Join(d, "project.yaml")) || isFile(filepath.Join(d, "ontology.yaml")) {
 			r, _ := filepath.Rel(d, p)
 			return filepath.ToSlash(r)
 		}
@@ -84,7 +84,7 @@ func moduleRel(root, p string) string {
 	return filepath.ToSlash(r)
 }
 
-func fileExists(p string) bool {
+func isFile(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
 }
