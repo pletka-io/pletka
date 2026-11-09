@@ -129,7 +129,7 @@ func (m *Materializer) HydrateProjectEntities(ctx context.Context, plan *Restore
 }
 
 func hydrateCategoryFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile) error {
-	doc, err := decodeCanonicalYAML[canonicalCategoryDoc](item.Payload)
+	doc, err := decodeTreeFile[canonicalCategoryDoc](item.Path, item.Payload)
 	if err != nil {
 		return fmt.Errorf("hydrate category %s: decode payload: %w", item.Path, err)
 	}
@@ -198,7 +198,7 @@ type canonicalConceptListDoc struct {
 // The row id is the semantic id, the convention the vocabulary slice uses.
 // Entries and broader edges are not in the tree and are left untouched.
 func hydrateConceptListFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile) error {
-	doc, err := decodeCanonicalYAML[canonicalConceptListDoc](item.Payload)
+	doc, err := decodeTreeFile[canonicalConceptListDoc](item.Path, item.Payload)
 	if err != nil {
 		return fmt.Errorf("hydrate concept list %s: decode payload: %w", item.Path, err)
 	}
@@ -286,7 +286,7 @@ func ontologyPrefixLookup(ctx context.Context, q *sqlcgen.Queries) func(prefix s
 }
 
 func hydrateFieldFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile, expand prefixExpander) error {
-	doc, err := decodeCanonicalYAML[canonicalFieldDoc](item.Payload)
+	doc, err := decodeTreeFile[canonicalFieldDoc](item.Path, item.Payload)
 	if err != nil {
 		return fmt.Errorf("hydrate field %s: decode payload: %w", item.Path, err)
 	}
@@ -371,7 +371,7 @@ func hydrateFieldFile(ctx context.Context, q *sqlcgen.Queries, projectID string,
 }
 
 func hydrateModelFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile, expand prefixExpander) error {
-	doc, err := decodeCanonicalYAML[canonicalModelDoc](item.Payload)
+	doc, err := decodeTreeFile[canonicalModelDoc](item.Path, item.Payload)
 	if err != nil {
 		return fmt.Errorf("hydrate model %s: decode payload: %w", item.Path, err)
 	}
@@ -432,7 +432,7 @@ func hydrateModelFile(ctx context.Context, q *sqlcgen.Queries, projectID string,
 }
 
 func hydrateCollectionFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile, expand prefixExpander) error {
-	doc, err := decodeCanonicalYAML[canonicalCollectionDoc](item.Payload)
+	doc, err := decodeTreeFile[canonicalCollectionDoc](item.Path, item.Payload)
 	if err != nil {
 		return fmt.Errorf("hydrate collection %s: decode payload: %w", item.Path, err)
 	}

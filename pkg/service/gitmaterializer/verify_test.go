@@ -368,7 +368,7 @@ func TestVerify_ReviewFixPass(t *testing.T) {
 		}, []string{"scope-missing"}},
 		{"project.yaml typo in a nested key", func(r string) {
 			write(t, r, "project.yaml", "schema_version: 1\nproject:\n  id: TPC\n  system_name: test_project\n  title: {en: Test}\nnamespaces:\n  effective_bindings:\n    - {prefix: base, namespace: https://example.org/base/, source: ontology}\nontologies:\n  linked_version:\n    - {prefix: base, version: \"1.0\"}\nmanifests:\n  adoptions: adoptions/index.yaml\n")
-		}, []string{"ontology-none", "unknown-key"}},
+		}, []string{"unknown-key"}}, // the loader refuses the file, so no ontology check runs
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

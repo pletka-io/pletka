@@ -28,7 +28,7 @@ func conceptListFixture(t *testing.T, projectID, ownerID string) string {
 		t.Fatal(err)
 	}
 	mustWrite(t, root, "project.yaml", manifest)
-	mod, err := encodePletkaModManifest(pletkaModManifest{SchemaVersion: 1, Module: pletkaModModule{Path: "pletka.io/orgs/cl-org/projects/" + projectID, ProjectID: projectID}, Replace: []map[string]any{}})
+	mod, err := encodePletkaModManifest(pletkaModManifest{SchemaVersion: 1, Module: pletkaModModule{Path: "pletka.io/orgs/cl-org/projects/" + projectID, ProjectID: projectID}, Require: pletkaModRequire{Projects: []pletkaProjectRequirement{}, Ontologies: []pletkaOntologyRequirement{}}, Replace: []map[string]any{}})
 	if err != nil {
 		t.Fatal(err)
 	}
