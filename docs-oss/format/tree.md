@@ -325,5 +325,5 @@ Every manifest (`project.yaml`, `pletka.mod`, receipts, indexes,
 - `2` — this specification: strict keys, mod-only dependency versions,
   sum-only hashes, `@`-style vendor layout.
 
-A reader MUST reject a `schema_version` it does not know. **[not built]**
+A reader MUST reject a `schema_version` it does not know.
 Today nothing reads it.

@@ -17,8 +17,8 @@ Legend: **done** — as specified; **partial** — exists, differs as noted;
 | `source_mode`/`source_version` removed from `project.yaml` | none | still written and cross-checked against `pletka.mod` (`snapshot_loader.go` `validateParentDependencySelectors`) |
 | `source.version` removed from receipts | none | written from the database |
 | Database ids optional in output | partial | written beside prefixes; `ontology_version_id` also inside path elements |
-| Strict decoding | none | decode goes YAML → `any` → JSON, unknown keys dropped (`snapshot_loader.go` `decodeCanonicalYAML`) |
-| `schema_version` checked | none | written as `1`, never read |
+| Strict decoding | done | every file is checked against its JSON Schema before decoding (`snapshot_loader.go` `decodeTreeFile`); verify-git reports at any depth |
+| `schema_version` checked | done | the schemas accept 1 and 2 |
 | Canonical encoder | done | `pkg/weave/canonical/yaml.go` |
 | `path_elements[].uri` as full IRI | partial | writer emits qnames as `uri`; the IRI form is a pending normalisation |
 
@@ -77,7 +77,9 @@ Known defects:
 The schemas were run (2026-11-08) against every available materialized tree:
 132,493 files across 130 trees (project, `pletka.mod`, receipts, entities,
 overrides, vendored `ontology.yaml`). Everything validates except three
-data defects, which the schemas correctly reject:
+data defects, which the schemas correctly reject. Since strict validation
+is built, a tree holding one fails `verify-git` and `load-git` until the
+data is repaired:
 
 | Defect | Files |
 |---|---|
