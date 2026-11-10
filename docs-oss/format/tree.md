@@ -52,7 +52,7 @@ semantic-id   = entity-id / grouping-id
 entity-id     = project-id ( "F" / "M" / "C" ) "." number [ "_" system-name ]
 grouping-id   = project-id "." ( "CAT" / "CL" ) "." number [ "_" system-name ]
 project-id    = 1*( ALPHA / DIGIT )          ; upper-case by convention, e.g. X, LA
-number        = %x31-39 *DIGIT               ; > 0
+number        = "0" / %x31-39 *DIGIT         ; no leading zeros
 ```
 
 Examples: `XF.1`, `XM.2`, `XC.3`, `X.CAT.4`, `X.CL.5`.
