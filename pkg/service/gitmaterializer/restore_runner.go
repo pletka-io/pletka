@@ -108,6 +108,9 @@ func PrepareRestorePlan(rootDir, targetProjectID string) (*RestorePlan, error) {
 		}
 		return nil, fmt.Errorf("load snapshot for %s: %w", targetProjectID, err)
 	}
+	if err := snapshot.checkEntityFiles(); err != nil {
+		return nil, fmt.Errorf("load snapshot: %w", err)
+	}
 	if strings.TrimSpace(targetProjectID) != "" {
 		snapshot, err = retargetProjectSnapshot(snapshot, targetProjectID)
 		if err != nil {

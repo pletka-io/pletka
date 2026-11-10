@@ -6,12 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"sort"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // Finding is one thing verify-git found wrong with a tree.
@@ -60,7 +57,10 @@ type verifyContext struct {
 	categories   map[string]bool
 	collections  map[string]bool
 	conceptLists map[string]bool
-	findings     []Finding
+	schemaFailed map[string]bool // tree-relative paths the schema pass flagged
+	// module-relative paths of the same files, as loader errors name them
+	schemaFailedModule map[string]bool
+	findings           []Finding
 }
 
 func (v *verifyContext) add(file string, line int, code, format string, args ...any) {
@@ -74,20 +74,25 @@ func Verify(ctx context.Context, rootDir string, opts VerifyOptions) (*VerifyRep
 		return nil, fmt.Errorf("verify-git: %s is not a directory", rootDir)
 	}
 	v := &verifyContext{
-		root:     rootDir,
-		parents:  map[string]*ProjectSnapshot{},
-		declared: map[string]bool{},
-		receipts: map[string]bool{},
-		fields:   map[string]bool{}, categories: map[string]bool{}, collections: map[string]bool{}, conceptLists: map[string]bool{},
+		root:         rootDir,
+		parents:      map[string]*ProjectSnapshot{},
+		declared:     map[string]bool{},
+		receipts:     map[string]bool{},
+		schemaFailed: map[string]bool{}, schemaFailedModule: map[string]bool{},
+		fields: map[string]bool{}, categories: map[string]bool{}, collections: map[string]bool{}, conceptLists: map[string]bool{},
 	}
+	v.checkSchemas()
 	snap, err := LoadProjectSnapshot(rootDir)
 	if err != nil {
-		v.add(loadErrorFile(err), 0, "load", "%v", err)
+		// A loader error about a file the schema pass flagged says nothing
+		// new; those findings already say why, with file and line.
+		if !v.schemaReported(err) {
+			v.add(loadErrorFile(err), 0, "load", "%v", err)
+		}
 		return v.report(""), nil
 	}
 	v.snap = snap
 	v.loadParents(opts.ParentDirs)
-	v.checkProjectManifestKeys()
 	v.checkVendorChecksums()
 	v.checkUnknownFiles()
 	v.collectIdentities()
@@ -115,6 +120,20 @@ func (v *verifyContext) sorted() []Finding {
 
 func (v *verifyContext) report(projectID string) *VerifyReport {
 	return &VerifyReport{ProjectID: projectID, Findings: v.sorted()}
+}
+
+// schemaReported reports whether err is the loader refusing a file the schema
+// pass flagged: decodeTreeFile names it "<module path>:<line>: " or
+// "<module path>: yaml: ".
+func (v *verifyContext) schemaReported(err error) bool {
+	msg := err.Error()
+	for rel := range v.schemaFailedModule {
+		re := regexp.MustCompile(`(^|[ /])` + regexp.QuoteMeta(rel) + `(:\d+: |: yaml: )`)
+		if re.MatchString(msg) {
+			return true
+		}
+	}
+	return false
 }
 
 // loadErrorFile pulls the relative path out of a loader error when it names
@@ -145,47 +164,4 @@ func yamlKeyLine(payload []byte, key string) int {
 		return 0
 	}
 	return bytes.Count(payload[:loc[0]], []byte("\n")) + 1
-}
-
-// yamlNestedKeyLine is the 1-based line of the first "key:" at any indent.
-func yamlNestedKeyLine(payload []byte, key string) int {
-	re := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(key) + `\s*:`)
-	loc := re.FindIndex(payload)
-	if loc == nil {
-		return 0
-	}
-	return bytes.Count(payload[:loc[0]], []byte("\n")) + 1
-}
-
-// topLevelKeys lists the keys of a YAML mapping document in order.
-func topLevelKeys(payload []byte) ([]string, error) {
-	var doc yaml.Node
-	if err := yaml.Unmarshal(payload, &doc); err != nil {
-		return nil, err
-	}
-	if len(doc.Content) == 0 {
-		return nil, nil
-	}
-	if doc.Content[0].Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("not a mapping")
-	}
-	m := doc.Content[0]
-	keys := make([]string, 0, len(m.Content)/2)
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		keys = append(keys, m.Content[i].Value)
-	}
-	return keys, nil
-}
-
-// jsonTagNames is the set of json tag names of v's struct fields.
-func jsonTagNames(v any) map[string]bool {
-	out := map[string]bool{}
-	t := reflect.TypeOf(v)
-	for i := 0; i < t.NumField(); i++ {
-		tag := strings.Split(t.Field(i).Tag.Get("json"), ",")[0]
-		if tag != "" && tag != "-" {
-			out[tag] = true
-		}
-	}
-	return out
 }

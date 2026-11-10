@@ -8,14 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/pletka-io/pletka/pkg/domain"
 )
-
-// writerOnlyKeys are keys the materializer writes that the restore decoders
-// do not read (derived values); they are not unknown keys.
-var writerOnlyKeys = map[string]bool{"ontology_path": true}
 
 // loadParents loads each --parent tree keyed by project id, counts vendored
 // parent projects, and reports parents that are not declared or not given.
@@ -147,23 +141,14 @@ func (v *verifyContext) collectIdentities() {
 	}
 }
 
-// decodeDoc checks the file's top-level keys against the doc struct's tags,
-// decodes it, and reports what fails. ok is false when decoding failed.
+// decodeDoc decodes an entity file. A file the schema pass already flagged
+// is not reported again. ok is false when decoding failed.
 func decodeDoc[T any](v *verifyContext, item SnapshotEntityFile) (doc T, ok bool) {
-	keys, err := topLevelKeys(item.Payload)
+	doc, err := decodeCanonicalYAML[T](item.Payload)
 	if err != nil {
-		v.add(item.Path, 0, "decode", "%v", err)
-		return doc, false
-	}
-	known := jsonTagNames(doc)
-	for _, k := range keys {
-		if !known[k] && !writerOnlyKeys[k] {
-			v.add(item.Path, yamlKeyLine(item.Payload, k), "unknown-key", "%q is not a key of this file; the loader drops it silently", k)
+		if !v.schemaFailed[item.Path] {
+			v.add(item.Path, 0, "decode", "%v", err)
 		}
-	}
-	doc, err = decodeCanonicalYAML[T](item.Payload)
-	if err != nil {
-		v.add(item.Path, 0, "decode", "%v", err)
 		return doc, false
 	}
 	return doc, true
@@ -176,11 +161,14 @@ func (v *verifyContext) checkSemanticID(item SnapshotEntityFile, adoptedFrom, id
 		return
 	}
 	line := yamlKeyLine(item.Payload, "semantic_id")
+	parsed := domain.ParseSemanticID(id)
+	if (id == "" || !parsed.Valid()) && v.schemaFailed[item.Path] {
+		return // the schema pass reported the missing or malformed id
+	}
 	if id == "" {
 		v.add(item.Path, line, "semantic-id", "semantic_id is required")
 		return
 	}
-	parsed := domain.ParseSemanticID(id)
 	project := v.snap.Manifest.Project.ID
 	switch {
 	case !parsed.Valid():
@@ -318,48 +306,6 @@ func (v *verifyContext) inLoadedParent(fieldID string) bool {
 		}
 	}
 	return false
-}
-
-const manifestSectionProject = "project"
-
-// checkProjectManifestKeys reports unknown keys in project.yaml, at the top
-// level and inside its sections, which the loader drops silently.
-func (v *verifyContext) checkProjectManifestKeys() {
-	payload := v.readRel("project.yaml")
-	if payload == nil {
-		return
-	}
-	keys, err := topLevelKeys(payload)
-	if err != nil {
-		return // the loader already decoded it
-	}
-	known := jsonTagNames(projectManifest{})
-	for _, k := range keys {
-		if !known[k] {
-			v.add("project.yaml", yamlKeyLine(payload, k), "unknown-key", "%q is not a key of project.yaml; the loader drops it silently", k)
-		}
-	}
-	var doc map[string]any
-	if err := yaml.Unmarshal(payload, &doc); err != nil {
-		return
-	}
-	sections := map[string]any{
-		manifestSectionProject: projectManifestProject{}, "inheritance": projectManifestInheritance{},
-		"ontologies": projectManifestOntologies{}, "namespaces": projectManifestNamespaces{},
-		"manifests": projectManifestManifests{},
-	}
-	for name, zero := range sections {
-		section, ok := doc[name].(map[string]any)
-		if !ok {
-			continue
-		}
-		known := jsonTagNames(zero)
-		for k := range section {
-			if !known[k] {
-				v.add("project.yaml", yamlNestedKeyLine(payload, k), "unknown-key", "%q is not a key of %s; the loader drops it silently", k, name)
-			}
-		}
-	}
 }
 
 // checkAdoptions checks every receipt's source against the declared parents

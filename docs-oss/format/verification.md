@@ -24,14 +24,14 @@ requirements agree. Code: `load`.
 
 | Code | Finding |
 |---|---|
-| `decode` | a file is not a YAML mapping, or a value has the wrong type |
-| `unknown-key` | a key the schema does not define |
-| `schema-version` | unknown `schema_version` **[not built]** |
+| `decode` | a file is not valid YAML, or a value has the wrong type |
+| `unknown-key` | a key the schema does not define, at any depth |
+| `schema-version` | `schema_version` missing or not one this binary knows (1, 2) |
+| `schema` | any other schema rule: a required key missing, a pattern (e.g. a semantic id), an enum |
 
-**[differs]** Today `unknown-key` covers top-level keys of entity files and
-`project.yaml` (plus one level below). Under this spec every file is
-validated against its JSON Schema, which closes every map
-(`additionalProperties: false`), and the loader decodes strictly.
+Every format file, including vendored modules (validated from their own
+root), is checked against its JSON Schema before anything else; `load-git`
+refuses the same files with the file and line in the error.
 
 ### 3. Structure
 

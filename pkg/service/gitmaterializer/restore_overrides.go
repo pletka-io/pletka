@@ -234,7 +234,7 @@ func clearProjectAdoptionsAndForks(ctx context.Context, tx pgx.Tx, projectID str
 
 func (m *Materializer) hydrateBaseOverridesTx(ctx context.Context, q *sqlcgen.Queries, projectID string, items []SnapshotEntityFile) error {
 	for _, item := range items {
-		doc, err := decodeCanonicalYAML[canonicalOverrideDoc](item.Payload)
+		doc, err := decodeTreeFile[canonicalOverrideDoc](item.Path, item.Payload)
 		if err != nil {
 			return fmt.Errorf("hydrate base override %s: decode payload: %w", item.Path, err)
 		}
@@ -287,7 +287,7 @@ func (m *Materializer) hydrateScopedOverridesTx(ctx context.Context, q *sqlcgen.
 		overrides := make([]sqlcgen.WeaveCreateOverrideParams, 0, len(files))
 		refSets := make([][]canonicalOverrideRefDoc, 0, len(files))
 		for _, item := range files {
-			doc, err := decodeCanonicalYAML[canonicalOverrideDoc](item.Payload)
+			doc, err := decodeTreeFile[canonicalOverrideDoc](item.Path, item.Payload)
 			if err != nil {
 				return fmt.Errorf("hydrate %s override %s: decode payload: %w", entityType, item.Path, err)
 			}

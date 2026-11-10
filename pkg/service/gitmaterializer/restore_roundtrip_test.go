@@ -278,6 +278,19 @@ func TestServerCreatedProjectRoundTrip(t *testing.T) {
 	}
 	rootDir := filepath.Join(sourceDir, projectID)
 
+	// The materialized tree must satisfy the format schemas: the writer and
+	// the schemas describe the same format.
+	rep, err := gitmaterializer.Verify(ctx, rootDir, gitmaterializer.VerifyOptions{SkipOntology: true})
+	if err != nil {
+		t.Fatalf("verify materialized tree: %v", err)
+	}
+	for _, f := range rep.Findings {
+		switch f.Code {
+		case "decode", "unknown-key", "schema", "schema-version":
+			t.Errorf("materialized tree breaks the schema: %s", f)
+		}
+	}
+
 	// --- Simulate an empty target database: scoped, FK-safe delete ---------
 
 	cleanupHydratedProject(t, pool, projectID)

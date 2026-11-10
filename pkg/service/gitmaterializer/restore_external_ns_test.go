@@ -62,7 +62,7 @@ func TestRestoreVendoredOntologyExternalNamespace(t *testing.T) {
 
 	const (
 		ownerID      = "EXTNS_RESTORE_OWNER"
-		projectID    = "EXTNS_RESTORE_PROJECT"
+		projectID    = "EXTNSRESTOREPROJECT"
 		ontologySlug = "pletka-extns-restore"
 		namespace    = "https://example.org/extns-restore/"
 		// A fully synthetic external namespace + prefix, deliberately NOT one the

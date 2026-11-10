@@ -724,3 +724,39 @@ func TestLoadOntologySnapshot_RejectsUnsafeSourcePaths(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadProjectSnapshot_RejectsUnknownManifestKey(t *testing.T) {
+	root := verifyFixture(t)
+	body, _ := os.ReadFile(filepath.Join(root, "project.yaml"))
+	write(t, root, "project.yaml", string(body)+"color: red\n")
+	_, err := LoadProjectSnapshot(root)
+	if err == nil || !strings.Contains(err.Error(), "project.yaml:") || !strings.Contains(err.Error(), "color") {
+		t.Fatalf("want an error naming project.yaml and the key, got %v", err)
+	}
+}
+
+func TestDecodeTreeFile_NamesFileAndLine(t *testing.T) {
+	_, err := decodeTreeFile[canonicalFieldDoc]("fields/XF.1/field.yaml", []byte("semantic_id: XF.1\nui_name: {en: A}\ncolor: red\n"))
+	if err == nil || !strings.HasPrefix(err.Error(), "fields/XF.1/field.yaml:3: ") {
+		t.Fatalf("want fields/XF.1/field.yaml:3: …, got %v", err)
+	}
+}
+
+func TestDecodeTreeFile_AcceptsWriterOnlyAndV1Keys(t *testing.T) {
+	doc, err := decodeTreeFile[canonicalFieldDoc]("fields/XF.1/field.yaml", []byte("_adopted_from: P\nsemantic_id: XF.1\nontology_path: ->crm:P1\n"))
+	if err != nil || doc.SemanticID != "XF.1" {
+		t.Fatalf("got %v, %v", doc, err)
+	}
+}
+
+// TestPrepareRestorePlan_RejectsBadEntityFile pins that a restore checks
+// every entity file before it writes anything: a bad override must not
+// surface only after categories, fields and models are committed.
+func TestPrepareRestorePlan_RejectsBadEntityFile(t *testing.T) {
+	root := verifyFixture(t)
+	write(t, root, "models/TPCM.1/overrides/TPCF.1@a.yaml", "field_id: TPCF.1\nentity_type: model\nentity_id: TPCM.1\ncolor: red\n")
+	_, err := PrepareRestorePlan(root, "")
+	if err == nil || !strings.Contains(err.Error(), "models/TPCM.1/overrides/TPCF.1@a.yaml:4: ") {
+		t.Fatalf("want an error naming the override and line, got %v", err)
+	}
+}

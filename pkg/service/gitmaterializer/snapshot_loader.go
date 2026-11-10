@@ -2,14 +2,18 @@ package gitmaterializer
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	formatschema "github.com/pletka-io/pletka/docs-oss/format/schema"
 )
 
 type ProjectManifestFile = projectManifest
@@ -117,12 +121,12 @@ func LoadProjectSnapshot(rootDir string) (*ProjectSnapshot, error) {
 }
 
 func loadProjectSnapshot(rootDir string, includeVendor bool) (*ProjectSnapshot, error) {
-	manifest, err := readYAMLFile[ProjectManifestFile](filepath.Join(rootDir, "project.yaml"))
+	manifest, err := readTreeFile[ProjectManifestFile](rootDir, "project.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("load project manifest: %w", err)
 	}
 
-	mod, err := readOptionalYAMLFile[PletkaModFile](filepath.Join(rootDir, "pletka.mod"))
+	mod, err := readOptionalTreeFile[PletkaModFile](rootDir, "pletka.mod")
 	if err != nil {
 		return nil, fmt.Errorf("load pletka.mod: %w", err)
 	}
@@ -219,8 +223,8 @@ func loadAdoptionManifestSet(rootDir string, manifests *ProjectManifestManifests
 	if manifests == nil || strings.TrimSpace(manifests.Adoptions) == "" {
 		return nil, nil
 	}
-	indexPath := filepath.Join(rootDir, filepath.FromSlash(strings.TrimSpace(manifests.Adoptions)))
-	index, err := readYAMLFile[AdoptionsIndexManifest](indexPath)
+	indexRel := path.Clean(strings.TrimSpace(manifests.Adoptions))
+	index, err := readTreeFile[AdoptionsIndexManifest](rootDir, indexRel)
 	if err != nil {
 		return nil, fmt.Errorf("load adoptions index: %w", err)
 	}
@@ -228,10 +232,8 @@ func loadAdoptionManifestSet(rootDir string, manifests *ProjectManifestManifests
 		Index:    index,
 		Receipts: make(map[string]AdoptionReceiptManifest, len(index.Receipts)),
 	}
-	baseDir := filepath.Dir(indexPath)
 	for _, entry := range index.Receipts {
-		receiptPath := filepath.Join(baseDir, filepath.FromSlash(entry.File))
-		receipt, err := readYAMLFile[AdoptionReceiptManifest](receiptPath)
+		receipt, err := readTreeFile[AdoptionReceiptManifest](rootDir, path.Join(path.Dir(indexRel), entry.File))
 		if err != nil {
 			return nil, fmt.Errorf("load adoption receipt %s: %w", entry.File, err)
 		}
@@ -248,8 +250,8 @@ func loadForkManifestSet(rootDir string, manifests *ProjectManifestManifests) (*
 	if manifests == nil || strings.TrimSpace(manifests.Forks) == "" {
 		return nil, nil
 	}
-	indexPath := filepath.Join(rootDir, filepath.FromSlash(strings.TrimSpace(manifests.Forks)))
-	index, err := readYAMLFile[ForksIndexManifest](indexPath)
+	indexRel := path.Clean(strings.TrimSpace(manifests.Forks))
+	index, err := readTreeFile[ForksIndexManifest](rootDir, indexRel)
 	if err != nil {
 		return nil, fmt.Errorf("load forks index: %w", err)
 	}
@@ -257,10 +259,8 @@ func loadForkManifestSet(rootDir string, manifests *ProjectManifestManifests) (*
 		Index:    index,
 		Receipts: make(map[string]ForkReceiptManifest, len(index.Receipts)),
 	}
-	baseDir := filepath.Dir(indexPath)
 	for _, entry := range index.Receipts {
-		receiptPath := filepath.Join(baseDir, filepath.FromSlash(entry.File))
-		receipt, err := readYAMLFile[ForkReceiptManifest](receiptPath)
+		receipt, err := readTreeFile[ForkReceiptManifest](rootDir, path.Join(path.Dir(indexRel), entry.File))
 		if err != nil {
 			return nil, fmt.Errorf("load fork receipt %s: %w", entry.File, err)
 		}
@@ -333,7 +333,7 @@ func vendoredProjectVersionFromDir(rootDir, module, snapshotRoot string) string 
 }
 
 func loadOntologySnapshot(rootDir string) (*OntologySnapshot, error) {
-	manifest, err := readYAMLFile[OntologyVendorManifest](filepath.Join(rootDir, "ontology.yaml"))
+	manifest, err := readTreeFile[OntologyVendorManifest](rootDir, "ontology.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("load ontology manifest: %w", err)
 	}
@@ -662,32 +662,86 @@ func parsePletkaSum(payload []byte) ([]PletkaSumEntry, error) {
 	return entries, nil
 }
 
-func readOptionalYAMLFile[T any](path string) (*T, error) {
-	payload, err := os.ReadFile(path)
+// readTreeFile reads rel under root and decodes it after the schema check.
+func readTreeFile[T any](root, rel string) (T, error) {
+	var zero T
+	payload, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))) //nolint:gosec // rel is a format path under root
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+		return zero, err
+	}
+	return decodeTreeFile[T](rel, payload)
+}
+
+// readOptionalTreeFile is readTreeFile returning nil when the file is absent.
+func readOptionalTreeFile[T any](root, rel string) (*T, error) {
+	payload, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel))) //nolint:gosec // rel is a format path under root
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
 		return nil, err
 	}
-	out, err := decodeCanonicalYAML[T](payload)
+	out, err := decodeTreeFile[T](rel, payload)
 	if err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
-func readYAMLFile[T any](path string) (T, error) {
+// decodeTreeFile checks payload against the format schema for rel (a path
+// relative to its module root) and decodes it. A violation is an error that
+// names the file, the line and the key; decoding itself stays lenient
+// because the schema has already closed every map.
+func decodeTreeFile[T any](rel string, payload []byte) (T, error) {
 	var zero T
-	payload, err := os.ReadFile(path)
-	if err != nil {
+	if err := checkTreeFile(rel, payload); err != nil {
 		return zero, err
 	}
-	out, err := decodeCanonicalYAML[T](payload)
-	if err != nil {
-		return zero, err
+	return decodeCanonicalYAML[T](payload)
+}
+
+// checkTreeFile checks payload against the format schema for rel.
+func checkTreeFile(rel string, payload []byte) error {
+	kind, ok := formatschema.KindForPath(rel)
+	if !ok {
+		return fmt.Errorf("%s: not a format file", rel)
 	}
-	return out, nil
+	viols, err := formatschema.Default().Validate(kind, payload)
+	if err != nil {
+		return fmt.Errorf("%s: %w", rel, err)
+	}
+	if len(viols) == 0 {
+		return nil
+	}
+	first := viols[0]
+	more := ""
+	if len(viols) > 1 {
+		more = fmt.Sprintf(" (and %d more)", len(viols)-1)
+	}
+	return fmt.Errorf("%s:%d: %s: %s%s", rel, formatschema.Line(payload, first.Pointer), strings.TrimPrefix(first.Pointer, "/"), first.Message, more)
+}
+
+// checkEntityFiles checks every entity and override file of the snapshot and
+// of its vendored projects against the format schemas, so a restore refuses a
+// bad tree before it writes anything.
+func (s *ProjectSnapshot) checkEntityFiles() error {
+	e := s.Entities
+	for _, group := range [][]SnapshotEntityFile{e.Categories, e.ConceptLists, e.Fields, e.Models, e.Collections, e.BaseOverrides, e.ModelOverrides, e.CollectionOverrides} {
+		for _, item := range group {
+			if err := checkTreeFile(item.Path, item.Payload); err != nil {
+				return err
+			}
+		}
+	}
+	for _, vp := range s.Vendor.Projects {
+		if vp.Snapshot == nil {
+			continue
+		}
+		if err := vp.Snapshot.checkEntityFiles(); err != nil {
+			return fmt.Errorf("vendored project %s: %w", vp.Module, err)
+		}
+	}
+	return nil
 }
 
 func decodeCanonicalYAML[T any](payload []byte) (T, error) {
