@@ -66,14 +66,14 @@ func ParseSemanticID(raw string) SemanticID {
 		sid.ProjectID = parts[0]
 		sid.TypeCode = parts[1]
 		sid.EntityType = typeCodeMap[parts[1]]
-		sid.Number, _ = strconv.Atoi(parts[2])
+		sid.Number = parseIDNumber(parts[2])
 		return sid
 	}
 
 	// Standard pattern: PREFIXTYPE.NUMBER (2 parts)
 	if len(parts) == 2 {
 		prefix := parts[0]
-		sid.Number, _ = strconv.Atoi(parts[1])
+		sid.Number = parseIDNumber(parts[1])
 
 		for _, code := range []string{"F", "M", "C"} {
 			if strings.HasSuffix(prefix, code) {
@@ -94,12 +94,25 @@ func ParseSemanticID(raw string) SemanticID {
 // Valid reports whether the semantic ID was successfully parsed into a
 // recognized entity type with a project prefix and number.
 func (s SemanticID) Valid() bool {
-	return s.ProjectID != "" && s.EntityType != "" && s.Number > 0
+	return s.ProjectID != "" && s.EntityType != "" && s.Number >= 0
+}
+
+// parseIDNumber returns the number part of a semantic ID, or -1 when it is
+// not a non-negative integer.
+func parseIDNumber(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 0 {
+		return -1
+	}
+	return n
 }
 
 // ID returns the canonical semantic ID without system_name suffix.
 // e.g., for "LAM.15_person" it returns "LAM.15".
 func (s SemanticID) ID() string {
+	if s.Number < 0 {
+		return s.Raw
+	}
 	if s.TypeCode == "CAT" || s.TypeCode == "CL" {
 		return fmt.Sprintf("%s.%s.%d", s.ProjectID, s.TypeCode, s.Number)
 	}

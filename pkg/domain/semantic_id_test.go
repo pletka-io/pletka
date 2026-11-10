@@ -92,7 +92,10 @@ func TestSemanticID_Valid(t *testing.T) {
 		{"LAM.15_person", true},
 		{"", false},
 		{"garbage", false},
-		{"LAF.0", false}, // number must be > 0
+		{"LAF.0", true}, // 0 is a number (imported data has PDLM.0)
+		{"LAF.x", false},
+		{"LAF.-1", false},
+		{"LA.CAT.x", false},
 	}
 
 	for _, tc := range tests {
@@ -114,6 +117,8 @@ func TestSemanticID_ID(t *testing.T) {
 		{"LA.CAT.5", "LA.CAT.5"},
 		{"SEM.CL.6", "SEM.CL.6"},
 		{"LAM.15_person", "LAM.15"}, // strips system_name
+		{"PDLM.0", "PDLM.0"},
+		{"LAF.x", "LAF.x"}, // unparsed number: the raw string
 	}
 
 	for _, tc := range tests {
