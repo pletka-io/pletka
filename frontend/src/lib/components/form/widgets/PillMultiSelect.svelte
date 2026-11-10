@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { FieldDef, SelectOption } from '$lib/types/form-schema';
   import { tr } from '$lib/types/form-schema';
+  import OntologyPathBuilder from './OntologyPathBuilder.svelte';
 
   let {
     field,
@@ -60,6 +61,18 @@
   let showCreateForm = $state(false);
   let createName = $state('');
   let createError = $state<string>('');
+  // A model or collection draft needs its ontology scope: one without
+  // fails strict loading of the tree it is materialized into.
+  const needsScope = $derived(field.entity_type === 'model' || field.entity_type === 'collection');
+  let createScope = $state<any>(null);
+  const scopeField: FieldDef = {
+    name: 'ontology_scope',
+    widget: 'ontology-path',
+    required: true,
+    label: { en: 'Ontology scope' },
+    value: null,
+  };
+  const canCreate = $derived(createName.trim() !== '' && (!needsScope || !!createScope?.local_name));
   let abortController: AbortController | null = null;
   // Mirrors SelectWidget: prevents re-fetch loop when a {token} URL legitimately
   // returns 0 results.
@@ -189,7 +202,7 @@
   }
 
   async function createInline() {
-    if (!field.create_url || !createName.trim()) return;
+    if (!field.create_url || !canCreate) return;
     if (!field.entity_type) {
       createError = 'Schema missing entity_type for inline create';
       return;
@@ -203,6 +216,7 @@
         name: { en: name },
         ui_name: { en: name },
       };
+      if (needsScope) body.ontology_scope = createScope;
       const res = await fetch(field.create_url, {
         method: 'POST',
         credentials: 'same-origin',
@@ -245,6 +259,7 @@
       createName = '';
       showCreateForm = false;
       createError = '';
+      createScope = null;
     } catch (err) {
       console.error('Inline create error:', err);
       createError = err instanceof Error ? err.message : 'Network error';
@@ -340,19 +355,25 @@
           focus:ring-pletka-primary focus:border-pletka-primary"
         onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createInline(); }}}
       />
+      {#if needsScope}
+        <div class="mt-2">
+          <OntologyPathBuilder field={scopeField} bind:value={createScope} formValues={{}} {lang} errors={[]} />
+        </div>
+      {/if}
       {#if createError}
         <p class="mt-2 text-sm text-red-600">{createError}</p>
       {/if}
       <div class="mt-2 flex justify-end gap-2">
         <button
           type="button"
-          onclick={() => { showCreateForm = false; createName = ''; createError = ''; }}
+          onclick={() => { showCreateForm = false; createName = ''; createError = ''; createScope = null; }}
           class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800"
         >Cancel</button>
         <button
           type="button"
           onclick={createInline}
-          class="px-3 py-1 text-sm bg-amber-500 text-white rounded hover:bg-amber-600"
+          disabled={!canCreate}
+          class="px-3 py-1 text-sm bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
         >Create</button>
       </div>
     </div>
