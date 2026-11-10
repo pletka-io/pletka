@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pletka.io/schema/format/2/ontology.schema.json",
+  "title": "ontology.yaml (ontology module root, or vendor/ontologies/<module>@<version>/)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "ontology"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schemaVersion"},
+    "ontology": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prefix": {"type": "string"},
+        "title": {"type": "string"},
+        "kind": {"type": "string"},
+        "namespace": {"type": "string"},
+        "namespace_aliases": {"type": "array", "items": {"type": "string"}},
+        "prefixes": {"type": "array", "items": {"type": "string"}},
+        "source_url": {"type": "string"},
+        "module": {"type": "string", "deprecated": true, "description": "v1; the module is where the file sits."},
+        "ontology_id": {"type": "string", "deprecated": true},
+        "version_id": {"type": "string", "deprecated": true},
+        "version": {"type": "string", "deprecated": true, "description": "v1; in v2 the version is the tag."},
+        "slug": {"type": "string", "deprecated": true}
+      }
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "primary": {"type": "string"},
+        "files": {"type": "array", "items": {"type": "string"}},
+        "companions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file"],
+            "properties": {"file": {"type": "string"}, "description": {"type": "string"}}
+          }
+        }
+      }
+    },
+    "require": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["module", "version"],
+        "properties": {"module": {"type": "string"}, "version": {"type": "string"}}
+      }
+    },
+    "imports": {"type": "array", "items": {"type": "string"}, "deprecated": true, "description": "v1; replaced by require."}
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pletka.io/schema/format/2/override.schema.json",
+  "title": "fields/<F>/base-override.yaml, models/<M>/overrides/<F>@<token>.yaml, collections/<C>/overrides/<F>@<token>.yaml",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["field_id"],
+  "properties": {
+    "_adopted_from": {"$ref": "common.schema.json#/$defs/adoptedFrom"},
+    "field_id": {"$ref": "common.schema.json#/$defs/semanticId"},
+    "entity_type": {"enum": ["", "model", "collection"], "description": "Empty for a base override."},
+    "entity_id": {"$ref": "common.schema.json#/$defs/semanticIdOrEmpty"},
+    "position": {"type": "integer"},
+    "collection_order": {"type": "integer"},
+    "display_name": {"$ref": "common.schema.json#/$defs/translations"},
+    "description": {"$ref": "common.schema.json#/$defs/translations"},
+    "collection_name": {"$ref": "common.schema.json#/$defs/translations"},
+    "category_id": {"$ref": "common.schema.json#/$defs/semanticIdOrEmpty"},
+    "part_of_collection_id": {"$ref": "common.schema.json#/$defs/semanticIdOrEmpty"},
+    "set_value": {"type": "string"},
+    "is_required": {"type": "boolean"},
+    "min_occurs": {"type": "integer", "minimum": 0},
+    "max_occurs": {"type": ["integer", "null"], "minimum": 0, "description": "null = unbounded."},
+    "is_hidden": {"type": "boolean"},
+    "visibility": {"type": "string", "description": "Known: \"\", Yes, No. Open set until data is normalised.", "examples": ["", "Yes", "No"]},
+    "refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref_type", "semantic_id"],
+        "properties": {
+          "ref_type": {"enum": ["resource_model", "collection_model", "concept_list"]},
+          "semantic_id": {"$ref": "common.schema.json#/$defs/semanticId"},
+          "position": {"type": "integer"}
+        }
+      }
+    }
+  }
+}

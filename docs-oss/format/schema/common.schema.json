@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pletka.io/schema/format/2/common.schema.json",
+  "title": "Shared definitions for the Pletka project format",
+  "$defs": {
+    "schemaVersion": {"type": "integer", "enum": [1, 2], "description": "1 = materializer through 2026-11; 2 = this specification."},
+    "translations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Language code to text."},
+    "semanticId": {"type": "string", "pattern": "^[A-Za-z0-9]+(?:[FMC]\\.[1-9][0-9]*|\\.(?:CAT|CL)\\.[1-9][0-9]*)(?:_[a-z0-9_]+)?$"},
+    "semanticIdOrEmpty": {"anyOf": [{"$ref": "#/$defs/semanticId"}, {"const": ""}]},
+    "projectId": {"type": "string", "pattern": "^[A-Za-z0-9]+$"},
+    "status": {"type": "string", "description": "Known: draft, published.", "examples": ["draft", "published"]},
+    "adoptedFrom": {"$ref": "#/$defs/projectId", "description": "Set on an entity copied from a parent; the id of the owning project."},
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {"type": "string"},
+        "type": {"type": "string", "examples": ["organization", "person"]},
+        "slug": {"type": "string"},
+        "display_name": {"type": "string"}
+      }
+    },
+    "qname": {"type": "string", "pattern": "^[^\\s:]*:[^\\s]+$", "description": "prefix:local, optionally A/B for an additional type."},
+    "typeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri"],
+      "properties": {
+        "uri": {"type": "string"},
+        "prefix": {"type": "string"},
+        "local_name": {"type": "string"},
+        "class_code": {"type": "string"}
+      }
+    },
+    "pathElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "uri"],
+      "properties": {
+        "type": {"enum": ["class", "property", "literal"]},
+        "uri": {"type": "string"},
+        "prefix": {"type": "string"},
+        "local_name": {"type": "string"},
+        "position": {"type": "integer", "minimum": 0},
+        "datatype": {"type": "string"},
+        "complete": {"type": "boolean", "description": "Editor flag, ignored on load."},
+        "class_code": {"type": "string"},
+        "instance_id": {"type": "string", "description": "Legacy node id."},
+        "path_node": {"type": "string", "description": "Generated; never persisted."},
+        "path_node_id": {"type": "string"},
+        "ontology_version_id": {"type": "string", "deprecated": true},
+        "additional_types": {"type": "array", "items": {"$ref": "#/$defs/typeRef"}},
+        "sub_property_of": {"type": "string"}
+      }
+    },
+    "pathStep": {"oneOf": [{"$ref": "#/$defs/qname"}, {"$ref": "#/$defs/pathElement"}]},
+    "pathSteps": {"type": "array", "items": {"$ref": "#/$defs/pathStep"}}
+  }
+}

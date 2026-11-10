@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pletka.io/schema/format/2/receipts-index.schema.json",
+  "title": "adoptions/index.yaml, forks/index.yaml",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "receipts"],
+  "properties": {
+    "schema_version": {"$ref": "common.schema.json#/$defs/schemaVersion"},
+    "receipts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entity_type", "entity_id", "file"],
+        "properties": {
+          "entity_type": {"type": "string"},
+          "entity_id": {"type": "string"},
+          "file": {"type": "string", "description": "Receipt file name, relative to the index's directory."}
+        }
+      }
+    }
+  }
+}

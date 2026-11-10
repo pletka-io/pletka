@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pletka.io/schema/format/2/collection.schema.json",
+  "title": "collections/<C>/collection.yaml",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["semantic_id"],
+  "properties": {
+    "_adopted_from": {"$ref": "common.schema.json#/$defs/adoptedFrom"},
+    "semantic_id": {"$ref": "common.schema.json#/$defs/semanticId"},
+    "system_name": {"type": "string"},
+    "ui_name": {"$ref": "common.schema.json#/$defs/translations"},
+    "description": {"$ref": "common.schema.json#/$defs/translations"},
+    "status": {"$ref": "common.schema.json#/$defs/status"},
+    "deprecated": {"type": "boolean"},
+    "ontology_scope": {"$ref": "common.schema.json#/$defs/pathStep"},
+    "collection_number": {"type": "integer"},
+    "canonical_collection_order": {"type": "integer"}
+  }
+}

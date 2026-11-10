@@ -36,6 +36,7 @@ New to the codebase? Read in this order:
 | [`ZEN.md`](ZEN.md) | Design philosophy. |
 | [`principles.md`](principles.md) | The normative rules — the constitution. |
 | [`architecture/`](architecture/) | How the system is built. |
+| [`format/`](format/) | The project repository format: tree, `pletka.mod`/`pletka.sum`, versions, verification, JSON Schemas. |
 | [`decisions/`](decisions/) | Architecture Decision Records (ADRs). |
 | [`reference/`](reference/) | Naming conventions, Go style, CIDOC-CRM. |
 | [`contributing/`](contributing/) | Build, test, and the AI-assisted workflow. |
