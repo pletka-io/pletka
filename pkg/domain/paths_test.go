@@ -42,23 +42,23 @@ func TestFilePath(t *testing.T) {
 			name: "model_override",
 			spec: PathSpec{
 				EntityType: "model_override",
-				EntityID:   "900",
+				EntityID:   OverrideToken("LA.CAT.2", ""),
 				FieldID:    "LAF.18",
 				OwnerType:  "model",
 				OwnerID:    "LAM.15",
 			},
-			want: "models/LAM.15/overrides/LAF.18@900.yaml",
+			want: "models/LAM.15/overrides/LAF.18@LA.CAT.2.yaml",
 		},
 		{
 			name: "collection_override",
 			spec: PathSpec{
 				EntityType: "collection_override",
-				EntityID:   "1234",
+				EntityID:   OverrideToken("", "LAC.3"),
 				FieldID:    "LAF.18",
 				OwnerType:  "collection",
 				OwnerID:    "LAC.8",
 			},
-			want: "collections/LAC.8/overrides/LAF.18@1234.yaml",
+			want: "collections/LAC.8/overrides/LAF.18@_@LAC.3.yaml",
 		},
 		{
 			name: "unknown",

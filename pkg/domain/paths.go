@@ -6,7 +6,7 @@ import "fmt"
 type PathSpec struct {
 	EntityType string // "project", "category", "field", "model", "collection",
 	//                   "base_override", "model_override", "collection_override"
-	EntityID  string // semantic ID for entities; bigserial-as-string for overrides
+	EntityID  string // semantic ID for entities; OverrideToken for scoped overrides
 	FieldID   string // semantic ID of the field the override belongs to
 	OwnerType string // "model" or "collection" for scoped overrides
 	OwnerID   string // semantic ID of the owning model/collection
@@ -42,4 +42,18 @@ func FilePath(spec PathSpec) string {
 	default:
 		return fmt.Sprintf("unknown/%s-%s.yaml", spec.EntityType, spec.EntityID)
 	}
+}
+
+// OverrideToken is the part after "@" in a scoped override's file name: the
+// placement's category ("_" for none) and, when set, its collection. The name
+// follows the placement, not a database row id, so it survives load-git.
+func OverrideToken(categoryID, collectionID string) string {
+	t := categoryID
+	if t == "" {
+		t = "_"
+	}
+	if collectionID != "" {
+		t += "@" + collectionID
+	}
+	return t
 }

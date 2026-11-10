@@ -5,12 +5,12 @@ package gitmaterializer
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 // scopedRewriteOwnerActorID/scopedRewriteProjectID are the fixed ids seeded
@@ -217,8 +217,8 @@ func TestScopedRewriteRegeneratesModelOverrides(t *testing.T) {
 	f.materializeAll(workDir)
 
 	overridesDir := filepath.Join(workDir, "models", "SCOPEDREWRITE_MODEL_OV", "overrides")
-	keepOverridePath := filepath.Join(overridesDir, "SCOPEDREWRITE_FIELD_KEEP@"+idStr(t, f.queries, f.ctx, "SCOPEDREWRITE_FIELD_KEEP", "SCOPEDREWRITE_MODEL_OV")+".yaml")
-	dropOverridePath := filepath.Join(overridesDir, "SCOPEDREWRITE_FIELD_DROP@"+idStr(t, f.queries, f.ctx, "SCOPEDREWRITE_FIELD_DROP", "SCOPEDREWRITE_MODEL_OV")+".yaml")
+	keepOverridePath := filepath.Join(overridesDir, "SCOPEDREWRITE_FIELD_KEEP@"+overrideToken(t, f.queries, f.ctx, "SCOPEDREWRITE_FIELD_KEEP", "SCOPEDREWRITE_MODEL_OV")+".yaml")
+	dropOverridePath := filepath.Join(overridesDir, "SCOPEDREWRITE_FIELD_DROP@"+overrideToken(t, f.queries, f.ctx, "SCOPEDREWRITE_FIELD_DROP", "SCOPEDREWRITE_MODEL_OV")+".yaml")
 	if !fileExists(keepOverridePath) {
 		t.Fatalf("setup: expected %s to exist before rewrite", keepOverridePath)
 	}
@@ -245,10 +245,9 @@ func TestScopedRewriteRegeneratesModelOverrides(t *testing.T) {
 	}
 }
 
-// idStr looks up the override id placing fieldID on modelID so the test can
-// build the exact override file name (domain.FilePath embeds the override's
-// bigserial id in "<fieldKey>@<overrideID>.yaml").
-func idStr(t *testing.T, q *sqlcgen.Queries, ctx context.Context, fieldID, modelID string) string {
+// overrideToken looks up the override placing fieldID on modelID so the test
+// can build the exact override file name ("<fieldKey>@<OverrideToken>.yaml").
+func overrideToken(t *testing.T, q *sqlcgen.Queries, ctx context.Context, fieldID, modelID string) string {
 	t.Helper()
 	rows, err := q.WeaveListOverridesForOwner(ctx, sqlcgen.WeaveListOverridesForOwnerParams{
 		ProjectID:  scopedRewriteProjectID,
@@ -260,7 +259,8 @@ func idStr(t *testing.T, q *sqlcgen.Queries, ctx context.Context, fieldID, model
 	}
 	for _, row := range rows {
 		if row.FieldID == fieldID {
-			return fmt.Sprintf("%d", row.ID)
+			o := rowToOverride(row)
+			return domain.OverrideToken(o.CategoryID, o.PartOfCollectionID)
 		}
 	}
 	t.Fatalf("no override found placing field %s on model %s", fieldID, modelID)
