@@ -217,7 +217,7 @@ func TestLoadGitRejectsBadPlacements(t *testing.T) {
 	reasons := map[string]string{"range": "max_occurs must be >=", "orphan": "places no field", "overflow": "max_occurs must be <= 2147483647"}
 	cases := map[string]string{
 		"range":    "category_id: " + categoryID + "\ncollection_id: " + collectionID + "\nis_hidden: false\nis_required: true\nmax_occurs: 0\nmin_occurs: 1\nmodel_id: " + modelID + "\n",
-		"orphan":   "category_id: " + categoryID + "\ncollection_id: NOPE.1\nis_hidden: false\nis_required: false\nmax_occurs: null\nmin_occurs: 0\nmodel_id: " + modelID + "\n",
+		"orphan":   "category_id: " + categoryID + "\ncollection_id: LAC.9999\nis_hidden: false\nis_required: false\nmax_occurs: null\nmin_occurs: 0\nmodel_id: " + modelID + "\n",
 		"overflow": "category_id: " + categoryID + "\ncollection_id: " + collectionID + "\nis_hidden: false\nis_required: false\nmax_occurs: 3000000000\nmin_occurs: 0\nmodel_id: " + modelID + "\n",
 	}
 	for name, body := range cases {
@@ -225,7 +225,7 @@ func TestLoadGitRejectsBadPlacements(t *testing.T) {
 		err := roundTripLA(t, ctx, func(root string) {
 			coll := collectionID
 			if name == "orphan" {
-				coll = "NOPE.1"
+				coll = "LAC.9999"
 			}
 			p := placementFile(root, modelID, categoryID, coll)
 			rel, _ = filepath.Rel(root, p)

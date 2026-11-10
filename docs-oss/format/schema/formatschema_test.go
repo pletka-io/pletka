@@ -14,22 +14,24 @@ func TestSchemasCompile(t *testing.T) {
 
 func TestKindForPath(t *testing.T) {
 	cases := map[string]string{
-		"project.yaml":                           KindProject,
-		"pletka.mod":                             KindMod,
-		"ontology.yaml":                          KindOntology,
-		"releases/index.yaml":                    KindReleasesIndex,
-		"adoptions/index.yaml":                   KindReceiptsIndex,
-		"forks/index.yaml":                       KindReceiptsIndex,
-		"adoptions/field-PF.7.yaml":              KindAdoptionReceipt,
-		"forks/model-PM.1.yaml":                  KindForkReceipt,
-		"categories/X.CAT.1.yaml":                KindCategory,
-		"concept-lists/X.CL.1.yaml":              KindConceptList,
-		"fields/XF.1/field.yaml":                 KindField,
-		"fields/XF.1/base-override.yaml":         KindOverride,
-		"models/XM.1/model.yaml":                 KindModel,
-		"collections/XC.1/collection.yaml":       KindCollection,
-		"models/XM.1/overrides/XF.1@a.yaml":      KindOverride,
-		"collections/XC.1/overrides/XF.1@b.yaml": KindOverride,
+		"project.yaml":                             KindProject,
+		"pletka.mod":                               KindMod,
+		"ontology.yaml":                            KindOntology,
+		"releases/index.yaml":                      KindReleasesIndex,
+		"adoptions/index.yaml":                     KindReceiptsIndex,
+		"forks/index.yaml":                         KindReceiptsIndex,
+		"adoptions/field-PF.7.yaml":                KindAdoptionReceipt,
+		"forks/model-PM.1.yaml":                    KindForkReceipt,
+		"categories/X.CAT.1.yaml":                  KindCategory,
+		"concept-lists/X.CL.1.yaml":                KindConceptList,
+		"fields/XF.1/field.yaml":                   KindField,
+		"fields/XF.1/base-override.yaml":           KindOverride,
+		"models/XM.1/model.yaml":                   KindModel,
+		"collections/XC.1/collection.yaml":         KindCollection,
+		"models/XM.1/overrides/XF.1@a.yaml":        KindOverride,
+		"collections/XC.1/overrides/XF.1@b.yaml":   KindOverride,
+		"models/XM.1/placements/XC.1@X.CAT.1.yaml": KindPlacement,
+		"models/XM.1/placements/XC.1@_.yaml":       KindPlacement,
 	}
 	for rel, want := range cases {
 		got, ok := KindForPath(rel)
@@ -37,7 +39,7 @@ func TestKindForPath(t *testing.T) {
 			t.Errorf("KindForPath(%q) = %q, %v; want %q", rel, got, ok, want)
 		}
 	}
-	for _, rel := range []string{"README.md", "fields/XF.1/notes.yaml", "models/XM.1/overrides/x/y.yaml", "pletka.sum"} {
+	for _, rel := range []string{"README.md", "fields/XF.1/notes.yaml", "models/XM.1/overrides/x/y.yaml", "collections/XC.1/placements/XC.2@_.yaml", "pletka.sum"} {
 		if k, ok := KindForPath(rel); ok {
 			t.Errorf("KindForPath(%q) = %q; want no kind", rel, k)
 		}
@@ -71,6 +73,11 @@ func TestValidate(t *testing.T) {
 		{"malformed path element: the real cause, not the other oneOf branch", KindField,
 			"semantic_id: XF.1\npath_elements: [{type: class, urii: x}]\n",
 			[]Violation{{Pointer: "/path_elements/0", Keyword: "required"}, {Pointer: "/path_elements/0/urii", Keyword: "additionalProperties"}}},
+		{"valid placement", KindPlacement,
+			"category_id: \"\"\ncollection_id: XC.1\nis_hidden: false\nis_required: false\nmax_occurs: null\nmin_occurs: 0\nmodel_id: XM.1\n", nil},
+		{"placement without model_id, with an unknown key", KindPlacement,
+			"collection_id: XC.1\ncolor: red\n",
+			[]Violation{{Pointer: "", Keyword: "required"}, {Pointer: "/color", Keyword: "additionalProperties"}}},
 		{"empty file", KindCategory, "",
 			[]Violation{{Pointer: "", Keyword: "type"}}},
 	}

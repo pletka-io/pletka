@@ -760,3 +760,12 @@ func TestPrepareRestorePlan_RejectsBadEntityFile(t *testing.T) {
 		t.Fatalf("want an error naming the override and line, got %v", err)
 	}
 }
+
+func TestPrepareRestorePlan_RejectsBadPlacementFile(t *testing.T) {
+	root := placementFixture(t)
+	write(t, root, "models/TPCM.1/placements/TPCC.1@TPC.CAT.1.yaml", "category_id: TPC.CAT.1\ncollection_id: TPCC.1\ncolor: red\nmodel_id: TPCM.1\n")
+	_, err := PrepareRestorePlan(root, "")
+	if err == nil || !strings.Contains(err.Error(), "models/TPCM.1/placements/TPCC.1@TPC.CAT.1.yaml:3: ") {
+		t.Fatalf("want an error naming the placement and line, got %v", err)
+	}
+}

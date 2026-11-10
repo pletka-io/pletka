@@ -20,6 +20,7 @@ fields/<F>/field.yaml                                       one per field
 fields/<F>/base-override.yaml                               optional: the field's own placement defaults
 models/<M>/model.yaml
 models/<M>/overrides/<F>@<token>.yaml                       one per field placed on the model
+models/<M>/placements/<C>@<CAT|_>.yaml                      one per collection placed on the model
 collections/<C>/collection.yaml
 collections/<C>/overrides/<F>@<token>.yaml                  one per field placed on the collection
 adoptions/index.yaml                                        list of adoption receipts
@@ -240,6 +241,29 @@ refs:
   the project with the tree's.
 - `visibility` known values: `""`, `Yes`, `No`. **[not built]** Existing data
   mixes case (`no`/`No`); normalisation precedes a closed set.
+
+### Collection placements — [schema](schema/placement.schema.json)
+
+`models/<M>/placements/<C>@<CAT>.yaml`, or `<C>@_.yaml` when the placement
+has no category: how a collection placed on a model behaves as one card.
+
+```yaml
+model_id: XM.2
+collection_id: XC.3
+category_id: X.CAT.4             # "" when the file name says _
+is_required: false
+min_occurs: 0
+max_occurs: null                 # null = unbounded
+is_hidden: false
+```
+
+- `model_id`, `collection_id` and `category_id` MUST match the file's
+  location.
+- The model MUST place at least one field of the collection (an override
+  with `part_of_collection_id: <C>`).
+- `min_occurs` ≥ 0 and `max_occurs` ≥ `min_occurs`, both within a 32-bit
+  integer.
+- Placements are authoritative, like overrides.
 
 ### Receipts — [index](schema/receipts-index.schema.json), [adoption](schema/adoption-receipt.schema.json), [fork](schema/fork-receipt.schema.json)
 
