@@ -590,3 +590,15 @@ func TestVerify_MalformedSemanticIDOneFinding(t *testing.T) {
 		t.Errorf("codes (-want +got):\n%s\n%v", diff, rep.Findings)
 	}
 }
+
+func TestVerify_PlacementUnknownKey(t *testing.T) {
+	root := placementFixture(t)
+	write(t, root, "models/TPCM.1/placements/TPCC.1@TPC.CAT.1.yaml", "category_id: TPC.CAT.1\ncollection_id: TPCC.1\ncolor: red\nis_hidden: false\nis_required: false\nmax_occurs: 1\nmin_occurs: 0\nmodel_id: TPCM.1\n")
+	rep, err := Verify(context.Background(), root, VerifyOptions{SkipOntology: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := codes(rep); len(got) != 1 || got[0] != "unknown-key" {
+		t.Fatalf("findings: %v", rep.Findings)
+	}
+}

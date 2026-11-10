@@ -42,6 +42,9 @@ refuses the same files with the file and line in the error.
 | `semantic-id-type` | type code does not match the directory **[not built]** |
 | `override-location` | an override's `field_id`/`entity_type`/`entity_id` disagree with its path |
 | `orphan-overrides` | `overrides/` with no `model.yaml`/`collection.yaml` beside it |
+| `placement-path` | a placement's `model_id`/`collection_id`/`category_id` disagree with its path |
+| `placement-orphan` | a placement for a collection the model places no field of |
+| `placement-range` | `min_occurs`/`max_occurs` do not form a range within 0..2³¹−1 |
 | `duplicate-placement` | the same field placed twice on one owner **[not built]** |
 
 ### 4. References
@@ -51,6 +54,7 @@ refuses the same files with the file and line in the error.
 | `unresolved-field` | an override's field is in neither the tree, a receipt, nor a parent |
 | `unresolved-category` | `category_id` does not resolve |
 | `unresolved-collection` | `part_of_collection_id` does not resolve |
+| `placement-category` | a placement's `category_id` does not resolve |
 | `unresolved-concept-list` | a `concept_list` ref does not resolve |
 | `unresolved-model-ref` | a `resource_model`/`collection_model` ref does not resolve **[not built]** |
 | `adoption-receipt-missing` | an `_adopted_from` entity without a receipt |

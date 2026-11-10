@@ -35,6 +35,7 @@ const (
 	KindModel           = "model"
 	KindCollection      = "collection"
 	KindOverride        = "override"
+	KindPlacement       = "placement"
 	KindReceiptsIndex   = "receipts-index"
 	KindAdoptionReceipt = "adoption-receipt"
 	KindForkReceipt     = "fork-receipt"
@@ -44,7 +45,7 @@ const (
 
 var allKinds = []string{
 	KindProject, KindMod, KindCategory, KindConceptList, KindField, KindModel, KindCollection,
-	KindOverride, KindReceiptsIndex, KindAdoptionReceipt, KindForkReceipt, KindOntology, KindReleasesIndex,
+	KindOverride, KindPlacement, KindReceiptsIndex, KindAdoptionReceipt, KindForkReceipt, KindOntology, KindReleasesIndex,
 }
 
 // Kinds by the whole path, by the first directory (two segments), and by
@@ -92,6 +93,9 @@ func KindForPath(rel string) (string, bool) {
 	case 4:
 		if (p[0] == "models" || p[0] == "collections") && p[2] == "overrides" {
 			return KindOverride, true
+		}
+		if p[0] == "models" && p[2] == "placements" {
+			return KindPlacement, true
 		}
 	}
 	return "", false

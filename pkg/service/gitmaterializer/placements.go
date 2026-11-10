@@ -154,9 +154,9 @@ func (m *Materializer) hydratePlacementsTx(ctx context.Context, q *sqlcgen.Queri
 		return err
 	}
 	for _, item := range snap.Entities.Placements {
-		doc, err := decodeCanonicalYAML[canonicalPlacementDoc](item.Payload)
+		doc, err := decodeTreeFile[canonicalPlacementDoc](item.Path, item.Payload)
 		if err != nil {
-			return fmt.Errorf("%s: %w", item.Path, err)
+			return err
 		}
 		collectionID, categoryID, _ := parsePlacementFileName(path.Base(item.Path))
 		switch {

@@ -726,7 +726,7 @@ func checkTreeFile(rel string, payload []byte) error {
 // bad tree before it writes anything.
 func (s *ProjectSnapshot) checkEntityFiles() error {
 	e := s.Entities
-	for _, group := range [][]SnapshotEntityFile{e.Categories, e.ConceptLists, e.Fields, e.Models, e.Collections, e.BaseOverrides, e.ModelOverrides, e.CollectionOverrides} {
+	for _, group := range [][]SnapshotEntityFile{e.Categories, e.ConceptLists, e.Fields, e.Models, e.Collections, e.BaseOverrides, e.ModelOverrides, e.CollectionOverrides, e.Placements} {
 		for _, item := range group {
 			if err := checkTreeFile(item.Path, item.Payload); err != nil {
 				return err
