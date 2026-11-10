@@ -65,10 +65,13 @@ Rules:
   `concept-lists/`. **[not built: not checked]**
 - An entity copied from a parent carries `_adopted_from: <project-id>` and
   keeps the parent's semantic id; a receipt in `adoptions/` MUST record it.
-- The `<token>` after `@` in an override file name only keeps names unique.
-  The materializer writes the database row id there; the loader ignores it.
-  An author MAY use any string without `/`. **[proposed]** Use the position
-  (`XF.1@3.yaml`) when writing by hand.
+- The `<token>` after `@` in an override file name only keeps names unique;
+  the loader ignores it. The materializer derives it from the placement, so a
+  name survives load-git: `<category>` (`_` for none), then `@<collection>`
+  when the field sits in a collection, then `~<n>` (n ≥ 2) for the n-th exact
+  duplicate of that placement, counted by `position` and then by file bytes:
+  `XF.1@X.CAT.4.yaml`, `XF.2@X.CAT.4@XC.3.yaml`, `XF.2@X.CAT.4@XC.3~2.yaml`,
+  `XF.5@_.yaml`. An author MAY use any string without `/`.
 
 ## File kinds
 

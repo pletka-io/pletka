@@ -424,7 +424,11 @@ func (m *Materializer) writeFieldsVersion(ctx context.Context, workDir, projectI
 		if !ok {
 			continue
 		}
-		if err := m.writeArchivedOverride(ctx, workDir, base, "base_override", fieldKey, "", version); err != nil {
+		f, err := m.archivedOverrideFile(ctx, base, "base_override", fieldKey, "", version)
+		if err != nil {
+			return err
+		}
+		if err := writeOverrideFiles(workDir, []pendingOverride{f}); err != nil {
 			return err
 		}
 	}
@@ -473,31 +477,27 @@ func (m *Materializer) writeScopedOverridesByProjectVersion(ctx context.Context,
 		return err
 	}
 	pathType := entityType + "_override"
+	files := make([]pendingOverride, 0, len(overrides))
 	for _, o := range overrides {
-		if err := m.writeArchivedOverride(ctx, workDir, o, pathType, o.FieldID, o.EntityID, version); err != nil {
+		f, err := m.archivedOverrideFile(ctx, o, pathType, o.FieldID, o.EntityID, version)
+		if err != nil {
 			return err
 		}
+		files = append(files, f)
 	}
-	return nil
+	return writeOverrideFiles(workDir, files)
 }
 
-func (m *Materializer) writeArchivedOverride(ctx context.Context, workDir string, o *domain.FieldOverride, pathType, fieldKey, ownerKey, version string) error {
+func (m *Materializer) archivedOverrideFile(ctx context.Context, o *domain.FieldOverride, pathType, fieldKey, ownerKey, version string) (pendingOverride, error) {
 	refs, err := m.loadArchivedOverrideRefs(ctx, o.ID, version)
 	if err != nil {
-		return err
+		return pendingOverride{}, err
 	}
 	payload, err := canonical.Override(o, refs)
 	if err != nil {
-		return fmt.Errorf("encode archived override %d: %w", o.ID, err)
+		return pendingOverride{}, fmt.Errorf("encode archived override %d: %w", o.ID, err)
 	}
-	spec := domain.PathSpec{EntityType: pathType, EntityID: fmt.Sprintf("%d", o.ID), FieldID: fieldKey, OwnerID: ownerKey}
-	switch pathType {
-	case "model_override":
-		spec.OwnerType = "model"
-	case "collection_override":
-		spec.OwnerType = "collection"
-	}
-	return writeEntityFile(workDir, domain.FilePath(spec), payload)
+	return newPendingOverride(o, payload, pathType, fieldKey, ownerKey), nil
 }
 
 func (m *Materializer) writeAdoptionManifestsVersion(ctx context.Context, workDir, projectID, version string) error {

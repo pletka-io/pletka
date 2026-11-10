@@ -311,37 +311,56 @@ func (m *Materializer) writeScopedOverridesByProject(
 		return fmt.Errorf("list %s overrides for project %s: %w", entityType, projectID, err)
 	}
 	pathType := entityType + "_override"
+	files := make([]pendingOverride, 0, len(rows))
 	for _, row := range rows {
-		if err := m.writeOverride(ctx, workDir, row, pathType, row.FieldID, row.EntityID); err != nil {
+		f, err := m.overrideFile(ctx, row, pathType, row.FieldID, row.EntityID)
+		if err != nil {
 			return err
 		}
+		files = append(files, f)
 	}
-	return nil
+	return writeOverrideFiles(workDir, files)
 }
 
-// writeOverride materializes a single override (base, model, or collection).
-// For base overrides, pathType is "base_override" and ownerKey is "".
-// For scoped overrides, pathType is "model_override"/"collection_override" and
-// ownerKey is the model or collection identifier used in the file path.
+// writeOverride materializes a single override. Only the base override goes
+// through here; scoped overrides are written per owner set via
+// writeOverrideFiles so duplicate placements get stable names.
 func (m *Materializer) writeOverride(
 	ctx context.Context,
 	workDir string,
 	row sqlcgen.WeaveFieldOverride,
 	pathType, fieldKey, ownerKey string,
 ) error {
+	f, err := m.overrideFile(ctx, row, pathType, fieldKey, ownerKey)
+	if err != nil {
+		return err
+	}
+	return writeOverrideFiles(workDir, []pendingOverride{f})
+}
+
+// overrideFile encodes one override (base, model, or collection) and the path
+// it materializes to. For base overrides, pathType is "base_override" and
+// ownerKey is "". For scoped overrides, pathType is
+// "model_override"/"collection_override" and ownerKey is the model or
+// collection identifier used in the file path.
+func (m *Materializer) overrideFile(
+	ctx context.Context,
+	row sqlcgen.WeaveFieldOverride,
+	pathType, fieldKey, ownerKey string,
+) (pendingOverride, error) {
 	o := rowToOverride(row)
 
 	if o.CategoryID != "" {
 		catIdentifier, err := m.categoryIdentifierFor(ctx, o.CategoryID)
 		if err != nil {
-			return fmt.Errorf("resolve category identifier for override %d: %w", o.ID, err)
+			return pendingOverride{}, fmt.Errorf("resolve category identifier for override %d: %w", o.ID, err)
 		}
 		o.CategoryID = catIdentifier
 	}
 
 	refRows, err := m.queries.WeaveListOverrideRefs(ctx, o.ID)
 	if err != nil {
-		return fmt.Errorf("list override refs for %d: %w", o.ID, err)
+		return pendingOverride{}, fmt.Errorf("list override refs for %d: %w", o.ID, err)
 	}
 	refs := make([]domain.OverrideRef, 0, len(refRows))
 	for _, rr := range refRows {
@@ -350,24 +369,9 @@ func (m *Materializer) writeOverride(
 
 	payload, err := canonical.Override(o, refs)
 	if err != nil {
-		return fmt.Errorf("encode override %d: %w", o.ID, err)
+		return pendingOverride{}, fmt.Errorf("encode override %d: %w", o.ID, err)
 	}
-
-	spec := domain.PathSpec{
-		EntityType: pathType,
-		EntityID:   fmt.Sprintf("%d", o.ID),
-		FieldID:    fieldKey,
-		OwnerID:    ownerKey,
-	}
-	switch pathType {
-	case "model_override":
-		spec.OwnerType = entityTypeModel
-	case "collection_override":
-		spec.OwnerType = entityTypeCollection
-	}
-
-	path := domain.FilePath(spec)
-	return writeEntityFile(workDir, path, payload)
+	return newPendingOverride(o, payload, pathType, fieldKey, ownerKey), nil
 }
 
 // identifierFor returns the semantic ID when present, falling back to the ULID.

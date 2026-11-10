@@ -223,10 +223,13 @@ func (m *Materializer) writeOverridesForOwner(ctx context.Context, workDir, proj
 		return fmt.Errorf("list %s overrides for owner %s: %w", ownerType, ownerID, err)
 	}
 	pathType := ownerType + "_override"
+	files := make([]pendingOverride, 0, len(rows))
 	for _, row := range rows {
-		if err := m.writeOverride(ctx, workDir, row, pathType, row.FieldID, row.EntityID); err != nil {
+		f, err := m.overrideFile(ctx, row, pathType, row.FieldID, row.EntityID)
+		if err != nil {
 			return err
 		}
+		files = append(files, f)
 	}
-	return nil
+	return writeOverrideFiles(workDir, files)
 }
