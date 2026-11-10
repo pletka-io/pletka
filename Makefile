@@ -278,7 +278,15 @@ test-integration: ## Run DB/integration tests (needs Docker or TEST_DATABASE_URL
 	# every other package still running against it. With Ryuk off the
 	# container survives the whole ./... run; we remove it explicitly below,
 	# on success or failure, so nothing leaks.
-	@TESTCONTAINERS_RYUK_DISABLED=true go test -tags=integration ./...; status=$$?; \
+	#
+	# REQUIRE_DB defaults to 1 so an unreachable database fails the run
+	# instead of skipping every test. When the Docker socket is not writable
+	# (rootful Podman behind /var/run/docker.sock) and no DOCKER_HOST is set,
+	# the user's rootless Podman socket is used.
+	@if [ -z "$$DOCKER_HOST" ] && [ ! -w /var/run/docker.sock ] && [ -S "$$XDG_RUNTIME_DIR/podman/podman.sock" ]; then \
+		export DOCKER_HOST="unix://$$XDG_RUNTIME_DIR/podman/podman.sock"; \
+	fi; \
+	REQUIRE_DB=$${REQUIRE_DB-1} TESTCONTAINERS_RYUK_DISABLED=true go test -tags=integration ./...; status=$$?; \
 	docker rm -f pletka-testdb-pg18 >/dev/null 2>&1 || true; \
 	exit $$status
 
