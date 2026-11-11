@@ -74,7 +74,7 @@ Examples:
 	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.baseURI, "base-uri", "", "RDF base URI override; project namespace when omitted")
 	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.rdfNode, "rdf-node-mode", string(generators.RDFNodeModeBlankNode), "RDF node mode: blank_node or resource")
 	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.mermaid, "mermaid-mode", string(generators.MermaidModeOntology), "Mermaid mode: ontology or instance")
-	weaveGenerateCmd.Flags().BoolVar(&weaveGenerateOpts.composeCollections, "compose-collections", false, "graft every collection that anchors at class X under every Collection-stub field whose path ends at X (snap-level pass; affects every renderer that consumes snap.Fields)")
+	weaveGenerateCmd.Flags().BoolVar(&weaveGenerateOpts.composeCollections, "compose-collections", false, "graft under every Collection-stub field the collections its collection_model refs name, recursively (snap-level pass; affects every renderer that consumes snap.Fields)")
 	weaveGenerateCmd.Flags().IntVar(&weaveGenerateOpts.composeMaxDepth, "compose-max-depth", 0, "cap collection composition recursion (0 = built-in default, currently 10)")
 
 	return weaveGenerateCmd

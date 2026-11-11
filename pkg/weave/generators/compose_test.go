@@ -2,6 +2,8 @@ package generators
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/pletka-io/pletka/pkg/auth"
@@ -180,33 +182,39 @@ func TestGraftPrefixLeavesATail(t *testing.T) {
 	}
 }
 
-// refReader is a CollectionReader + CollectionLookupByID over maps; it
-// records the project each View was asked for.
+// refReader is a CollectionReader + CollectionLookupByID + CollectionLookupView
+// over maps. View refuses every collection, as the real reader refuses one
+// the project does not own: members must come from LookupView, which
+// resolves a collection in its owner project.
 type refReader struct {
-	colls    map[string]*domain.Collection
-	fields   map[string][]domain.ResolvedField
-	projects []string
+	colls  map[string]*domain.Collection
+	fields map[string][]domain.ResolvedField
+	err    error // LookupView fails with it (an infrastructure error)
 }
 
 func (r *refReader) Get(_ context.Context, _ auth.ReadScope, _, id string) (*domain.Collection, error) {
 	return r.colls[id], nil
 }
 
-func (r *refReader) View(_ context.Context, projectID, id string) ([]domain.ResolvedField, error) {
-	r.projects = append(r.projects, projectID)
-	return r.fields[id], nil
+func (r *refReader) View(_ context.Context, _, _ string) ([]domain.ResolvedField, error) {
+	return nil, errors.New("collection: not found")
 }
 
 func (r *refReader) LookupByID(_ context.Context, _ auth.ReadScope, id string) (*domain.Collection, error) {
 	return r.colls[id], nil
 }
 
-func TestLoadReferencedCollectionsFollowsRefs(t *testing.T) {
+func (r *refReader) LookupView(_ context.Context, id string) ([]domain.ResolvedField, error) {
+	return r.fields[id], r.err
+}
+
+func refFixture() (*refReader, *domain.ModelView) {
 	name := nameCollection("c-name", "LAC.1")
 	r := &refReader{
 		colls: map[string]*domain.Collection{
-			"c-ts":   {Entity: domain.Entity{ID: "c-ts", SemanticID: "LAC.6", SystemName: "timespan"}},
-			"c-name": name.Collection,
+			"c-ts":    {Entity: domain.Entity{ID: "c-ts", SemanticID: "LAC.6", SystemName: "timespan", ProjectID: "LA"}},
+			"c-name":  name.Collection,
+			"c-empty": {Entity: domain.Entity{ID: "c-empty", SemanticID: "LAC.99", SystemName: "empty", ProjectID: "LA"}},
 		},
 		fields: map[string][]domain.ResolvedField{
 			"c-ts":   {stubField("f-tsname", "LAC.6.F2", "timespan_name", tsName(), "c-name")},
@@ -215,22 +223,42 @@ func TestLoadReferencedCollectionsFollowsRefs(t *testing.T) {
 	}
 	view := &domain.ModelView{Categories: []domain.CategoryGroup{{Collections: []domain.CollectionGroup{{
 		ID:     "c-act",
-		Fields: []domain.ResolvedField{stubField("s", "OGF.1", "activity_timespan", tsName()[:2], "c-ts", "c-gone")},
+		Fields: []domain.ResolvedField{stubField("s", "OGF.1", "activity_timespan", tsName()[:2], "c-ts", "c-gone", "c-empty")},
 	}}}}}
+	return r, view
+}
+
+func TestLoadReferencedCollectionsFollowsRefs(t *testing.T) {
+	r, view := refFixture()
 	s := &Service{collections: r}
-	got := s.loadReferencedCollections(context.Background(), "SI", view, Options{ComposeCollections: true})
-	if len(got) != 2 || got["c-ts"].Collection == nil || len(got["c-name"].Fields) != 2 {
+	got, err := s.loadReferencedCollections(context.Background(), view, Options{ComposeCollections: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["c-ts"].Missing != "" || got["c-ts"].Collection == nil || len(got["c-name"].Fields) != 2 {
 		t.Fatalf("loaded: %+v", got)
 	}
-	if _, ok := got["c-gone"]; ok {
-		t.Fatal("an unloadable ref must be left out")
+	if got["c-gone"].Missing != "not found" || got["c-empty"].Missing != "has no members" {
+		t.Fatalf("reasons: gone %q, empty %q", got["c-gone"].Missing, got["c-empty"].Missing)
 	}
-	for _, p := range r.projects {
-		if p != "SI" {
-			t.Fatalf("member view asked for project %q, want the consuming project SI", p)
-		}
-	}
-	if s.loadReferencedCollections(context.Background(), "SI", view, Options{}) != nil {
+	if off, err := s.loadReferencedCollections(context.Background(), view, Options{}); off != nil || err != nil {
 		t.Fatal("composition off loads nothing")
+	}
+}
+
+func TestLoadReferencedCollectionsFailsOnReaderError(t *testing.T) {
+	r, view := refFixture()
+	r.err = errors.New("connection reset")
+	if _, err := (&Service{collections: r}).loadReferencedCollections(context.Background(), view, Options{ComposeCollections: true}); err == nil {
+		t.Fatal("a reader error must fail the snapshot, not drop the graft")
+	}
+}
+
+func TestComposeUnloadableRefSaysWhy(t *testing.T) {
+	stub := stubNode(stubField("s", "LAF.30", "timespan_name", tsName(), "c-empty"), "c-ts")
+	rep := &Report{}
+	composeCollections([]FieldNode{stub}, map[string]ReferencedCollection{"c-empty": {Missing: "has no members"}}, composeOpts(), rep)
+	if len(rep.Warnings) != 1 || !strings.Contains(rep.Warnings[0].Message, "has no members") {
+		t.Fatalf("warnings: %+v", rep.Warnings)
 	}
 }

@@ -259,8 +259,9 @@ type ModelSnapshotInput struct {
 	View        domain.ModelView
 	Collections map[string]*domain.Collection
 	// Referenced holds every collection a Collection-stub field names in its
-	// collection_model refs (transitively), keyed by collection id and
-	// resolved for the consuming project. composeCollections grafts them.
+	// collection_model refs (transitively), keyed by collection id, members
+	// resolved in the collection's owner project. composeCollections grafts
+	// them.
 	Referenced map[string]ReferencedCollection
 	Namespaces NamespaceSet
 	Ontologies []domain.ResolvedOntologyVersion
@@ -268,12 +269,14 @@ type ModelSnapshotInput struct {
 }
 
 // ReferencedCollection is one collection a stub refers to: its entity, its
-// members as the consuming project resolves them, and the path prefix a
-// graft strips from them (graftPrefix).
+// members as its owner project resolves them, and the path prefix a graft
+// strips from them (graftPrefix). Missing says why it could not be loaded
+// ("not found", "has no members"); the other fields are then empty.
 type ReferencedCollection struct {
 	Collection       *domain.Collection
 	Fields           []domain.ResolvedField
 	SharedPathPrefix []domain.PathElement
+	Missing          string
 }
 
 type CollectionSnapshotInput struct {

@@ -14,6 +14,8 @@ func TestSliceServicesSatisfyGeneratorReaders(t *testing.T) {
 	var _ ProjectReader = (*project.Service)(nil)
 	var _ ModelReader = (*model.Service)(nil)
 	var _ CollectionReader = (*collection.Service)(nil)
+	var _ CollectionLookupByID = (*collection.Service)(nil)
+	var _ CollectionLookupView = (*collection.Service)(nil)
 	var _ FieldReader = (*fieldsvc.Service)(nil)
 	var _ NamespaceReader = (*namespacebinding.Service)(nil)
 }

@@ -35,6 +35,14 @@ type CollectionLookupByID interface {
 	LookupByID(ctx context.Context, scope auth.ReadScope, id string) (*domain.Collection, error)
 }
 
+// CollectionLookupView is an optional capability: a project-agnostic
+// counterpart to CollectionReader.View that resolves a collection's fields
+// in its owner project. Composition reads referenced collections through
+// it; a consuming project may not own them.
+type CollectionLookupView interface {
+	LookupView(ctx context.Context, id string) ([]domain.ResolvedField, error)
+}
+
 // FieldReader is the field slice surface generators need.
 type FieldReader interface {
 	Get(ctx context.Context, projectID, id string) (*domain.Field, error)
@@ -144,7 +152,10 @@ func (s *Service) SnapshotForModel(ctx context.Context, projectID, modelID strin
 	if err != nil {
 		return nil, err
 	}
-	referenced := s.loadReferencedCollections(ctx, projectID, view, opts)
+	referenced, err := s.loadReferencedCollections(ctx, view, opts)
+	if err != nil {
+		return nil, err
+	}
 
 	return s.attachConceptEnums(ctx, BuildModelSnapshot(ModelSnapshotInput{
 		Project:     *project,
@@ -344,17 +355,20 @@ func (s *Service) loadCollections(ctx context.Context, projectID string, view *d
 
 // loadReferencedCollections loads every collection a Collection-stub field
 // in the view names in its collection_model refs, then the ones their own
-// stubs name, each resolved for the consuming project (its overrides of an
-// inherited collection apply inside the graft). A ref that cannot be
-// loaded is left out; composeCollections reports it as
-// compose.unresolved_ref. nil when composition is off.
-func (s *Service) loadReferencedCollections(ctx context.Context, projectID string, view *domain.ModelView, opts Options) map[string]ReferencedCollection {
+// stubs name. Members are resolved in the collection's owner project: a
+// consuming project keeps no overrides of an inherited collection, and
+// CollectionReader.View refuses a collection the project does not own. A
+// ref that resolves to nothing is kept with Missing set, so composition
+// can say why; a reader error fails the snapshot. nil when composition is
+// off or the reader cannot look collections up by id.
+func (s *Service) loadReferencedCollections(ctx context.Context, view *domain.ModelView, opts Options) (map[string]ReferencedCollection, error) {
 	if !opts.ComposeCollections || view == nil {
-		return nil
+		return nil, nil
 	}
 	lookup, ok := s.collections.(CollectionLookupByID)
-	if !ok {
-		return nil
+	members, ok2 := s.collections.(CollectionLookupView)
+	if !ok || !ok2 {
+		return nil, nil
 	}
 	out := map[string]ReferencedCollection{}
 	seen := map[string]bool{}
@@ -381,17 +395,25 @@ func (s *Service) loadReferencedCollections(ctx context.Context, projectID strin
 		id := queue[0]
 		queue = queue[1:]
 		coll, err := lookup.LookupByID(ctx, auth.Draft(), id) // generators has no scope of its own yet: exports are draft-only
-		if err != nil || coll == nil {
+		if err != nil {
+			return nil, fmt.Errorf("lookup referenced collection %s: %w", id, err)
+		}
+		if coll == nil {
+			out[id] = ReferencedCollection{Missing: "not found"}
 			continue
 		}
-		fields, err := s.collections.View(ctx, projectID, id)
-		if err != nil || len(fields) == 0 {
+		fields, err := members.LookupView(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("resolve referenced collection %s: %w", id, err)
+		}
+		if len(fields) == 0 {
+			out[id] = ReferencedCollection{Collection: coll, Missing: "has no members"}
 			continue
 		}
 		out[id] = ReferencedCollection{Collection: coll, Fields: fields, SharedPathPrefix: graftPrefix(fields)}
 		enqueue(fields)
 	}
-	return out
+	return out, nil
 }
 
 // computeSharedPathPrefix mirrors weave/resolve.ComputeSharedPathPrefix

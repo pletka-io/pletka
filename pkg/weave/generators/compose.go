@@ -60,10 +60,14 @@ func composeCollections(fields []FieldNode, referenced map[string]ReferencedColl
 		stubAlias := stubAliasForGraft(q.field)
 		for _, ref := range q.field.Field.CollectionModels {
 			target, ok := referenced[ref.ID]
-			if !ok {
+			if !ok || target.Missing != "" {
+				why := target.Missing
+				if !ok {
+					why = "not loaded"
+				}
 				report.Warnings = append(report.Warnings, Diagnostic{
 					Code:    "compose.unresolved_ref",
-					Message: "collection_model " + ref.SemanticID + " could not be loaded; nothing grafted under " + stubAlias,
+					Message: "collection_model " + ref.SemanticID + " " + why + "; nothing grafted under " + stubAlias,
 					FieldID: q.field.Field.ID,
 				})
 				continue
