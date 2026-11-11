@@ -35,22 +35,6 @@ type CollectionLookupByID interface {
 	LookupByID(ctx context.Context, scope auth.ReadScope, id string) (*domain.Collection, error)
 }
 
-// CollectionAnchorIndexer is an optional capability — when the
-// underlying CollectionReader implements it, the snap builder uses it
-// to find collections anchored at a CIDOC class even when no field on
-// the current model belongs to them (cross-anchor composition).
-type CollectionAnchorIndexer interface {
-	AnchorIndex(ctx context.Context) ([]domain.CollectionAnchor, error)
-}
-
-// CollectionLookupView is an optional capability: a project-agnostic
-// counterpart to CollectionReader.View, used to fetch resolved fields
-// for collections discovered via the anchor index that the current
-// caller has no project-scoped access to.
-type CollectionLookupView interface {
-	LookupView(ctx context.Context, id string) ([]domain.ResolvedField, error)
-}
-
 // FieldReader is the field slice surface generators need.
 type FieldReader interface {
 	Get(ctx context.Context, projectID, id string) (*domain.Field, error)
@@ -160,12 +144,14 @@ func (s *Service) SnapshotForModel(ctx context.Context, projectID, modelID strin
 	if err != nil {
 		return nil, err
 	}
+	referenced := s.loadReferencedCollections(ctx, projectID, view, opts)
 
 	return s.attachConceptEnums(ctx, BuildModelSnapshot(ModelSnapshotInput{
 		Project:     *project,
 		Model:       *model,
 		View:        *view,
 		Collections: collections,
+		Referenced:  referenced,
 		Namespaces:  namespaces,
 		Ontologies:  ontologies,
 		Options:     opts,
@@ -354,6 +340,58 @@ func (s *Service) loadCollections(ctx context.Context, projectID string, view *d
 		out[id] = collection
 	}
 	return out, nil
+}
+
+// loadReferencedCollections loads every collection a Collection-stub field
+// in the view names in its collection_model refs, then the ones their own
+// stubs name, each resolved for the consuming project (its overrides of an
+// inherited collection apply inside the graft). A ref that cannot be
+// loaded is left out; composeCollections reports it as
+// compose.unresolved_ref. nil when composition is off.
+func (s *Service) loadReferencedCollections(ctx context.Context, projectID string, view *domain.ModelView, opts Options) map[string]ReferencedCollection {
+	if !opts.ComposeCollections || view == nil {
+		return nil
+	}
+	lookup, ok := s.collections.(CollectionLookupByID)
+	if !ok {
+		return nil
+	}
+	out := map[string]ReferencedCollection{}
+	seen := map[string]bool{}
+	var queue []string
+	enqueue := func(fields []domain.ResolvedField) {
+		for _, f := range fields {
+			if !isCollectionStub(f) {
+				continue
+			}
+			for _, ref := range f.CollectionModels {
+				if !seen[ref.ID] {
+					seen[ref.ID] = true
+					queue = append(queue, ref.ID)
+				}
+			}
+		}
+	}
+	for _, cat := range view.Categories {
+		for _, col := range cat.Collections {
+			enqueue(col.Fields)
+		}
+	}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		coll, err := lookup.LookupByID(ctx, auth.Draft(), id) // generators has no scope of its own yet: exports are draft-only
+		if err != nil || coll == nil {
+			continue
+		}
+		fields, err := s.collections.View(ctx, projectID, id)
+		if err != nil || len(fields) == 0 {
+			continue
+		}
+		out[id] = ReferencedCollection{Collection: coll, Fields: fields, SharedPathPrefix: graftPrefix(fields)}
+		enqueue(fields)
+	}
+	return out
 }
 
 // computeSharedPathPrefix mirrors weave/resolve.ComputeSharedPathPrefix

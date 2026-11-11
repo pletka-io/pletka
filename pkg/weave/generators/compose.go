@@ -107,7 +107,7 @@ func graftPrefix(fields []domain.ResolvedField) []domain.PathElement {
 			p = p[:n-1]
 		}
 	}
-	for len(p) > 0 && p[len(p)-1].Type != "class" {
+	for len(p) > 0 && p[len(p)-1].Type != string(PathRoleClass) {
 		p = p[:len(p)-1]
 	}
 	return p

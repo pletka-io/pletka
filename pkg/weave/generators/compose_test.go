@@ -1,18 +1,20 @@
 package generators
 
 import (
+	"context"
 	"testing"
 
+	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 // tsName is the path of a stub on a Timespan collection that holds a Name:
-// P4 → E52 → P1 → E33_E41, plus an optional tail.
-func tsName(tail ...domain.PathElement) []domain.PathElement {
-	return append([]domain.PathElement{
+// P4 → E52 → P1 → E33_E41.
+func tsName() []domain.PathElement {
+	return []domain.PathElement{
 		pe("property", "crm", "P4_has_time-span", 0), pe("class", "crm", "E52_Time-Span", 1),
 		pe("property", "crm", "P1_is_identified_by", 2), pe("class", "crm", "E33_E41_Linguistic_Appellation", 3),
-	}, tail...)
+	}
 }
 
 func nameCollection(id, semanticID string) ReferencedCollection {
@@ -175,5 +177,60 @@ func TestGraftPrefixLeavesATail(t *testing.T) {
 	}
 	if p := graftPrefix(shared); len(p) != 2 || p[1].Type != "class" {
 		t.Fatalf("prefix must end at a class: %+v", p)
+	}
+}
+
+// refReader is a CollectionReader + CollectionLookupByID over maps; it
+// records the project each View was asked for.
+type refReader struct {
+	colls    map[string]*domain.Collection
+	fields   map[string][]domain.ResolvedField
+	projects []string
+}
+
+func (r *refReader) Get(_ context.Context, _ auth.ReadScope, _, id string) (*domain.Collection, error) {
+	return r.colls[id], nil
+}
+
+func (r *refReader) View(_ context.Context, projectID, id string) ([]domain.ResolvedField, error) {
+	r.projects = append(r.projects, projectID)
+	return r.fields[id], nil
+}
+
+func (r *refReader) LookupByID(_ context.Context, _ auth.ReadScope, id string) (*domain.Collection, error) {
+	return r.colls[id], nil
+}
+
+func TestLoadReferencedCollectionsFollowsRefs(t *testing.T) {
+	name := nameCollection("c-name", "LAC.1")
+	r := &refReader{
+		colls: map[string]*domain.Collection{
+			"c-ts":   {Entity: domain.Entity{ID: "c-ts", SemanticID: "LAC.6", SystemName: "timespan"}},
+			"c-name": name.Collection,
+		},
+		fields: map[string][]domain.ResolvedField{
+			"c-ts":   {stubField("f-tsname", "LAC.6.F2", "timespan_name", tsName(), "c-name")},
+			"c-name": name.Fields,
+		},
+	}
+	view := &domain.ModelView{Categories: []domain.CategoryGroup{{Collections: []domain.CollectionGroup{{
+		ID:     "c-act",
+		Fields: []domain.ResolvedField{stubField("s", "OGF.1", "activity_timespan", tsName()[:2], "c-ts", "c-gone")},
+	}}}}}
+	s := &Service{collections: r}
+	got := s.loadReferencedCollections(context.Background(), "SI", view, Options{ComposeCollections: true})
+	if len(got) != 2 || got["c-ts"].Collection == nil || len(got["c-name"].Fields) != 2 {
+		t.Fatalf("loaded: %+v", got)
+	}
+	if _, ok := got["c-gone"]; ok {
+		t.Fatal("an unloadable ref must be left out")
+	}
+	for _, p := range r.projects {
+		if p != "SI" {
+			t.Fatalf("member view asked for project %q, want the consuming project SI", p)
+		}
+	}
+	if s.loadReferencedCollections(context.Background(), "SI", view, Options{}) != nil {
+		t.Fatal("composition off loads nothing")
 	}
 }
