@@ -116,14 +116,12 @@ func BuildModelSnapshot(in ModelSnapshotInput) *Snapshot {
 		}
 	}
 
-	// Snap-level collection composition (opt-in via Options.ComposeCollections).
-	// Grafts every collection that anchors at class X under every
-	// Collection-stub field whose path ends at X — recursively, with
-	// loop and depth guards. Tree enrichment is a follow-up; renderers
-	// that walk Fields directly (Arches) pick up the new graft nodes
-	// today, renderers that walk Tree (RDF/SHACL/X3ML) still see the
-	// un-composed tree until that follow-up lands.
-	fields = composeCollections(in.View, in.Collections, in.ExtraAnchored, fields, opts, &report)
+	// Snap-level collection composition (opt-in via Options.ComposeCollections):
+	// every Collection-stub field grafts the collections its collection_model
+	// refs name, recursively. Renderers that walk Fields (Arches) see the
+	// grafts; renderers that walk Tree (RDF/SHACL/X3ML) still see the
+	// un-composed tree.
+	fields = composeCollections(fields, in.Referenced, opts, &report)
 
 	snap := &Snapshot{
 		RootKind:   EntityModel,
@@ -260,25 +258,19 @@ type ModelSnapshotInput struct {
 	Model       domain.Model
 	View        domain.ModelView
 	Collections map[string]*domain.Collection
-	// ExtraAnchored is the set of collections discovered via the
-	// cross-project anchor index that the model view does not own
-	// but whose anchor class matches at least one Collection-stub
-	// field's terminal class. Each entry carries its own resolved
-	// field set (already loaded by the snap service), keyed by
-	// collection ID. composeCollections indexes these alongside the
-	// view's own collections so they can be grafted onto matching
-	// stubs. Nil / empty disables cross-anchor composition.
-	ExtraAnchored map[string]ExtraAnchoredCollection
-	Namespaces    NamespaceSet
-	Ontologies    []domain.ResolvedOntologyVersion
-	Options       Options
+	// Referenced holds every collection a Collection-stub field names in its
+	// collection_model refs (transitively), keyed by collection id and
+	// resolved for the consuming project. composeCollections grafts them.
+	Referenced map[string]ReferencedCollection
+	Namespaces NamespaceSet
+	Ontologies []domain.ResolvedOntologyVersion
+	Options    Options
 }
 
-// ExtraAnchoredCollection bundles one cross-project anchored
-// collection's identity, fields, and computed shared path prefix —
-// enough for composeCollections to include it in the byAnchor index
-// without re-walking the resolver.
-type ExtraAnchoredCollection struct {
+// ReferencedCollection is one collection a stub refers to: its entity, its
+// members as the consuming project resolves them, and the path prefix a
+// graft strips from them (graftPrefix).
+type ReferencedCollection struct {
 	Collection       *domain.Collection
 	Fields           []domain.ResolvedField
 	SharedPathPrefix []domain.PathElement

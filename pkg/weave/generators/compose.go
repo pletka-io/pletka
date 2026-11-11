@@ -6,83 +6,49 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
-// composeCollections is the snap-level graft pass: for every
-// Collection-stub field whose path ends at a CIDOC class X, copy every
-// collection's children that anchor at X under the stub, recursively.
+// composeCollections is the snap-level graft pass: every Collection-stub
+// field grafts the collections its collection_model refs name, recursively
+// (2026-11-11 nested-collections spec, decisions 1, 4, 5).
 //
-// Rule: each grafted copy carries the stub's PathElements + the
-// collection's leaf path minus its SharedPathPrefix, so the resulting
-// PathElements walk the same CIDOC backbone the curator would
-// reconstruct by hand in the Arches graph designer.
+// Each grafted copy carries the stub's PathElements + the member's path
+// minus the collection's SharedPathPrefix, the nested collection's
+// identity, the stub's max as its card max, and GraftStubID. A stub
+// without a ref grafts nothing (verify-git reports it); a ref missing from
+// referenced is a compose.unresolved_ref warning.
 //
-// Loop-safe via a per-(target collection ID, anchor URI) stack guard.
-// Depth-bounded via opts.ComposeMaxDepth (default 10).
+// Loop-safe: a collection already on the graft chain, the stub's own
+// collection included, is not grafted again. Depth-bounded via
+// opts.ComposeMaxDepth (default 10).
 //
-// Returns the augmented fields slice — originals first, grafted copies
-// appended in BFS order. The tree enrichment is a separate concern;
-// the Arches renderer consumes Fields directly, so this is enough to
-// land the OGEE Activity coverage gap (43 → ~244 leaves) without
-// touching the tree side. Tree enrichment lands in a follow-up.
-//
-// Returns the input unchanged when opts.ComposeCollections is off, or
-// when the model view has no Collection-stub fields.
-func composeCollections(view domain.ModelView, collections map[string]*domain.Collection, extraAnchored map[string]ExtraAnchoredCollection, fields []FieldNode, opts Options, report *Report) []FieldNode {
+// Returns the fields with grafted copies appended in BFS order, originals
+// first, or the input unchanged when opts.ComposeCollections is off.
+func composeCollections(fields []FieldNode, referenced map[string]ReferencedCollection, opts Options, report *Report) []FieldNode {
 	if !opts.ComposeCollections || len(fields) == 0 {
 		return fields
 	}
-	byAnchor := indexCollectionsByAnchor(view, collections)
-	// Append cross-project anchored collections (the snap service has
-	// pre-loaded their fields). These are the collections that close
-	// the OGEE Activity Duration gap: LA's Dimension, anchored at
-	// E54_Dimension, grafted under timespan_duration stubs even
-	// though no Activity field belongs to Dimension.
-	for _, ea := range extraAnchored {
-		if ea.Collection == nil || len(ea.SharedPathPrefix) == 0 {
-			continue
-		}
-		anchor := ea.SharedPathPrefix[len(ea.SharedPathPrefix)-1].URI
-		if anchor == "" {
-			continue
-		}
-		byAnchor[anchor] = append(byAnchor[anchor], collectionAtAnchor{
-			collectionID: ea.Collection.ID,
-			systemName:   ea.Collection.SystemName,
-			sharedPrefix: ea.SharedPathPrefix,
-			fields:       ea.Fields,
-		})
-	}
-	if len(byAnchor) == 0 {
-		return fields
-	}
-
 	out := make([]FieldNode, 0, len(fields)*2)
 	out = append(out, fields...)
 
 	type queueItem struct {
-		field FieldNode
-		// graftStack records (collectionID + "|" + anchorURI) pairs
-		// already on the active graft chain, so the same collection
-		// cannot be re-grafted on the same anchor inside its own
-		// composed subtree (cycle break).
-		graftStack map[string]struct{}
+		field      FieldNode
+		graftStack map[string]struct{} // collection ids on the active graft chain
 		depth      int
 	}
-
-	queue := make([]queueItem, 0, len(fields))
+	var queue []queueItem
 	for _, f := range fields {
-		if isCollectionStub(f.Field) {
-			queue = append(queue, queueItem{
-				field:      f,
-				graftStack: map[string]struct{}{},
-				depth:      0,
-			})
+		if !isCollectionStub(f.Field) {
+			continue
 		}
+		stack := map[string]struct{}{}
+		if f.CollectionID != "" {
+			stack[f.CollectionID] = struct{}{}
+		}
+		queue = append(queue, queueItem{field: f, graftStack: stack})
 	}
 
 	for len(queue) > 0 {
 		q := queue[0]
 		queue = queue[1:]
-
 		if q.depth >= opts.ComposeMaxDepth {
 			report.Warnings = append(report.Warnings, Diagnostic{
 				Code:    "compose.depth_cap",
@@ -91,94 +57,60 @@ func composeCollections(view domain.ModelView, collections map[string]*domain.Co
 			})
 			continue
 		}
-
-		anchor := terminalClassURI(q.field.Field.PathElements)
-		if anchor == "" {
-			continue
-		}
-
-		targets, ok := byAnchor[anchor]
-		if !ok {
-			continue
-		}
-
 		stubAlias := stubAliasForGraft(q.field)
-
-		for _, target := range targets {
-			stackKey := target.collectionID + "|" + anchor
-			if _, on := q.graftStack[stackKey]; on {
+		for _, ref := range q.field.Field.CollectionModels {
+			target, ok := referenced[ref.ID]
+			if !ok {
+				report.Warnings = append(report.Warnings, Diagnostic{
+					Code:    "compose.unresolved_ref",
+					Message: "collection_model " + ref.SemanticID + " could not be loaded; nothing grafted under " + stubAlias,
+					FieldID: q.field.Field.ID,
+				})
 				continue
 			}
-			newStack := copyStringSet(q.graftStack)
-			newStack[stackKey] = struct{}{}
-
-			for _, child := range target.fields {
-				grafted := graftField(q.field, child, target.sharedPrefix)
+			if _, on := q.graftStack[ref.ID]; on {
+				continue
+			}
+			stack := copyStringSet(q.graftStack)
+			stack[ref.ID] = struct{}{}
+			systemName := ""
+			if target.Collection != nil {
+				systemName = target.Collection.SystemName
+			}
+			for _, child := range target.Fields {
+				grafted := graftField(q.field, child, target)
 				// GraftPath accumulates the alias chain so the Arches
 				// renderer can mint per-path UUIDs and aliases.
 				grafted.GraftPath = append(append([]string(nil), q.field.GraftPath...), stubAlias)
-				// Slug becomes the leaf's unique part — its system name
-				// with the source collection's own prefix stripped
-				// ("name_content" → "content" inside the Name
-				// collection). The renderer joins GraftPath + Slug to
-				// build aliases that match real Arches' path-derived
-				// pattern (e.g. activity_part_name_content rather than
-				// activity_part_name_name_content).
-				grafted.Slug = leafUniqueSlug(child.SystemName, target.systemName)
+				// Slug is the leaf's unique part: its system name with the
+				// source collection's prefix stripped ("name_content" →
+				// "content"); the renderer joins GraftPath + Slug.
+				grafted.Slug = leafUniqueSlug(child.SystemName, systemName)
 				out = append(out, grafted)
 				if isCollectionStub(grafted.Field) {
-					queue = append(queue, queueItem{
-						field:      grafted,
-						graftStack: newStack,
-						depth:      q.depth + 1,
-					})
+					queue = append(queue, queueItem{field: grafted, graftStack: stack, depth: q.depth + 1})
 				}
 			}
 		}
 	}
-
 	return out
 }
 
-// collectionAtAnchor is the byAnchor map's value shape.
-type collectionAtAnchor struct {
-	collectionID string
-	systemName   string // for leaf-alias prefix stripping during graft
-	sharedPrefix []domain.PathElement
-	fields       []domain.ResolvedField
-}
-
-// indexCollectionsByAnchor produces anchor URI → list of matching
-// collections, drawn from every category in the model view. Collections
-// without a shared path prefix (terminal class unknown) are skipped —
-// they have no structural anchor to graft against.
-func indexCollectionsByAnchor(view domain.ModelView, collections map[string]*domain.Collection) map[string][]collectionAtAnchor {
-	out := map[string][]collectionAtAnchor{}
-	for _, cat := range view.Categories {
-		for _, c := range cat.Collections {
-			if c.ID == directCollectionID {
-				continue
-			}
-			if len(c.SharedPathPrefix) == 0 {
-				continue
-			}
-			anchor := c.SharedPathPrefix[len(c.SharedPathPrefix)-1].URI
-			if anchor == "" {
-				continue
-			}
-			systemName := ""
-			if entity := collections[c.ID]; entity != nil {
-				systemName = entity.SystemName
-			}
-			out[anchor] = append(out[anchor], collectionAtAnchor{
-				collectionID: c.ID,
-				systemName:   systemName,
-				sharedPrefix: c.SharedPathPrefix,
-				fields:       c.Fields,
-			})
+// graftPrefix is what a graft strips from a referenced collection's member
+// paths: the longest prefix every member shares, cut back so it ends at a
+// class and leaves every member at least one step (a one-field collection
+// keeps its last property and value).
+func graftPrefix(fields []domain.ResolvedField) []domain.PathElement {
+	p := computeSharedPathPrefix(fields)
+	for _, f := range fields {
+		if n := len(f.PathElements); n > 0 && len(p) >= n {
+			p = p[:n-1]
 		}
 	}
-	return out
+	for len(p) > 0 && p[len(p)-1].Type != "class" {
+		p = p[:len(p)-1]
+	}
+	return p
 }
 
 // isCollectionStub returns true when a field's ExpectedValueType marks
@@ -195,22 +127,9 @@ func isCollectionStub(f domain.ResolvedField) bool {
 	return false
 }
 
-// terminalClassURI returns the URI of the last "class" element in a
-// path. Empty when the path is empty or the terminal step is not a
-// class (e.g. a literal-terminated field, which is never a Collection
-// stub anyway).
-func terminalClassURI(elements []domain.PathElement) string {
-	for i := len(elements) - 1; i >= 0; i-- {
-		if elements[i].Type == "class" {
-			return elements[i].URI
-		}
-	}
-	return ""
-}
-
 // graftField builds a copy of child placed under stub: its PathElements
-// become stub.PathElements + child.PathElements stripped of the
-// collection's SharedPathPrefix.
+// become stub.PathElements + child.PathElements stripped of target's
+// SharedPathPrefix; it carries target's identity and the stub's max.
 //
 // Threads the snap's PathNode chain through the grafted PathElements so
 // assignShortPathNodeIDs (run on the snapshot after composeCollections)
@@ -219,8 +138,8 @@ func terminalClassURI(elements []domain.PathElement) string {
 // leaves off those PathNodeIDs, so two grafts that walk identical
 // chains share the same intermediate node — exactly the structural
 // merging real Arches achieves via curator-typed instance_ids.
-func graftField(stub FieldNode, child domain.ResolvedField, sharedPrefix []domain.PathElement) FieldNode {
-	tail := stripSharedPrefix(child.PathElements, sharedPrefix)
+func graftField(stub FieldNode, child domain.ResolvedField, target ReferencedCollection) FieldNode {
+	tail := stripSharedPrefix(child.PathElements, target.SharedPathPrefix)
 
 	// buildPathNodes only sets PathNode on the FieldNode.Path[] slice
 	// (its local element copies) — Field.PathElements stays bare. So
@@ -276,18 +195,22 @@ func graftField(stub FieldNode, child domain.ResolvedField, sharedPrefix []domai
 		})
 	}
 
-	return FieldNode{
-		Field:                grafted,
-		Slug:                 child.SystemName,
-		RelativePath:         stub.RelativePath,
-		Scope:                stub.Scope,
-		Path:                 pathNodes,
-		CollectionID:         stub.CollectionID,
-		CollectionSemanticID: stub.CollectionSemanticID,
-		CollectionSystemName: stub.CollectionSystemName,
-		CollectionName:       stub.CollectionName,
-		CollectionMaxOccurs:  stub.Field.MaxOccurs,
+	node := FieldNode{
+		Field:               grafted,
+		Slug:                child.SystemName,
+		RelativePath:        stub.RelativePath,
+		Scope:               stub.Scope,
+		Path:                pathNodes,
+		CollectionMaxOccurs: stub.Field.MaxOccurs,
+		GraftStubID:         stub.Field.SemanticID,
 	}
+	if c := target.Collection; c != nil {
+		node.CollectionID = c.ID
+		node.CollectionSemanticID = c.SemanticID
+		node.CollectionSystemName = c.SystemName
+		node.CollectionName = c.UIName
+	}
+	return node
 }
 
 // stubTerminalChain returns the slug chain of the stub's terminal class
