@@ -18,6 +18,10 @@ type Store interface {
 	// then prefix ASC. Pass an empty projectID to fetch only globals.
 	List(ctx context.Context, projectID string) ([]*domain.NamespaceBinding, error)
 
+	// ListResolvable returns the bindings the project resolves prefixes
+	// with: global rows, its own and its direct parents' (ParentRank set).
+	ListResolvable(ctx context.Context, projectID string) ([]*domain.NamespaceBinding, error)
+
 	// ListGlobal returns only global bindings (project_id NULL/empty),
 	// sorted by weight ASC then prefix ASC.
 	ListGlobal(ctx context.Context) ([]*domain.NamespaceBinding, error)
@@ -59,9 +63,10 @@ type Store interface {
 	DeleteGlobal(ctx context.Context, id string) error
 
 	// ExistsByPrefixAndNamespace returns true when another row (excluding
-	// excludeID) already uses the given (prefix, namespace) pair. Mirrors
-	// the unique index. Pass excludeID="" on create.
-	ExistsByPrefixAndNamespace(ctx context.Context, prefix, namespace, excludeID string) (bool, error)
+	// excludeID) in the same scope already uses the given (prefix, namespace)
+	// pair. Mirrors the per-scope unique indexes: scope is the project id, or
+	// "" for global rows. Pass excludeID="" on create.
+	ExistsByPrefixAndNamespace(ctx context.Context, scope, prefix, namespace, excludeID string) (bool, error)
 
 	// UsageByProject reports where a namespace prefix is actually used
 	// across fields, models, and collections.

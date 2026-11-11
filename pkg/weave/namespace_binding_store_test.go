@@ -256,7 +256,7 @@ func TestNamespaceBindingStore_DuplicatePrefixNamespace(t *testing.T) {
 	})
 
 	// Before creation: should not exist.
-	exists, err := nbs.ExistsByPrefixAndNamespace(ctx, "test_ex_dup", "http://example.org/dup/", "")
+	exists, err := nbs.ExistsByPrefixAndNamespace(ctx, projectID, "test_ex_dup", "http://example.org/dup/", "")
 	if err != nil {
 		t.Fatalf("ExistsByPrefixAndNamespace before create: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestNamespaceBindingStore_DuplicatePrefixNamespace(t *testing.T) {
 	}
 
 	// After creation without excludeID: should exist.
-	exists2, err := nbs.ExistsByPrefixAndNamespace(ctx, "test_ex_dup", "http://example.org/dup/", "")
+	exists2, err := nbs.ExistsByPrefixAndNamespace(ctx, projectID, "test_ex_dup", "http://example.org/dup/", "")
 	if err != nil {
 		t.Fatalf("ExistsByPrefixAndNamespace after create: %v", err)
 	}
@@ -285,11 +285,23 @@ func TestNamespaceBindingStore_DuplicatePrefixNamespace(t *testing.T) {
 	}
 
 	// After creation with the row's own ID excluded (self-update case): should not exist.
-	exists3, err := nbs.ExistsByPrefixAndNamespace(ctx, "test_ex_dup", "http://example.org/dup/", id)
+	exists3, err := nbs.ExistsByPrefixAndNamespace(ctx, projectID, "test_ex_dup", "http://example.org/dup/", id)
 	if err != nil {
 		t.Fatalf("ExistsByPrefixAndNamespace with excludeID: %v", err)
 	}
 	if exists3 {
 		t.Error("ExistsByPrefixAndNamespace with excludeID matching own row: got true, want false")
+	}
+
+	// Other scopes do not see the project's row: another project and the
+	// global rows may bind the same pair.
+	for _, scope := range []string{ids.GenerateULID(), ""} {
+		other, err := nbs.ExistsByPrefixAndNamespace(ctx, scope, "test_ex_dup", "http://example.org/dup/", "")
+		if err != nil {
+			t.Fatalf("ExistsByPrefixAndNamespace scope %q: %v", scope, err)
+		}
+		if other {
+			t.Errorf("ExistsByPrefixAndNamespace scope %q: got true, want false", scope)
+		}
 	}
 }

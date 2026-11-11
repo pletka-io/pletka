@@ -82,7 +82,7 @@
             "properties": {
               "prefix": {"type": "string"},
               "namespace": {"type": "string"},
-              "source": {"enum": ["project", "ontology", "system", "global"]}
+              "source": {"enum": ["project", "ontology", "system", "global"], "deprecated": true, "description": "No longer written; ignored on load."}
             }
           }
         }

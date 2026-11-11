@@ -44,6 +44,9 @@ type VerifyReport struct {
 	Fields    int       `json:"fields"`
 	Steps     int       `json:"steps"`
 	Findings  []Finding `json:"findings"`
+	// Notes are reported but do not fail the tree: deliberate choices a
+	// reviewer should see, such as a prefix bound unlike a parent binds it.
+	Notes []Finding `json:"notes,omitempty"`
 }
 
 type verifyContext struct {
@@ -61,6 +64,7 @@ type verifyContext struct {
 	// module-relative paths of the same files, as loader errors name them
 	schemaFailedModule map[string]bool
 	findings           []Finding
+	notes              []Finding
 }
 
 func (v *verifyContext) add(file string, line int, code, format string, args ...any) {
@@ -93,6 +97,7 @@ func Verify(ctx context.Context, rootDir string, opts VerifyOptions) (*VerifyRep
 	}
 	v.snap = snap
 	v.loadParents(opts.ParentDirs)
+	v.checkNamespaceParents()
 	v.checkVendorChecksums()
 	v.checkUnknownFiles()
 	v.collectIdentities()
@@ -119,7 +124,7 @@ func (v *verifyContext) sorted() []Finding {
 }
 
 func (v *verifyContext) report(projectID string) *VerifyReport {
-	return &VerifyReport{ProjectID: projectID, Findings: v.sorted()}
+	return &VerifyReport{ProjectID: projectID, Findings: v.sorted(), Notes: v.notes}
 }
 
 // schemaReported reports whether err is the loader refusing a file the schema

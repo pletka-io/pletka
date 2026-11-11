@@ -1278,11 +1278,10 @@ func upsertNamespaceBindings(ctx context.Context, tx pgx.Tx, defaultOntologyID s
 INSERT INTO weave_namespace_bindings (
     id, prefix, namespace, weight, source, ontology_id, project_id, created_at, updated_at
 ) VALUES ($1, $2, $3, $4, $5, $6, NULL, now(), now())
-ON CONFLICT (prefix, namespace) DO UPDATE
+ON CONFLICT (prefix, namespace) WHERE project_id IS NULL OR project_id = '' DO UPDATE
 SET weight = EXCLUDED.weight,
     source = EXCLUDED.source,
     ontology_id = COALESCE(weave_namespace_bindings.ontology_id, EXCLUDED.ontology_id),
-    project_id = NULL,
     updated_at = now()
 WHERE weave_namespace_bindings.weight <= EXCLUDED.weight
 `, id, prefix, namespace, weight, source, ontologyID); err != nil {

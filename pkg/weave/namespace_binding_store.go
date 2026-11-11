@@ -144,13 +144,15 @@ func (s *namespaceBindingStore) DeleteUser(ctx context.Context, projectID, id st
 
 // ExistsByPrefixAndNamespace reports whether a binding with the given prefix
 // and namespace already exists, excluding the row identified by excludeID
-// (pass an empty string when creating). This mirrors the unique index on
+// (pass an empty string when creating), within scope: the project id, or ""
+// for global rows. This mirrors the per-scope unique indexes on
 // (prefix, namespace).
-func (s *namespaceBindingStore) ExistsByPrefixAndNamespace(ctx context.Context, prefix, namespace, excludeID string) (bool, error) {
+func (s *namespaceBindingStore) ExistsByPrefixAndNamespace(ctx context.Context, scope, prefix, namespace, excludeID string) (bool, error) {
 	exists, err := s.queries.WeavePrefixNamespaceBindingExists(ctx, sqlcgen.WeavePrefixNamespaceBindingExistsParams{
 		Prefix:    prefix,
 		Namespace: namespace,
 		ID:        excludeID,
+		Scope:     scope,
 	})
 	if err != nil {
 		return false, fmt.Errorf("prefix namespace exists: %w", err)

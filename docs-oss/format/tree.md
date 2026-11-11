@@ -106,7 +106,7 @@ ontologies:
     - {prefix: crm, version: 7.1.3, is_primary: true}
 namespaces:
   effective_bindings:
-    - {prefix: crm, namespace: http://www.cidoc-crm.org/cidoc-crm/, source: ontology}
+    - {prefix: crm, namespace: http://www.cidoc-crm.org/cidoc-crm/}
 manifests:
   adoptions: adoptions/index.yaml
   forks: forks/index.yaml
@@ -124,9 +124,18 @@ manifests:
   **[proposed]** The ids are dropped from the written form once ontologies
   resolve from the ontology repository.
 - `namespaces.effective_bindings` is the prefix → namespace table the
-  project's qnames are read with. `source` is `project`, `ontology`, `system`
-  or `global`. Only `project` bindings are authored; the others are written
-  for self-description.
+  project's qnames are read with, and it decides them: on load, every prefix
+  the instance would resolve to another namespace gets a binding the project
+  owns. A prefix resolves with the project's own binding first, then its
+  parents' (primary first, then canonical order), then the instance's global
+  bindings, so a child inherits a prefix only its parent binds. The first
+  binding of a prefix counts. Bindings are unique per project: two projects,
+  or a project and the instance, may bind the same pair or the same prefix
+  differently. Where the tree binds a prefix unlike a parent's tree does,
+  verify-git reports a `namespace-diverges-from-parent` note (not a finding):
+  the project's binding wins in its own output, also for fields adopted from
+  that parent. `source` is deprecated and no longer written (it named where
+  an instance got the row); the loader ignores it.
 - `owner` / `created_by` are actor objects (`actor_id`, `type`, `slug`,
   `display_name`). They are informational; loading needs the owner to exist.
 

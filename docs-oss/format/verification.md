@@ -64,6 +64,13 @@ refuses the same files with the file and line in the error.
 | `parent-tree-missing` | a declared parent that is neither vendored nor given |
 | `mod-mismatch` | `pletka.mod` requirements and `project.yaml` parents/ontologies differ **[not built for ontologies]** |
 
+Notes are reported (`note:` in text output, `notes` in JSON) but do not fail
+the tree:
+
+| Code | Note |
+|---|---|
+| `namespace-diverges-from-parent` | `project.yaml` binds a prefix to another namespace than a parent's tree does; the project's binding wins in its own output |
+
 ### 5. Integrity
 
 | Code | Finding |

@@ -23,7 +23,9 @@ reject and what the path builder could not rebuild. It needs no database:
 ontologies come from the tree's vendor/ontologies (pletka.sum verified) or
 from --ontologies, a directory with the same layout. Parents come from
 --parent (repeatable) or vendor/projects. Findings are printed as
-file:line: code: message; any finding makes the command exit non-zero.`,
+file:line: code: message; any finding makes the command exit non-zero.
+Notes (prefixed "note:") report deliberate choices, such as a prefix bound
+unlike a parent binds it, and do not fail the command.`,
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -62,6 +64,11 @@ func printVerifyReport(cmd *cobra.Command, format string, rep *gitmaterializer.V
 			return err
 		}
 	}
-	_, err := fmt.Fprintf(out, "\nFields: %d  Steps: %d  Findings: %d\n", rep.Fields, rep.Steps, len(rep.Findings))
+	for _, n := range rep.Notes {
+		if _, err := fmt.Fprintln(out, "note: "+n.String()); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(out, "\nFields: %d  Steps: %d  Findings: %d  Notes: %d\n", rep.Fields, rep.Steps, len(rep.Findings), len(rep.Notes))
 	return err
 }

@@ -163,6 +163,34 @@ func TestVerify_ParentViaFlag(t *testing.T) {
 	}
 }
 
+func TestVerify_NamespaceDivergingFromParentIsANote(t *testing.T) {
+	child, parent := childFixture(t)
+	if len(mustVerifyParent(t, child, parent).Notes) != 0 {
+		t.Fatal("same binding as the parent: want no note")
+	}
+	body, err := os.ReadFile(filepath.Join(child, "project.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, child, "project.yaml", strings.Replace(string(body), "https://example.org/base/", "https://child.example/base/", 1))
+	rep := mustVerifyParent(t, child, parent)
+	if len(rep.Findings) != 0 {
+		t.Fatalf("findings: %v", rep.Findings)
+	}
+	if len(rep.Notes) != 1 || rep.Notes[0].Code != "namespace-diverges-from-parent" || !strings.Contains(rep.Notes[0].Message, "parent TPC binds it to https://example.org/base/") {
+		t.Fatalf("notes: %v", rep.Notes)
+	}
+}
+
+func mustVerifyParent(t *testing.T, child, parent string) *VerifyReport {
+	t.Helper()
+	rep, err := Verify(context.Background(), child, VerifyOptions{ParentDirs: []string{parent}, SkipOntology: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rep
+}
+
 func TestVerify_ParentAbsentIsOneFinding(t *testing.T) {
 	child, _ := childFixture(t)
 	rep, err := Verify(context.Background(), child, VerifyOptions{SkipOntology: true})

@@ -122,6 +122,18 @@ type GlobalListResult struct {
 // List returns global + project-scoped bindings, mixed together as the UI
 // renders them. Caller must have ProjectRead.
 func (s *Service) List(ctx context.Context, projectID string) ([]*domain.NamespaceBinding, error) {
+	return s.list(ctx, projectID, s.store.List)
+}
+
+// ListForProject is the narrow reader method used by cross-cutting generator
+// services: the bindings the project resolves prefixes with, its parents'
+// included (see generators.BuildNamespaceSet). A versioned read returns the
+// archived rows, as List does.
+func (s *Service) ListForProject(ctx context.Context, projectID string) ([]*domain.NamespaceBinding, error) {
+	return s.list(ctx, projectID, s.store.ListResolvable)
+}
+
+func (s *Service) list(ctx context.Context, projectID string, current func(context.Context, string) ([]*domain.NamespaceBinding, error)) ([]*domain.NamespaceBinding, error) {
 	if err := s.requireProjectRead(ctx, projectID); err != nil {
 		return nil, err
 	}
@@ -130,13 +142,7 @@ func (s *Service) List(ctx context.Context, projectID string) ([]*domain.Namespa
 			return vr.ListVersion(ctx, projectID, version)
 		}
 	}
-	return s.store.List(ctx, projectID)
-}
-
-// ListForProject is the narrow reader method used by cross-cutting generator
-// services. It aliases List so the slice remains the namespace source of truth.
-func (s *Service) ListForProject(ctx context.Context, projectID string) ([]*domain.NamespaceBinding, error) {
-	return s.List(ctx, projectID)
+	return current(ctx, projectID)
 }
 
 // Get returns a single user-owned binding scoped to projectID, or
@@ -310,7 +316,7 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 	// Duplicate-pair check before insert. The DB also has a unique index;
 	// the explicit check gives a clean 422 instead of a 500 with a
 	// driver-specific error string.
-	exists, err := s.store.ExistsByPrefixAndNamespace(ctx, in.Prefix, in.Namespace, "")
+	exists, err := s.store.ExistsByPrefixAndNamespace(ctx, projectID, in.Prefix, in.Namespace, "")
 	if err != nil {
 		return nil, err
 	}
@@ -375,7 +381,7 @@ func (s *Service) Update(ctx context.Context, projectID, id string, in UpdateInp
 
 	// Duplicate-pair check only when the (prefix, namespace) pair changed.
 	if existing.Prefix != prev.Prefix || existing.Namespace != prev.Namespace {
-		exists, err := s.store.ExistsByPrefixAndNamespace(ctx, existing.Prefix, existing.Namespace, id)
+		exists, err := s.store.ExistsByPrefixAndNamespace(ctx, projectID, existing.Prefix, existing.Namespace, id)
 		if err != nil {
 			return nil, err
 		}
@@ -412,7 +418,7 @@ func (s *Service) CreateGlobal(ctx context.Context, in CreateInput) (*domain.Nam
 	if errs := validateCreate(in); len(errs) > 0 {
 		return nil, &ErrValidation{Fields: errs}
 	}
-	exists, err := s.store.ExistsByPrefixAndNamespace(ctx, in.Prefix, in.Namespace, "")
+	exists, err := s.store.ExistsByPrefixAndNamespace(ctx, "", in.Prefix, in.Namespace, "")
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +471,7 @@ func (s *Service) UpdateGlobal(ctx context.Context, id string, in UpdateInput) (
 		return nil, &ErrValidation{Fields: errs}
 	}
 	if existing.Prefix != prev.Prefix || existing.Namespace != prev.Namespace {
-		exists, err := s.store.ExistsByPrefixAndNamespace(ctx, existing.Prefix, existing.Namespace, id)
+		exists, err := s.store.ExistsByPrefixAndNamespace(ctx, "", existing.Prefix, existing.Namespace, id)
 		if err != nil {
 			return nil, err
 		}

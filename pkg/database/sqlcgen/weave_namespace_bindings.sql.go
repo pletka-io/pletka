@@ -289,10 +289,67 @@ func (q *Queries) WeaveListNamespaceBindings(ctx context.Context, projectID *str
 	return items, nil
 }
 
+const weaveListResolvableNamespaceBindings = `-- name: WeaveListResolvableNamespaceBindings :many
+SELECT b.id, b.project_id, b.prefix, b.namespace, b.weight, b.source,
+       COALESCE(p.parent_rank, 0)::int AS parent_rank
+FROM weave_namespace_bindings b
+LEFT JOIN (
+  SELECT parent_project_id,
+         row_number() OVER (ORDER BY CASE WHEN is_primary THEN 0 ELSE 1 END, canonical_order, parent_project_id) AS parent_rank
+  FROM weave_project_inheritance
+  WHERE project_id = $1::text
+) p ON p.parent_project_id = b.project_id
+WHERE b.project_id IS NULL OR b.project_id = '' OR b.project_id = $1::text
+   OR p.parent_project_id IS NOT NULL
+ORDER BY b.weight ASC, b.prefix ASC
+`
+
+type WeaveListResolvableNamespaceBindingsRow struct {
+	ID         string  `json:"id"`
+	ProjectID  *string `json:"project_id"`
+	Prefix     string  `json:"prefix"`
+	Namespace  string  `json:"namespace"`
+	Weight     int64   `json:"weight"`
+	Source     string  `json:"source"`
+	ParentRank int32   `json:"parent_rank"`
+}
+
+// The bindings a project resolves prefixes with: global rows, the project's
+// own and those of its direct parents. parent_rank is the parent's position
+// (1 = primary, then canonical order); 0 for global and own rows.
+func (q *Queries) WeaveListResolvableNamespaceBindings(ctx context.Context, projectID string) ([]WeaveListResolvableNamespaceBindingsRow, error) {
+	rows, err := q.db.Query(ctx, weaveListResolvableNamespaceBindings, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveListResolvableNamespaceBindingsRow{}
+	for rows.Next() {
+		var i WeaveListResolvableNamespaceBindingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.Prefix,
+			&i.Namespace,
+			&i.Weight,
+			&i.Source,
+			&i.ParentRank,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weavePrefixNamespaceBindingExists = `-- name: WeavePrefixNamespaceBindingExists :one
 SELECT EXISTS(
   SELECT 1 FROM weave_namespace_bindings
   WHERE prefix = $1 AND namespace = $2 AND id <> $3
+    AND COALESCE(project_id, '') = $4::text
 )
 `
 
@@ -300,12 +357,19 @@ type WeavePrefixNamespaceBindingExistsParams struct {
 	Prefix    string `json:"prefix"`
 	Namespace string `json:"namespace"`
 	ID        string `json:"id"`
+	Scope     string `json:"scope"`
 }
 
-// Duplicate check aligned with the (prefix, namespace) unique index.
-// Excludes the row being updated via the third parameter.
+// Duplicate check aligned with the per-scope unique indexes: scope is the
+// project id, or ” for the global rows. Excludes the row being updated via
+// the third parameter.
 func (q *Queries) WeavePrefixNamespaceBindingExists(ctx context.Context, arg WeavePrefixNamespaceBindingExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, weavePrefixNamespaceBindingExists, arg.Prefix, arg.Namespace, arg.ID)
+	row := q.db.QueryRow(ctx, weavePrefixNamespaceBindingExists,
+		arg.Prefix,
+		arg.Namespace,
+		arg.ID,
+		arg.Scope,
+	)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
