@@ -103,6 +103,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if len(req.Name) == 0 || strings.TrimSpace(req.Name.Get("en", "")) == "" {
 		errs["name"] = append(errs["name"], "name (with at least an 'en' value) is required")
 	}
+	if (req.Type == "model" || req.Type == "collection") &&
+		(req.OntologyScope == nil || req.OntologyScope.Prefix == "" || req.OntologyScope.LocalName == "") {
+		errs["ontology_scope"] = append(errs["ontology_scope"], "Ontology scope is required")
+	}
 	if len(errs) > 0 {
 		apierror.Write(w, r, apierror.Validation(errs))
 		return
