@@ -1,6 +1,7 @@
 package generators
 
 import (
+	"math"
 	"sort"
 	"strings"
 
@@ -87,23 +88,30 @@ func (s NamespaceSet) Prefixes() map[string]string {
 }
 
 // BuildNamespaceSet merges project namespace metadata and visible namespace
-// bindings into a deterministic prefix set.
+// bindings into a deterministic prefix set. For each prefix a binding the
+// project owns wins, then one of its parents' (lowest ParentRank first), then
+// a global one; weight decides within the same tier.
 func BuildNamespaceSet(project domain.Project, bindings []*domain.NamespaceBinding) NamespaceSet {
 	byPrefix := make(map[string]NamespaceBinding)
+	tierOf := make(map[string]int)
 	for _, b := range bindings {
 		if b == nil || strings.TrimSpace(b.Prefix) == "" || strings.TrimSpace(b.Namespace) == "" {
 			continue
 		}
 		prefix := strings.TrimSpace(b.Prefix)
-		ns := strings.TrimSpace(b.Namespace)
+		tier, visible := bindingTier(project.ID, b)
+		if !visible {
+			continue
+		}
 		existing, ok := byPrefix[prefix]
-		if !ok || b.Weight > existing.Weight {
+		if !ok || tier < tierOf[prefix] || (tier == tierOf[prefix] && b.Weight > existing.Weight) {
 			byPrefix[prefix] = NamespaceBinding{
 				Prefix:    prefix,
-				Namespace: ns,
+				Namespace: strings.TrimSpace(b.Namespace),
 				Weight:    b.Weight,
 				Source:    b.Source,
 			}
+			tierOf[prefix] = tier
 		}
 	}
 
@@ -142,6 +150,23 @@ func BuildNamespaceSet(project domain.Project, bindings []*domain.NamespaceBindi
 		Bindings:      out,
 		ByPrefix:      lookup,
 		Project:       projectBinding,
+	}
+}
+
+// bindingTier orders bindings for one prefix, lowest first: the project's
+// own (0), its parents' by rank (1..), global (math.MaxInt). Another
+// project's row without a parent rank is not visible to the project.
+func bindingTier(projectID string, b *domain.NamespaceBinding) (int, bool) {
+	owner := strings.TrimSpace(b.ProjectID)
+	switch {
+	case owner == "":
+		return math.MaxInt, true
+	case projectID != "" && owner == projectID:
+		return 0, true
+	case b.ParentRank > 0:
+		return b.ParentRank, true
+	default:
+		return 0, false
 	}
 }
 

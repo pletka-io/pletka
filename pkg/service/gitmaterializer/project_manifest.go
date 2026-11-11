@@ -80,7 +80,10 @@ type projectManifestManifests struct {
 type projectManifestNamespaceBinding struct {
 	Prefix    string `json:"prefix"`
 	Namespace string `json:"namespace"`
-	Source    string `json:"source,omitempty"`
+	// Source is no longer written: it named where the instance got the row,
+	// which differs per instance. Older trees still carry it; the loader
+	// ignores it.
+	Source string `json:"source,omitempty"`
 }
 
 func encodeProjectManifest(manifest projectManifest) ([]byte, error) {
@@ -238,19 +241,9 @@ func (m *Materializer) loadProjectManifestOntologies(ctx context.Context, projec
 }
 
 func (m *Materializer) loadProjectManifestNamespaces(ctx context.Context, project domain.Project) ([]projectManifestNamespaceBinding, error) {
-	projectID := project.ID
-	rows, err := m.queries.WeaveListNamespaceBindings(ctx, &projectID)
+	visible, err := resolvableNamespaceBindings(ctx, m.queries, project.ID)
 	if err != nil {
 		return nil, fmt.Errorf("list namespace bindings for manifest: %w", err)
-	}
-	visible := make([]*domain.NamespaceBinding, 0, len(rows))
-	for _, row := range rows {
-		visible = append(visible, &domain.NamespaceBinding{
-			Prefix:    row.Prefix,
-			Namespace: row.Namespace,
-			Weight:    row.Weight,
-			Source:    manifestNamespaceSource(row, projectID),
-		})
 	}
 	set := generators.BuildNamespaceSet(project, visible)
 	bindings := make([]projectManifestNamespaceBinding, 0, len(set.Bindings))
@@ -258,30 +251,31 @@ func (m *Materializer) loadProjectManifestNamespaces(ctx context.Context, projec
 		bindings = append(bindings, projectManifestNamespaceBinding{
 			Prefix:    binding.Prefix,
 			Namespace: binding.Namespace,
-			Source:    binding.Source,
 		})
 	}
 	sort.Slice(bindings, func(i, j int) bool {
 		if bindings[i].Prefix != bindings[j].Prefix {
 			return bindings[i].Prefix < bindings[j].Prefix
 		}
-		if bindings[i].Namespace != bindings[j].Namespace {
-			return bindings[i].Namespace < bindings[j].Namespace
-		}
-		return bindings[i].Source < bindings[j].Source
+		return bindings[i].Namespace < bindings[j].Namespace
 	})
 	return bindings, nil
 }
 
-func manifestNamespaceSource(row sqlcgen.WeaveNamespaceBinding, projectID string) string {
-	switch {
-	case row.ProjectID != nil && strings.TrimSpace(*row.ProjectID) == projectID:
-		return "project"
-	case row.OntologyID != nil && strings.TrimSpace(*row.OntologyID) != "":
-		return "ontology"
-	case row.Source == "system":
-		return "system"
-	default:
-		return "global"
+// resolvableNamespaceBindings lists the bindings projectID resolves prefixes
+// with: global rows, its own and its direct parents' (ParentRank set), for
+// generators.BuildNamespaceSet.
+func resolvableNamespaceBindings(ctx context.Context, q *sqlcgen.Queries, projectID string) ([]*domain.NamespaceBinding, error) {
+	rows, err := q.WeaveListResolvableNamespaceBindings(ctx, projectID)
+	if err != nil {
+		return nil, err
 	}
+	out := make([]*domain.NamespaceBinding, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, &domain.NamespaceBinding{
+			Prefix: row.Prefix, Namespace: row.Namespace, Weight: row.Weight, Source: row.Source,
+			ProjectID: derefStr(row.ProjectID), ParentRank: int(row.ParentRank),
+		})
+	}
+	return out, nil
 }

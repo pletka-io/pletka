@@ -50,6 +50,25 @@ func (s *postgresStore) List(ctx context.Context, projectID string) ([]*domain.N
 	return out, nil
 }
 
+func (s *postgresStore) ListResolvable(ctx context.Context, projectID string) ([]*domain.NamespaceBinding, error) {
+	rows, err := s.queries.WeaveListResolvableNamespaceBindings(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list resolvable namespace bindings: %w", err)
+	}
+	out := make([]*domain.NamespaceBinding, 0, len(rows))
+	for _, r := range rows {
+		b := &domain.NamespaceBinding{
+			ID: r.ID, Prefix: r.Prefix, Namespace: r.Namespace,
+			Weight: r.Weight, Source: r.Source, ParentRank: int(r.ParentRank),
+		}
+		if r.ProjectID != nil {
+			b.ProjectID = *r.ProjectID
+		}
+		out = append(out, b)
+	}
+	return out, nil
+}
+
 func (s *postgresStore) ListVersion(ctx context.Context, projectID, releaseVersion string) ([]*domain.NamespaceBinding, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, project_id, prefix, namespace, weight, source
@@ -265,12 +284,13 @@ func (s *postgresStore) DeleteGlobal(ctx context.Context, id string) error {
 	return nil
 }
 
-// ExistsByPrefixAndNamespace mirrors the unique index check.
-func (s *postgresStore) ExistsByPrefixAndNamespace(ctx context.Context, prefix, namespace, excludeID string) (bool, error) {
+// ExistsByPrefixAndNamespace mirrors the per-scope unique index check.
+func (s *postgresStore) ExistsByPrefixAndNamespace(ctx context.Context, scope, prefix, namespace, excludeID string) (bool, error) {
 	exists, err := s.queries.WeavePrefixNamespaceBindingExists(ctx, sqlcgen.WeavePrefixNamespaceBindingExistsParams{
 		Prefix:    prefix,
 		Namespace: namespace,
 		ID:        excludeID,
+		Scope:     scope,
 	})
 	if err != nil {
 		return false, fmt.Errorf("prefix namespace exists: %w", err)

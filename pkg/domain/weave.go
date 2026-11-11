@@ -513,6 +513,9 @@ type NamespaceBinding struct {
 	Namespace string `json:"namespace"`
 	Weight    int64  `json:"weight"`
 	Source    string `json:"source"`
+	// ParentRank is the position (1 = primary) of the inheritance parent that
+	// owns the row, when it was listed for a child project; 0 otherwise.
+	ParentRank int `json:"-"`
 }
 
 // ProjectOntologyVersionStore manages project to ontology-version links.
@@ -547,8 +550,9 @@ type NamespaceBindingStore interface {
 	UpdateUser(ctx context.Context, b *NamespaceBinding) error
 	DeleteUser(ctx context.Context, projectID string, id string) error
 	// ExistsByPrefixAndNamespace returns true when another row (excluding id)
-	// already uses the given (prefix, namespace) pair. Pass id="" on create.
-	ExistsByPrefixAndNamespace(ctx context.Context, prefix, namespace, excludeID string) (bool, error)
+	// in scope (a project id, or "" for global rows) already uses the given
+	// (prefix, namespace) pair. Pass id="" on create.
+	ExistsByPrefixAndNamespace(ctx context.Context, scope, prefix, namespace, excludeID string) (bool, error)
 }
 
 // ProjectOntologyVersionWithCounts carries the link row plus the number of

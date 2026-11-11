@@ -1,12 +1,16 @@
 package gitmaterializer
 
 import (
+	"fmt"
 	"io/fs"
+	"maps"
 	"math"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/pletka-io/pletka/pkg/domain"
 )
@@ -43,6 +47,42 @@ func (v *verifyContext) loadParents(dirs []string) {
 			v.add("project.yaml", inheritanceLine, "parent-tree-missing", "parent %s: no tree given with --parent and none vendored; references into it are not checked", id)
 		}
 	}
+}
+
+const verifyManifestFile = "project.yaml"
+
+// checkNamespaceParents notes every prefix the tree binds to another
+// namespace than a parent's tree does. The project's binding wins in its own
+// output, also for fields adopted from that parent, so the note is not a
+// finding.
+func (v *verifyContext) checkNamespaceParents() {
+	own := firstBindings(v.snap.Manifest.Namespaces)
+	line := yamlKeyLine(v.readRel(verifyManifestFile), "namespaces")
+	for _, id := range slices.Sorted(maps.Keys(v.parents)) {
+		theirs := firstBindings(v.parents[id].Manifest.Namespaces)
+		for _, prefix := range slices.Sorted(maps.Keys(own)) {
+			if ns, ok := theirs[prefix]; ok && ns != own[prefix] {
+				v.notes = append(v.notes, Finding{File: verifyManifestFile, Line: line, Code: "namespace-diverges-from-parent",
+					Message: fmt.Sprintf("%s is bound to %s; parent %s binds it to %s", prefix, own[prefix], id, ns)})
+			}
+		}
+	}
+}
+
+// firstBindings maps each prefix to its first namespace, the one the loader
+// takes as the project's choice.
+func firstBindings(ns *projectManifestNamespaces) map[string]string {
+	out := map[string]string{}
+	if ns == nil {
+		return out
+	}
+	for _, b := range ns.EffectiveBindings {
+		prefix := strings.TrimSpace(b.Prefix)
+		if _, seen := out[prefix]; !seen && prefix != "" {
+			out[prefix] = strings.TrimSpace(b.Namespace)
+		}
+	}
+	return out
 }
 
 // checkVendorChecksums verifies pletka.sum against vendor/ when it exists.

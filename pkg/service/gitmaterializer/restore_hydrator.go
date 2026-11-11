@@ -12,6 +12,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/ids"
+	"github.com/pletka-io/pletka/pkg/weave/generators"
 )
 
 func (m *Materializer) HydrateProjectShell(ctx context.Context, plan *RestorePlan) error {
@@ -239,6 +240,12 @@ func (m *Materializer) hydrateProjectOntologiesTx(ctx context.Context, tx pgx.Tx
 	return nil
 }
 
+// hydrateProjectNamespacesTx makes project.yaml decide the project's prefix
+// bindings. It clears the bindings an earlier load created for the project,
+// then, for every prefix whose namespace the instance would resolve
+// differently, creates a binding the project owns (which wins over its
+// parents' and global rows, see generators.BuildNamespaceSet). Where the instance already agrees
+// nothing is written.
 func (m *Materializer) hydrateProjectNamespacesTx(ctx context.Context, tx pgx.Tx, q *sqlcgen.Queries, manifest ProjectManifestFile) error {
 	projectID := strings.TrimSpace(manifest.Project.ID)
 	if _, err := tx.Exec(ctx, `DELETE FROM weave_namespace_bindings WHERE project_id = $1 AND source = 'user'`, projectID); err != nil {
@@ -247,29 +254,37 @@ func (m *Materializer) hydrateProjectNamespacesTx(ctx context.Context, tx pgx.Tx
 	if manifest.Namespaces == nil {
 		return nil
 	}
+	visible, err := resolvableNamespaceBindings(ctx, q, projectID)
+	if err != nil {
+		return fmt.Errorf("hydrate project namespaces: list bindings: %w", err)
+	}
+	resolved := generators.BuildNamespaceSet(domain.Project{
+		Entity:    domain.Entity{ID: projectID},
+		Namespace: manifest.Project.Namespace,
+	}, visible).ByPrefix
+	seen := map[string]bool{}
 	for i, binding := range manifest.Namespaces.EffectiveBindings {
-		if strings.TrimSpace(binding.Prefix) == "" || strings.TrimSpace(binding.Namespace) == "" {
+		prefix, namespace := strings.TrimSpace(binding.Prefix), strings.TrimSpace(binding.Namespace)
+		if prefix == "" || namespace == "" {
 			return fmt.Errorf("hydrate project namespaces: binding at index %d missing prefix or namespace", i)
 		}
-		exists, err := q.WeavePrefixNamespaceBindingExists(ctx, sqlcgen.WeavePrefixNamespaceBindingExistsParams{
-			Prefix:    binding.Prefix,
-			Namespace: binding.Namespace,
-			ID:        "",
-		})
-		if err != nil {
-			return fmt.Errorf("hydrate project namespaces: check binding %s -> %s: %w", binding.Prefix, binding.Namespace, err)
+		// the first binding of a prefix is the project's choice, as in the
+		// snapshot's prefix expander
+		if seen[prefix] {
+			continue
 		}
-		if exists {
+		seen[prefix] = true
+		if resolved[prefix] == namespace {
 			continue
 		}
 		if _, err := q.WeaveCreateUserNamespaceBinding(ctx, sqlcgen.WeaveCreateUserNamespaceBindingParams{
 			ID:        ids.GenerateULID(),
 			ProjectID: stringPtr(projectID),
-			Prefix:    binding.Prefix,
-			Namespace: binding.Namespace,
+			Prefix:    prefix,
+			Namespace: namespace,
 			Weight:    int64(i),
 		}); err != nil {
-			return fmt.Errorf("hydrate project namespaces: create binding %s -> %s: %w", binding.Prefix, binding.Namespace, err)
+			return fmt.Errorf("hydrate project namespaces: create binding %s -> %s: %w", prefix, namespace, err)
 		}
 	}
 	return nil

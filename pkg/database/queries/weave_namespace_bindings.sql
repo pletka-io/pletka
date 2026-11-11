@@ -6,6 +6,23 @@ SELECT * FROM weave_namespace_bindings
 WHERE project_id IS NULL OR project_id = '' OR project_id = $1
 ORDER BY weight ASC, prefix ASC;
 
+-- name: WeaveListResolvableNamespaceBindings :many
+-- The bindings a project resolves prefixes with: global rows, the project's
+-- own and those of its direct parents. parent_rank is the parent's position
+-- (1 = primary, then canonical order); 0 for global and own rows.
+SELECT b.id, b.project_id, b.prefix, b.namespace, b.weight, b.source,
+       COALESCE(p.parent_rank, 0)::int AS parent_rank
+FROM weave_namespace_bindings b
+LEFT JOIN (
+  SELECT parent_project_id,
+         row_number() OVER (ORDER BY CASE WHEN is_primary THEN 0 ELSE 1 END, canonical_order, parent_project_id) AS parent_rank
+  FROM weave_project_inheritance
+  WHERE project_id = sqlc.arg(project_id)::text
+) p ON p.parent_project_id = b.project_id
+WHERE b.project_id IS NULL OR b.project_id = '' OR b.project_id = sqlc.arg(project_id)::text
+   OR p.parent_project_id IS NOT NULL
+ORDER BY b.weight ASC, b.prefix ASC;
+
 -- name: WeaveListGlobalNamespaceBindings :many
 SELECT * FROM weave_namespace_bindings
 WHERE project_id IS NULL OR project_id = ''
@@ -51,11 +68,13 @@ DELETE FROM weave_namespace_bindings
 WHERE id = $1 AND source = 'user' AND (project_id IS NULL OR project_id = '');
 
 -- name: WeavePrefixNamespaceBindingExists :one
--- Duplicate check aligned with the (prefix, namespace) unique index.
--- Excludes the row being updated via the third parameter.
+-- Duplicate check aligned with the per-scope unique indexes: scope is the
+-- project id, or '' for the global rows. Excludes the row being updated via
+-- the third parameter.
 SELECT EXISTS(
   SELECT 1 FROM weave_namespace_bindings
   WHERE prefix = $1 AND namespace = $2 AND id <> $3
+    AND COALESCE(project_id, '') = sqlc.arg(scope)::text
 );
 
 -- name: WeaveGlobalNamespaceBindingUsageByProject :many

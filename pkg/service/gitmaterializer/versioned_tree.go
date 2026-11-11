@@ -245,7 +245,6 @@ func (m *Materializer) loadProjectManifestNamespacesAtVersion(ctx context.Contex
 		bindings = append(bindings, projectManifestNamespaceBinding{
 			Prefix:    binding.Prefix,
 			Namespace: binding.Namespace,
-			Source:    binding.Source,
 		})
 	}
 	return bindings, nil
