@@ -60,6 +60,7 @@ type verifyContext struct {
 	categories   map[string]bool
 	collections  map[string]bool
 	conceptLists map[string]bool
+	stubFields   map[string]bool // fields whose expected value is a collection
 	schemaFailed map[string]bool // tree-relative paths the schema pass flagged
 	// module-relative paths of the same files, as loader errors name them
 	schemaFailedModule map[string]bool
@@ -101,6 +102,7 @@ func Verify(ctx context.Context, rootDir string, opts VerifyOptions) (*VerifyRep
 	v.checkVendorChecksums()
 	v.checkUnknownFiles()
 	v.collectIdentities()
+	v.collectStubs()
 	v.checkEntities()
 	v.checkOverrides()
 	v.checkPlacements()

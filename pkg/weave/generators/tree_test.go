@@ -405,7 +405,7 @@ func TestGraftedFieldTakesTheStubsMax(t *testing.T) {
 	two := 2
 	stub := FieldNode{Field: domain.ResolvedField{SemanticID: "S.1", MaxOccurs: &two}}
 	child := domain.ResolvedField{SemanticID: "C.1"}
-	got := graftField(stub, child, nil)
+	got := graftField(stub, child, ReferencedCollection{})
 	if got.CollectionMaxOccurs == nil || *got.CollectionMaxOccurs != 2 {
 		t.Fatalf("grafted CollectionMaxOccurs = %v, want the stub's 2", got.CollectionMaxOccurs)
 	}

@@ -56,7 +56,9 @@ refuses the same files with the file and line in the error.
 | `unresolved-collection` | `part_of_collection_id` does not resolve |
 | `placement-category` | a placement's `category_id` does not resolve |
 | `unresolved-concept-list` | a `concept_list` ref does not resolve |
-| `unresolved-model-ref` | a `resource_model`/`collection_model` ref does not resolve **[not built]** |
+| `unresolved-collection-ref` | a `collection_model` ref does not resolve |
+| `stub-without-collection` | a model or collection override places a Collection-valued field without a `collection_model` ref; the Arches pack grafts nothing there |
+| `unresolved-model-ref` | a `resource_model` ref does not resolve **[not built]** |
 | `adoption-receipt-missing` | an `_adopted_from` entity without a receipt |
 | `adoption-unknown-parent` | a receipt's source project is not a parent |
 | `adoption-missing-source` | a receipt's source entity is not in the parent |

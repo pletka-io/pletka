@@ -77,9 +77,14 @@ type FieldNode struct {
 	// distinct anchors becomes two distinct Arches nodes (Arches'
 	// node-belongs-to-one-nodegroup constraint).
 	//
-	// Stays nil/empty for now; populated when the snap-level collection
-	// composition pass lands.
+	// Set by composeCollections on every grafted copy.
 	GraftPath []string `json:"graft_path,omitempty"`
+
+	// GraftStubID is the semantic id of the Collection-valued field this
+	// grafted copy hangs under (the last link of GraftPath); empty on an
+	// un-grafted field. The Arches renderer hangs the copy on that field's
+	// node, which becomes the nested nodegroup's grouping node.
+	GraftStubID string `json:"graft_stub_id,omitempty"`
 }
 
 // PathDirection is explicit so renderers never infer direction from local-name

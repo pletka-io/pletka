@@ -47,17 +47,15 @@ type Options struct {
 	X3MLTargets []X3MLTarget
 
 	// ComposeCollections enables the snap-level collection composition
-	// pass: every Collection-stub field whose path ends at a CIDOC class
-	// X gets the children of every collection that anchors at X grafted
-	// under it, recursively, with the collection's SharedPathPrefix
-	// stripped. Off by default during the staged rollout so existing
-	// renderers stay byte-stable; flip on per call to verify.
+	// pass: every Collection-stub field grafts the collections its
+	// collection_model refs name, recursively, with each collection's
+	// shared path prefix stripped. Off by default so renderers stay
+	// byte-stable; the Arches pack turns it on.
 	ComposeCollections bool
 
 	// ComposeMaxDepth caps graft recursion. Zero falls back to the
-	// built-in default. The per-(target, anchor) guard already prevents
-	// re-grafting the same collection on the same anchor twice; this is
-	// the backstop for pathological data.
+	// built-in default. A collection already on the graft chain is never
+	// grafted again; this is the backstop for pathological data.
 	ComposeMaxDepth int
 }
 

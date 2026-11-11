@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -36,18 +35,10 @@ type CollectionLookupByID interface {
 	LookupByID(ctx context.Context, scope auth.ReadScope, id string) (*domain.Collection, error)
 }
 
-// CollectionAnchorIndexer is an optional capability — when the
-// underlying CollectionReader implements it, the snap builder uses it
-// to find collections anchored at a CIDOC class even when no field on
-// the current model belongs to them (cross-anchor composition).
-type CollectionAnchorIndexer interface {
-	AnchorIndex(ctx context.Context) ([]domain.CollectionAnchor, error)
-}
-
 // CollectionLookupView is an optional capability: a project-agnostic
-// counterpart to CollectionReader.View, used to fetch resolved fields
-// for collections discovered via the anchor index that the current
-// caller has no project-scoped access to.
+// counterpart to CollectionReader.View that resolves a collection's fields
+// in its owner project. Composition reads referenced collections through
+// it; a consuming project may not own them.
 type CollectionLookupView interface {
 	LookupView(ctx context.Context, id string) ([]domain.ResolvedField, error)
 }
@@ -161,29 +152,20 @@ func (s *Service) SnapshotForModel(ctx context.Context, projectID, modelID strin
 	if err != nil {
 		return nil, err
 	}
-
-	// When the underlying collection reader exposes a global anchor
-	// index, pull collections that anchor at any of the model's
-	// Collection-stub terminal classes — even when no field on the
-	// model belongs to them. This is what closes the OGEE Activity
-	// Duration gap: timespan_duration stubs at E54_Dimension graft
-	// LA's Dimension collection. Failures fall back to the un-graft
-	// behaviour with a logged warning, so a misconfigured DB never
-	// breaks snapshot building.
-	extraAnchored, err := s.loadExtraAnchoredCollections(ctx, view, collections, opts)
+	referenced, err := s.loadReferencedCollections(ctx, view, opts)
 	if err != nil {
 		return nil, err
 	}
 
 	return s.attachConceptEnums(ctx, BuildModelSnapshot(ModelSnapshotInput{
-		Project:       *project,
-		Model:         *model,
-		View:          *view,
-		Collections:   collections,
-		ExtraAnchored: extraAnchored,
-		Namespaces:    namespaces,
-		Ontologies:    ontologies,
-		Options:       opts,
+		Project:     *project,
+		Model:       *model,
+		View:        *view,
+		Collections: collections,
+		Referenced:  referenced,
+		Namespaces:  namespaces,
+		Ontologies:  ontologies,
+		Options:     opts,
 	})), nil
 }
 
@@ -371,135 +353,65 @@ func (s *Service) loadCollections(ctx context.Context, projectID string, view *d
 	return out, nil
 }
 
-// loadExtraAnchoredCollections asks the underlying CollectionReader
-// (when it supports CollectionAnchorIndexer + CollectionLookupView)
-// for collections whose anchor class matches at least one
-// Collection-stub field in the view but whose ID isn't already in
-// the loaded collection set. Returns an empty map when either
-// capability is missing or when the index turns up no additional
-// matches.
-//
-// Errors from the lookup are tolerated (logged-equivalent — folded
-// into a soft error) so a misconfigured DB never breaks snapshot
-// building. Returns (nil, nil) when the reader doesn't implement
-// the optional interfaces.
-//
-// Short-circuits when opts.ComposeCollections is off — the only
-// consumer of the returned map is composeCollections, which itself
-// no-ops in that case. Skipping the AnchorIndex SQL + view walk per
-// snapshot is the difference between ~2s and ~0s of overhead on a
-// 23-graph pack build (regression introduced when cross-anchor
-// loading landed on 2026-06-08).
-func (s *Service) loadExtraAnchoredCollections(ctx context.Context, view *domain.ModelView, alreadyLoaded map[string]*domain.Collection, opts Options) (map[string]ExtraAnchoredCollection, error) {
-	if !opts.ComposeCollections {
+// loadReferencedCollections loads every collection a Collection-stub field
+// in the view names in its collection_model refs, then the ones their own
+// stubs name. Members are resolved in the collection's owner project: a
+// consuming project keeps no overrides of an inherited collection, and
+// CollectionReader.View refuses a collection the project does not own. A
+// ref that resolves to nothing is kept with Missing set, so composition
+// can say why; a reader error fails the snapshot. nil when composition is
+// off or the reader cannot look collections up by id.
+func (s *Service) loadReferencedCollections(ctx context.Context, view *domain.ModelView, opts Options) (map[string]ReferencedCollection, error) {
+	if !opts.ComposeCollections || view == nil {
 		return nil, nil
 	}
-	indexer, indexable := s.collections.(CollectionAnchorIndexer)
-	viewer, viewable := s.collections.(CollectionLookupView)
-	if !indexable || !viewable {
+	lookup, ok := s.collections.(CollectionLookupByID)
+	members, ok2 := s.collections.(CollectionLookupView)
+	if !ok || !ok2 {
 		return nil, nil
 	}
-
-	// 1. Discover stub anchors in the view.
-	stubAnchors := map[string]struct{}{}
-	for _, cat := range view.Categories {
-		for _, col := range cat.Collections {
-			for _, f := range col.Fields {
-				switch strings.ToLower(strings.TrimSpace(f.ExpectedValueType)) {
-				case "collection", "collection model":
-					if u := terminalClassURI(f.PathElements); u != "" {
-						stubAnchors[u] = struct{}{}
-					}
+	out := map[string]ReferencedCollection{}
+	seen := map[string]bool{}
+	var queue []string
+	enqueue := func(fields []domain.ResolvedField) {
+		for _, f := range fields {
+			if !isCollectionStub(f) {
+				continue
+			}
+			for _, ref := range f.CollectionModels {
+				if !seen[ref.ID] {
+					seen[ref.ID] = true
+					queue = append(queue, ref.ID)
 				}
 			}
 		}
 	}
-	if len(stubAnchors) == 0 {
-		return nil, nil
-	}
-
-	// 2. Fetch the global anchor index.
-	idx, err := indexer.AnchorIndex(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("collection anchor index: %w", err)
-	}
-
-	// 3. Skip anchors view already covers (else every project's
-	// sibling Name/Statement at same anchor explodes grafts).
-	coveredAnchors := map[string]struct{}{}
 	for _, cat := range view.Categories {
 		for _, col := range cat.Collections {
-			if len(col.SharedPathPrefix) == 0 {
-				continue
-			}
-			if a := col.SharedPathPrefix[len(col.SharedPathPrefix)-1].URI; a != "" {
-				coveredAnchors[a] = struct{}{}
-			}
+			enqueue(col.Fields)
 		}
 	}
-
-	// 4. Group candidates per uncovered anchor.
-	loadedIDs := map[string]struct{}{}
-	for id := range alreadyLoaded {
-		loadedIDs[id] = struct{}{}
-	}
-	// Track which projects the already-loaded collections come from
-	// so the tie-break for cross-anchor candidates can prefer the
-	// "host" project's neighbours. OGEE's view loads LAC.* (project
-	// LA); when picking a Dimension among GLBC.5 / LAC.8 / SRDC.5,
-	// LA wins because it's where the rest of the model's collections
-	// already live.
-	preferredProjects := map[string]int{}
-	for _, c := range alreadyLoaded {
-		if c != nil && c.ProjectID != "" {
-			preferredProjects[c.ProjectID]++
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		coll, err := lookup.LookupByID(ctx, auth.Draft(), id) // generators has no scope of its own yet: exports are draft-only
+		if err != nil {
+			return nil, fmt.Errorf("lookup referenced collection %s: %w", id, err)
 		}
-	}
-
-	candidatesByAnchor := map[string][]domain.CollectionAnchor{}
-	for _, ca := range idx {
-		if _, want := stubAnchors[ca.AnchorURI]; !want {
+		if coll == nil {
+			out[id] = ReferencedCollection{Missing: "not found"}
 			continue
 		}
-		if _, covered := coveredAnchors[ca.AnchorURI]; covered {
+		fields, err := members.LookupView(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("resolve referenced collection %s: %w", id, err)
+		}
+		if len(fields) == 0 {
+			out[id] = ReferencedCollection{Collection: coll, Missing: "has no members"}
 			continue
 		}
-		if _, dup := loadedIDs[ca.CollectionID]; dup {
-			continue
-		}
-		candidatesByAnchor[ca.AnchorURI] = append(candidatesByAnchor[ca.AnchorURI], ca)
-	}
-
-	// 5. Per uncovered anchor, pick exactly one collection
-	// (lex-smallest ID for determinism). One graft per anchor —
-	// curator-like, not exhaustive multi-graft.
-	out := map[string]ExtraAnchoredCollection{}
-	for _, candidates := range candidatesByAnchor {
-		pick := candidates[0]
-		pickScore := preferredProjects[pick.ProjectID]
-		for _, c := range candidates[1:] {
-			cScore := preferredProjects[c.ProjectID]
-			// 1. Higher preferred-project count wins.
-			// 2. Tie: lex-smallest collection ID for determinism.
-			better := cScore > pickScore || (cScore == pickScore && c.CollectionID < pick.CollectionID)
-			if better {
-				pick = c
-				pickScore = cScore
-			}
-		}
-		coll, err := s.collections.(CollectionLookupByID).LookupByID(ctx, auth.Draft(), pick.CollectionID) // generators has no scope of its own yet: exports are draft-only
-		if err != nil || coll == nil {
-			continue
-		}
-		fields, err := viewer.LookupView(ctx, pick.CollectionID)
-		if err != nil || len(fields) == 0 {
-			continue
-		}
-		out[pick.CollectionID] = ExtraAnchoredCollection{
-			Collection:       coll,
-			Fields:           fields,
-			SharedPathPrefix: computeSharedPathPrefix(fields),
-		}
+		out[id] = ReferencedCollection{Collection: coll, Fields: fields, SharedPathPrefix: graftPrefix(fields)}
+		enqueue(fields)
 	}
 	return out, nil
 }

@@ -181,6 +181,39 @@ func (v *verifyContext) collectIdentities() {
 	}
 }
 
+// valueTypeCollection is a field's expected_value_type for a stub (lower-cased).
+const valueTypeCollection = "collection"
+
+// collectStubs records the fields whose expected value is a collection (a
+// stub grafts the collection its collection_model ref names), from this
+// tree, its loaded parents and their vendored projects.
+func (v *verifyContext) collectStubs() {
+	v.stubFields = map[string]bool{}
+	var walk func(ps *ProjectSnapshot)
+	walk = func(ps *ProjectSnapshot) {
+		if ps == nil {
+			return
+		}
+		for _, item := range ps.Entities.Fields {
+			doc, err := decodeCanonicalYAML[canonicalFieldDoc](item.Payload)
+			if err != nil {
+				continue // the schema or decode pass reports it
+			}
+			switch strings.ToLower(strings.TrimSpace(doc.ExpectedValueType)) {
+			case valueTypeCollection, valueTypeCollection + " model":
+				v.stubFields[item.EntityID] = true
+			}
+		}
+		for _, vp := range ps.Vendor.Projects {
+			walk(vp.Snapshot)
+		}
+	}
+	walk(v.snap)
+	for _, ps := range v.parents {
+		walk(ps)
+	}
+}
+
 // decodeDoc decodes an entity file. A file the schema pass already flagged
 // is not reported again. ok is false when decoding failed.
 func decodeDoc[T any](v *verifyContext, item SnapshotEntityFile) (doc T, ok bool) {
@@ -303,10 +336,24 @@ func (v *verifyContext) checkOverrideRefs(item SnapshotEntityFile) {
 	if doc.PartOfCollectionID != "" && !v.collections[doc.PartOfCollectionID] {
 		v.add(item.Path, yamlKeyLine(item.Payload, "part_of_collection_id"), "unresolved-collection", "collection %s not found", doc.PartOfCollectionID)
 	}
+	hasCollectionRef := false
 	for _, ref := range doc.Refs {
-		if ref.RefType == "concept_list" && !v.conceptLists[ref.SemanticID] {
-			v.add(item.Path, yamlKeyLine(item.Payload, "refs"), "unresolved-concept-list", "concept list %s not found", ref.SemanticID)
+		switch ref.RefType {
+		case "concept_list":
+			if !v.conceptLists[ref.SemanticID] {
+				v.add(item.Path, yamlKeyLine(item.Payload, "refs"), "unresolved-concept-list", "concept list %s not found", ref.SemanticID)
+			}
+		case "collection_model":
+			hasCollectionRef = true
+			if !v.collections[ref.SemanticID] && !v.inUnloadedParent(ref.SemanticID) {
+				v.add(item.Path, yamlKeyLine(item.Payload, "refs"), "unresolved-collection-ref", "collection %s not found", ref.SemanticID)
+			}
 		}
+	}
+	// refs belong to the winning override, so a placement of a stub names
+	// its collection itself; base overrides place nothing
+	if item.EntityType != entityTypeBaseOverride && doc.AdoptedFrom == "" && v.stubFields[fieldID] && !hasCollectionRef {
+		v.add(item.Path, fieldLine, "stub-without-collection", "field %s holds a collection but this placement names none in refs; the Arches pack grafts nothing here", fieldID)
 	}
 }
 
