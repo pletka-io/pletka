@@ -111,6 +111,14 @@ func TestVerify_StructureFindings(t *testing.T) {
 		{"unresolved collection", func(r string) {
 			write(t, r, "models/TPCM.1/overrides/TPCF.1@a.yaml", "field_id: TPCF.1\nentity_type: model\nentity_id: TPCM.1\npart_of_collection_id: TPCC.3\n")
 		}, []string{"unresolved-collection"}, "models/TPCM.1/overrides/TPCF.1@a.yaml", 4},
+		{"stub without collection", func(r string) {
+			write(t, r, "fields/TPCF.3/field.yaml", "semantic_id: TPCF.3\nsystem_name: parts\nui_name: {en: Parts}\nontology_scope: base:Thing\npath_elements: [base:has_part, base:Thing]\nexpected_value_type: Collection\nstatus: draft\n")
+			write(t, r, "fields/TPCF.3/base-override.yaml", "field_id: TPCF.3\nentity_type: \"\"\ncategory_id: TPC.CAT.1\n")
+			write(t, r, "models/TPCM.1/overrides/TPCF.3@c.yaml", "field_id: TPCF.3\nentity_type: model\nentity_id: TPCM.1\ncategory_id: TPC.CAT.1\n")
+		}, []string{"stub-without-collection"}, "models/TPCM.1/overrides/TPCF.3@c.yaml", 1},
+		{"unresolved collection ref", func(r string) {
+			write(t, r, "models/TPCM.1/overrides/TPCF.1@a.yaml", "field_id: TPCF.1\nentity_type: model\nentity_id: TPCM.1\nrefs:\n  - {ref_type: collection_model, semantic_id: TPCC.9}\n")
+		}, []string{"unresolved-collection-ref"}, "models/TPCM.1/overrides/TPCF.1@a.yaml", 4},
 		{"orphan overrides", func(r string) {
 			write(t, r, "models/TPCM.2/overrides/TPCF.1@d.yaml", "field_id: TPCF.1\nentity_type: model\nentity_id: TPCM.2\n")
 		}, []string{"orphan-overrides"}, "models/TPCM.2/overrides/TPCF.1@d.yaml", 0},
@@ -133,6 +141,21 @@ func TestVerify_StructureFindings(t *testing.T) {
 				t.Fatalf("location %s:%d, want %s:%d", rep.Findings[0].File, rep.Findings[0].Line, tc.file, tc.line)
 			}
 		})
+	}
+}
+
+func TestVerify_StubWithCollectionRefIsClean(t *testing.T) {
+	root := verifyFixture(t)
+	write(t, root, "collections/TPCC.1/collection.yaml", "semantic_id: TPCC.1\nsystem_name: naming\nui_name: {en: Naming}\nstatus: draft\n")
+	write(t, root, "fields/TPCF.3/field.yaml", "semantic_id: TPCF.3\nsystem_name: parts\nui_name: {en: Parts}\nontology_scope: base:Thing\npath_elements: [base:has_part, base:Thing]\nexpected_value_type: Collection\nstatus: draft\n")
+	write(t, root, "fields/TPCF.3/base-override.yaml", "field_id: TPCF.3\nentity_type: \"\"\ncategory_id: TPC.CAT.1\n")
+	write(t, root, "models/TPCM.1/overrides/TPCF.3@c.yaml", "field_id: TPCF.3\nentity_type: model\nentity_id: TPCM.1\ncategory_id: TPC.CAT.1\nrefs:\n  - {ref_type: collection_model, semantic_id: TPCC.1, position: 1}\n")
+	rep, err := Verify(context.Background(), root, VerifyOptions{SkipOntology: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Findings) != 0 {
+		t.Fatalf("findings: %v", rep.Findings)
 	}
 }
 
