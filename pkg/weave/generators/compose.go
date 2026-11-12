@@ -238,7 +238,7 @@ func stubTerminalChain(elements []domain.PathElement) []string {
 }
 
 // stripSharedPrefix removes the longest leading run of elements that
-// matches the collection's SharedPathPrefix by URI. If the child's path
+// matches the collection's SharedPathPrefix step for step (SameStep). If the child's path
 // does not share the expected prefix (unusual — would mean the
 // collection's prefix was mis-computed), the child path is returned
 // unchanged.
@@ -248,7 +248,7 @@ func stripSharedPrefix(child, sharedPrefix []domain.PathElement) []domain.PathEl
 		return child
 	}
 	for i := 0; i < n; i++ {
-		if child[i].URI != sharedPrefix[i].URI {
+		if !child[i].SameStep(sharedPrefix[i]) {
 			return child
 		}
 	}

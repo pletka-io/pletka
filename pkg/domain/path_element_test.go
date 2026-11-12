@@ -97,3 +97,17 @@ func TestOntologyPathWithMultiType(t *testing.T) {
 		t.Errorf("OntologyPath() =\n  %q\nwant:\n  %q", got, want)
 	}
 }
+
+func TestPathElementSameStep(t *testing.T) {
+	curie := domain.PathElement{Prefix: "crm", LocalName: "P1_is_identified_by", URI: "crm:P1_is_identified_by"}
+	full := domain.PathElement{Prefix: "crm", LocalName: "P1_is_identified_by", URI: "http://www.cidoc-crm.org/cidoc-crm/P1_is_identified_by"}
+	if !curie.SameStep(full) {
+		t.Fatal("prefixed name and full URI of one step must match")
+	}
+	if curie.SameStep(domain.PathElement{Prefix: "crm", LocalName: "P2_has_type", URI: "crm:P2_has_type"}) {
+		t.Fatal("different steps must not match")
+	}
+	if (domain.PathElement{URI: "x:a"}).SameStep(domain.PathElement{URI: "x:b"}) {
+		t.Fatal("without names, URIs decide")
+	}
+}

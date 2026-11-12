@@ -432,7 +432,7 @@ func computeSharedPathPrefix(fields []domain.ResolvedField) []domain.PathElement
 			prefixLen = len(f.PathElements)
 		}
 		for i := 0; i < prefixLen; i++ {
-			if f.PathElements[i].URI != first[i].URI {
+			if !f.PathElements[i].SameStep(first[i]) {
 				prefixLen = i
 				break
 			}

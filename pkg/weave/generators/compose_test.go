@@ -262,3 +262,22 @@ func TestComposeUnloadableRefSaysWhy(t *testing.T) {
 		t.Fatalf("warnings: %+v", rep.Warnings)
 	}
 }
+
+// The editor wrote full URIs, the import prefixed names: one step either way.
+func TestGraftPrefixIgnoresURIForm(t *testing.T) {
+	full := func(e domain.PathElement) domain.PathElement {
+		e.URI = "http://www.cidoc-crm.org/cidoc-crm/" + e.LocalName
+		return e
+	}
+	fields := []domain.ResolvedField{
+		field("a", "X.F1", "content", 1, pe("property", "crm", "P1_is_identified_by", 0), pe("class", "crm", "E33_E41_Linguistic_Appellation", 1), pe("property", "crm", "P190_has_symbolic_content", 2), pe("literal", "xsd", "string", 3)),
+		field("b", "X.F2", "assignment", 2, full(pe("property", "crm", "P1_is_identified_by", 0)), full(pe("class", "crm", "E33_E41_Linguistic_Appellation", 1)), full(pe("property", "crm", "P141i_was_assigned_by", 2)), full(pe("class", "crm", "E13_Attribute_Assignment", 3))),
+	}
+	p := graftPrefix(fields)
+	if len(p) != 2 {
+		t.Fatalf("prefix: %+v", p)
+	}
+	if tail := stripSharedPrefix(fields[1].PathElements, p); len(tail) != 2 || tail[0].LocalName != "P141i_was_assigned_by" {
+		t.Fatalf("tail: %+v", tail)
+	}
+}

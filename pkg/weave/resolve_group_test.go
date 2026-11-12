@@ -43,3 +43,16 @@ func TestGroupByCategoryCollectionOrderIsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestComputeSharedPathPrefixIgnoresURIForm(t *testing.T) {
+	step := func(uri string) domain.PathElement {
+		return domain.PathElement{Type: "property", Prefix: "crm", LocalName: "P1_is_identified_by", URI: uri}
+	}
+	got := ComputeSharedPathPrefix([]domain.ResolvedField{
+		{PathElements: []domain.PathElement{step("crm:P1_is_identified_by"), {Prefix: "crm", LocalName: "E41_Appellation", URI: "crm:E41_Appellation"}}},
+		{PathElements: []domain.PathElement{step("http://www.cidoc-crm.org/cidoc-crm/P1_is_identified_by"), {Prefix: "crm", LocalName: "E55_Type", URI: "crm:E55_Type"}}},
+	})
+	if len(got) != 1 {
+		t.Fatalf("prefix: %+v", got)
+	}
+}
