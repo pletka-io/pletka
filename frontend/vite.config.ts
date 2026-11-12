@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { delimiter, dirname, relative, resolve } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 
 type ContributionKind =
   | 'globalEntries'
@@ -287,7 +287,18 @@ export default defineConfig({
   // Vite emit absolute /static/dist/… paths everywhere, so the preload
   // URLs are correct.
   base: '/static/dist/',
-  plugins: [frontendContributionsPlugin(frontendContributions), svelte()],
+  plugins: [
+    frontendContributionsPlugin(frontendContributions),
+    svelte(),
+    // emptyOutDir wipes the tracked dist/.gitkeep; put it back so a build
+    // leaves the checkout clean.
+    {
+      name: 'keep-dist-gitkeep',
+      closeBundle() {
+        writeFileSync(resolve(__dirname, '../pkg/assets/static/dist/.gitkeep'), '');
+      },
+    },
+  ],
   resolve: {
     alias: {
       $lib: resolve(__dirname, 'src/lib'),
