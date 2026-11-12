@@ -5,7 +5,7 @@
 -- default categories, collection placements (each with its archive), category
 -- adoptions and the change log. A row whose semantic id is already another
 -- row's id is left alone.
-CREATE TEMP TABLE category_rekey ON COMMIT DROP AS
+CREATE TEMP TABLE category_rekey AS
 SELECT DISTINCT c.id AS old_id, c.semantic_id AS new_id
 FROM (
     SELECT id, semantic_id FROM weave_categories
@@ -36,6 +36,8 @@ UPDATE weave_change_log t SET entity_id = r.new_id FROM category_rekey r
 
 ALTER TABLE weave_collections ADD CONSTRAINT weave_collections_default_category_fkey
     FOREIGN KEY (default_category_id) REFERENCES weave_categories(id) ON DELETE SET NULL;
+
+DROP TABLE category_rekey;
 
 -- +goose Down
 -- The ULIDs are not kept, so there is nothing to restore.
