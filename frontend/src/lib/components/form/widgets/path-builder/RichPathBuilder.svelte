@@ -170,7 +170,8 @@
   function suggestionToElement(s: PathSuggestion, position: number): PathElement {
     const el: PathElement = {
       type: normalizeType(s.type),
-      uri: s.uri || prefixedName({ prefix: s.prefix, local_name: s.local_name } as PathElement),
+      // The prefixed name, as imported paths carry it; s.uri is the full URI.
+      uri: s.prefix ? prefixedName({ prefix: s.prefix, local_name: s.local_name } as PathElement) : s.uri || s.local_name,
       prefix: s.prefix,
       local_name: s.local_name,
       position,

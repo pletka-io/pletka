@@ -58,6 +58,17 @@ func (pe PathElement) PrefixedName() string {
 	return result
 }
 
+// SameStep reports whether two elements name the same ontology step. The
+// prefixed name decides, so "crm:P1_is_identified_by" and its full URI
+// match: imported paths carry the one, editor-built paths the other.
+// Elements without a name fall back to the URI.
+func (pe PathElement) SameStep(o PathElement) bool {
+	if pe.LocalName != "" && o.LocalName != "" {
+		return pe.PrefixedName() == o.PrefixedName()
+	}
+	return pe.URI == o.URI
+}
+
 // ShortCode returns the compact class identifier for UI display: the
 // class code when present (e.g. "E21"), the derived alpha+digit prefix
 // of the local name as a fallback (e.g. "ZE37_Population" → "ZE37"),
