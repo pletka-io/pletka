@@ -10,26 +10,54 @@ import (
 )
 
 const weaveAdoptionSourcePin = `-- name: WeaveAdoptionSourcePin :one
-SELECT source_mode, COALESCE(source_version, '')::text AS source_version
-FROM weave_project_inheritance
-WHERE project_id = $1 AND parent_project_id = $2
+WITH RECURSIVE chain AS (
+    SELECT wpi.parent_project_id AS project_id, wpi.source_mode,
+           COALESCE(wpi.source_version, '')::text AS source_version,
+           1 AS depth, ARRAY[wpi.project_id, wpi.parent_project_id] AS path
+    FROM weave_project_inheritance wpi
+    WHERE wpi.project_id = $2::text
+    UNION ALL
+    SELECT n.parent_id, n.source_mode, n.source_version, c.depth + 1, c.path || n.parent_id
+    FROM chain c
+    JOIN LATERAL (
+        SELECT wpi.parent_project_id AS parent_id, wpi.source_mode,
+               COALESCE(wpi.source_version, '')::text AS source_version
+        FROM weave_project_inheritance wpi
+        WHERE c.source_mode = 'draft' AND wpi.project_id = c.project_id
+        UNION ALL
+        SELECT wpia.parent_project_id, wpia.source_mode,
+               COALESCE(wpia.source_version, '')::text
+        FROM weave_project_inheritance_archive wpia
+        WHERE c.source_mode = 'release' AND wpia.project_id = c.project_id
+          AND wpia.version_number = c.source_version
+    ) n ON TRUE
+    WHERE c.depth < 10 AND NOT (n.parent_id = ANY(c.path))
+)
+SELECT source_mode, source_version, depth
+FROM chain
+WHERE project_id = $1::text
+ORDER BY depth
+LIMIT 1
 `
 
 type WeaveAdoptionSourcePinParams struct {
-	ProjectID       string `json:"project_id"`
 	ParentProjectID string `json:"parent_project_id"`
+	ProjectID       string `json:"project_id"`
 }
 
 type WeaveAdoptionSourcePinRow struct {
 	SourceMode    string `json:"source_mode"`
 	SourceVersion string `json:"source_version"`
+	Depth         int32  `json:"depth"`
 }
 
-// The consumer's parent link to a source: draft-following or a pinned release.
+// The link by which the consumer reaches a source: its own parent link, or
+// for an ancestor, the link at the nearest hop. A pinned parent's own links
+// are the ones its pinned release recorded. depth 1 is a direct parent.
 func (q *Queries) WeaveAdoptionSourcePin(ctx context.Context, arg WeaveAdoptionSourcePinParams) (WeaveAdoptionSourcePinRow, error) {
-	row := q.db.QueryRow(ctx, weaveAdoptionSourcePin, arg.ProjectID, arg.ParentProjectID)
+	row := q.db.QueryRow(ctx, weaveAdoptionSourcePin, arg.ParentProjectID, arg.ProjectID)
 	var i WeaveAdoptionSourcePinRow
-	err := row.Scan(&i.SourceMode, &i.SourceVersion)
+	err := row.Scan(&i.SourceMode, &i.SourceVersion, &i.Depth)
 	return i, err
 }
 

@@ -14,19 +14,23 @@ import (
 	"github.com/pletka-io/pletka/pkg/domain"
 )
 
-// Version returns the consumer's pinned release of the source when that
-// release holds the entity, else the newest live release that does. A
-// consumer that follows the source's draft on purpose, or an entity no
-// release holds, gets an empty version; a release cut refuses while one
-// remains.
+// Version returns the release the consumer's chain pins the source at when
+// that release holds the entity, else the newest live release that does. A
+// source reached through a pinned parent is pinned at the release that
+// parent's pinned release took it at. A consumer that follows a direct
+// parent's draft on purpose, or an entity no release holds, gets an empty
+// version; a release cut refuses while one remains.
 func Version(ctx context.Context, q *sqlcgen.Queries, projectID, sourceProjectID, entityType, entityID string) (string, error) {
 	pin, err := q.WeaveAdoptionSourcePin(ctx, sqlcgen.WeaveAdoptionSourcePinParams{ProjectID: projectID, ParentProjectID: sourceProjectID})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 	case err != nil:
 		return "", fmt.Errorf("read parent link for adoption: %w", err)
-	case pin.SourceMode == string(domain.DependencySourceDraft):
+	case pin.SourceMode == string(domain.DependencySourceDraft) && pin.Depth == 1:
 		return "", nil
+	case pin.SourceMode == string(domain.DependencySourceDraft):
+		// An ancestor reached through draft links pins nothing; fall back
+		// to the newest release that holds the entity, as before.
 	case pin.SourceVersion != "":
 		ok, err := q.WeaveReleaseContainsEntity(ctx, sqlcgen.WeaveReleaseContainsEntityParams{SourceProjectID: sourceProjectID, Version: pin.SourceVersion, EntityType: entityType, EntityID: entityID})
 		if err != nil {
