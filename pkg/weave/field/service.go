@@ -328,7 +328,9 @@ func (s *Service) ListAdoptedExplicit(ctx context.Context, projectID string) ([]
 			continue
 		}
 		seen[a.SourceEntityID] = true
-		f, err := s.store.GetByID(ctx, a.SourceEntityID)
+		// Read the source at the release the receipt names; an empty
+		// SourceVersion follows the source's draft.
+		f, err := s.adoptedSource(ctx, a)
 		if err != nil || f == nil {
 			continue
 		}
@@ -1032,4 +1034,14 @@ func (s *Service) requireProjectWrite(ctx context.Context, projectID string) err
 		return &ErrForbidden{Capability: string(auth.ProjectEdit), Resource: "project:" + projectID}
 	}
 	return nil
+}
+
+// adoptedSource returns the field an adoption receipt names, at the
+// source release the receipt recorded, or the source's draft when it
+// recorded none.
+func (s *Service) adoptedSource(ctx context.Context, a domain.Adoption) (*domain.Field, error) {
+	if a.SourceVersion == "" {
+		return s.store.GetByID(ctx, a.SourceEntityID)
+	}
+	return s.store.GetByIDVersion(ctx, a.SourceProjectID, a.SourceEntityID, a.SourceVersion)
 }
