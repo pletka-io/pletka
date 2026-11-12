@@ -11,7 +11,15 @@ import (
 
 type selectorTarget struct {
 	ProjectID string
-	Version   string
+	// Version is the release whose content (fields, collections) is
+	// searched; "" reads the hot tables.
+	Version string
+	// chainVersion is the release whose archived inheritance rows describe
+	// this project's parents; "" reads the live links. It differs from
+	// Version when the root is viewed at a release: that cut snapshotted the
+	// whole chain under the root's version, while each parent's content
+	// stays at the release the chain pinned it to.
+	chainVersion string
 }
 
 const maxSelectorDepth = 10
@@ -24,7 +32,7 @@ const maxSelectorDepth = 10
 // root target read from the project's own archived (_archive) rows via
 // searchArchivedFields/searchArchivedCollections, instead of the hot tables.
 func resolveProjectTargets(ctx context.Context, pool *pgxpool.Pool, projectID, scope, rootVersion string) ([]selectorTarget, error) {
-	queue := []selectorTarget{{ProjectID: projectID, Version: rootVersion}}
+	queue := []selectorTarget{{ProjectID: projectID, Version: rootVersion, chainVersion: rootVersion}}
 	visited := make(map[string]struct{})
 	out := make([]selectorTarget, 0)
 
@@ -63,8 +71,8 @@ func selectorTargetKey(target selectorTarget) string {
 }
 
 func listParentTargets(ctx context.Context, pool *pgxpool.Pool, target selectorTarget) ([]selectorTarget, error) {
-	if strings.TrimSpace(target.Version) != "" {
-		return listParentTargetsArchived(ctx, pool, target.ProjectID, target.Version)
+	if strings.TrimSpace(target.chainVersion) != "" {
+		return listParentTargetsArchived(ctx, pool, target.ProjectID, target.chainVersion)
 	}
 	return listParentTargetsDraft(ctx, pool, target.ProjectID)
 }
@@ -89,7 +97,10 @@ func listParentTargetsDraft(ctx context.Context, pool *pgxpool.Pool, projectID s
 		}
 		next := selectorTarget{ProjectID: parentID}
 		if normalizeSourceMode(sourceMode) == "release" {
+			// A pinned parent's own parents are the ones its release
+			// recorded.
 			next.Version = strings.TrimSpace(sourceVersion)
+			next.chainVersion = next.Version
 		}
 		out = append(out, next)
 	}
@@ -115,7 +126,7 @@ func listParentTargetsDraft(ctx context.Context, pool *pgxpool.Pool, projectID s
 
 func listParentTargetsArchived(ctx context.Context, pool *pgxpool.Pool, projectID, version string) ([]selectorTarget, error) {
 	rows, err := pool.Query(ctx, `
-		SELECT parent_project_id
+		SELECT parent_project_id, source_mode, COALESCE(source_version, '')
 		FROM weave_project_inheritance_archive
 		WHERE project_id = $1 AND version_number = $2
 		ORDER BY CASE WHEN is_primary THEN 0 ELSE 1 END, canonical_order ASC, parent_project_id ASC
@@ -127,11 +138,17 @@ func listParentTargetsArchived(ctx context.Context, pool *pgxpool.Pool, projectI
 
 	out := make([]selectorTarget, 0)
 	for rows.Next() {
-		var parentID string
-		if err := rows.Scan(&parentID); err != nil {
+		var parentID, sourceMode, sourceVersion string
+		if err := rows.Scan(&parentID, &sourceMode, &sourceVersion); err != nil {
 			return nil, fmt.Errorf("scan archived project inheritance parent: %w", err)
 		}
-		out = append(out, selectorTarget{ProjectID: parentID, Version: version})
+		// The rows sit under version, but the parent's content is at the
+		// release the link pinned, or hot for a draft-following link.
+		next := selectorTarget{ProjectID: parentID, chainVersion: version}
+		if normalizeSourceMode(sourceMode) == "release" {
+			next.Version = strings.TrimSpace(sourceVersion)
+		}
+		out = append(out, next)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate archived project inheritances: %w", err)
@@ -154,7 +171,7 @@ func listParentTargetsArchived(ctx context.Context, pool *pgxpool.Pool, projectI
 	if parent == nil || *parent == "" {
 		return nil, nil
 	}
-	return []selectorTarget{{ProjectID: *parent, Version: version}}, nil
+	return []selectorTarget{{ProjectID: *parent, chainVersion: version}}, nil
 }
 
 func normalizeSourceMode(mode string) string {

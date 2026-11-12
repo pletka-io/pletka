@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/internal/testdb"
@@ -385,5 +387,72 @@ func TestSearchEndpoints_RequireProjectRead(t *testing.T) {
 	}
 	if len(resp.Items) != 1 || resp.Items[0].ID != fieldID {
 		t.Fatalf("owner search items=%+v, want the seeded field", resp.Items)
+	}
+}
+
+// TestResolveProjectTargets_ParentPinsComeFromArchivedLink checks that a
+// pinned parent's own parents are searched at the versions that parent's
+// release recorded, not at the parent's version number.
+func TestResolveProjectTargets_ParentPinsComeFromArchivedLink(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	ownerID := seedActor(t, pool, "TEST_TARGETS_OWNER")
+	const (
+		child  = "TEST_TARGETS_CHILD"
+		parent = "TEST_TARGETS_PARENT"
+		pinned = "TEST_TARGETS_GP_PINNED"
+		draft  = "TEST_TARGETS_GP_DRAFT"
+	)
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = pool.Exec(bg, `DELETE FROM weave_project_inheritance_archive WHERE project_id LIKE 'TEST_TARGETS_%'`)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_project_inheritance WHERE project_id LIKE 'TEST_TARGETS_%'`)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_projects WHERE id LIKE 'TEST_TARGETS_%'`)
+		_, _ = pool.Exec(bg, `DELETE FROM weave_actors WHERE id = $1`, ownerID)
+	})
+
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_projects (id, owner_id) VALUES ($1, $5), ($2, $5), ($3, $5), ($4, $5)`,
+		child, parent, pinned, draft, ownerID); err != nil {
+		t.Fatalf("seed projects: %v", err)
+	}
+	for _, q := range []string{
+		`INSERT INTO weave_project_inheritance (project_id, parent_project_id, is_primary, canonical_order, source_mode, source_version)
+		 VALUES ('` + child + `', '` + parent + `', true, 0, 'release', '2.0.0')`,
+		`INSERT INTO weave_project_inheritance_archive (project_id, parent_project_id, is_primary, canonical_order, version_number, source_mode, source_version)
+		 VALUES ('` + parent + `', '` + pinned + `', true, 0, '2.0.0', 'release', '1.0.0'),
+		        ('` + parent + `', '` + draft + `', false, 1, '2.0.0', 'draft', NULL)`,
+		// The child's own 5.0.0 cut snapshotted the whole chain under 5.0.0.
+		`INSERT INTO weave_project_inheritance_archive (project_id, parent_project_id, is_primary, canonical_order, version_number, source_mode, source_version)
+		 VALUES ('` + child + `', '` + parent + `', true, 0, '5.0.0', 'release', '2.0.0'),
+		        ('` + parent + `', '` + pinned + `', true, 0, '5.0.0', 'release', '1.0.0'),
+		        ('` + parent + `', '` + draft + `', false, 1, '5.0.0', 'draft', NULL)`,
+	} {
+		if _, err := pool.Exec(ctx, q); err != nil {
+			t.Fatalf("seed: %v\n%s", err, q)
+		}
+	}
+
+	for _, tc := range []struct {
+		name, rootVersion string
+	}{
+		{"draft view", ""},
+		{"child release view", "5.0.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveProjectTargets(ctx, pool, child, "inherited", tc.rootVersion)
+			if err != nil {
+				t.Fatalf("resolveProjectTargets: %v", err)
+			}
+			want := []selectorTarget{
+				{ProjectID: child, Version: tc.rootVersion},
+				{ProjectID: parent, Version: "2.0.0"},
+				{ProjectID: pinned, Version: "1.0.0"},
+				{ProjectID: draft},
+			}
+			if diff := cmp.Diff(want, got, cmpopts.IgnoreUnexported(selectorTarget{})); diff != "" {
+				t.Fatalf("targets (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
