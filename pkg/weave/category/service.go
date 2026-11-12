@@ -279,8 +279,11 @@ func (s *Service) Create(ctx context.Context, projectID string, in CreateInput) 
 		semanticID = fmt.Sprintf("%s.CAT.%d", projectID, next)
 	}
 
+	// Categories are keyed by their semantic id, like the drafts and
+	// settings copy paths; the store mints a ULID only when there is none.
 	cat := &domain.Category{
 		Entity: domain.Entity{
+			ID:          semanticID,
 			SemanticID:  semanticID,
 			SystemName:  in.SystemName,
 			UIName:      in.UIName,

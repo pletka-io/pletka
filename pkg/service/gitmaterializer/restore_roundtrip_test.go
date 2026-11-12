@@ -392,14 +392,11 @@ func TestServerCreatedProjectRoundTrip(t *testing.T) {
 	if overrideAfter.FieldID != overrideBefore.FieldID {
 		t.Fatalf("expected restored override FieldID to stay %q, got %q", overrideBefore.FieldID, overrideAfter.FieldID)
 	}
-	// CategoryID is intentionally excluded from the struct diff above for the
-	// same reason as FieldID: categories are always re-created with a fresh
-	// ULID during restore (hydrateCategoryFile in restore_entities.go), so
-	// the override's CategoryID legitimately differs before/after. Without
-	// this explicit resolution check, a regression that copies category_id
-	// verbatim from the snapshot (a stale, now-dangling ULID) would slip
-	// through unnoticed: the literal string round-trips unchanged and a
-	// plain struct diff can't tell "same value" from "still resolves".
+	// CategoryID is checked here by resolution rather than in the struct diff
+	// above: categories are keyed by their semantic id on create and on
+	// restore (hydrateCategoryFile in restore_entities.go), and the override
+	// must point at the category the restore wrote, not at whatever id the
+	// snapshot happened to carry.
 	restoredCategory, err := catStore.GetByIdentifier(ctx, projectID, cat.SemanticID)
 	if err != nil {
 		t.Fatalf("get restored category by semantic id: %v", err)
@@ -410,8 +407,8 @@ func TestServerCreatedProjectRoundTrip(t *testing.T) {
 	if overrideAfter.CategoryID != restoredCategory.ID {
 		t.Fatalf("expected restored override CategoryID %q to match restored category ID %q", overrideAfter.CategoryID, restoredCategory.ID)
 	}
-	if overrideAfter.CategoryID == overrideBefore.CategoryID {
-		t.Fatalf("expected restored override CategoryID to be regenerated, still %q", overrideAfter.CategoryID)
+	if overrideAfter.CategoryID != cat.SemanticID {
+		t.Fatalf("expected restored override CategoryID %q to be the semantic id %q", overrideAfter.CategoryID, cat.SemanticID)
 	}
 
 	// --- Second-run idempotency: restore again and verify no duplicates ----
