@@ -78,8 +78,6 @@ func (s *postgresStore) DeleteCascade(ctx context.Context, id string) (DeleteSta
 	}
 	steps := []step{
 		{"collection placements", `DELETE FROM weave_collection_placements WHERE project_id = $1`, &stats.OtherRows},
-		{"graft overrides", `DELETE FROM weave_graft_overrides WHERE project_id = $1`, &stats.OtherRows},
-		{"generator files", `DELETE FROM weave_generator_files WHERE project_id = $1`, &stats.OtherRows},
 		{"field ontology refs", `DELETE FROM weave_field_ontology_refs WHERE project_id = $1`, &stats.OtherRows},
 		{"fields", `DELETE FROM weave_fields WHERE project_id = $1`, &stats.Fields},
 		{"models", `DELETE FROM weave_models WHERE project_id = $1`, &stats.Models},
@@ -113,6 +111,13 @@ func (s *postgresStore) DeleteCascade(ctx context.Context, id string) (DeleteSta
 			return stats, fmt.Errorf("delete %s: %w", st.name, err)
 		}
 		*st.into += res.RowsAffected()
+	}
+	q := s.queries.WithTx(tx)
+	if err := q.WeaveDeleteGraftOverridesByProject(ctx, id); err != nil {
+		return stats, fmt.Errorf("delete graft overrides: %w", err)
+	}
+	if err := q.WeaveDeleteGeneratorFilesByProject(ctx, id); err != nil {
+		return stats, fmt.Errorf("delete generator files: %w", err)
 	}
 
 	res, err = tx.Exec(ctx, `DELETE FROM weave_projects WHERE id = $1`, id)
