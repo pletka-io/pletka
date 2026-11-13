@@ -797,3 +797,23 @@ func TestPrepareRestorePlan_RejectsBadPlacementFile(t *testing.T) {
 		t.Fatalf("want an error naming the placement and line, got %v", err)
 	}
 }
+
+// A symlink under generators/ would read a host file into the database and
+// write it into every reconciled tree: the loader refuses it.
+func TestLoadProjectSnapshotRefusesGeneratorSymlink(t *testing.T) {
+	root := writeSnapshotFixture(t)
+	target := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(target, []byte("host file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "generators", "arches"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "generators", "arches", "x.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadProjectSnapshot(root)
+	if err == nil || !strings.Contains(err.Error(), "generators/arches/x.yaml") {
+		t.Fatalf("want an error naming the symlink, got %v", err)
+	}
+}

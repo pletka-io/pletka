@@ -441,6 +441,11 @@ func scanProjectEntities(rootDir string) (SnapshotEntityTree, error) {
 		if !ok {
 			return nil
 		}
+		// Generator files are stored and written back verbatim: a symlink
+		// would carry a host file into the database and every reconciled tree.
+		if entity.EntityType == entityTypeGeneratorFile && !d.Type().IsRegular() {
+			return fmt.Errorf("%s: generator files must be regular files", rel)
+		}
 		payload, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", rel, err)
