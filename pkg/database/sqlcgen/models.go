@@ -579,6 +579,24 @@ type WeaveFieldsArchive struct {
 	VersionNumber     string    `json:"version_number"`
 }
 
+type WeaveGeneratorFile struct {
+	ProjectID string    `json:"project_id"`
+	Path      string    `json:"path"`
+	Content   []byte    `json:"content"`
+	Sha256    string    `json:"sha256"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type WeaveGraftOverride struct {
+	ProjectID   string    `json:"project_id"`
+	ModelID     string    `json:"model_id"`
+	Address     string    `json:"address"`
+	IsHidden    bool      `json:"is_hidden"`
+	MaxOccurs   *int32    `json:"max_occurs"`
+	DisplayName []byte    `json:"display_name"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 type WeaveImportStaging struct {
 	ID            int64           `json:"id"`
 	ImportRun     string          `json:"import_run"`
