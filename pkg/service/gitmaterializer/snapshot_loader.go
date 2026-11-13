@@ -74,13 +74,6 @@ type SnapshotEntityTree struct {
 	GeneratorFiles      []SnapshotEntityFile
 }
 
-// Entity types of models/<M>/grafts.yaml and of the opaque files under
-// generators/.
-const (
-	entityTypeModelGrafts   = "model_grafts"
-	entityTypeGeneratorFile = "generator_file"
-)
-
 type AdoptionManifestSet struct {
 	Index    AdoptionsIndexManifest
 	Receipts map[string]AdoptionReceiptManifest
