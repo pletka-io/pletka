@@ -67,9 +67,12 @@ func seedActAndAssertPlacementDelete(t *testing.T, pool *pgxpool.Pool, ctx conte
 
 	mustExec(t, pool, ctx, `INSERT INTO weave_collection_placements (project_id, model_id, category_id, collection_id)
 		VALUES ($1,$2,'','TSTDELPC.1'), ($1,$3,'','TSTDELPC.1')`, projectID, modelID, otherID)
+	mustExec(t, pool, ctx, `INSERT INTO weave_graft_overrides (project_id, model_id, address, is_hidden)
+		VALUES ($1,$2,'A.F1/B.F2',true), ($1,$3,'A.F1/B.F2',true)`, projectID, modelID, otherID)
 
 	t.Cleanup(func() {
 		mustExecCleanup(pool, ctx, `DELETE FROM weave_collection_placements WHERE project_id = $1`, projectID)
+		mustExecCleanup(pool, ctx, `DELETE FROM weave_graft_overrides WHERE project_id = $1`, projectID)
 		mustExecCleanup(pool, ctx, `DELETE FROM weave_override_refs WHERE override_id IN ($1,$2)`, overrideID, otherOverrideID)
 		mustExecCleanup(pool, ctx, `DELETE FROM weave_field_overrides WHERE id IN ($1,$2)`, overrideID, otherOverrideID)
 		mustExecCleanup(pool, ctx, `DELETE FROM weave_models WHERE project_id = $1`, projectID)
@@ -113,6 +116,18 @@ func seedActAndAssertPlacementDelete(t *testing.T, pool *pgxpool.Pool, ctx conte
 	}
 	if collPlacementRows != 0 {
 		t.Errorf("collection placement survived model delete: got %d, want 0", collPlacementRows)
+	}
+	// grafts.yaml rows of the deleted model go too: a reconcile would
+	// otherwise write models/<M>/grafts.yaml with no model.yaml, a tree
+	// load-git refuses.
+	for id, want := range map[string]int{modelID: 0, otherID: 1} {
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM weave_graft_overrides WHERE model_id = $1`, id).Scan(&n); err != nil {
+			t.Fatalf("count graft rows: %v", err)
+		}
+		if n != want {
+			t.Errorf("graft rows for %s after deleting %s: got %d, want %d", id, modelID, n, want)
+		}
 	}
 	var otherCollPlacementRows int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM weave_collection_placements WHERE model_id = $1`, otherID).Scan(&otherCollPlacementRows); err != nil {

@@ -78,6 +78,8 @@ func (s *postgresStore) DeleteCascade(ctx context.Context, id string) (DeleteSta
 	}
 	steps := []step{
 		{"collection placements", `DELETE FROM weave_collection_placements WHERE project_id = $1`, &stats.OtherRows},
+		{"graft overrides", `DELETE FROM weave_graft_overrides WHERE project_id = $1`, &stats.OtherRows},
+		{"generator files", `DELETE FROM weave_generator_files WHERE project_id = $1`, &stats.OtherRows},
 		{"field ontology refs", `DELETE FROM weave_field_ontology_refs WHERE project_id = $1`, &stats.OtherRows},
 		{"fields", `DELETE FROM weave_fields WHERE project_id = $1`, &stats.Fields},
 		{"models", `DELETE FROM weave_models WHERE project_id = $1`, &stats.Models},

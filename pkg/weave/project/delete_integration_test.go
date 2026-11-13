@@ -102,6 +102,13 @@ func TestDeleteProject_GuardsAndCascade(t *testing.T) {
 		t.Fatalf("adopted-field ref in own container wrongly blocks: %+v", blockers)
 	}
 
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_graft_overrides (project_id, model_id, address, is_hidden) VALUES ('ZDEL','ZDELM.1','ZDELF.1/ZDELF.2',true)`); err != nil {
+		t.Fatalf("seed graft override: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO weave_generator_files (project_id, path, content, sha256) VALUES ('ZDEL','generators/x.yaml','x','0')`); err != nil {
+		t.Fatalf("seed generator file: %v", err)
+	}
+
 	before := countProjects(ctx, t, pool)
 	stats, err := svc.DeleteProject(ctx, pid)
 	if err != nil {
@@ -120,6 +127,8 @@ func TestDeleteProject_GuardsAndCascade(t *testing.T) {
 		{"categories", `SELECT count(*) FROM weave_categories WHERE project_id='ZDEL'`},
 		{"overrides", `SELECT count(*) FROM weave_field_overrides WHERE entity_id='ZDELM.1'`},
 		{"memberships", `SELECT count(*) FROM weave_memberships WHERE scope_type='project' AND scope_id='ZDEL'`},
+		{"graft overrides", `SELECT count(*) FROM weave_graft_overrides WHERE project_id='ZDEL'`},
+		{"generator files", `SELECT count(*) FROM weave_generator_files WHERE project_id='ZDEL'`},
 	} {
 		var n int
 		if err := pool.QueryRow(ctx, check.sql).Scan(&n); err != nil {

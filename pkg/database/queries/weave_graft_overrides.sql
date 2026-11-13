@@ -12,5 +12,8 @@ SELECT * FROM weave_graft_overrides
 WHERE project_id = $1
 ORDER BY model_id, address;
 
+-- name: WeaveDeleteGraftOverridesByModel :exec
+DELETE FROM weave_graft_overrides WHERE model_id = $1;
+
 -- name: WeaveDeleteGraftOverridesByProject :exec
 DELETE FROM weave_graft_overrides WHERE project_id = $1;

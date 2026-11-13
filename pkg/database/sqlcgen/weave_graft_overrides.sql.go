@@ -9,6 +9,15 @@ import (
 	"context"
 )
 
+const weaveDeleteGraftOverridesByModel = `-- name: WeaveDeleteGraftOverridesByModel :exec
+DELETE FROM weave_graft_overrides WHERE model_id = $1
+`
+
+func (q *Queries) WeaveDeleteGraftOverridesByModel(ctx context.Context, modelID string) error {
+	_, err := q.db.Exec(ctx, weaveDeleteGraftOverridesByModel, modelID)
+	return err
+}
+
 const weaveDeleteGraftOverridesByProject = `-- name: WeaveDeleteGraftOverridesByProject :exec
 DELETE FROM weave_graft_overrides WHERE project_id = $1
 `
