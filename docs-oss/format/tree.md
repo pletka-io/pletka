@@ -21,12 +21,14 @@ fields/<F>/base-override.yaml                               optional: the field'
 models/<M>/model.yaml
 models/<M>/overrides/<F>@<token>.yaml                       one per field placed on the model
 models/<M>/placements/<C>@<CAT|_>.yaml                      one per collection placed on the model
+models/<M>/grafts.yaml                                      optional: overrides of grafted copies in the model
 collections/<C>/collection.yaml
 collections/<C>/overrides/<F>@<token>.yaml                  one per field placed on the collection
 adoptions/index.yaml                                        list of adoption receipts
 adoptions/<entity_type>-<entity_id>.yaml                    one receipt per adopted entity
 forks/index.yaml, forks/<entity_type>-<entity_id>.yaml      the same for forks
 releases/index.yaml                                         release catalog (see versions.md)
+generators/**                                               optional: generator sidecars, opaque to core
 vendor/projects/<module>@<selector>/...                     optional, see modules.md
 vendor/ontologies/<module>@<version>/...                    optional, see modules.md
 ```
@@ -277,6 +279,37 @@ is_hidden: false
   integer.
 - Placements are authoritative, like overrides.
 
+
+### Graft overrides — [schema](schema/grafts.schema.json)
+
+`models/<M>/grafts.yaml`: per-graft overrides of the model. Keys are
+addresses, the field semantic ids from the model down through the stubs,
+joined by `/` (`LAF.177/LAF.100/LAF.12`); an address has at least two
+segments. Each value may set `is_hidden` (drop the grafted copy and
+everything under it), `max_occurs` (`null` = unbounded) and `display_name`
+(a translations map). An override changes one grafted copy only, never the
+collection the copy comes from.
+
+```yaml
+LAF.177/LAF.100:
+  max_occurs: 1
+  display_name: {en: Name for Time Span}
+LAF.177/LAF.100/LAF.31:
+  is_hidden: true
+```
+
+- The model directory MUST have a `model.yaml`.
+- Every segment MUST name a known field (verify-git
+  `unresolved-graft-address`). An address the composed model never reaches
+  is a compose warning (`compose.unresolved_graft`).
+- Loading a tree replaces every graft override of the project.
+
+### Generator files
+
+`generators/**`: sidecar files a generator reads (for example
+`generators/arches/<model>/aliases.yaml`). Core stores each file as bytes
+with its sha256, writes it back unchanged and does not parse it. Loading a
+tree replaces every generator file of the project.
 ### Receipts — [index](schema/receipts-index.schema.json), [adoption](schema/adoption-receipt.schema.json), [fork](schema/fork-receipt.schema.json)
 
 `adoptions/index.yaml` lists every adoption receipt; each receipt records which

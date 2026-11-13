@@ -41,11 +41,12 @@ const (
 	KindForkReceipt     = "fork-receipt"
 	KindOntology        = "ontology"
 	KindReleasesIndex   = "releases-index"
+	KindGrafts          = "grafts"
 )
 
 var allKinds = []string{
 	KindProject, KindMod, KindCategory, KindConceptList, KindField, KindModel, KindCollection,
-	KindOverride, KindPlacement, KindReceiptsIndex, KindAdoptionReceipt, KindForkReceipt, KindOntology, KindReleasesIndex,
+	KindOverride, KindPlacement, KindReceiptsIndex, KindAdoptionReceipt, KindForkReceipt, KindOntology, KindReleasesIndex, KindGrafts,
 }
 
 // Kinds by the whole path, by the first directory (two segments), and by
@@ -88,6 +89,9 @@ func KindForPath(rel string) (string, bool) {
 		k, ok := dirKinds[p[0]]
 		return k, ok
 	case 3:
+		if p[0] == "models" && p[2] == "grafts.yaml" {
+			return KindGrafts, true
+		}
 		k, ok := entityFileKinds[p[0]+"/"+p[2]]
 		return k, ok
 	case 4:
