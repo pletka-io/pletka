@@ -85,6 +85,11 @@ type FieldNode struct {
 	// un-grafted field. The Arches renderer hangs the copy on that field's
 	// node, which becomes the nested nodegroup's grouping node.
 	GraftStubID string `json:"graft_stub_id,omitempty"`
+	// Address is the field's place in the composed model: field semantic ids
+	// from the model down through the stubs ("LAF.177/LAF.100/LAF.12"); a
+	// top-level field's address is its own id. Graft overrides and generator
+	// sidecars key on it.
+	Address string `json:"address,omitempty"`
 }
 
 // PathDirection is explicit so renderers never infer direction from local-name

@@ -121,7 +121,7 @@ func BuildModelSnapshot(in ModelSnapshotInput) *Snapshot {
 	// refs name, recursively. Renderers that walk Fields (Arches) see the
 	// grafts; renderers that walk Tree (RDF/SHACL/X3ML) still see the
 	// un-composed tree.
-	fields = composeCollections(fields, in.Referenced, opts, &report)
+	fields = composeCollections(fields, in.Referenced, in.Grafts, opts, &report)
 
 	snap := &Snapshot{
 		RootKind:   EntityModel,
@@ -263,6 +263,9 @@ type ModelSnapshotInput struct {
 	// resolved in the collection's owner project. composeCollections grafts
 	// them.
 	Referenced map[string]ReferencedCollection
+	// Grafts are the model's per-graft overrides (grafts.yaml), keyed by
+	// address; composeCollections applies them.
+	Grafts     map[string]domain.GraftOverride
 	Namespaces NamespaceSet
 	Ontologies []domain.ResolvedOntologyVersion
 	Options    Options

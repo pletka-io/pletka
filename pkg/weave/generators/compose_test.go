@@ -3,6 +3,7 @@ package generators
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 
@@ -66,7 +67,7 @@ func TestComposeGraftsReferencedCollectionOnly(t *testing.T) {
 		"c-name":  nameCollection("c-name", "LAC.1"),
 		"c-other": nameCollection("c-other", "LAC.99"), // same anchor class, not referenced
 	}
-	out := composeCollections([]FieldNode{stub}, referenced, composeOpts(), &Report{})
+	out := composeCollections([]FieldNode{stub}, referenced, nil, composeOpts(), &Report{})
 	g := graftedOf(out)
 	if len(g) != 2 {
 		t.Fatalf("grafted %d fields, want the 2 of c-name", len(g))
@@ -80,7 +81,7 @@ func TestComposeGraftsReferencedCollectionOnly(t *testing.T) {
 
 func TestComposeStubWithoutRefGraftsNothing(t *testing.T) {
 	stub := stubNode(stubField("s", "LAF.30", "timespan_name", tsName()), "c-ts")
-	out := composeCollections([]FieldNode{stub}, map[string]ReferencedCollection{"c-name": nameCollection("c-name", "LAC.1")}, composeOpts(), &Report{})
+	out := composeCollections([]FieldNode{stub}, map[string]ReferencedCollection{"c-name": nameCollection("c-name", "LAC.1")}, nil, composeOpts(), &Report{})
 	if len(out) != 1 {
 		t.Fatalf("a stub without a ref grafted %d fields", len(out)-1)
 	}
@@ -89,7 +90,7 @@ func TestComposeStubWithoutRefGraftsNothing(t *testing.T) {
 func TestComposeUnresolvedRefWarns(t *testing.T) {
 	stub := stubNode(stubField("s", "LAF.30", "timespan_name", tsName(), "c-gone"), "c-ts")
 	rep := &Report{}
-	out := composeCollections([]FieldNode{stub}, map[string]ReferencedCollection{}, composeOpts(), rep)
+	out := composeCollections([]FieldNode{stub}, map[string]ReferencedCollection{}, nil, composeOpts(), rep)
 	if len(out) != 1 || len(rep.Warnings) != 1 || rep.Warnings[0].Code != "compose.unresolved_ref" {
 		t.Fatalf("out %d, warnings %+v", len(out), rep.Warnings)
 	}
@@ -111,7 +112,7 @@ func TestComposeNestedStubRecurses(t *testing.T) {
 	stub := stubNode(stubField("s", "OGF.1", "activity_timespan", []domain.PathElement{
 		pe("property", "crm", "P4_has_time-span", 0), pe("class", "crm", "E52_Time-Span", 1),
 	}, "c-ts"), "c-act")
-	out := composeCollections([]FieldNode{stub}, referenced, composeOpts(), &Report{})
+	out := composeCollections([]FieldNode{stub}, referenced, nil, composeOpts(), &Report{})
 	var content *FieldNode
 	for i := range out {
 		if out[i].Field.SemanticID == "LAC.1.F1" {
@@ -139,7 +140,7 @@ func TestComposeCycleStops(t *testing.T) {
 	}
 	referenced := map[string]ReferencedCollection{"c-a": mk("c-a", "A", "c-b"), "c-b": mk("c-b", "B", "c-a")}
 	stub := stubNode(stubField("s", "M.F1", "statement", path, "c-b"), "c-a")
-	out := composeCollections([]FieldNode{stub}, referenced, composeOpts(), &Report{})
+	out := composeCollections([]FieldNode{stub}, referenced, nil, composeOpts(), &Report{})
 	counts := map[string]int{}
 	for _, f := range graftedOf(out) {
 		counts[f.CollectionID]++
@@ -257,7 +258,7 @@ func TestLoadReferencedCollectionsFailsOnReaderError(t *testing.T) {
 func TestComposeUnloadableRefSaysWhy(t *testing.T) {
 	stub := stubNode(stubField("s", "LAF.30", "timespan_name", tsName(), "c-empty"), "c-ts")
 	rep := &Report{}
-	composeCollections([]FieldNode{stub}, map[string]ReferencedCollection{"c-empty": {Missing: "has no members"}}, composeOpts(), rep)
+	composeCollections([]FieldNode{stub}, map[string]ReferencedCollection{"c-empty": {Missing: "has no members"}}, nil, composeOpts(), rep)
 	if len(rep.Warnings) != 1 || !strings.Contains(rep.Warnings[0].Message, "has no members") {
 		t.Fatalf("warnings: %+v", rep.Warnings)
 	}
@@ -279,5 +280,140 @@ func TestGraftPrefixIgnoresURIForm(t *testing.T) {
 	}
 	if tail := stripSharedPrefix(fields[1].PathElements, p); len(tail) != 2 || tail[0].LocalName != "P141i_was_assigned_by" {
 		t.Fatalf("tail: %+v", tail)
+	}
+}
+
+func nestedFixture() ([]FieldNode, map[string]ReferencedCollection) {
+	tsFields := []domain.ResolvedField{
+		field("f-begin", "LAC.6.F1", "timespan_begin", 1,
+			pe("property", "crm", "P4_has_time-span", 0), pe("class", "crm", "E52_Time-Span", 1),
+			pe("property", "crm", "P82a_begin_of_the_begin", 2), pe("literal", "xsd", "dateTime", 3)),
+		stubField("f-tsname", "LAC.6.F2", "timespan_name", tsName(), "c-name"),
+	}
+	referenced := map[string]ReferencedCollection{
+		"c-ts":   {Collection: &domain.Collection{Entity: domain.Entity{ID: "c-ts", SemanticID: "LAC.6", SystemName: "timespan"}}, Fields: tsFields, SharedPathPrefix: graftPrefix(tsFields)},
+		"c-name": nameCollection("c-name", "LAC.1"),
+	}
+	stub := stubNode(stubField("s", "OGF.1", "activity_timespan", []domain.PathElement{
+		pe("property", "crm", "P4_has_time-span", 0), pe("class", "crm", "E52_Time-Span", 1),
+	}, "c-ts"), "c-act")
+	return []FieldNode{stub}, referenced
+}
+
+func byAddress(out []FieldNode) map[string]FieldNode {
+	m := map[string]FieldNode{}
+	for _, f := range out {
+		m[f.Address] = f
+	}
+	return m
+}
+
+func keys(m map[string]FieldNode) []string {
+	var k []string
+	for a := range m {
+		k = append(k, a)
+	}
+	sort.Strings(k)
+	return k
+}
+
+func TestComposeStampsAddresses(t *testing.T) {
+	fields, ref := nestedFixture()
+	got := byAddress(composeCollections(fields, ref, nil, composeOpts(), &Report{}))
+	for _, a := range []string{"OGF.1", "OGF.1/LAC.6.F1", "OGF.1/LAC.6.F2", "OGF.1/LAC.6.F2/LAC.1.F1", "OGF.1/LAC.6.F2/LAC.1.F2"} {
+		if _, ok := got[a]; !ok {
+			t.Errorf("no field at %s (have %v)", a, keys(got))
+		}
+	}
+}
+
+func TestComposeStampsAddressesWithoutComposition(t *testing.T) {
+	fields, ref := nestedFixture()
+	out := composeCollections(fields, ref, nil, Options{}, &Report{})
+	if len(out) != 1 || out[0].Address != "OGF.1" {
+		t.Fatalf("top-level address not stamped: %+v", out)
+	}
+}
+
+func TestComposeHiddenGraftDropsSubtree(t *testing.T) {
+	fields, ref := nestedFixture()
+	grafts := map[string]domain.GraftOverride{"OGF.1/LAC.6.F2": {Address: "OGF.1/LAC.6.F2", IsHidden: true}}
+	got := byAddress(composeCollections(fields, ref, grafts, composeOpts(), &Report{}))
+	for a := range got {
+		if strings.HasPrefix(a, "OGF.1/LAC.6.F2") {
+			t.Fatalf("hidden branch still grafted: %s", a)
+		}
+	}
+	if _, ok := got["OGF.1/LAC.6.F1"]; !ok {
+		t.Fatal("sibling of the hidden branch dropped")
+	}
+}
+
+func TestComposeGraftMaxAndNameApply(t *testing.T) {
+	fields, ref := nestedFixture()
+	one := 1
+	grafts := map[string]domain.GraftOverride{"OGF.1/LAC.6.F2": {Address: "OGF.1/LAC.6.F2", MaxOccurs: &one, MaxOccursSet: true, DisplayName: domain.Translations{"en": "Name for Time Span"}}}
+	got := byAddress(composeCollections(fields, ref, grafts, composeOpts(), &Report{}))
+	stub := got["OGF.1/LAC.6.F2"]
+	if stub.Field.MaxOccurs == nil || *stub.Field.MaxOccurs != 1 || stub.Field.DisplayName["en"] != "Name for Time Span" {
+		t.Fatalf("stub override not applied: max %v name %v", stub.Field.MaxOccurs, stub.Field.DisplayName)
+	}
+	child := got["OGF.1/LAC.6.F2/LAC.1.F1"]
+	if child.CollectionMaxOccurs == nil || *child.CollectionMaxOccurs != 1 {
+		t.Fatalf("nested card max %v, want 1 from the graft override", child.CollectionMaxOccurs)
+	}
+}
+
+// A graft override with max_occurs: null makes a stub whose own max is 1
+// unbounded in that graft.
+func TestComposeGraftNullMaxUnbounds(t *testing.T) {
+	fields, ref := nestedFixture()
+	one := 1
+	ts := ref["c-ts"]
+	ts.Fields[1].MaxOccurs = &one
+	grafts := map[string]domain.GraftOverride{"OGF.1/LAC.6.F2": {Address: "OGF.1/LAC.6.F2", MaxOccursSet: true}}
+	got := byAddress(composeCollections(fields, ref, grafts, composeOpts(), &Report{}))
+	if m := got["OGF.1/LAC.6.F2"].Field.MaxOccurs; m != nil {
+		t.Fatalf("stub max %v, want unbounded", *m)
+	}
+	if m := got["OGF.1/LAC.6.F2/LAC.1.F1"].CollectionMaxOccurs; m != nil {
+		t.Fatalf("nested card max %v, want unbounded", *m)
+	}
+}
+
+func TestComposeGraftOverrideAppliesToOneGraftOnly(t *testing.T) {
+	fields, ref := nestedFixture()
+	second := stubNode(stubField("s2", "OGF.2", "other_timespan", []domain.PathElement{
+		pe("property", "crm", "P4_has_time-span", 0), pe("class", "crm", "E52_Time-Span", 1),
+	}, "c-ts"), "c-act")
+	fields = append(fields, second)
+	grafts := map[string]domain.GraftOverride{"OGF.1/LAC.6.F2": {Address: "OGF.1/LAC.6.F2", IsHidden: true}}
+	got := byAddress(composeCollections(fields, ref, grafts, composeOpts(), &Report{}))
+	if _, ok := got["OGF.2/LAC.6.F2/LAC.1.F1"]; !ok {
+		t.Fatal("override on OGF.1's graft hid OGF.2's")
+	}
+}
+
+func TestComposeUnresolvedGraftWarns(t *testing.T) {
+	fields, ref := nestedFixture()
+	rep := &Report{}
+	grafts := map[string]domain.GraftOverride{"OGF.1/LAC.9.F9": {Address: "OGF.1/LAC.9.F9", IsHidden: true}}
+	composeCollections(fields, ref, grafts, composeOpts(), rep)
+	if len(rep.Warnings) != 1 || rep.Warnings[0].Code != "compose.unresolved_graft" {
+		t.Fatalf("warnings %+v", rep.Warnings)
+	}
+}
+
+func TestComposeNoWarningUnderHiddenGraft(t *testing.T) {
+	fields, ref := nestedFixture()
+	rep := &Report{}
+	one := 1
+	grafts := map[string]domain.GraftOverride{
+		"OGF.1/LAC.6.F2":          {Address: "OGF.1/LAC.6.F2", IsHidden: true},
+		"OGF.1/LAC.6.F2/LAC.1.F1": {Address: "OGF.1/LAC.6.F2/LAC.1.F1", MaxOccurs: &one, MaxOccursSet: true},
+	}
+	composeCollections(fields, ref, grafts, composeOpts(), rep)
+	if len(rep.Warnings) != 0 {
+		t.Fatalf("warnings under a hidden graft: %+v", rep.Warnings)
 	}
 }
