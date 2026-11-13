@@ -1,6 +1,6 @@
 -- name: WeaveInsertGraftOverride :exec
-INSERT INTO weave_graft_overrides (project_id, model_id, address, is_hidden, max_occurs, display_name)
-VALUES ($1, $2, $3, $4, $5, $6);
+INSERT INTO weave_graft_overrides (project_id, model_id, address, is_hidden, max_occurs, max_occurs_set, display_name)
+VALUES ($1, $2, $3, $4, $5, $6, $7);
 
 -- name: WeaveListGraftOverridesByModel :many
 SELECT * FROM weave_graft_overrides

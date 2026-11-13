@@ -19,17 +19,18 @@ func (q *Queries) WeaveDeleteGraftOverridesByProject(ctx context.Context, projec
 }
 
 const weaveInsertGraftOverride = `-- name: WeaveInsertGraftOverride :exec
-INSERT INTO weave_graft_overrides (project_id, model_id, address, is_hidden, max_occurs, display_name)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO weave_graft_overrides (project_id, model_id, address, is_hidden, max_occurs, max_occurs_set, display_name)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type WeaveInsertGraftOverrideParams struct {
-	ProjectID   string `json:"project_id"`
-	ModelID     string `json:"model_id"`
-	Address     string `json:"address"`
-	IsHidden    bool   `json:"is_hidden"`
-	MaxOccurs   *int32 `json:"max_occurs"`
-	DisplayName []byte `json:"display_name"`
+	ProjectID    string `json:"project_id"`
+	ModelID      string `json:"model_id"`
+	Address      string `json:"address"`
+	IsHidden     bool   `json:"is_hidden"`
+	MaxOccurs    *int32 `json:"max_occurs"`
+	MaxOccursSet bool   `json:"max_occurs_set"`
+	DisplayName  []byte `json:"display_name"`
 }
 
 func (q *Queries) WeaveInsertGraftOverride(ctx context.Context, arg WeaveInsertGraftOverrideParams) error {
@@ -39,13 +40,14 @@ func (q *Queries) WeaveInsertGraftOverride(ctx context.Context, arg WeaveInsertG
 		arg.Address,
 		arg.IsHidden,
 		arg.MaxOccurs,
+		arg.MaxOccursSet,
 		arg.DisplayName,
 	)
 	return err
 }
 
 const weaveListGraftOverridesByModel = `-- name: WeaveListGraftOverridesByModel :many
-SELECT project_id, model_id, address, is_hidden, max_occurs, display_name, created_at FROM weave_graft_overrides
+SELECT project_id, model_id, address, is_hidden, max_occurs, max_occurs_set, display_name, created_at FROM weave_graft_overrides
 WHERE project_id = $1 AND model_id = $2
 ORDER BY address
 `
@@ -70,6 +72,7 @@ func (q *Queries) WeaveListGraftOverridesByModel(ctx context.Context, arg WeaveL
 			&i.Address,
 			&i.IsHidden,
 			&i.MaxOccurs,
+			&i.MaxOccursSet,
 			&i.DisplayName,
 			&i.CreatedAt,
 		); err != nil {
@@ -84,7 +87,7 @@ func (q *Queries) WeaveListGraftOverridesByModel(ctx context.Context, arg WeaveL
 }
 
 const weaveListGraftOverridesByProject = `-- name: WeaveListGraftOverridesByProject :many
-SELECT project_id, model_id, address, is_hidden, max_occurs, display_name, created_at FROM weave_graft_overrides
+SELECT project_id, model_id, address, is_hidden, max_occurs, max_occurs_set, display_name, created_at FROM weave_graft_overrides
 WHERE project_id = $1
 ORDER BY model_id, address
 `
@@ -104,6 +107,7 @@ func (q *Queries) WeaveListGraftOverridesByProject(ctx context.Context, projectI
 			&i.Address,
 			&i.IsHidden,
 			&i.MaxOccurs,
+			&i.MaxOccursSet,
 			&i.DisplayName,
 			&i.CreatedAt,
 		); err != nil {

@@ -7,6 +7,8 @@ CREATE TABLE weave_graft_overrides (
     address      text NOT NULL,
     is_hidden    boolean NOT NULL DEFAULT false,
     max_occurs   integer,
+    -- max_occurs_set separates "max_occurs: null" (unbounded) from no override.
+    max_occurs_set boolean NOT NULL DEFAULT false,
     display_name jsonb,
     created_at   timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (project_id, model_id, address)

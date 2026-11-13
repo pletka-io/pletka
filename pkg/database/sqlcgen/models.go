@@ -588,13 +588,14 @@ type WeaveGeneratorFile struct {
 }
 
 type WeaveGraftOverride struct {
-	ProjectID   string    `json:"project_id"`
-	ModelID     string    `json:"model_id"`
-	Address     string    `json:"address"`
-	IsHidden    bool      `json:"is_hidden"`
-	MaxOccurs   *int32    `json:"max_occurs"`
-	DisplayName []byte    `json:"display_name"`
-	CreatedAt   time.Time `json:"created_at"`
+	ProjectID    string    `json:"project_id"`
+	ModelID      string    `json:"model_id"`
+	Address      string    `json:"address"`
+	IsHidden     bool      `json:"is_hidden"`
+	MaxOccurs    *int32    `json:"max_occurs"`
+	MaxOccursSet bool      `json:"max_occurs_set"`
+	DisplayName  []byte    `json:"display_name"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type WeaveImportStaging struct {
