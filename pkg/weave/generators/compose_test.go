@@ -309,7 +309,7 @@ func byAddress(out []FieldNode) map[string]FieldNode {
 }
 
 func keys(m map[string]FieldNode) []string {
-	var k []string
+	k := make([]string, 0, len(m))
 	for a := range m {
 		k = append(k, a)
 	}

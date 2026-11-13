@@ -70,6 +70,7 @@ var (
 		"fields/field.yaml":           KindField,
 		"fields/base-override.yaml":   KindOverride,
 		"models/model.yaml":           KindModel,
+		"models/grafts.yaml":          KindGrafts,
 		"collections/collection.yaml": KindCollection,
 	}
 )
@@ -89,9 +90,6 @@ func KindForPath(rel string) (string, bool) {
 		k, ok := dirKinds[p[0]]
 		return k, ok
 	case 3:
-		if p[0] == "models" && p[2] == "grafts.yaml" {
-			return KindGrafts, true
-		}
 		k, ok := entityFileKinds[p[0]+"/"+p[2]]
 		return k, ok
 	case 4:

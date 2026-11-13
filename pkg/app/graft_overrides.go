@@ -14,6 +14,7 @@ import (
 // GraftOverrideStore reads weave_graft_overrides for the generator service.
 type GraftOverrideStore struct{ q *sqlcgen.Queries }
 
+// NewGraftOverrideStore returns a store over pool.
 func NewGraftOverrideStore(pool *pgxpool.Pool) GraftOverrideStore {
 	return GraftOverrideStore{q: sqlcgen.New(pool)}
 }

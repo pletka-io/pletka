@@ -345,7 +345,7 @@ func TestLoadProjectSnapshotReadsGraftsAndGeneratorFiles(t *testing.T) {
 	if len(snap.Entities.Grafts) != 1 || snap.Entities.Grafts[0].EntityType != "model_grafts" || snap.Entities.Grafts[0].OwnerID != "TPCM.1" {
 		t.Fatalf("grafts: %+v", snap.Entities.Grafts)
 	}
-	var paths []string
+	paths := make([]string, 0, len(snap.Entities.GeneratorFiles))
 	for _, f := range snap.Entities.GeneratorFiles {
 		paths = append(paths, f.Path)
 	}

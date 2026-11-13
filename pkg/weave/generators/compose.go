@@ -25,11 +25,7 @@ import (
 // Returns the fields with grafted copies appended in BFS order, originals
 // first, or the input unchanged when opts.ComposeCollections is off.
 func composeCollections(fields []FieldNode, referenced map[string]ReferencedCollection, grafts map[string]domain.GraftOverride, opts Options, report *Report) []FieldNode {
-	for i := range fields {
-		if fields[i].Address == "" {
-			fields[i].Address = fields[i].Field.SemanticID
-		}
-	}
+	stampTopLevelAddresses(fields)
 	if !opts.ComposeCollections || len(fields) == 0 {
 		return fields
 	}
@@ -101,15 +97,7 @@ func composeCollections(fields []FieldNode, referenced map[string]ReferencedColl
 				grafted := graftField(q.field, child, target)
 				grafted.Address = addr
 				if has {
-					// MaxOccursSet with a nil MaxOccurs is unbounded. The stub's
-					// max becomes its children's CollectionMaxOccurs when it is
-					// grafted in turn.
-					if g.MaxOccursSet {
-						grafted.Field.MaxOccurs = g.MaxOccurs
-					}
-					if len(g.DisplayName) > 0 {
-						grafted.Field.DisplayName = g.DisplayName
-					}
+					applyGraftOverride(&grafted, g)
 				}
 				// GraftPath accumulates the alias chain so the Arches
 				// renderer can mint per-path UUIDs and aliases.
@@ -125,6 +113,35 @@ func composeCollections(fields []FieldNode, referenced map[string]ReferencedColl
 			}
 		}
 	}
+	warnUnresolvedGrafts(grafts, used, report)
+	return out
+}
+
+// stampTopLevelAddresses gives each top-level field its own semantic id as
+// address; it holds whether or not the model is composed.
+func stampTopLevelAddresses(fields []FieldNode) {
+	for i := range fields {
+		if fields[i].Address == "" {
+			fields[i].Address = fields[i].Field.SemanticID
+		}
+	}
+}
+
+// applyGraftOverride sets a grafted copy's max and name from its override.
+// MaxOccursSet with a nil MaxOccurs is unbounded. The stub's max becomes its
+// children's CollectionMaxOccurs when it is grafted in turn.
+func applyGraftOverride(grafted *FieldNode, g domain.GraftOverride) {
+	if g.MaxOccursSet {
+		grafted.Field.MaxOccurs = g.MaxOccurs
+	}
+	if len(g.DisplayName) > 0 {
+		grafted.Field.DisplayName = g.DisplayName
+	}
+}
+
+// warnUnresolvedGrafts reports each override address compose never reached,
+// except those under a hidden graft.
+func warnUnresolvedGrafts(grafts map[string]domain.GraftOverride, used map[string]bool, report *Report) {
 	for _, addr := range slices.Sorted(maps.Keys(grafts)) {
 		if used[addr] || hiddenAncestor(addr, grafts) {
 			continue
@@ -134,7 +151,6 @@ func composeCollections(fields []FieldNode, referenced map[string]ReferencedColl
 			Message: "grafts.yaml address " + addr + " is not reached in the composed model",
 		})
 	}
-	return out
 }
 
 // hiddenAncestor reports whether a proper prefix of addr is a hidden graft:
