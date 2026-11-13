@@ -41,7 +41,7 @@ refuses the same files with the file and line in the error.
 | `semantic-id` | missing, malformed, wrong project prefix, or not the file name |
 | `semantic-id-type` | type code does not match the directory **[not built]** |
 | `override-location` | an override's `field_id`/`entity_type`/`entity_id` disagree with its path |
-| `orphan-overrides` | `overrides/` with no `model.yaml`/`collection.yaml` beside it |
+| `orphan-overrides` | `overrides/` or `grafts.yaml` with no `model.yaml`/`collection.yaml` beside it |
 | `placement-path` | a placement's `model_id`/`collection_id`/`category_id` disagree with its path |
 | `placement-orphan` | a placement for a collection the model places no field of |
 | `placement-range` | `min_occurs`/`max_occurs` do not form a range within 0..2³¹−1 |
@@ -57,6 +57,7 @@ refuses the same files with the file and line in the error.
 | `placement-category` | a placement's `category_id` does not resolve |
 | `unresolved-concept-list` | a `concept_list` ref does not resolve |
 | `unresolved-collection-ref` | a `collection_model` ref does not resolve |
+| `unresolved-graft-address` | a `grafts.yaml` address names a field the tree, its vendored projects and its parents do not define |
 | `stub-without-collection` | a model or collection override places a Collection-valued field without a `collection_model` ref; the Arches pack grafts nothing there |
 | `unresolved-model-ref` | a `resource_model` ref does not resolve **[not built]** |
 | `adoption-receipt-missing` | an `_adopted_from` entity without a receipt |

@@ -125,6 +125,12 @@ func TestVerify_StructureFindings(t *testing.T) {
 		{"missing sum", func(r string) {
 			write(t, r, "vendor/ontologies/ontology.pletka.io/base/1.0/ontology.yaml", "schema_version: 1\nontology: {module: ontology.pletka.io/base, version: \"1.0\", prefixes: [base], namespace: https://example.org/base/}\nsources: {files: [], primary: \"\"}\n")
 		}, []string{"vendor-checksum"}, "pletka.sum", 0},
+		{"unresolved graft address", func(r string) {
+			write(t, r, "models/TPCM.1/grafts.yaml", "TPCF.2/TPCF.9: {is_hidden: true}\n")
+		}, []string{"unresolved-graft-address"}, "models/TPCM.1/grafts.yaml", 1},
+		{"grafts without model", func(r string) {
+			write(t, r, "models/TPCM.7/grafts.yaml", "TPCF.2/TPCF.1: {is_hidden: true}\n")
+		}, []string{"orphan-overrides"}, "models/TPCM.7/grafts.yaml", 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -650,6 +656,19 @@ func TestVerify_PlacementUnknownKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := codes(rep); len(got) != 1 || got[0] != "unknown-key" {
+		t.Fatalf("findings: %v", rep.Findings)
+	}
+}
+
+func TestVerify_KnownGraftAddressIsClean(t *testing.T) {
+	root := verifyFixture(t)
+	write(t, root, "models/TPCM.1/grafts.yaml", "TPCF.2/TPCF.1: {max_occurs: 1}\n")
+	write(t, root, "generators/arches/x/aliases.yaml", "TPCF.1: x\n")
+	rep, err := Verify(context.Background(), root, VerifyOptions{SkipOntology: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Findings) != 0 {
 		t.Fatalf("findings: %v", rep.Findings)
 	}
 }

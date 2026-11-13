@@ -106,6 +106,7 @@ func Verify(ctx context.Context, rootDir string, opts VerifyOptions) (*VerifyRep
 	v.checkEntities()
 	v.checkOverrides()
 	v.checkPlacements()
+	v.checkGrafts()
 	v.checkAdoptions()
 	rep := v.report(snap.Manifest.Project.ID)
 	if !opts.SkipOntology {
