@@ -113,3 +113,28 @@ func TestLine(t *testing.T) {
 		}
 	}
 }
+
+func TestKindForPathGrafts(t *testing.T) {
+	if k, ok := KindForPath("models/SIM.25/grafts.yaml"); !ok || k != KindGrafts {
+		t.Fatalf("KindForPath = %q %v, want grafts", k, ok)
+	}
+	if _, ok := KindForPath("generators/arches/survey/aliases.yaml"); ok {
+		t.Fatal("generator files have no format kind")
+	}
+}
+
+func TestGraftsSchema(t *testing.T) {
+	good := []byte("LAF.177/LAF.100: {max_occurs: 1, display_name: {en: Name for Time Span}}\nLAF.177/LAF.100/LAF.31: {is_hidden: true}\n")
+	if v, err := Default().Validate(KindGrafts, good); err != nil || len(v) != 0 {
+		t.Fatalf("good file: %v %v", v, err)
+	}
+	for name, bad := range map[string]string{
+		"top-level address": "LAF.177: {is_hidden: true}\n",
+		"unknown key":       "LAF.177/LAF.100: {hidden: true}\n",
+		"bad max":           "LAF.177/LAF.100: {max_occurs: two}\n",
+	} {
+		if v, _ := Default().Validate(KindGrafts, []byte(bad)); len(v) == 0 {
+			t.Errorf("%s: no violation", name)
+		}
+	}
+}

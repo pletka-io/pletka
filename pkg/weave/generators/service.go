@@ -62,6 +62,12 @@ type ConceptEnumReader interface {
 	ConceptListMemberURIs(ctx context.Context, projectID string, listIDs []string) ([]string, error)
 }
 
+// GraftOverrideReader returns a model's per-graft overrides (grafts.yaml),
+// keyed by address.
+type GraftOverrideReader interface {
+	GraftOverrides(ctx context.Context, projectID, modelID string) (map[string]domain.GraftOverride, error)
+}
+
 // Service builds generator snapshots from narrow cross-slice readers.
 type Service struct {
 	projects    ProjectReader
@@ -70,8 +76,13 @@ type Service struct {
 	fields      FieldReader
 	namespaces  NamespaceReader
 	registry    *Registry
-	conceptEnum ConceptEnumReader // optional; set via SetConceptEnumReader
+	conceptEnum ConceptEnumReader   // optional; set via SetConceptEnumReader
+	grafts      GraftOverrideReader // optional; set via SetGraftOverrideReader
 }
+
+// SetGraftOverrideReader wires the reader for per-graft overrides. Unset, a
+// composed model grafts every referenced branch unchanged.
+func (s *Service) SetGraftOverrideReader(r GraftOverrideReader) { s.grafts = r }
 
 // SetConceptEnumReader wires the optional reader used to attach sealed-list
 // value enums to snapshot fields (#3599). Host builds call this after
@@ -156,6 +167,18 @@ func (s *Service) SnapshotForModel(ctx context.Context, projectID, modelID strin
 	if err != nil {
 		return nil, err
 	}
+	var grafts map[string]domain.GraftOverride
+	if opts.ComposeCollections && s.grafts != nil {
+		// grafts.yaml lives under the model's tree directory, named by its
+		// semantic id.
+		treeID := model.SemanticID
+		if treeID == "" {
+			treeID = model.ID
+		}
+		if grafts, err = s.grafts.GraftOverrides(ctx, projectID, treeID); err != nil {
+			return nil, fmt.Errorf("graft overrides for model %s: %w", treeID, err)
+		}
+	}
 
 	return s.attachConceptEnums(ctx, BuildModelSnapshot(ModelSnapshotInput{
 		Project:     *project,
@@ -163,6 +186,7 @@ func (s *Service) SnapshotForModel(ctx context.Context, projectID, modelID strin
 		View:        *view,
 		Collections: collections,
 		Referenced:  referenced,
+		Grafts:      grafts,
 		Namespaces:  namespaces,
 		Ontologies:  ontologies,
 		Options:     opts,

@@ -77,6 +77,7 @@ func NewGeneratorRuntime(opts Options) (*GeneratorRuntime, error) {
 	)
 	// Sealed-list value enums in generated schemas (#3599).
 	genSvc.SetConceptEnumReader(vocabulary.NewService(opts.Pool, nil))
+	genSvc.SetGraftOverrideReader(NewGraftOverrideStore(opts.Pool))
 	return &GeneratorRuntime{
 		Service:     genSvc,
 		models:      model.NewPostgresStore(opts.Pool),

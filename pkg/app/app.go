@@ -337,6 +337,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 	)
 	// Sealed-list value enums in generated schemas (#3599).
 	generatorService.SetConceptEnumReader(vocabulary.NewService(opts.Pool, nil))
+	generatorService.SetGraftOverrideReader(NewGraftOverrideStore(opts.Pool))
 	visualizationHost := buildVisualizationHost(opts.Pool, weaveStore, logger, generatorService, publicationReader)
 	detailViewHost := buildDetailViewHost(opts.Pool, logger, templateRenderer, weaveStore, i18nManager, sessionManager, opts.IntegrationRegistry, ontologySvc, hasFormat, publicationReader)
 	categoryHost, categoryService := buildCategoryHost(opts.Pool, weaveStore, logger, changeLog, languages, langResolver)

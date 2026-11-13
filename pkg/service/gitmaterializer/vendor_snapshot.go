@@ -70,6 +70,12 @@ func (m *Materializer) writeProjectTree(ctx context.Context, workDir, projectID 
 	if err := m.writeProjectPlacements(ctx, workDir, projectID); err != nil {
 		return err
 	}
+	if err := m.writeProjectGrafts(ctx, workDir, projectID); err != nil {
+		return err
+	}
+	if err := m.writeGeneratorFiles(ctx, workDir, projectID); err != nil {
+		return err
+	}
 	if err := m.writeAdoptedEntities(ctx, workDir, projectID); err != nil {
 		return err
 	}

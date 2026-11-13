@@ -41,11 +41,12 @@ const (
 	KindForkReceipt     = "fork-receipt"
 	KindOntology        = "ontology"
 	KindReleasesIndex   = "releases-index"
+	KindGrafts          = "grafts"
 )
 
 var allKinds = []string{
 	KindProject, KindMod, KindCategory, KindConceptList, KindField, KindModel, KindCollection,
-	KindOverride, KindPlacement, KindReceiptsIndex, KindAdoptionReceipt, KindForkReceipt, KindOntology, KindReleasesIndex,
+	KindOverride, KindPlacement, KindReceiptsIndex, KindAdoptionReceipt, KindForkReceipt, KindOntology, KindReleasesIndex, KindGrafts,
 }
 
 // Kinds by the whole path, by the first directory (two segments), and by
@@ -69,6 +70,7 @@ var (
 		"fields/field.yaml":           KindField,
 		"fields/base-override.yaml":   KindOverride,
 		"models/model.yaml":           KindModel,
+		"models/grafts.yaml":          KindGrafts,
 		"collections/collection.yaml": KindCollection,
 	}
 )

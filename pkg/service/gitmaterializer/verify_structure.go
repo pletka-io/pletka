@@ -295,7 +295,7 @@ func (v *verifyContext) checkOverrides() {
 	groups := []struct {
 		items []SnapshotEntityFile
 		owned bool
-	}{{v.snap.Entities.BaseOverrides, false}, {v.snap.Entities.ModelOverrides, true}, {v.snap.Entities.CollectionOverrides, true}}
+	}{{v.snap.Entities.BaseOverrides, false}, {v.snap.Entities.ModelOverrides, true}, {v.snap.Entities.CollectionOverrides, true}, {v.snap.Entities.Grafts, true}}
 	for _, g := range groups {
 		for _, item := range g.items {
 			if g.owned {
@@ -304,6 +304,9 @@ func (v *verifyContext) checkOverrides() {
 					orphaned[key] = true
 					v.add(item.Path, 0, "orphan-overrides", "%s %s has overrides but no %s.yaml", item.OwnerType, item.OwnerID, item.OwnerType)
 				}
+			}
+			if item.EntityType == entityTypeModelGrafts {
+				continue // checkGrafts
 			}
 			v.checkOverrideRefs(item)
 		}
@@ -467,6 +470,31 @@ func (v *verifyContext) checkPlacements() {
 			}
 			v.add(item.Path, yamlKeyLine(item.Payload, "max_occurs"), "placement-range",
 				"min_occurs %d and max_occurs %s do not form a range within 0..%d", doc.MinOccurs, maxOccurs, math.MaxInt32)
+		}
+	}
+}
+
+// checkGrafts reports grafts.yaml addresses whose segments name no field the
+// tree, its vendored projects or its parents define. Whether the address is
+// reached in the composed model needs the database: compose warns
+// (compose.unresolved_graft).
+func (v *verifyContext) checkGrafts() {
+	for _, item := range v.snap.Entities.Grafts {
+		if v.schemaFailed[item.Path] {
+			continue
+		}
+		doc, err := decodeTreeFile[map[string]graftDoc](item.Path, item.Payload)
+		if err != nil {
+			continue // checkSchemas reported it
+		}
+		for _, addr := range slices.Sorted(maps.Keys(doc)) {
+			for _, seg := range strings.Split(addr, "/") {
+				if !v.fields[seg] && !v.inUnloadedParent(seg) {
+					v.add(item.Path, yamlKeyLine(item.Payload, addr), "unresolved-graft-address",
+						"%s: field %s is not defined in the tree, its vendored projects or its parents", addr, seg)
+					break
+				}
+			}
 		}
 	}
 }

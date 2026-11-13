@@ -3,6 +3,7 @@ package gitmaterializer
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -64,6 +65,15 @@ func TestLoadProjectSnapshot(t *testing.T) {
 }
 
 func loadSnapshotFixture(t *testing.T) *ProjectSnapshot {
+	t.Helper()
+	snapshot, err := LoadProjectSnapshot(writeSnapshotFixture(t))
+	if err != nil {
+		t.Fatalf("LoadProjectSnapshot: %v", err)
+	}
+	return snapshot
+}
+
+func writeSnapshotFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 
@@ -319,12 +329,30 @@ func loadSnapshotFixture(t *testing.T) *ProjectSnapshot {
 	if err := writeEntityFile(vendorOntologyRoot, "src/linked-art.ttl", []byte("@prefix la: <https://linked.art/> .\n")); err != nil {
 		t.Fatalf("write ontology source: %v", err)
 	}
+	return root
+}
 
-	snapshot, err := LoadProjectSnapshot(root)
+func TestLoadProjectSnapshotReadsGraftsAndGeneratorFiles(t *testing.T) {
+	root := writeSnapshotFixture(t)
+	write(t, root, "models/TPCM.1/grafts.yaml", "LAF.1/LAF.2: {is_hidden: true}\n")
+	write(t, root, "generators/arches/x/aliases.yaml", "LAF.1: x\n")
+	write(t, root, "generators/arches/README.md", "# notes\n")
+
+	snap, err := LoadProjectSnapshot(root)
 	if err != nil {
-		t.Fatalf("LoadProjectSnapshot: %v", err)
+		t.Fatal(err)
 	}
-	return snapshot
+	if len(snap.Entities.Grafts) != 1 || snap.Entities.Grafts[0].EntityType != "model_grafts" || snap.Entities.Grafts[0].OwnerID != "TPCM.1" {
+		t.Fatalf("grafts: %+v", snap.Entities.Grafts)
+	}
+	paths := make([]string, 0, len(snap.Entities.GeneratorFiles))
+	for _, f := range snap.Entities.GeneratorFiles {
+		paths = append(paths, f.Path)
+	}
+	sort.Strings(paths)
+	if strings.Join(paths, ",") != "generators/arches/README.md,generators/arches/x/aliases.yaml" {
+		t.Fatalf("generator files: %v", paths)
+	}
 }
 
 func TestLoadProjectSnapshot_MissingReferencedAdoptionReceipt(t *testing.T) {
@@ -767,5 +795,25 @@ func TestPrepareRestorePlan_RejectsBadPlacementFile(t *testing.T) {
 	_, err := PrepareRestorePlan(root, "")
 	if err == nil || !strings.Contains(err.Error(), "models/TPCM.1/placements/TPCC.1@TPC.CAT.1.yaml:3: ") {
 		t.Fatalf("want an error naming the placement and line, got %v", err)
+	}
+}
+
+// A symlink under generators/ would read a host file into the database and
+// write it into every reconciled tree: the loader refuses it.
+func TestLoadProjectSnapshotRefusesGeneratorSymlink(t *testing.T) {
+	root := writeSnapshotFixture(t)
+	target := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(target, []byte("host file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "generators", "arches"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "generators", "arches", "x.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadProjectSnapshot(root)
+	if err == nil || !strings.Contains(err.Error(), "generators/arches/x.yaml") {
+		t.Fatalf("want an error naming the symlink, got %v", err)
 	}
 }

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pletka.io/schema/format/2/grafts.schema.json",
+  "title": "models/<M>/grafts.yaml",
+  "description": "Overrides for grafted copies of fields in one model, keyed by address: field semantic ids from the model down through the stubs, at least two. Addresses that name no known field are verify-git unresolved-graft-address.",
+  "type": "object",
+  "propertyNames": {"pattern": "^[A-Za-z0-9]+[FMC]\\.(?:0|[1-9][0-9]*)(?:_[a-z0-9_]+)?(?:/[A-Za-z0-9]+[FMC]\\.(?:0|[1-9][0-9]*)(?:_[a-z0-9_]+)?)+$"},
+  "additionalProperties": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "is_hidden": {"type": "boolean"},
+      "max_occurs": {"type": ["integer", "null"], "minimum": 0, "description": "null = unbounded."},
+      "display_name": {"$ref": "common.schema.json#/$defs/translations"}
+    }
+  }
+}

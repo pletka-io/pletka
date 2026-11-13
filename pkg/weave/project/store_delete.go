@@ -112,6 +112,13 @@ func (s *postgresStore) DeleteCascade(ctx context.Context, id string) (DeleteSta
 		}
 		*st.into += res.RowsAffected()
 	}
+	q := s.queries.WithTx(tx)
+	if err := q.WeaveDeleteGraftOverridesByProject(ctx, id); err != nil {
+		return stats, fmt.Errorf("delete graft overrides: %w", err)
+	}
+	if err := q.WeaveDeleteGeneratorFilesByProject(ctx, id); err != nil {
+		return stats, fmt.Errorf("delete generator files: %w", err)
+	}
 
 	res, err = tx.Exec(ctx, `DELETE FROM weave_projects WHERE id = $1`, id)
 	if err != nil {

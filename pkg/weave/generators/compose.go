@@ -1,6 +1,8 @@
 package generators
 
 import (
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -22,10 +24,12 @@ import (
 //
 // Returns the fields with grafted copies appended in BFS order, originals
 // first, or the input unchanged when opts.ComposeCollections is off.
-func composeCollections(fields []FieldNode, referenced map[string]ReferencedCollection, opts Options, report *Report) []FieldNode {
+func composeCollections(fields []FieldNode, referenced map[string]ReferencedCollection, grafts map[string]domain.GraftOverride, opts Options, report *Report) []FieldNode {
+	stampTopLevelAddresses(fields)
 	if !opts.ComposeCollections || len(fields) == 0 {
 		return fields
 	}
+	used := map[string]bool{}
 	out := make([]FieldNode, 0, len(fields)*2)
 	out = append(out, fields...)
 
@@ -82,7 +86,19 @@ func composeCollections(fields []FieldNode, referenced map[string]ReferencedColl
 				systemName = target.Collection.SystemName
 			}
 			for _, child := range target.Fields {
+				addr := q.field.Address + "/" + child.SemanticID
+				g, has := grafts[addr]
+				if has {
+					used[addr] = true
+					if g.IsHidden {
+						continue
+					}
+				}
 				grafted := graftField(q.field, child, target)
+				grafted.Address = addr
+				if has {
+					applyGraftOverride(&grafted, g)
+				}
 				// GraftPath accumulates the alias chain so the Arches
 				// renderer can mint per-path UUIDs and aliases.
 				grafted.GraftPath = append(append([]string(nil), q.field.GraftPath...), stubAlias)
@@ -97,7 +113,55 @@ func composeCollections(fields []FieldNode, referenced map[string]ReferencedColl
 			}
 		}
 	}
+	warnUnresolvedGrafts(grafts, used, report)
 	return out
+}
+
+// stampTopLevelAddresses gives each top-level field its own semantic id as
+// address; it holds whether or not the model is composed.
+func stampTopLevelAddresses(fields []FieldNode) {
+	for i := range fields {
+		if fields[i].Address == "" {
+			fields[i].Address = fields[i].Field.SemanticID
+		}
+	}
+}
+
+// applyGraftOverride sets a grafted copy's max and name from its override.
+// MaxOccursSet with a nil MaxOccurs is unbounded. The stub's max becomes its
+// children's CollectionMaxOccurs when it is grafted in turn.
+func applyGraftOverride(grafted *FieldNode, g domain.GraftOverride) {
+	if g.MaxOccursSet {
+		grafted.Field.MaxOccurs = g.MaxOccurs
+	}
+	if len(g.DisplayName) > 0 {
+		grafted.Field.DisplayName = g.DisplayName
+	}
+}
+
+// warnUnresolvedGrafts reports each override address compose never reached,
+// except those under a hidden graft.
+func warnUnresolvedGrafts(grafts map[string]domain.GraftOverride, used map[string]bool, report *Report) {
+	for _, addr := range slices.Sorted(maps.Keys(grafts)) {
+		if used[addr] || hiddenAncestor(addr, grafts) {
+			continue
+		}
+		report.Warnings = append(report.Warnings, Diagnostic{
+			Code:    "compose.unresolved_graft",
+			Message: "grafts.yaml address " + addr + " is not reached in the composed model",
+		})
+	}
+}
+
+// hiddenAncestor reports whether a proper prefix of addr is a hidden graft:
+// addresses under a hidden branch are never reached and need no warning.
+func hiddenAncestor(addr string, grafts map[string]domain.GraftOverride) bool {
+	for i := strings.LastIndex(addr, "/"); i > 0; i = strings.LastIndex(addr[:i], "/") {
+		if g, ok := grafts[addr[:i]]; ok && g.IsHidden {
+			return true
+		}
+	}
+	return false
 }
 
 // graftPrefix is what a graft strips from a referenced collection's member

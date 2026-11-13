@@ -70,6 +70,8 @@ type SnapshotEntityTree struct {
 	ModelOverrides      []SnapshotEntityFile
 	CollectionOverrides []SnapshotEntityFile
 	Placements          []SnapshotEntityFile
+	Grafts              []SnapshotEntityFile
+	GeneratorFiles      []SnapshotEntityFile
 }
 
 type AdoptionManifestSet struct {
@@ -439,6 +441,11 @@ func scanProjectEntities(rootDir string) (SnapshotEntityTree, error) {
 		if !ok {
 			return nil
 		}
+		// Generator files are stored and written back verbatim: a symlink
+		// would carry a host file into the database and every reconciled tree.
+		if entity.EntityType == entityTypeGeneratorFile && !d.Type().IsRegular() {
+			return fmt.Errorf("%s: generator files must be regular files", rel)
+		}
 		payload, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", rel, err)
@@ -463,6 +470,10 @@ func scanProjectEntities(rootDir string) (SnapshotEntityTree, error) {
 			out.CollectionOverrides = append(out.CollectionOverrides, entity)
 		case entityTypeCollectionPlacement:
 			out.Placements = append(out.Placements, entity)
+		case entityTypeModelGrafts:
+			out.Grafts = append(out.Grafts, entity)
+		case entityTypeGeneratorFile:
+			out.GeneratorFiles = append(out.GeneratorFiles, entity)
 		}
 		return nil
 	})
@@ -478,6 +489,8 @@ func scanProjectEntities(rootDir string) (SnapshotEntityTree, error) {
 	sortSnapshotEntityFiles(out.ModelOverrides)
 	sortSnapshotEntityFiles(out.CollectionOverrides)
 	sortSnapshotEntityFiles(out.Placements)
+	sortSnapshotEntityFiles(out.Grafts)
+	sortSnapshotEntityFiles(out.GeneratorFiles)
 	return out, nil
 }
 
@@ -522,7 +535,12 @@ func classifySnapshotEntityFile(rel string) (SnapshotEntityFile, bool) {
 				FieldID:    segments[1],
 			}, true
 		}
+	case "generators":
+		return SnapshotEntityFile{Path: rel, EntityType: entityTypeGeneratorFile}, true
 	case "models":
+		if len(segments) == 3 && segments[2] == "grafts.yaml" {
+			return SnapshotEntityFile{Path: rel, EntityType: entityTypeModelGrafts, OwnerType: entityTypeModel, OwnerID: segments[1]}, true
+		}
 		if len(segments) == 3 && segments[2] == "model.yaml" {
 			return SnapshotEntityFile{
 				Path:       rel,
@@ -726,7 +744,7 @@ func checkTreeFile(rel string, payload []byte) error {
 // bad tree before it writes anything.
 func (s *ProjectSnapshot) checkEntityFiles() error {
 	e := s.Entities
-	for _, group := range [][]SnapshotEntityFile{e.Categories, e.ConceptLists, e.Fields, e.Models, e.Collections, e.BaseOverrides, e.ModelOverrides, e.CollectionOverrides, e.Placements} {
+	for _, group := range [][]SnapshotEntityFile{e.Categories, e.ConceptLists, e.Fields, e.Models, e.Collections, e.BaseOverrides, e.ModelOverrides, e.CollectionOverrides, e.Placements, e.Grafts} {
 		for _, item := range group {
 			if err := checkTreeFile(item.Path, item.Payload); err != nil {
 				return err
