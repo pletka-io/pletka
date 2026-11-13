@@ -165,9 +165,11 @@ func hiddenAncestor(addr string, grafts map[string]domain.GraftOverride) bool {
 }
 
 // graftPrefix is what a graft strips from a referenced collection's member
-// paths: the longest prefix every member shares, cut back so it ends at a
-// class and leaves every member at least one step (a one-field collection
-// keeps its last property and value).
+// paths: the collection's root step, the shared prefix up to its first
+// class, which the stub's own path ends with. It leaves every member at
+// least one step (a one-field collection keeps its last property and
+// value). A node the members share below the root is not stripped: it
+// stays in each tail and appears once under the stub.
 func graftPrefix(fields []domain.ResolvedField) []domain.PathElement {
 	p := computeSharedPathPrefix(fields)
 	for _, f := range fields {
@@ -175,10 +177,12 @@ func graftPrefix(fields []domain.ResolvedField) []domain.PathElement {
 			p = p[:n-1]
 		}
 	}
-	for len(p) > 0 && p[len(p)-1].Type != string(PathRoleClass) {
-		p = p[:len(p)-1]
+	for i, e := range p {
+		if e.Type == string(PathRoleClass) {
+			return p[:i+1]
+		}
 	}
-	return p
+	return nil
 }
 
 // isCollectionStub returns true when a field's ExpectedValueType marks

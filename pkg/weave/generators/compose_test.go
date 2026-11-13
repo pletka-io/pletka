@@ -183,6 +183,23 @@ func TestGraftPrefixLeavesATail(t *testing.T) {
 	}
 }
 
+// Members that share a node below the collection's root keep it: the
+// graft strips the root step only, so the shared node appears once under
+// the stub instead of vanishing (one member, or all through one E13).
+func TestGraftPrefixStopsAtTheRoot(t *testing.T) {
+	one := []domain.ResolvedField{field("f", "X.F1", "uncertainty_type", 1,
+		pe("property", "crm", "P14_carried_out_by", 0), pe("class", "crm", "E39_Actor", 1),
+		pe("property", "crm", "P141i_was_assigned_by", 2), pe("class", "crm", "E13_Attribute_Assignment", 3),
+		pe("property", "crm", "P2_has_type", 4), pe("class", "crm", "E55_Type", 5))}
+	p := graftPrefix(one)
+	if len(p) != 2 || p[1].LocalName != "E39_Actor" {
+		t.Fatalf("prefix ends at the root class: %+v", p)
+	}
+	if tail := stripSharedPrefix(one[0].PathElements, p); len(tail) != 4 || tail[1].LocalName != "E13_Attribute_Assignment" {
+		t.Fatalf("tail keeps the shared node: %+v", tail)
+	}
+}
+
 // refReader is a CollectionReader + CollectionLookupByID + CollectionLookupView
 // over maps. View refuses every collection, as the real reader refuses one
 // the project does not own: members must come from LookupView, which
