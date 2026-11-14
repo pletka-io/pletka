@@ -247,6 +247,9 @@ refs:
   - {ref_type: concept_list, semantic_id: X.CL.5, position: 1}
 ```
 
+- `is_required` and `min_occurs` say the same thing: `is_required` is true
+  exactly when `min_occurs` ≥ 1. Writers keep them in agreement; a loader
+  repairs a file where they disagree (the side that says required wins).
 - `field_id`, `entity_type` and `entity_id` MUST match the file's location.
 - `refs` names what a `Model`, `Collection` or `Concept` value points at:
   `ref_type` is `resource_model`, `collection_model` or `concept_list`.

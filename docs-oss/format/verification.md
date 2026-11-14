@@ -122,8 +122,10 @@ database-backed engine the same questions; the two agree by construction.
 
 - Values of `status`, `visibility`, `expected_value_type` beyond the known
   sets: listed in the schemas, reported only once data is normalised.
-- Cardinality coherence (`min_occurs` ≤ `max_occurs`, `is_required` vs
-  `min_occurs`) **[not built]**.
+- Cardinality coherence (`min_occurs` ≤ `max_occurs`) **[not built]**.
+  `is_required` and `min_occurs` are one concept (`is_required` ⇔
+  `min_occurs` ≥ 1): writers keep them in agreement and loading repairs a
+  file where they disagree (the side that says required wins).
 - Whether owner/creator actors exist: an instance concern, checked on load.
 
 ## CI

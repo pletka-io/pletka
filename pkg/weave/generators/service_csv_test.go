@@ -295,7 +295,6 @@ func columnIndex(column string) int {
 		"expected_value_type",
 		"set_value",
 		"is_required",
-		"is_hidden",
 		"ontology_path_elements",
 	}
 	for i, name := range columns {

@@ -72,7 +72,6 @@ var header = []string{
 	"expected_value_type",
 	"set_value",
 	"is_required",
-	"is_hidden",
 	"ontology_path_elements",
 }
 
@@ -97,7 +96,6 @@ func row(snap *generators.Snapshot, node generators.FieldNode) []string {
 		field.ExpectedValueType,
 		field.SetValue,
 		strconv.FormatBool(field.IsRequired),
-		strconv.FormatBool(field.IsHidden),
 		marshalPathElements(field.PathElements),
 	}
 }

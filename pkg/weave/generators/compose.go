@@ -86,6 +86,9 @@ func composeCollections(fields []FieldNode, referenced map[string]ReferencedColl
 				systemName = target.Collection.SystemName
 			}
 			for _, child := range target.Fields {
+				if child.IsHidden {
+					continue
+				}
 				addr := q.field.Address + "/" + child.SemanticID
 				g, has := grafts[addr]
 				if has {
@@ -268,13 +271,15 @@ func graftField(stub FieldNode, child domain.ResolvedField, target ReferencedCol
 	}
 
 	node := FieldNode{
-		Field:               grafted,
-		Slug:                child.SystemName,
-		RelativePath:        stub.RelativePath,
-		Scope:               stub.Scope,
-		Path:                pathNodes,
-		CollectionMaxOccurs: stub.Field.MaxOccurs,
-		GraftStubID:         stub.Field.SemanticID,
+		Field:                grafted,
+		Slug:                 child.SystemName,
+		RelativePath:         stub.RelativePath,
+		Scope:                stub.Scope,
+		Path:                 pathNodes,
+		CollectionMaxOccurs:  stub.Field.MaxOccurs,
+		CollectionMinOccurs:  stub.Field.MinOccurs,
+		CollectionIsRequired: stub.Field.IsRequired,
+		GraftStubID:          stub.Field.SemanticID,
 	}
 	if c := target.Collection; c != nil {
 		node.CollectionID = c.ID

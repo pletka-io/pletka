@@ -3,6 +3,7 @@
   import type { OverrideEditorItem } from '$lib/detailview/override-editor-types';
   import type { OverrideEditorState } from '$lib/detailview/override-editor-state.svelte';
   import { UNCATEGORIZED_ID } from '$lib/detailview/override-editor-state.svelte';
+  import { syncRequiredMin } from '$lib/detailview/required-min';
   import type { FormSchema } from '$lib/types/form-schema';
   import { tr } from '$lib/types/weave-types';
   import { confirmAction } from '$lib/stores/confirm';
@@ -119,11 +120,14 @@
   });
 
   function commitConstraints() {
+    const synced = syncRequiredMin(placementOf(item), {
+      is_required: constraints.is_required,
+      min_occurs: Math.max(0, Math.floor(Number(constraints.min_occurs) || 0)),
+    });
     editor.updateItem(categoryId, item.id, {
       placement: {
         ...(item.placement ?? {}),
-        is_required: constraints.is_required,
-        min_occurs: Math.max(0, Math.floor(Number(constraints.min_occurs) || 0)),
+        ...synced,
         max_occurs:
           constraints.max_occurs === null || String(constraints.max_occurs) === ''
             ? null

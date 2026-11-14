@@ -434,3 +434,18 @@ func TestComposeNoWarningUnderHiddenGraft(t *testing.T) {
 		t.Fatalf("warnings under a hidden graft: %+v", rep.Warnings)
 	}
 }
+
+func TestComposeSkipsHiddenMembers(t *testing.T) {
+	fields, ref := nestedFixture()
+	ts := ref["c-ts"]
+	ts.Fields = append([]domain.ResolvedField(nil), ts.Fields...)
+	ts.Fields[0].IsHidden = true
+	ref["c-ts"] = ts
+	got := byAddress(composeCollections(fields, ref, nil, composeOpts(), &Report{}))
+	if _, ok := got["OGF.1/LAC.6.F1"]; ok {
+		t.Fatalf("hidden collection member grafted: %v", keys(got))
+	}
+	if _, ok := got["OGF.1/LAC.6.F2"]; !ok {
+		t.Fatalf("visible member missing: %v", keys(got))
+	}
+}

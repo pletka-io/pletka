@@ -1,3 +1,4 @@
+import { syncRequiredMin } from './required-min';
 import type {
   OverrideCategoryOption,
   OverrideEditorField,
@@ -317,6 +318,9 @@ export class OverrideEditorState {
             fields: item.fields.map((field) => {
               if (field.override_id !== overrideID) return field;
               const next = { ...field, ...patch };
+              if ('is_required' in patch || 'min_occurs' in patch) {
+                Object.assign(next, syncRequiredMin(field, next));
+              }
               // Keep the display refs ({id, semantic_id, name}) in sync
               // with the bare-id arrays. Caller may also pass an
               // explicit `*_refs` patch carrying labels for newly-added
