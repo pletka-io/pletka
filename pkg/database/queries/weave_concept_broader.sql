@@ -36,3 +36,17 @@ SELECT EXISTS(
 SELECT EXISTS(
     SELECT 1 FROM weave_vocabulary_entries WHERE id = $1
 ) AS present;
+
+-- name: WeaveDeleteConceptBroaderByVocabulary :exec
+DELETE FROM weave_concept_broader
+WHERE concept_id IN (
+    SELECT id FROM weave_vocabulary_entries WHERE vocabulary_id = @vocabulary_id::text
+);
+
+-- name: WeaveListConceptBroaderByVocabulary :many
+SELECT c.uri AS concept_uri, b.uri AS broader_uri, cb.position
+FROM weave_concept_broader cb
+JOIN weave_vocabulary_entries c ON c.id = cb.concept_id
+JOIN weave_vocabulary_entries b ON b.id = cb.broader_id
+WHERE c.vocabulary_id = @vocabulary_id::text
+ORDER BY c.uri, cb.position, b.uri;

@@ -350,7 +350,7 @@ INSERT INTO weave_vocabulary_entries (
     broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW()
-) RETURNING id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at
+) RETURNING id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at, config
 `
 
 type WeaveCreateVocabularyEntryParams struct {
@@ -390,6 +390,7 @@ func (q *Queries) WeaveCreateVocabularyEntry(ctx context.Context, arg WeaveCreat
 		&i.ExternalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Config,
 	)
 	return i, err
 }
@@ -411,6 +412,15 @@ func (q *Queries) WeaveDeleteConceptList(ctx context.Context, arg WeaveDeleteCon
 	return err
 }
 
+const weaveDeleteConceptListEntriesByList = `-- name: WeaveDeleteConceptListEntriesByList :exec
+DELETE FROM weave_concept_list_entries WHERE concept_list_id = $1::text
+`
+
+func (q *Queries) WeaveDeleteConceptListEntriesByList(ctx context.Context, conceptListID string) error {
+	_, err := q.db.Exec(ctx, weaveDeleteConceptListEntriesByList, conceptListID)
+	return err
+}
+
 const weaveDeleteConceptListEntryInList = `-- name: WeaveDeleteConceptListEntryInList :exec
 DELETE FROM weave_concept_list_entries
 WHERE id = $1 AND concept_list_id = $2
@@ -424,6 +434,22 @@ type WeaveDeleteConceptListEntryInListParams struct {
 // Remove one entry from a list.  (was RemoveConceptListEntry)
 func (q *Queries) WeaveDeleteConceptListEntryInList(ctx context.Context, arg WeaveDeleteConceptListEntryInListParams) error {
 	_, err := q.db.Exec(ctx, weaveDeleteConceptListEntryInList, arg.ID, arg.ConceptListID)
+	return err
+}
+
+const weaveDeleteVocabularyEntriesNotIn = `-- name: WeaveDeleteVocabularyEntriesNotIn :exec
+DELETE FROM weave_vocabulary_entries
+WHERE vocabulary_id = $1::text
+  AND NOT (uri = ANY($2::text[]))
+`
+
+type WeaveDeleteVocabularyEntriesNotInParams struct {
+	VocabularyID string   `json:"vocabulary_id"`
+	Uris         []string `json:"uris"`
+}
+
+func (q *Queries) WeaveDeleteVocabularyEntriesNotIn(ctx context.Context, arg WeaveDeleteVocabularyEntriesNotInParams) error {
+	_, err := q.db.Exec(ctx, weaveDeleteVocabularyEntriesNotIn, arg.VocabularyID, arg.Uris)
 	return err
 }
 
@@ -749,7 +775,7 @@ func (q *Queries) WeaveGetVocabulary(ctx context.Context, id string) (WeaveVocab
 }
 
 const weaveGetVocabularyEntry = `-- name: WeaveGetVocabularyEntry :one
-SELECT id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at FROM weave_vocabulary_entries WHERE id = $1
+SELECT id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at, config FROM weave_vocabulary_entries WHERE id = $1
 `
 
 func (q *Queries) WeaveGetVocabularyEntry(ctx context.Context, id string) (WeaveVocabularyEntry, error) {
@@ -767,12 +793,13 @@ func (q *Queries) WeaveGetVocabularyEntry(ctx context.Context, id string) (Weave
 		&i.ExternalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Config,
 	)
 	return i, err
 }
 
 const weaveGetVocabularyEntryByURI = `-- name: WeaveGetVocabularyEntryByURI :one
-SELECT id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at FROM weave_vocabulary_entries
+SELECT id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at, config FROM weave_vocabulary_entries
 WHERE uri = $1::text
 ORDER BY updated_at DESC
 LIMIT 1
@@ -793,12 +820,13 @@ func (q *Queries) WeaveGetVocabularyEntryByURI(ctx context.Context, uri string) 
 		&i.ExternalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Config,
 	)
 	return i, err
 }
 
 const weaveGetVocabularyEntryByVocabularyURI = `-- name: WeaveGetVocabularyEntryByVocabularyURI :one
-SELECT id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at FROM weave_vocabulary_entries
+SELECT id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at, config FROM weave_vocabulary_entries
 WHERE vocabulary_id = $1::text
   AND uri = $2::text
 LIMIT 1
@@ -824,6 +852,7 @@ func (q *Queries) WeaveGetVocabularyEntryByVocabularyURI(ctx context.Context, ar
 		&i.ExternalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Config,
 	)
 	return i, err
 }
@@ -1119,6 +1148,34 @@ func (q *Queries) WeaveListConceptListEntriesWithVocabulary(ctx context.Context,
 	return items, nil
 }
 
+const weaveListConceptListEntryURIs = `-- name: WeaveListConceptListEntryURIs :many
+SELECT e.uri
+FROM weave_concept_list_entries le
+JOIN weave_vocabulary_entries e ON e.id = le.vocabulary_entry_id
+WHERE le.concept_list_id = $1::text
+ORDER BY le.position, le.id
+`
+
+func (q *Queries) WeaveListConceptListEntryURIs(ctx context.Context, conceptListID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, weaveListConceptListEntryURIs, conceptListID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var uri string
+		if err := rows.Scan(&uri); err != nil {
+			return nil, err
+		}
+		items = append(items, uri)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveListConceptListMemberURIs = `-- name: WeaveListConceptListMemberURIs :many
 SELECT DISTINCT ve.uri
 FROM weave_concept_lists cl
@@ -1318,6 +1375,48 @@ func (q *Queries) WeaveListProjectScopedVocabularies(ctx context.Context, projec
 	return items, nil
 }
 
+const weaveListProjectTreeVocabularies = `-- name: WeaveListProjectTreeVocabularies :many
+SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted, deprecated FROM weave_vocabularies
+WHERE project_id = $1::text
+  AND semantic_id ~ '^[A-Z0-9]+\.VOC\.[0-9]+$'
+ORDER BY semantic_id
+`
+
+func (q *Queries) WeaveListProjectTreeVocabularies(ctx context.Context, projectID string) ([]WeaveVocabulary, error) {
+	rows, err := q.db.Query(ctx, weaveListProjectTreeVocabularies, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveVocabulary{}
+	for rows.Next() {
+		var i WeaveVocabulary
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.SemanticID,
+			&i.SystemName,
+			&i.UiName,
+			&i.Description,
+			&i.Status,
+			&i.ProjectID,
+			&i.ConnectorType,
+			&i.BaseUri,
+			&i.Config,
+			&i.ConfigEncrypted,
+			&i.Deprecated,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveListVocabularies = `-- name: WeaveListVocabularies :many
 SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted, deprecated FROM weave_vocabularies
 ORDER BY system_name ASC
@@ -1347,6 +1446,45 @@ func (q *Queries) WeaveListVocabularies(ctx context.Context) ([]WeaveVocabulary,
 			&i.Config,
 			&i.ConfigEncrypted,
 			&i.Deprecated,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveListVocabularyEntriesForTree = `-- name: WeaveListVocabularyEntriesForTree :many
+SELECT id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at, config FROM weave_vocabulary_entries
+WHERE vocabulary_id = $1::text
+ORDER BY uri
+`
+
+func (q *Queries) WeaveListVocabularyEntriesForTree(ctx context.Context, vocabularyID string) ([]WeaveVocabularyEntry, error) {
+	rows, err := q.db.Query(ctx, weaveListVocabularyEntriesForTree, vocabularyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveVocabularyEntry{}
+	for rows.Next() {
+		var i WeaveVocabularyEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.VocabularyID,
+			&i.Uri,
+			&i.Label,
+			&i.ScopeNote,
+			&i.BroaderUri,
+			&i.BroaderPath,
+			&i.BroaderPathItems,
+			&i.ExternalID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Config,
 		); err != nil {
 			return nil, err
 		}
@@ -1578,7 +1716,7 @@ func (q *Queries) WeaveSearchConceptListEntries(ctx context.Context, arg WeaveSe
 }
 
 const weaveSearchVocabularyEntries = `-- name: WeaveSearchVocabularyEntries :many
-SELECT id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at FROM weave_vocabulary_entries
+SELECT id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at, config FROM weave_vocabulary_entries
 WHERE vocabulary_id = $1::text
   AND (
     EXISTS (SELECT 1 FROM jsonb_each_text(label) WHERE value ILIKE '%' || $2::text || '%')
@@ -1615,6 +1753,7 @@ func (q *Queries) WeaveSearchVocabularyEntries(ctx context.Context, arg WeaveSea
 			&i.ExternalID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Config,
 		); err != nil {
 			return nil, err
 		}
@@ -1657,6 +1796,23 @@ type WeaveSetConceptListEntryPositionInListParams struct {
 // Set one entry's position; the reorder loop calls it per id.  (was ReorderConceptListEntries)
 func (q *Queries) WeaveSetConceptListEntryPositionInList(ctx context.Context, arg WeaveSetConceptListEntryPositionInListParams) error {
 	_, err := q.db.Exec(ctx, weaveSetConceptListEntryPositionInList, arg.Position, arg.ID, arg.ConceptListID)
+	return err
+}
+
+const weaveSetConceptListVocabulary = `-- name: WeaveSetConceptListVocabulary :exec
+UPDATE weave_concept_lists
+SET vocabulary_id = $1::text, updated_at = NOW()
+WHERE project_id = $2::text AND semantic_id = $3::text
+`
+
+type WeaveSetConceptListVocabularyParams struct {
+	VocabularyID string `json:"vocabulary_id"`
+	ProjectID    string `json:"project_id"`
+	SemanticID   string `json:"semantic_id"`
+}
+
+func (q *Queries) WeaveSetConceptListVocabulary(ctx context.Context, arg WeaveSetConceptListVocabularyParams) error {
+	_, err := q.db.Exec(ctx, weaveSetConceptListVocabulary, arg.VocabularyID, arg.ProjectID, arg.SemanticID)
 	return err
 }
 
@@ -1778,6 +1934,109 @@ func (q *Queries) WeaveUpsertConceptList(ctx context.Context, arg WeaveUpsertCon
 	return i, err
 }
 
+const weaveUpsertProjectVocabulary = `-- name: WeaveUpsertProjectVocabulary :one
+INSERT INTO weave_vocabularies (
+    id, created_at, updated_at, semantic_id, system_name,
+    ui_name, description, status, project_id, connector_type, base_uri
+) VALUES (
+    $1::text, NOW(), NOW(), $2::text, $3::text,
+    $4::jsonb, $5::jsonb, $6::text, $7::text, 'local', $8::text
+)
+ON CONFLICT (project_id, semantic_id) WHERE semantic_id IS NOT NULL
+DO UPDATE SET system_name = EXCLUDED.system_name,
+              ui_name     = EXCLUDED.ui_name,
+              description = EXCLUDED.description,
+              status      = EXCLUDED.status,
+              base_uri    = EXCLUDED.base_uri,
+              updated_at  = NOW()
+RETURNING id
+`
+
+type WeaveUpsertProjectVocabularyParams struct {
+	ID          string          `json:"id"`
+	SemanticID  string          `json:"semantic_id"`
+	SystemName  string          `json:"system_name"`
+	UiName      json.RawMessage `json:"ui_name"`
+	Description json.RawMessage `json:"description"`
+	Status      string          `json:"status"`
+	ProjectID   string          `json:"project_id"`
+	BaseUri     string          `json:"base_uri"`
+}
+
+func (q *Queries) WeaveUpsertProjectVocabulary(ctx context.Context, arg WeaveUpsertProjectVocabularyParams) (string, error) {
+	row := q.db.QueryRow(ctx, weaveUpsertProjectVocabulary,
+		arg.ID,
+		arg.SemanticID,
+		arg.SystemName,
+		arg.UiName,
+		arg.Description,
+		arg.Status,
+		arg.ProjectID,
+		arg.BaseUri,
+	)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
+const weaveUpsertTreeVocabularyEntry = `-- name: WeaveUpsertTreeVocabularyEntry :one
+INSERT INTO weave_vocabulary_entries (
+    id, vocabulary_id, uri, label, scope_note,
+    broader_uri, external_id, config, created_at, updated_at
+) VALUES (
+    $1::text, $2::text, $3::text, $4::jsonb, $5::jsonb,
+    $6::text, $7::text, $8::jsonb, NOW(), NOW()
+)
+ON CONFLICT (vocabulary_id, uri) DO UPDATE SET
+    label = EXCLUDED.label,
+    scope_note = EXCLUDED.scope_note,
+    broader_uri = EXCLUDED.broader_uri,
+    external_id = EXCLUDED.external_id,
+    config = EXCLUDED.config,
+    updated_at = NOW()
+RETURNING id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at, config
+`
+
+type WeaveUpsertTreeVocabularyEntryParams struct {
+	ID           string          `json:"id"`
+	VocabularyID string          `json:"vocabulary_id"`
+	Uri          string          `json:"uri"`
+	Label        json.RawMessage `json:"label"`
+	ScopeNote    json.RawMessage `json:"scope_note"`
+	BroaderUri   string          `json:"broader_uri"`
+	ExternalID   string          `json:"external_id"`
+	Config       json.RawMessage `json:"config"`
+}
+
+func (q *Queries) WeaveUpsertTreeVocabularyEntry(ctx context.Context, arg WeaveUpsertTreeVocabularyEntryParams) (WeaveVocabularyEntry, error) {
+	row := q.db.QueryRow(ctx, weaveUpsertTreeVocabularyEntry,
+		arg.ID,
+		arg.VocabularyID,
+		arg.Uri,
+		arg.Label,
+		arg.ScopeNote,
+		arg.BroaderUri,
+		arg.ExternalID,
+		arg.Config,
+	)
+	var i WeaveVocabularyEntry
+	err := row.Scan(
+		&i.ID,
+		&i.VocabularyID,
+		&i.Uri,
+		&i.Label,
+		&i.ScopeNote,
+		&i.BroaderUri,
+		&i.BroaderPath,
+		&i.BroaderPathItems,
+		&i.ExternalID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Config,
+	)
+	return i, err
+}
+
 const weaveUpsertVocabularyEntry = `-- name: WeaveUpsertVocabularyEntry :one
 INSERT INTO weave_vocabulary_entries (
     id, vocabulary_id, uri, label, scope_note,
@@ -1794,7 +2053,7 @@ ON CONFLICT (vocabulary_id, uri) DO UPDATE SET
     broader_path_items = EXCLUDED.broader_path_items,
     external_id = EXCLUDED.external_id,
     updated_at = NOW()
-RETURNING id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at
+RETURNING id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at, config
 `
 
 type WeaveUpsertVocabularyEntryParams struct {
@@ -1834,6 +2093,7 @@ func (q *Queries) WeaveUpsertVocabularyEntry(ctx context.Context, arg WeaveUpser
 		&i.ExternalID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Config,
 	)
 	return i, err
 }

@@ -1030,6 +1030,7 @@ type WeaveVocabularyEntriesArchive struct {
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`
 	VersionNumber    string          `json:"version_number"`
+	Config           []byte          `json:"config"`
 }
 
 type WeaveVocabularyEntry struct {
@@ -1044,4 +1045,5 @@ type WeaveVocabularyEntry struct {
 	ExternalID       *string         `json:"external_id"`
 	CreatedAt        time.Time       `json:"created_at"`
 	UpdatedAt        time.Time       `json:"updated_at"`
+	Config           []byte          `json:"config"`
 }

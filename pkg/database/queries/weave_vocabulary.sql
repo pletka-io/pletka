@@ -489,3 +489,68 @@ DO UPDATE SET system_name = EXCLUDED.system_name,
               is_closed   = EXCLUDED.is_closed,
               updated_at  = NOW()
 RETURNING *;
+
+-- name: WeaveUpsertProjectVocabulary :one
+INSERT INTO weave_vocabularies (
+    id, created_at, updated_at, semantic_id, system_name,
+    ui_name, description, status, project_id, connector_type, base_uri
+) VALUES (
+    @id::text, NOW(), NOW(), @semantic_id::text, @system_name::text,
+    @ui_name::jsonb, @description::jsonb, @status::text, @project_id::text, 'local', @base_uri::text
+)
+ON CONFLICT (project_id, semantic_id) WHERE semantic_id IS NOT NULL
+DO UPDATE SET system_name = EXCLUDED.system_name,
+              ui_name     = EXCLUDED.ui_name,
+              description = EXCLUDED.description,
+              status      = EXCLUDED.status,
+              base_uri    = EXCLUDED.base_uri,
+              updated_at  = NOW()
+RETURNING id;
+
+-- name: WeaveListProjectTreeVocabularies :many
+SELECT * FROM weave_vocabularies
+WHERE project_id = @project_id::text
+  AND semantic_id ~ '^[A-Z0-9]+\.VOC\.[0-9]+$'
+ORDER BY semantic_id;
+
+-- name: WeaveSetConceptListVocabulary :exec
+UPDATE weave_concept_lists
+SET vocabulary_id = @vocabulary_id::text, updated_at = NOW()
+WHERE project_id = @project_id::text AND semantic_id = @semantic_id::text;
+
+-- name: WeaveUpsertTreeVocabularyEntry :one
+INSERT INTO weave_vocabulary_entries (
+    id, vocabulary_id, uri, label, scope_note,
+    broader_uri, external_id, config, created_at, updated_at
+) VALUES (
+    @id::text, @vocabulary_id::text, @uri::text, @label::jsonb, @scope_note::jsonb,
+    @broader_uri::text, @external_id::text, @config::jsonb, NOW(), NOW()
+)
+ON CONFLICT (vocabulary_id, uri) DO UPDATE SET
+    label = EXCLUDED.label,
+    scope_note = EXCLUDED.scope_note,
+    broader_uri = EXCLUDED.broader_uri,
+    external_id = EXCLUDED.external_id,
+    config = EXCLUDED.config,
+    updated_at = NOW()
+RETURNING *;
+
+-- name: WeaveDeleteVocabularyEntriesNotIn :exec
+DELETE FROM weave_vocabulary_entries
+WHERE vocabulary_id = @vocabulary_id::text
+  AND NOT (uri = ANY(@uris::text[]));
+
+-- name: WeaveDeleteConceptListEntriesByList :exec
+DELETE FROM weave_concept_list_entries WHERE concept_list_id = @concept_list_id::text;
+
+-- name: WeaveListVocabularyEntriesForTree :many
+SELECT * FROM weave_vocabulary_entries
+WHERE vocabulary_id = @vocabulary_id::text
+ORDER BY uri;
+
+-- name: WeaveListConceptListEntryURIs :many
+SELECT e.uri
+FROM weave_concept_list_entries le
+JOIN weave_vocabulary_entries e ON e.id = le.vocabulary_entry_id
+WHERE le.concept_list_id = @concept_list_id::text
+ORDER BY le.position, le.id;
