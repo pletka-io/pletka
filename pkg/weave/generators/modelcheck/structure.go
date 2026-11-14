@@ -1,6 +1,7 @@
 package modelcheck
 
 import (
+	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/views"
 )
@@ -30,19 +31,24 @@ func (c *checker) refChecks(snap *generators.Snapshot) {
 	if snap.Referenced == nil {
 		return
 	}
-	check := func(sem, collection string, refs []string, names []string) {
-		for i, id := range refs {
-			rc, ok := snap.Referenced[id]
-			switch {
-			case !ok:
-				c.add("C8", Error, collection, sem, "%s: collection_model %s not loaded", sem, names[i])
-			case rc.Missing != "":
-				c.add("C8", Error, collection, sem, "%s: collection_model %s %s", sem, names[i], rc.Missing)
-			}
-		}
-	}
 	for _, f := range snap.Fields {
-		ids, names := refIDs(f.Field.CollectionModels)
-		check(f.Field.SemanticID, f.CollectionSemanticID, ids, names)
+		c.unresolvedRefs(snap, f.Field, f.CollectionSemanticID)
+	}
+}
+
+// unresolvedRefs reports C8 for one field's collection_model refs.
+func (c *checker) unresolvedRefs(snap *generators.Snapshot, f domain.ResolvedField, collection string) {
+	if snap.Referenced == nil {
+		return
+	}
+	ids, names := refIDs(f.CollectionModels)
+	for i, id := range ids {
+		rc, ok := snap.Referenced[id]
+		switch {
+		case !ok:
+			c.add("C8", Error, collection, f.SemanticID, "%s: collection_model %s not loaded", f.SemanticID, names[i])
+		case rc.Missing != "":
+			c.add("C8", Error, collection, f.SemanticID, "%s: collection_model %s %s", f.SemanticID, names[i], rc.Missing)
+		}
 	}
 }

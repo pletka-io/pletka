@@ -12,28 +12,41 @@ import (
 // shapes: nodes merge on their PathNode chain, or on property and class
 // where elements carry none (referenced collection members).
 type branchTree struct {
+	norm   func(string) string // set value → comparable form (CURIEs expanded)
 	order  []groupKey
 	groups map[groupKey][]string          // child node keys, first seen first
 	class  map[string]string              // node key → class
-	ending map[string][]string            // node key → own set value of each field ending there ("" = none)
+	ending map[string][]ending            // node key → each field ending there
 	values map[string]map[string][]string // node key → property → required fixed values one step below
+}
+
+// ending is a field whose path ends at a node: its own set value, and for a
+// Collection stub the fixed values its collection adds.
+type ending struct {
+	self  string
+	extra map[string][]string
 }
 
 type groupKey struct{ parent, prop string }
 
-func newBranchTree() *branchTree {
+func newBranchTree(norm func(string) string) *branchTree {
 	return &branchTree{
+		norm:   norm,
 		groups: map[groupKey][]string{},
 		class:  map[string]string{},
-		ending: map[string][]string{},
+		ending: map[string][]ending{},
 		values: map[string]map[string][]string{},
 	}
 }
 
-// add walks one field's path from the root node ("").
-func (t *branchTree) add(path []domain.PathElement, f domain.ResolvedField) {
+// add walks one field's path from the root node (""). extra are the fixed
+// values a Collection stub's collection adds to the stub's branch.
+func (t *branchTree) add(path []domain.PathElement, f domain.ResolvedField, extra map[string][]string) {
 	required := effMin(f.IsRequired, f.MinOccurs) >= 1
 	set := strings.TrimSpace(f.SetValue)
+	if set != "" {
+		set = t.norm(set)
+	}
 	parent := ""
 	for j := 0; j < len(path); j++ {
 		p := path[j]
@@ -56,7 +69,7 @@ func (t *branchTree) add(path []domain.PathElement, f domain.ResolvedField) {
 				t.class[key] = next.PrefixedName()
 			}
 			if j+1 == len(path)-1 {
-				t.ending[key] = append(t.ending[key], set)
+				t.ending[key] = append(t.ending[key], ending{self: set, extra: extra})
 				if required && set != "" {
 					t.addValue(parent, prop, set)
 				}
@@ -82,7 +95,10 @@ func (t *branchTree) addValue(node, prop, v string) {
 	}
 }
 
-type branch struct{ node, self string }
+type branch struct {
+	node string
+	ending
+}
 
 // branches lists a group's branches: one per child node, or one per field
 // ending on it when several do.
@@ -90,15 +106,15 @@ func (t *branchTree) branches(gk groupKey) []branch {
 	var out []branch
 	for _, n := range t.groups[gk] {
 		if len(t.ending[n]) < 2 {
-			self := ""
+			var e ending
 			if len(t.ending[n]) == 1 {
-				self = t.ending[n][0]
+				e = t.ending[n][0]
 			}
-			out = append(out, branch{n, self})
+			out = append(out, branch{n, e})
 			continue
 		}
-		for _, s := range t.ending[n] {
-			out = append(out, branch{n, s})
+		for _, e := range t.ending[n] {
+			out = append(out, branch{n, e})
 		}
 	}
 	return out
@@ -111,7 +127,21 @@ func (t *branchTree) apart(a, b branch) bool {
 	if a.self != "" && b.self != "" && a.self != b.self {
 		return true
 	}
-	return a.node != b.node && valuesApart(t.values[a.node], t.values[b.node])
+	return valuesApart(mergeValues(t.values[a.node], a.extra), mergeValues(t.values[b.node], b.extra))
+}
+
+func mergeValues(a, b map[string][]string) map[string][]string {
+	out := map[string][]string{}
+	for _, m := range []map[string][]string{a, b} {
+		for p, vs := range m {
+			for _, v := range vs {
+				if !slices.Contains(out[p], v) {
+					out[p] = append(out[p], v)
+				}
+			}
+		}
+	}
+	return out
 }
 
 func valuesApart(a, b map[string][]string) bool {
