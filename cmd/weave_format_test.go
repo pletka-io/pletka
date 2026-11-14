@@ -62,3 +62,32 @@ func TestParseGeneratorFormatInjected(t *testing.T) {
 		t.Fatalf("want FormatSHACL, got %q", got)
 	}
 }
+
+type needsRenderer struct{}
+
+func (needsRenderer) Spec() generators.FormatSpec {
+	return generators.FormatSpec{Format: generators.FormatTurtle, IncludeReferenced: true, IncludeClassAncestors: true}
+}
+func (needsRenderer) Render(_ context.Context, _ *generators.Snapshot, _ io.Writer) error { return nil }
+
+// --snapshot-for builds the snapshot dump with what that format's renderer
+// asks for, so a dump shows exactly what the renderer would get.
+func TestSnapshotForAppliesTheRenderersOptions(t *testing.T) {
+	renderers := []generators.Renderer{needsRenderer{}}
+	got, err := snapshotOptions(generators.Options{BasePrefix: "ex"}, "turtle", true, renderers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IncludeReferenced || !got.IncludeClassAncestors || got.BasePrefix != "ex" {
+		t.Fatalf("options = %+v", got)
+	}
+	if got, _ := snapshotOptions(generators.Options{}, "", true, renderers); got.IncludeReferenced {
+		t.Fatal("no --snapshot-for must leave the options alone")
+	}
+	if _, err := snapshotOptions(generators.Options{}, "nope", true, renderers); err == nil {
+		t.Fatal("want an error for an unknown format")
+	}
+	if _, err := snapshotOptions(generators.Options{}, "turtle", false, renderers); err == nil {
+		t.Fatal("want an error for --snapshot-for without a snapshot format")
+	}
+}
