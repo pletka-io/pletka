@@ -53,6 +53,13 @@ type Options struct {
 	// byte-stable; the Arches pack turns it on.
 	ComposeCollections bool
 
+	// IncludeReferenced puts the collections Collection-stub fields name
+	// (transitively, members resolved in their owner project) and the
+	// model's graft overrides on the snapshot as Referenced and Grafts,
+	// without grafting them into Fields. For renderers that emit one
+	// definition per collection instead of one copy per graft.
+	IncludeReferenced bool
+
 	// ComposeMaxDepth caps graft recursion. Zero falls back to the
 	// built-in default. A collection already on the graft chain is never
 	// grafted again; this is the backstop for pathological data.

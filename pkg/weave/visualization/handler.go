@@ -795,7 +795,7 @@ func (h *Handler) modelRDF(w http.ResponseWriter, r *http.Request, format genera
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, generators.Options{})
+	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, h.gens.OptionsFor(format, generators.Options{}))
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
 		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
