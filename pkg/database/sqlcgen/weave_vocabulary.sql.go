@@ -440,7 +440,7 @@ func (q *Queries) WeaveDeleteConceptListEntryInList(ctx context.Context, arg Wea
 const weaveDeleteVocabularyEntriesNotIn = `-- name: WeaveDeleteVocabularyEntriesNotIn :exec
 DELETE FROM weave_vocabulary_entries
 WHERE vocabulary_id = $1::text
-  AND NOT (uri = ANY($2::text[]))
+  AND NOT (uri = ANY(COALESCE($2::text[], '{}')))
 `
 
 type WeaveDeleteVocabularyEntriesNotInParams struct {

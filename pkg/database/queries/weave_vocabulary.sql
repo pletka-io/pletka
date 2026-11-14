@@ -538,7 +538,7 @@ RETURNING *;
 -- name: WeaveDeleteVocabularyEntriesNotIn :exec
 DELETE FROM weave_vocabulary_entries
 WHERE vocabulary_id = @vocabulary_id::text
-  AND NOT (uri = ANY(@uris::text[]));
+  AND NOT (uri = ANY(COALESCE(@uris::text[], '{}')));
 
 -- name: WeaveDeleteConceptListEntriesByList :exec
 DELETE FROM weave_concept_list_entries WHERE concept_list_id = @concept_list_id::text;

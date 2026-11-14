@@ -260,12 +260,12 @@ var reconstructTables = []reconstructTable{
 			WHERE v.project_id = $1 AND e.version_number = $2)`,
 		insert: `INSERT INTO weave_vocabulary_entries_archive (
 			id, vocabulary_id, uri, label, scope_note, broader_uri,
-			broader_path, broader_path_items, external_id,
+			broader_path, broader_path_items, external_id, config,
 			created_at, updated_at, version_number
 		)
 		SELECT
 			e.id, e.vocabulary_id, e.uri, e.label, e.scope_note, e.broader_uri,
-			e.broader_path, e.broader_path_items, e.external_id,
+			e.broader_path, e.broader_path_items, e.external_id, e.config,
 			e.created_at, e.updated_at, $2
 		FROM weave_vocabulary_entries e
 		JOIN weave_vocabularies v ON v.id = e.vocabulary_id
