@@ -27,6 +27,13 @@ type Snapshot struct {
 	// model's graft overrides, keyed by address.
 	Referenced map[string]ReferencedCollection `json:"referenced,omitempty"`
 	Grafts     map[string]domain.GraftOverride `json:"grafts,omitempty"`
+
+	// ClassAncestors maps each class the snapshot uses (prefixed name) to
+	// its ancestors (rdfs:subClassOf, transitively, across the project's
+	// linked ontology versions), sorted. Set with Options.IncludeReferenced
+	// when a lineage reader is wired; a class missing from the map has
+	// unknown ancestors.
+	ClassAncestors map[string][]string `json:"class_ancestors,omitempty"`
 }
 
 // FieldNode is a resolved field plus its generator resource path.

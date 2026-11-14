@@ -334,6 +334,21 @@ func (e *DirectEngine) suggestPropertiesForClass(ctx context.Context, versionIDs
 // output so PropertiesForDomainQname can try them by qname, but the walk
 // stops there.
 func (e *DirectEngine) classLineageQnames(ctx context.Context, versionIDs []string, qname string) ([]string, error) {
+	return ClassLineage(ctx, e.store, versionIDs, qname)
+}
+
+// LineageStore is what ClassLineage reads: class rows by qname and their
+// subclass_of relations.
+type LineageStore interface {
+	GetClassByQname(ctx context.Context, versionID, qname string) (*domain.OntologyClass, error)
+	ListRelationsForSourceByType(ctx context.Context, sourceID, sourceKind, relType string) ([]*domain.OntologyRelation, error)
+}
+
+// ClassLineage returns qname followed by its ancestors (subclass_of,
+// transitively, breadth first), walking every linked version: a qname can
+// have distinct rows per version, each with its own parents (see
+// classLineageQnames).
+func ClassLineage(ctx context.Context, store LineageStore, versionIDs []string, qname string) ([]string, error) {
 	out := make([]string, 0, 8)
 	seen := map[string]struct{}{}
 	queue := []string{qname}
@@ -352,14 +367,14 @@ func (e *DirectEngine) classLineageQnames(ctx context.Context, versionIDs []stri
 		// CRM vs crmgeo), each declaring its own subclass_of edges. Walking
 		// only the first row drops cross-ontology parents.
 		for _, vID := range versionIDs {
-			c, err := e.store.GetClassByQname(ctx, vID, cur)
+			c, err := store.GetClassByQname(ctx, vID, cur)
 			if err != nil {
 				return nil, fmt.Errorf("get class %s: %w", cur, err)
 			}
 			if c == nil {
 				continue // not in this version — try the next
 			}
-			rels, err := e.store.ListRelationsForSourceByType(ctx, c.ID, "class", "subclass_of")
+			rels, err := store.ListRelationsForSourceByType(ctx, c.ID, "class", "subclass_of")
 			if err != nil {
 				return nil, fmt.Errorf("subclass relations for %s: %w", cur, err)
 			}

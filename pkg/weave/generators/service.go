@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 
 	"github.com/pletka-io/pletka/pkg/auth"
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -77,6 +79,7 @@ type Service struct {
 	namespaces  NamespaceReader
 	registry    *Registry
 	conceptEnum ConceptEnumReader   // optional; set via SetConceptEnumReader
+	lineage     ClassLineageReader  // optional; set via SetClassLineageReader
 	grafts      GraftOverrideReader // optional; set via SetGraftOverrideReader
 }
 
@@ -88,6 +91,91 @@ func (s *Service) SetGraftOverrideReader(r GraftOverrideReader) { s.grafts = r }
 // value enums to snapshot fields (#3599). Host builds call this after
 // construction; leaving it unset disables enum attachment.
 func (s *Service) SetConceptEnumReader(r ConceptEnumReader) { s.conceptEnum = r }
+
+// ClassLineageReader returns a class's ancestors (rdfs:subClassOf,
+// transitively) across the given ontology versions, as prefixed names. The
+// class itself may be included; it is dropped.
+type ClassLineageReader interface {
+	ClassAncestors(ctx context.Context, versionIDs []string, qname string) ([]string, error)
+}
+
+// SetClassLineageReader wires the optional reader that fills
+// Snapshot.ClassAncestors on IncludeReferenced snapshots.
+func (s *Service) SetClassLineageReader(r ClassLineageReader) { s.lineage = r }
+
+// attachClassAncestors fills Snapshot.ClassAncestors for every class the
+// snapshot uses. Best-effort like concept enums: a class the reader cannot
+// walk is left out (unknown ancestors).
+func (s *Service) attachClassAncestors(ctx context.Context, projectID string, snap *Snapshot) *Snapshot {
+	if s.lineage == nil || snap == nil || !snap.Options.IncludeReferenced {
+		return snap
+	}
+	resolved, err := s.projects.ResolvedOntologyVersions(ctx, projectID, domain.ResolvedOntologyVersionOpts{})
+	if err != nil {
+		return snap
+	}
+	var versionIDs []string
+	for _, v := range resolved {
+		if v.Link != nil && v.Link.OntologyVersionID != "" {
+			versionIDs = append(versionIDs, v.Link.OntologyVersionID)
+		}
+	}
+	out := map[string][]string{}
+	for _, qname := range snapshotClasses(snap) {
+		anc, err := s.lineage.ClassAncestors(ctx, versionIDs, qname)
+		if err != nil {
+			continue
+		}
+		anc = slices.DeleteFunc(slices.Clone(anc), func(a string) bool { return a == qname })
+		slices.Sort(anc)
+		out[qname] = slices.Compact(anc)
+	}
+	snap.ClassAncestors = out
+	return snap
+}
+
+// snapshotClasses lists the classes a snapshot uses, sorted: scopes, field
+// path classes and referenced collections' member classes.
+func snapshotClasses(snap *Snapshot) []string {
+	seen := map[string]bool{}
+	add := func(e domain.PathElement) {
+		if e.Type != string(PathRoleClass) {
+			return
+		}
+		if e.LocalName != "" && e.Prefix != "" && e.Prefix != "xsd" {
+			seen[e.Prefix+":"+e.LocalName] = true
+		}
+		for _, t := range e.AdditionalTypes {
+			if t.LocalName != "" && t.Prefix != "" {
+				seen[t.Prefix+":"+t.LocalName] = true
+			}
+		}
+	}
+	switch {
+	case snap.Model != nil:
+		add(snap.Model.OntologyScope)
+	case snap.Collection != nil:
+		add(snap.Collection.OntologyScope)
+	case snap.Field != nil:
+		add(snap.Field.OntologyScope)
+	}
+	for _, f := range snap.Fields {
+		for _, pn := range f.Path {
+			add(pn.Element)
+		}
+	}
+	for _, rc := range snap.Referenced {
+		if rc.Collection != nil {
+			add(rc.Collection.OntologyScope)
+		}
+		for _, f := range rc.Fields {
+			for _, e := range f.PathElements {
+				add(e)
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(seen))
+}
 
 // attachConceptEnums fills FieldNode.ConceptEnum for fields bound to a sealed
 // concept list, from the optional reader. Best-effort: a reader/query error
@@ -180,7 +268,7 @@ func (s *Service) SnapshotForModel(ctx context.Context, projectID, modelID strin
 		}
 	}
 
-	return s.attachConceptEnums(ctx, BuildModelSnapshot(ModelSnapshotInput{
+	return s.attachClassAncestors(ctx, projectID, s.attachConceptEnums(ctx, BuildModelSnapshot(ModelSnapshotInput{
 		Project:     *project,
 		Model:       *model,
 		View:        *view,
@@ -190,7 +278,7 @@ func (s *Service) SnapshotForModel(ctx context.Context, projectID, modelID strin
 		Namespaces:  namespaces,
 		Ontologies:  ontologies,
 		Options:     opts,
-	})), nil
+	}))), nil
 }
 
 func (s *Service) SnapshotForCollection(ctx context.Context, projectID, collectionID string, opts Options) (*Snapshot, error) {
@@ -227,14 +315,14 @@ func (s *Service) SnapshotForCollection(ctx context.Context, projectID, collecti
 		return nil, err
 	}
 
-	return s.attachConceptEnums(ctx, BuildCollectionSnapshot(CollectionSnapshotInput{
+	return s.attachClassAncestors(ctx, projectID, s.attachConceptEnums(ctx, BuildCollectionSnapshot(CollectionSnapshotInput{
 		Project:    *project,
 		Collection: *collection,
 		Fields:     fields,
 		Namespaces: namespaces,
 		Ontologies: ontologies,
 		Options:    opts,
-	})), nil
+	}))), nil
 }
 
 func (s *Service) SnapshotForField(ctx context.Context, projectID, fieldID string, opts Options) (*Snapshot, error) {
@@ -264,14 +352,14 @@ func (s *Service) SnapshotForField(ctx context.Context, projectID, fieldID strin
 		return nil, err
 	}
 
-	return s.attachConceptEnums(ctx, BuildFieldSnapshot(FieldSnapshotInput{
+	return s.attachClassAncestors(ctx, projectID, s.attachConceptEnums(ctx, BuildFieldSnapshot(FieldSnapshotInput{
 		Project:    *project,
 		Field:      *field,
 		Resolved:   *resolved,
 		Namespaces: namespaces,
 		Ontologies: ontologies,
 		Options:    opts,
-	})), nil
+	}))), nil
 }
 
 func (s *Service) GenerateModel(ctx context.Context, projectID, modelID string, format Format, w io.Writer, opts Options) error {
