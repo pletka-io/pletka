@@ -119,15 +119,46 @@ func (m *Materializer) writeConceptLists(ctx context.Context, workDir, projectID
 		vocabulary := treeVocabularies[derefStr(list.VocabularyID)]
 		var uris []string
 		if vocabulary != "" {
-			if uris, err = m.queries.WeaveListConceptListEntryURIs(ctx, list.ID); err != nil {
+			rows, err := m.queries.WeaveListConceptListEntryURIs(ctx, list.ID)
+			if err != nil {
 				return fmt.Errorf("list entries of concept list %s: %w", list.ID, err)
 			}
+			entries := make([]conceptListEntryRef, 0, len(rows))
+			for _, r := range rows {
+				entries = append(entries, conceptListEntryRef{uri: r.Uri, vocabularyID: r.VocabularyID})
+			}
+			uris = m.ownVocabularyEntries(list, vocabulary, derefStr(list.VocabularyID), entries)
 		}
 		if err := writeConceptListFiles(workDir, list, vocabulary, uris); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// conceptListEntryRef is a list entry's concept URI and the vocabulary that
+// concept belongs to.
+type conceptListEntryRef struct {
+	uri          string
+	vocabularyID string
+}
+
+// ownVocabularyEntries returns the URIs of the entries whose concept belongs
+// to the list's vocabulary, in order. entries.yaml resolves every URI in the
+// list's vocabulary, so an entry from another vocabulary (a local term added
+// to a tree-bound list) cannot be written: it is skipped with a warning
+// naming the list and the URI, and its database row stays.
+func (m *Materializer) ownVocabularyEntries(list *domain.ConceptList, vocabularySemanticID, vocabularyID string, entries []conceptListEntryRef) []string {
+	uris := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.vocabularyID != vocabularyID {
+			m.logger.Warn("concept list entry from another vocabulary left out of the tree",
+				"concept_list", identifierFor(list.SemanticID, list.ID), "vocabulary", vocabularySemanticID, "uri", e.uri)
+			continue
+		}
+		uris = append(uris, e.uri)
+	}
+	return uris
 }
 
 // writeConceptListFiles writes a concept list's header and, when it has

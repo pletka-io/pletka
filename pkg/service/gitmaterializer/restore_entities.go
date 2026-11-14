@@ -224,7 +224,8 @@ type treeConceptList struct {
 // list entries, in an order the foreign keys allow:
 //
 //  1. vocabularies (claim a same-name row, then upsert by semantic id);
-//  2. concept-list headers, binding vocabulary_id;
+//  2. concept-list headers, binding vocabulary_id, then delete what left
+//     the tree (pruneRemovedVocabularySlice);
 //  3. delete the entries of every list whose header names a vocabulary
 //     (entries.yaml is then their complete membership; an absent file is
 //     an empty list). A list without one keeps its entries, as before
@@ -251,6 +252,9 @@ func hydrateVocabularySlice(ctx context.Context, q *sqlcgen.Queries, projectID s
 			return err
 		}
 		lists[item.EntityID] = list
+	}
+	if err := pruneRemovedVocabularySlice(ctx, q, projectID, entities, vocabularies); err != nil {
+		return err
 	}
 	// Clearing drops entry custom_label on vocabulary-bound lists: it is not
 	// in the tree, and entries.yaml is their whole membership.
@@ -291,6 +295,106 @@ func hydrateVocabularySlice(ctx context.Context, q *sqlcgen.Queries, projectID s
 		}
 	}
 	return nil
+}
+
+// pruneRemovedVocabularySlice deletes what left the tree: the project's
+// concept lists bound to a <P>.VOC.n vocabulary but absent from the tree, and
+// the project's <P>.VOC.n vocabularies absent from the tree, with their
+// entries and broader edges (ON DELETE CASCADE) and bound lists.
+//
+// This deviates on purpose from the upsert-only load of every other entity
+// kind (see HydrateRestorePlan): vocabularies and list members are tree-first,
+// so a removed list or vocabulary must not linger in the database and reach
+// a generator. Lists bound to <P>.VOCAB.local or to no vocabulary, and
+// vocabularies of any other shape, are never touched. A list's entries and
+// list-scoped broader edges go with it by ON DELETE CASCADE.
+//
+// Override refs carry no foreign key. The overrides are reloaded from the
+// tree after the entities, so the refs that count are the tree's: a removed
+// list a tree override still refers to fails the load, naming both, before
+// anything is deleted. So does a removed vocabulary whose concepts another
+// list still uses or that a tree list still names.
+func pruneRemovedVocabularySlice(ctx context.Context, q *sqlcgen.Queries, projectID string, entities SnapshotEntityTree, vocabularies map[string]string) error {
+	inTree := map[string]bool{}
+	for _, item := range entities.ConceptLists {
+		inTree[item.EntityID] = true
+	}
+	refs, err := treeConceptListRefs(entities)
+	if err != nil {
+		return err
+	}
+	rows, err := q.WeaveListProjectTreeVocabularies(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("prune vocabularies: list project vocabularies: %w", err)
+	}
+	for _, v := range rows {
+		semanticID := derefStr(v.SemanticID)
+		_, keep := vocabularies[semanticID]
+		bound, err := q.WeaveListProjectConceptListsByVocabulary(ctx, sqlcgen.WeaveListProjectConceptListsByVocabularyParams{ProjectID: projectID, VocabularyID: v.ID})
+		if err != nil {
+			return fmt.Errorf("prune vocabulary %s: list its concept lists: %w", semanticID, err)
+		}
+		for _, l := range bound {
+			if inTree[l.SemanticID] {
+				if !keep {
+					return fmt.Errorf("prune vocabulary %s: removed from the tree, but concept list %s in the tree names it", semanticID, l.SemanticID)
+				}
+				continue
+			}
+			if override, ok := refs[l.SemanticID]; ok {
+				return fmt.Errorf("prune concept list %s: removed from the tree, but override %s still refers to it", l.SemanticID, override)
+			}
+			if err := q.WeaveDeleteConceptList(ctx, sqlcgen.WeaveDeleteConceptListParams{ProjectID: projectID, ID: l.ID}); err != nil {
+				return fmt.Errorf("prune concept list %s: %w", l.SemanticID, err)
+			}
+		}
+		if keep {
+			continue
+		}
+		used, err := q.WeaveListVocabularyEntryRefsNotIn(ctx, sqlcgen.WeaveListVocabularyEntryRefsNotInParams{VocabularyID: v.ID})
+		if err != nil {
+			return fmt.Errorf("prune vocabulary %s: check its concepts: %w", semanticID, err)
+		}
+		if len(used) > 0 {
+			names := make([]string, 0, len(used))
+			for _, r := range used {
+				names = append(names, fmt.Sprintf("%s (concept list %s)", r.Uri, r.ConceptList))
+			}
+			return fmt.Errorf("prune vocabulary %s: removed from the tree, but its concepts are still used: %s", semanticID, strings.Join(names, ", "))
+		}
+		if _, err := q.WeaveDeleteProjectVocabulary(ctx, sqlcgen.WeaveDeleteProjectVocabularyParams{ProjectID: projectID, ID: v.ID}); err != nil {
+			return fmt.Errorf("prune vocabulary %s: %w", semanticID, err)
+		}
+	}
+	return nil
+}
+
+// treeConceptListRefs maps each concept list a tree override refers to onto
+// the path of the first such override. Adopted overrides are skipped, as the
+// override load skips them.
+func treeConceptListRefs(entities SnapshotEntityTree) (map[string]string, error) {
+	refs := map[string]string{}
+	for _, group := range [][]SnapshotEntityFile{entities.BaseOverrides, entities.ModelOverrides, entities.CollectionOverrides} {
+		for _, item := range group {
+			doc, err := decodeTreeFile[canonicalOverrideDoc](item.Path, item.Payload)
+			if err != nil {
+				return nil, fmt.Errorf("prune concept lists: decode override %s: %w", item.Path, err)
+			}
+			if strings.TrimSpace(doc.AdoptedFrom) != "" {
+				continue
+			}
+			for _, ref := range doc.Refs {
+				id := strings.TrimSpace(ref.SemanticID)
+				if strings.TrimSpace(ref.RefType) != entityTypeConceptList || id == "" {
+					continue
+				}
+				if _, seen := refs[id]; !seen {
+					refs[id] = item.Path
+				}
+			}
+		}
+	}
+	return refs, nil
 }
 
 // hydrateVocabularyFile upserts a tree vocabulary by (project, semantic id)

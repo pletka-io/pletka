@@ -550,7 +550,9 @@ WHERE vocabulary_id = @vocabulary_id::text
 ORDER BY uri;
 
 -- name: WeaveListConceptListEntryURIs :many
-SELECT e.uri
+-- vocabulary_id lets the tree writer skip entries from another vocabulary
+-- than the list's.
+SELECT e.uri, e.vocabulary_id
 FROM weave_concept_list_entries le
 JOIN weave_vocabulary_entries e ON e.id = le.vocabulary_entry_id
 WHERE le.concept_list_id = @concept_list_id::text
@@ -571,7 +573,7 @@ WHERE vocabulary_id = @vocabulary_id::text
 ORDER BY uri;
 
 -- name: WeaveListConceptListEntryURIsArchive :many
-SELECT e.uri
+SELECT e.uri, e.vocabulary_id
 FROM weave_concept_list_entries_archive le
 JOIN weave_vocabulary_entries_archive e
   ON e.id = le.vocabulary_entry_id AND e.version_number = le.version_number
@@ -606,3 +608,17 @@ JOIN weave_concept_lists l
 WHERE e.vocabulary_id = @vocabulary_id::text
   AND NOT (e.uri = ANY(COALESCE(@uris::text[], '{}')))
 ORDER BY e.uri, concept_list;
+
+-- name: WeaveListProjectConceptListsByVocabulary :many
+-- The project's concept lists bound to a vocabulary; the tree load prunes
+-- those absent from the tree.
+SELECT id, COALESCE(semantic_id, id)::text AS semantic_id
+FROM weave_concept_lists
+WHERE project_id = @project_id::text AND vocabulary_id = @vocabulary_id::text
+ORDER BY id;
+
+-- name: WeaveDeleteProjectVocabulary :execrows
+-- Entries (and with them their broader edges) and weave_project_vocabularies
+-- rows go by ON DELETE CASCADE; bound concept lists must be gone first.
+DELETE FROM weave_vocabularies
+WHERE project_id = @project_id::text AND id = @id::text;

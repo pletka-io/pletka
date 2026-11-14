@@ -457,6 +457,26 @@ func (q *Queries) WeaveDeleteConceptListEntryInList(ctx context.Context, arg Wea
 	return err
 }
 
+const weaveDeleteProjectVocabulary = `-- name: WeaveDeleteProjectVocabulary :execrows
+DELETE FROM weave_vocabularies
+WHERE project_id = $1::text AND id = $2::text
+`
+
+type WeaveDeleteProjectVocabularyParams struct {
+	ProjectID string `json:"project_id"`
+	ID        string `json:"id"`
+}
+
+// Entries (and with them their broader edges) and weave_project_vocabularies
+// rows go by ON DELETE CASCADE; bound concept lists must be gone first.
+func (q *Queries) WeaveDeleteProjectVocabulary(ctx context.Context, arg WeaveDeleteProjectVocabularyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, weaveDeleteProjectVocabulary, arg.ProjectID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const weaveDeleteVocabularyEntriesNotIn = `-- name: WeaveDeleteVocabularyEntriesNotIn :exec
 DELETE FROM weave_vocabulary_entries
 WHERE vocabulary_id = $1::text
@@ -1210,26 +1230,33 @@ func (q *Queries) WeaveListConceptListEntriesWithVocabulary(ctx context.Context,
 }
 
 const weaveListConceptListEntryURIs = `-- name: WeaveListConceptListEntryURIs :many
-SELECT e.uri
+SELECT e.uri, e.vocabulary_id
 FROM weave_concept_list_entries le
 JOIN weave_vocabulary_entries e ON e.id = le.vocabulary_entry_id
 WHERE le.concept_list_id = $1::text
 ORDER BY le.position, le.id
 `
 
-func (q *Queries) WeaveListConceptListEntryURIs(ctx context.Context, conceptListID string) ([]string, error) {
+type WeaveListConceptListEntryURIsRow struct {
+	Uri          string `json:"uri"`
+	VocabularyID string `json:"vocabulary_id"`
+}
+
+// vocabulary_id lets the tree writer skip entries from another vocabulary
+// than the list's.
+func (q *Queries) WeaveListConceptListEntryURIs(ctx context.Context, conceptListID string) ([]WeaveListConceptListEntryURIsRow, error) {
 	rows, err := q.db.Query(ctx, weaveListConceptListEntryURIs, conceptListID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []WeaveListConceptListEntryURIsRow{}
 	for rows.Next() {
-		var uri string
-		if err := rows.Scan(&uri); err != nil {
+		var i WeaveListConceptListEntryURIsRow
+		if err := rows.Scan(&i.Uri, &i.VocabularyID); err != nil {
 			return nil, err
 		}
-		items = append(items, uri)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -1238,7 +1265,7 @@ func (q *Queries) WeaveListConceptListEntryURIs(ctx context.Context, conceptList
 }
 
 const weaveListConceptListEntryURIsArchive = `-- name: WeaveListConceptListEntryURIsArchive :many
-SELECT e.uri
+SELECT e.uri, e.vocabulary_id
 FROM weave_concept_list_entries_archive le
 JOIN weave_vocabulary_entries_archive e
   ON e.id = le.vocabulary_entry_id AND e.version_number = le.version_number
@@ -1252,19 +1279,24 @@ type WeaveListConceptListEntryURIsArchiveParams struct {
 	VersionNumber string `json:"version_number"`
 }
 
-func (q *Queries) WeaveListConceptListEntryURIsArchive(ctx context.Context, arg WeaveListConceptListEntryURIsArchiveParams) ([]string, error) {
+type WeaveListConceptListEntryURIsArchiveRow struct {
+	Uri          string `json:"uri"`
+	VocabularyID string `json:"vocabulary_id"`
+}
+
+func (q *Queries) WeaveListConceptListEntryURIsArchive(ctx context.Context, arg WeaveListConceptListEntryURIsArchiveParams) ([]WeaveListConceptListEntryURIsArchiveRow, error) {
 	rows, err := q.db.Query(ctx, weaveListConceptListEntryURIsArchive, arg.ConceptListID, arg.VersionNumber)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []WeaveListConceptListEntryURIsArchiveRow{}
 	for rows.Next() {
-		var uri string
-		if err := rows.Scan(&uri); err != nil {
+		var i WeaveListConceptListEntryURIsArchiveRow
+		if err := rows.Scan(&i.Uri, &i.VocabularyID); err != nil {
 			return nil, err
 		}
-		items = append(items, uri)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -1416,6 +1448,45 @@ func (q *Queries) WeaveListConceptListsForTree(ctx context.Context, projectID st
 			&i.VocabularyID,
 			&i.IsClosed,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveListProjectConceptListsByVocabulary = `-- name: WeaveListProjectConceptListsByVocabulary :many
+SELECT id, COALESCE(semantic_id, id)::text AS semantic_id
+FROM weave_concept_lists
+WHERE project_id = $1::text AND vocabulary_id = $2::text
+ORDER BY id
+`
+
+type WeaveListProjectConceptListsByVocabularyParams struct {
+	ProjectID    string `json:"project_id"`
+	VocabularyID string `json:"vocabulary_id"`
+}
+
+type WeaveListProjectConceptListsByVocabularyRow struct {
+	ID         string `json:"id"`
+	SemanticID string `json:"semantic_id"`
+}
+
+// The project's concept lists bound to a vocabulary; the tree load prunes
+// those absent from the tree.
+func (q *Queries) WeaveListProjectConceptListsByVocabulary(ctx context.Context, arg WeaveListProjectConceptListsByVocabularyParams) ([]WeaveListProjectConceptListsByVocabularyRow, error) {
+	rows, err := q.db.Query(ctx, weaveListProjectConceptListsByVocabulary, arg.ProjectID, arg.VocabularyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveListProjectConceptListsByVocabularyRow{}
+	for rows.Next() {
+		var i WeaveListProjectConceptListsByVocabularyRow
+		if err := rows.Scan(&i.ID, &i.SemanticID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -169,10 +169,7 @@ func TestHydrateProjectSnapshot_Vocabularies(t *testing.T) {
 	if list.VocabularyID == nil || *list.VocabularyID != vocabs[0].ID {
 		t.Fatalf("list vocabulary_id %v, want %s", list.VocabularyID, vocabs[0].ID)
 	}
-	uris, err := q.WeaveListConceptListEntryURIs(ctx, list.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	uris := listEntryURIs(t, q, list.ID)
 	if !slices.Equal(uris, []string{"http://x/3", "http://x/2"}) {
 		t.Fatalf("entries %v", uris)
 	}
@@ -196,7 +193,7 @@ func TestHydrateProjectSnapshot_Vocabularies(t *testing.T) {
 	if len(edges) != 1 || edges[0].ConceptUri != "http://x/3" || edges[0].BroaderUri != "http://x/1" {
 		t.Fatalf("edges after removal %+v", edges)
 	}
-	uris, _ = q.WeaveListConceptListEntryURIs(ctx, list.ID)
+	uris = listEntryURIs(t, q, list.ID)
 	if !slices.Equal(uris, []string{"http://x/3"}) {
 		t.Fatalf("entries after removal %v", uris)
 	}

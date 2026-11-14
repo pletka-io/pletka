@@ -404,10 +404,15 @@ func (m *Materializer) writeConceptListsVersion(ctx context.Context, workDir, pr
 		vocabulary := treeVocabularies[derefStr(list.VocabularyID)]
 		var uris []string
 		if vocabulary != "" {
-			uris, err = m.queries.WeaveListConceptListEntryURIsArchive(ctx, sqlcgen.WeaveListConceptListEntryURIsArchiveParams{ConceptListID: list.ID, VersionNumber: version})
+			rows, err := m.queries.WeaveListConceptListEntryURIsArchive(ctx, sqlcgen.WeaveListConceptListEntryURIsArchiveParams{ConceptListID: list.ID, VersionNumber: version})
 			if err != nil {
 				return fmt.Errorf("list archived entries of concept list %s: %w", list.ID, err)
 			}
+			entries := make([]conceptListEntryRef, 0, len(rows))
+			for _, r := range rows {
+				entries = append(entries, conceptListEntryRef{uri: r.Uri, vocabularyID: r.VocabularyID})
+			}
+			uris = m.ownVocabularyEntries(list, vocabulary, derefStr(list.VocabularyID), entries)
 		}
 		if err := writeConceptListFiles(workDir, list, vocabulary, uris); err != nil {
 			return err
