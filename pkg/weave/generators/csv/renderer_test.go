@@ -158,3 +158,12 @@ func pe(kind, prefix, localName string, position int) domain.PathElement {
 		Position:  position,
 	}
 }
+
+// Hidden fields never reach the snapshot, so the export has no is_hidden column.
+func TestHeaderHasNoHiddenColumn(t *testing.T) {
+	for _, column := range header {
+		if column == "is_hidden" {
+			t.Fatal("header still has is_hidden")
+		}
+	}
+}
