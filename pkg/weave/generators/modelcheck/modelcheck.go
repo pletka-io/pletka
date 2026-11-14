@@ -86,6 +86,8 @@ func Model(snap *generators.Snapshot) []Finding {
 			}
 		}
 	}
+	c.entryChecks(snap.Tree)
+	c.refChecks(snap)
 	for _, id := range slices.Sorted(maps.Keys(snap.Referenced)) {
 		rc := snap.Referenced[id]
 		collection := ""
@@ -181,4 +183,17 @@ func classEnd(e domain.PathElement) bool {
 func isDatatype(e domain.PathElement) bool {
 	return e.Prefix == "xsd" || strings.HasPrefix(e.URI, "http://www.w3.org/2001/XMLSchema#") ||
 		e.PrefixedName() == "rdf:langString"
+}
+
+// refIDs splits refs into ids and display names (semantic id, else id).
+func refIDs(refs []domain.EntityRef) (ids, names []string) {
+	for _, r := range refs {
+		ids = append(ids, r.ID)
+		name := r.SemanticID
+		if name == "" {
+			name = r.ID
+		}
+		names = append(names, name)
+	}
+	return ids, names
 }
