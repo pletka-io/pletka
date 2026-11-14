@@ -75,8 +75,10 @@ func Model(snap *generators.Snapshot) []Finding {
 		c.model = snap.Model.SemanticID
 	}
 
+	root := newBranchTree()
 	placed := map[string]bool{}
 	for _, f := range snap.Fields {
+		root.add(fieldPath(f), f.Field)
 		c.fieldChecks(f.Field, fieldPath(f), f.CollectionSemanticID)
 		if f.CollectionID != "" && !placed[f.CollectionID] {
 			placed[f.CollectionID] = true
@@ -94,13 +96,17 @@ func Model(snap *generators.Snapshot) []Finding {
 		if rc.Collection != nil {
 			collection = rc.Collection.SemanticID
 		}
+		members := newBranchTree()
 		for _, f := range rc.Fields {
 			if f.IsHidden {
 				continue
 			}
 			c.fieldChecks(f, f.PathElements, collection)
+			members.add(f.PathElements, f)
 		}
+		c.sameClassTwins(members, collection, collection)
 	}
+	c.sameClassTwins(root, c.model, "")
 	return c.out
 }
 
