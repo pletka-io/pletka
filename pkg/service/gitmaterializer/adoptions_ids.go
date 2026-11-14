@@ -50,6 +50,10 @@ func semanticAdoptionIDs(q *sqlcgen.Queries) adoptionIDResolver {
 			var row sqlcgen.WeaveConceptList
 			row, err = q.WeaveGetConceptListByIDOrSemanticID(ctx, id)
 			sem = row.SemanticID
+		case entityTypeVocabulary:
+			var row sqlcgen.WeaveVocabulary
+			row, err = q.WeaveGetVocabulary(ctx, id)
+			sem = row.SemanticID
 		default:
 			// models and collections have no separate semantic id: the row id is it
 			return "", false
@@ -101,6 +105,12 @@ func rowAdoptionIDs(q *sqlcgen.Queries) adoptionIDResolver {
 				return "", false
 			}
 			return row.ID, true
+		case entityTypeVocabulary:
+			rowID, err := q.WeaveGetProjectVocabularyBySemanticID(ctx, sqlcgen.WeaveGetProjectVocabularyBySemanticIDParams{ProjectID: projectID, SemanticID: id})
+			if err != nil {
+				return "", false
+			}
+			return rowID, true
 		}
 		return "", false
 	}

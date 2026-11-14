@@ -102,7 +102,7 @@ func (v *verifyContext) checkVendorChecksums() {
 // checkUnknownFiles reports files under the entity directories that the
 // loader would silently ignore.
 func (v *verifyContext) checkUnknownFiles() {
-	for _, dir := range []string{"categories", "concept-lists", "fields", "models", "collections"} {
+	for _, dir := range []string{"categories", "concept-lists", "vocabularies", "fields", "models", "collections"} {
 		base := filepath.Join(v.root, dir)
 		_ = filepath.WalkDir(base, func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
@@ -119,7 +119,7 @@ func (v *verifyContext) checkUnknownFiles() {
 
 // snapshotIDs collects the ids a tree can reference: its own entities,
 // adopted ones (markers and receipts), and those of its vendored parents.
-func snapshotIDs(ps *ProjectSnapshot, fields, categories, collections, conceptLists map[string]bool) {
+func snapshotIDs(ps *ProjectSnapshot, fields, categories, collections, conceptLists, vocabularies map[string]bool) {
 	for _, f := range ps.Entities.Fields {
 		fields[f.EntityID] = true
 	}
@@ -143,9 +143,8 @@ func snapshotIDs(ps *ProjectSnapshot, fields, categories, collections, conceptLi
 	for _, c := range ps.Entities.Collections {
 		collections[c.EntityID] = true
 	}
-	for _, c := range ps.Entities.ConceptLists {
-		conceptLists[c.EntityID] = true
-	}
+	addEntityIDs(conceptLists, ps.Entities.ConceptLists)
+	addEntityIDs(vocabularies, ps.Entities.Vocabularies)
 	if ps.Adoptions != nil {
 		for _, r := range ps.Adoptions.Index.Receipts {
 			switch r.EntityType {
@@ -157,13 +156,21 @@ func snapshotIDs(ps *ProjectSnapshot, fields, categories, collections, conceptLi
 				collections[r.EntityID] = true
 			case entityTypeConceptList:
 				conceptLists[r.EntityID] = true
+			case entityTypeVocabulary:
+				vocabularies[r.EntityID] = true
 			}
 		}
 	}
 	for _, vp := range ps.Vendor.Projects {
 		if vp.Snapshot != nil {
-			snapshotIDs(vp.Snapshot, fields, categories, collections, conceptLists)
+			snapshotIDs(vp.Snapshot, fields, categories, collections, conceptLists, vocabularies)
 		}
+	}
+}
+
+func addEntityIDs(into map[string]bool, items []SnapshotEntityFile) {
+	for _, c := range items {
+		into[c.EntityID] = true
 	}
 }
 
@@ -175,9 +182,9 @@ func (v *verifyContext) collectIdentities() {
 			}
 		}
 	}
-	snapshotIDs(v.snap, v.fields, v.categories, v.collections, v.conceptLists)
+	snapshotIDs(v.snap, v.fields, v.categories, v.collections, v.conceptLists, v.vocabularies)
 	for _, ps := range v.parents {
-		snapshotIDs(ps, v.fields, v.categories, v.collections, v.conceptLists)
+		snapshotIDs(ps, v.fields, v.categories, v.collections, v.conceptLists, v.vocabularies)
 	}
 }
 
@@ -390,7 +397,7 @@ func (v *verifyContext) inUnloadedParent(id string) bool {
 func (v *verifyContext) inLoadedParent(fieldID string) bool {
 	for _, ps := range v.parents {
 		fields := map[string]bool{}
-		snapshotIDs(ps, fields, map[string]bool{}, map[string]bool{}, map[string]bool{})
+		snapshotIDs(ps, fields, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{})
 		if fields[fieldID] {
 			return true
 		}
@@ -417,15 +424,18 @@ func (v *verifyContext) checkAdoptions() {
 			continue // reported once as parent-tree-missing
 		}
 		ids := map[string]bool{}
+		none := map[string]bool{}
 		switch receipt.Adoption.EntityType {
 		case entityTypeField:
-			snapshotIDs(parent, ids, map[string]bool{}, map[string]bool{}, map[string]bool{})
+			snapshotIDs(parent, ids, none, none, none, none)
 		case entityTypeCategory:
-			snapshotIDs(parent, map[string]bool{}, ids, map[string]bool{}, map[string]bool{})
+			snapshotIDs(parent, none, ids, none, none, none)
 		case entityTypeCollection:
-			snapshotIDs(parent, map[string]bool{}, map[string]bool{}, ids, map[string]bool{})
+			snapshotIDs(parent, none, none, ids, none, none)
+		case entityTypeVocabulary:
+			snapshotIDs(parent, none, none, none, none, ids)
 		default:
-			snapshotIDs(parent, map[string]bool{}, map[string]bool{}, map[string]bool{}, ids)
+			snapshotIDs(parent, none, none, none, ids, none)
 		}
 		if !ids[src.EntityID] {
 			v.add(file, line, "adoption-missing-source", "%s %s is not in parent %s", receipt.Adoption.EntityType, src.EntityID, src.ProjectID)
@@ -495,6 +505,115 @@ func (v *verifyContext) checkGrafts() {
 					break
 				}
 			}
+		}
+	}
+}
+
+// checkVocabularies mirrors what load-git rejects for vocabularies and concept
+// lists, so verify reports it first: broader URIs outside the vocabulary,
+// broader cycles, list headers naming a vocabulary the tree lacks, entries
+// outside the list's vocabulary, and entries without a list header.
+func (v *verifyContext) checkVocabularies() {
+	concepts := map[string]map[string]bool{} // own vocabulary -> its concept URIs
+	for _, item := range v.snap.Entities.Vocabularies {
+		concepts[item.EntityID] = map[string]bool{}
+	}
+	for _, item := range v.snap.Entities.VocabularyConcepts {
+		if _, ok := concepts[item.OwnerID]; !ok {
+			v.add(item.Path, 0, "unresolved-vocabulary", "vocabulary %s has no vocabulary.yaml; load-git rejects its concepts", item.OwnerID)
+			continue
+		}
+		list, err := decodeCanonicalYAML[[]canonicalConceptDoc](item.Payload)
+		if err != nil {
+			if !v.schemaFailed[item.Path] {
+				v.add(item.Path, 0, "decode", "%v", err)
+			}
+			continue
+		}
+		for _, c := range list {
+			concepts[item.OwnerID][c.URI] = true
+		}
+		v.checkConceptEdges(item, list, concepts[item.OwnerID])
+	}
+
+	headers := map[string]canonicalConceptListDoc{}
+	for _, item := range v.snap.Entities.ConceptLists {
+		if doc, ok := decodeDoc[canonicalConceptListDoc](v, item); ok {
+			headers[item.EntityID] = doc
+			if name := strings.TrimSpace(doc.Vocabulary); name != "" && !v.vocabularies[name] {
+				v.add(item.Path, yamlKeyLine(item.Payload, "vocabulary"), "unresolved-vocabulary", "vocabulary %s is neither in this tree, adopted, nor in a vendored parent", name)
+			}
+		}
+	}
+	for _, item := range v.snap.Entities.ConceptListEntries {
+		doc, ok := headers[item.OwnerID]
+		if !ok {
+			v.add(item.Path, 0, "entries-without-list", "concept list %s has no header file", item.OwnerID)
+			continue
+		}
+		name := strings.TrimSpace(doc.Vocabulary)
+		if name == "" {
+			v.add(item.Path, 0, "unresolved-vocabulary", "concept list %s names no vocabulary; load-git rejects its entries", item.OwnerID)
+			continue
+		}
+		own, isOwn := concepts[name]
+		if !isOwn {
+			continue // adopted or vendored: its concepts are not in this tree
+		}
+		uris, err := decodeCanonicalYAML[[]string](item.Payload)
+		if err != nil {
+			if !v.schemaFailed[item.Path] {
+				v.add(item.Path, 0, "decode", "%v", err)
+			}
+			continue
+		}
+		for i, uri := range uris {
+			if !own[uri] {
+				v.add(item.Path, i+1, "unresolved-concept", "%s is not a concept of vocabulary %s", uri, name)
+			}
+		}
+	}
+}
+
+// checkConceptEdges reports a broader URI outside the vocabulary and any
+// broader chain that loops (a self-broader included).
+func (v *verifyContext) checkConceptEdges(item SnapshotEntityFile, list []canonicalConceptDoc, known map[string]bool) {
+	broader := map[string][]string{}
+	for _, c := range list {
+		for _, b := range c.Broader {
+			if !known[b] {
+				v.add(item.Path, yamlKeyLine(item.Payload, "broader"), "unresolved-concept", "concept %s has broader %s, which is not in vocabulary %s", c.URI, b, item.OwnerID)
+				continue
+			}
+			broader[c.URI] = append(broader[c.URI], b)
+		}
+	}
+	const (
+		visiting = 1
+		done     = 2
+	)
+	state := map[string]int{}
+	var walk func(uri string) bool
+	walk = func(uri string) bool {
+		switch state[uri] {
+		case visiting:
+			return true
+		case done:
+			return false
+		}
+		state[uri] = visiting
+		for _, b := range broader[uri] {
+			if walk(b) {
+				return true
+			}
+		}
+		state[uri] = done
+		return false
+	}
+	for _, c := range list {
+		if walk(c.URI) {
+			v.add(item.Path, yamlKeyLine(item.Payload, "broader"), "concept-cycle", "the broader chain of %s loops", c.URI)
+			return
 		}
 	}
 }

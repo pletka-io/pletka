@@ -60,6 +60,7 @@ type verifyContext struct {
 	categories   map[string]bool
 	collections  map[string]bool
 	conceptLists map[string]bool
+	vocabularies map[string]bool
 	stubFields   map[string]bool // fields whose expected value is a collection
 	schemaFailed map[string]bool // tree-relative paths the schema pass flagged
 	// module-relative paths of the same files, as loader errors name them
@@ -84,7 +85,7 @@ func Verify(ctx context.Context, rootDir string, opts VerifyOptions) (*VerifyRep
 		declared:     map[string]bool{},
 		receipts:     map[string]bool{},
 		schemaFailed: map[string]bool{}, schemaFailedModule: map[string]bool{},
-		fields: map[string]bool{}, categories: map[string]bool{}, collections: map[string]bool{}, conceptLists: map[string]bool{},
+		fields: map[string]bool{}, categories: map[string]bool{}, collections: map[string]bool{}, conceptLists: map[string]bool{}, vocabularies: map[string]bool{},
 	}
 	v.checkSchemas()
 	snap, err := LoadProjectSnapshot(rootDir)
@@ -104,6 +105,7 @@ func Verify(ctx context.Context, rootDir string, opts VerifyOptions) (*VerifyRep
 	v.collectIdentities()
 	v.collectStubs()
 	v.checkEntities()
+	v.checkVocabularies()
 	v.checkOverrides()
 	v.checkPlacements()
 	v.checkGrafts()

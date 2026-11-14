@@ -32,17 +32,20 @@ ontologies:
 manifests:
   adoptions: adoptions/index.yaml
 `,
-		"pletka.mod":                            "schema_version: 1\nmodule:\n  path: pletka.io/orgs/test/projects/TPC\n  project_id: TPC\nrequire:\n  ontologies:\n    - {module: ontology.pletka.io/base, version: \"1.0\"}\n  projects: []\nreplace: []\n",
-		"adoptions/index.yaml":                  "schema_version: 1\nreceipts: []\n",
-		"categories/TPC.CAT.1.yaml":             "semantic_id: TPC.CAT.1\nsystem_name: general\nui_name: {en: General}\nstatus: draft\n",
-		"concept-lists/TPC.CL.1.yaml":           "semantic_id: TPC.CL.1\nsystem_name: kinds\nui_name: {en: Kinds}\nstatus: draft\n",
-		"fields/TPCF.1/field.yaml":              "semantic_id: TPCF.1\nsystem_name: name\nui_name: {en: Name}\nontology_scope: base:Thing\npath_elements: [base:name, xsd:string]\nexpected_value_type: String\nstatus: draft\n",
-		"fields/TPCF.1/base-override.yaml":      "field_id: TPCF.1\nentity_type: \"\"\ncategory_id: TPC.CAT.1\n",
-		"fields/TPCF.2/field.yaml":              "semantic_id: TPCF.2\nsystem_name: knows\nui_name: {en: Knows}\nontology_scope: base:Person\npath_elements: [base:knows, base:Person]\nexpected_value_type: Model\nstatus: draft\n",
-		"fields/TPCF.2/base-override.yaml":      "field_id: TPCF.2\nentity_type: \"\"\ncategory_id: TPC.CAT.1\n",
-		"models/TPCM.1/model.yaml":              "semantic_id: TPCM.1\nsystem_name: person\nui_name: {en: Person}\nontology_scope: base:Person\nstatus: draft\n",
-		"models/TPCM.1/overrides/TPCF.1@a.yaml": "field_id: TPCF.1\nentity_type: model\nentity_id: TPCM.1\nposition: 0\ncategory_id: TPC.CAT.1\n",
-		"models/TPCM.1/overrides/TPCF.2@b.yaml": "field_id: TPCF.2\nentity_type: model\nentity_id: TPCM.1\nposition: 1\ncategory_id: TPC.CAT.1\nrefs:\n  - {ref_type: concept_list, semantic_id: TPC.CL.1, position: 0}\n",
+		"pletka.mod":                             "schema_version: 1\nmodule:\n  path: pletka.io/orgs/test/projects/TPC\n  project_id: TPC\nrequire:\n  ontologies:\n    - {module: ontology.pletka.io/base, version: \"1.0\"}\n  projects: []\nreplace: []\n",
+		"adoptions/index.yaml":                   "schema_version: 1\nreceipts: []\n",
+		"categories/TPC.CAT.1.yaml":              "semantic_id: TPC.CAT.1\nsystem_name: general\nui_name: {en: General}\nstatus: draft\n",
+		"concept-lists/TPC.CL.1.yaml":            "semantic_id: TPC.CL.1\nsystem_name: kinds\nui_name: {en: Kinds}\nstatus: draft\nvocabulary: TPC.VOC.1\n",
+		"concept-lists/TPC.CL.1/entries.yaml":    "- http://x/1\n",
+		"vocabularies/TPC.VOC.1/vocabulary.yaml": "semantic_id: TPC.VOC.1\nsystem_name: kinds_voc\nui_name: {en: Kinds}\nstatus: draft\n",
+		"vocabularies/TPC.VOC.1/concepts.yaml":   "- uri: http://x/1\n- uri: http://x/2\n  broader: [http://x/1]\n",
+		"fields/TPCF.1/field.yaml":               "semantic_id: TPCF.1\nsystem_name: name\nui_name: {en: Name}\nontology_scope: base:Thing\npath_elements: [base:name, xsd:string]\nexpected_value_type: String\nstatus: draft\n",
+		"fields/TPCF.1/base-override.yaml":       "field_id: TPCF.1\nentity_type: \"\"\ncategory_id: TPC.CAT.1\n",
+		"fields/TPCF.2/field.yaml":               "semantic_id: TPCF.2\nsystem_name: knows\nui_name: {en: Knows}\nontology_scope: base:Person\npath_elements: [base:knows, base:Person]\nexpected_value_type: Model\nstatus: draft\n",
+		"fields/TPCF.2/base-override.yaml":       "field_id: TPCF.2\nentity_type: \"\"\ncategory_id: TPC.CAT.1\n",
+		"models/TPCM.1/model.yaml":               "semantic_id: TPCM.1\nsystem_name: person\nui_name: {en: Person}\nontology_scope: base:Person\nstatus: draft\n",
+		"models/TPCM.1/overrides/TPCF.1@a.yaml":  "field_id: TPCF.1\nentity_type: model\nentity_id: TPCM.1\nposition: 0\ncategory_id: TPC.CAT.1\n",
+		"models/TPCM.1/overrides/TPCF.2@b.yaml":  "field_id: TPCF.2\nentity_type: model\nentity_id: TPCM.1\nposition: 1\ncategory_id: TPC.CAT.1\nrefs:\n  - {ref_type: concept_list, semantic_id: TPC.CL.1, position: 0}\n",
 	}
 	for rel, body := range files {
 		write(t, root, rel, body)
@@ -128,6 +131,31 @@ func TestVerify_StructureFindings(t *testing.T) {
 		{"unresolved graft address", func(r string) {
 			write(t, r, "models/TPCM.1/grafts.yaml", "TPCF.2/TPCF.9: {is_hidden: true}\n")
 		}, []string{"unresolved-graft-address"}, "models/TPCM.1/grafts.yaml", 1},
+		{"list names missing vocabulary", func(r string) {
+			write(t, r, "concept-lists/TPC.CL.1.yaml", "semantic_id: TPC.CL.1\nsystem_name: kinds\nui_name: {en: Kinds}\nvocabulary: TPC.VOC.9\n")
+		}, []string{"unresolved-vocabulary"}, "concept-lists/TPC.CL.1.yaml", 4},
+		{"entry not in vocabulary", func(r string) {
+			write(t, r, "concept-lists/TPC.CL.1/entries.yaml", "- http://x/404\n")
+		}, []string{"unresolved-concept"}, "concept-lists/TPC.CL.1/entries.yaml", 1},
+		{"broader not in vocabulary", func(r string) {
+			write(t, r, "vocabularies/TPC.VOC.1/concepts.yaml", "- uri: http://x/1\n  broader: [http://x/404]\n")
+		}, []string{"unresolved-concept"}, "vocabularies/TPC.VOC.1/concepts.yaml", 0},
+		{"broader cycle", func(r string) {
+			write(t, r, "vocabularies/TPC.VOC.1/concepts.yaml", "- uri: http://x/1\n  broader: [http://x/2]\n- uri: http://x/2\n  broader: [http://x/1]\n")
+		}, []string{"concept-cycle"}, "vocabularies/TPC.VOC.1/concepts.yaml", 0},
+		{"self broader", func(r string) {
+			write(t, r, "vocabularies/TPC.VOC.1/concepts.yaml", "- uri: http://x/1\n  broader: [http://x/1]\n")
+		}, []string{"concept-cycle"}, "vocabularies/TPC.VOC.1/concepts.yaml", 0},
+		{"entries without list", func(r string) {
+			write(t, r, "concept-lists/TPC.CL.7/entries.yaml", "- http://x/1\n")
+		}, []string{"entries-without-list"}, "concept-lists/TPC.CL.7/entries.yaml", 0},
+		{"entries for list without vocabulary", func(r string) {
+			write(t, r, "concept-lists/TPC.CL.1.yaml", "semantic_id: TPC.CL.1\nsystem_name: kinds\nui_name: {en: Kinds}\n")
+		}, []string{"unresolved-vocabulary"}, "concept-lists/TPC.CL.1/entries.yaml", 0},
+		{"vocabulary without concepts is valid", func(r string) {
+			write(t, r, "vocabularies/TPC.VOC.2/vocabulary.yaml", "semantic_id: TPC.VOC.2\nsystem_name: empty_voc\nui_name: {en: Empty}\n")
+		}, []string{}, "", 0},
+		{"unknown file under vocabularies", func(r string) { write(t, r, "vocabularies/TPC.VOC.1/notes.txt", "x") }, []string{"unknown-file"}, "vocabularies/TPC.VOC.1/notes.txt", 0},
 		{"grafts without model", func(r string) {
 			write(t, r, "models/TPCM.7/grafts.yaml", "TPCF.2/TPCF.1: {is_hidden: true}\n")
 		}, []string{"orphan-overrides"}, "models/TPCM.7/grafts.yaml", 0},
@@ -142,6 +170,9 @@ func TestVerify_StructureFindings(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, codes(rep)); diff != "" {
 				t.Fatalf("codes (-want +got):\n%s\n%v", diff, rep.Findings)
+			}
+			if len(tc.want) == 0 {
+				return
 			}
 			if rep.Findings[0].File != tc.file || rep.Findings[0].Line != tc.line {
 				t.Fatalf("location %s:%d, want %s:%d", rep.Findings[0].File, rep.Findings[0].Line, tc.file, tc.line)
