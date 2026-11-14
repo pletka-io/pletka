@@ -568,11 +568,12 @@ func (q *Queries) WeaveFindConceptListsByListType(ctx context.Context, listType 
 
 const weaveFindLocalVocabulary = `-- name: WeaveFindLocalVocabulary :one
 SELECT id FROM weave_vocabularies
-WHERE project_id = $1 AND connector_type = 'local'
-ORDER BY created_at LIMIT 1
+WHERE project_id = $1::text AND semantic_id = $1::text || '.VOCAB.local'
 `
 
 // The project's local vocabulary, if it already has one.  (was ensureLocalVocabulary)
+// Found by its identity <P>.VOCAB.local, not by connector_type: tree
+// vocabularies (<P>.VOC.n) are 'local' too and must not become the local terms.
 func (q *Queries) WeaveFindLocalVocabulary(ctx context.Context, projectID string) (string, error) {
 	row := q.db.QueryRow(ctx, weaveFindLocalVocabulary, projectID)
 	var id string

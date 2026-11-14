@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
 
 const vocabularyFixtureConcepts = `- uri: http://x/1
@@ -476,5 +477,48 @@ func TestHydrateProjectSnapshot_VocabularyWithoutConcepts(t *testing.T) {
 	}
 	if entries, _ := q.WeaveListVocabularyEntriesForTree(ctx, vocabs[0].ID); len(entries) != 0 {
 		t.Fatalf("entries %d, want 0", len(entries))
+	}
+}
+
+// TestEnsureLocalVocabulary_AfterTreeLoad pins that a project loaded from a
+// tree before it had local terms gets its own <P>.VOCAB.local: the tree
+// vocabulary (also connector_type 'local') is not taken for the local terms,
+// and its concepts are left as they were.
+func TestEnsureLocalVocabulary_AfterTreeLoad(t *testing.T) {
+	pool := hydrateTestPool(t)
+	ctx := context.Background()
+	q := sqlcgen.New(pool)
+	vocabularyTestProject(t, pool, "TVL")
+	if _, err := NewMaterializer(pool, t.TempDir(), nil).HydrateProjectSnapshot(ctx, vocabularyFixture(t, "TVL")); err != nil {
+		t.Fatal(err)
+	}
+	vocabs, _ := q.WeaveListProjectTreeVocabularies(ctx, "TVL")
+	if len(vocabs) != 1 {
+		t.Fatalf("vocabularies %+v", vocabs)
+	}
+	before, _ := q.WeaveListVocabularyEntriesForTree(ctx, vocabs[0].ID)
+
+	svc := vocabulary.NewService(pool, nil)
+	localID, err := svc.EnsureLocalVocabulary(ctx, "TVL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if localID == vocabs[0].ID {
+		t.Fatalf("local terms resolved to the tree vocabulary TVL.VOC.1 (%s)", localID)
+	}
+	local, err := q.WeaveGetVocabulary(ctx, localID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.SemanticID == nil || *local.SemanticID != "TVL.VOCAB.local" {
+		t.Fatalf("local vocabulary semantic id %v, want TVL.VOCAB.local", local.SemanticID)
+	}
+	again, err := svc.EnsureLocalVocabulary(ctx, "TVL")
+	if err != nil || again != localID {
+		t.Fatalf("second EnsureLocalVocabulary = %s (%v), want %s", again, err, localID)
+	}
+	after, _ := q.WeaveListVocabularyEntriesForTree(ctx, vocabs[0].ID)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("tree vocabulary entries changed:\n%+v\n->\n%+v", before, after)
 	}
 }

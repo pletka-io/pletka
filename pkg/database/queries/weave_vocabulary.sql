@@ -421,9 +421,10 @@ SELECT COALESCE(MAX(position), 0) + 1 FROM weave_concept_list_entries WHERE conc
 
 -- name: WeaveFindLocalVocabulary :one
 -- The project's local vocabulary, if it already has one.  (was ensureLocalVocabulary)
+-- Found by its identity <P>.VOCAB.local, not by connector_type: tree
+-- vocabularies (<P>.VOC.n) are 'local' too and must not become the local terms.
 SELECT id FROM weave_vocabularies
-WHERE project_id = $1 AND connector_type = 'local'
-ORDER BY created_at LIMIT 1;
+WHERE project_id = @project_id::text AND semantic_id = @project_id::text || '.VOCAB.local';
 
 -- name: WeaveDeleteConceptListEntryInList :exec
 -- Remove one entry from a list.  (was RemoveConceptListEntry)
