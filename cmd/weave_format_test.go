@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/genwiring"
 )
@@ -89,5 +90,20 @@ func TestSnapshotForAppliesTheRenderersOptions(t *testing.T) {
 	}
 	if _, err := snapshotOptions(generators.Options{}, "turtle", false, renderers); err == nil {
 		t.Fatal("want an error for --snapshot-for without a snapshot format")
+	}
+}
+
+// two models with the same system name get distinct files: the colliding
+// ones carry their semantic id, unique names stay as they were
+func TestModelFilenamesAreUnique(t *testing.T) {
+	m := func(id, sem, sys string) *domain.Model {
+		return &domain.Model{Entity: domain.Entity{ID: id, SemanticID: sem, SystemName: sys}}
+	}
+	got := modelFilenames([]*domain.Model{m("1", "PM.1", "person"), m("2", "PM.2", "event"), m("3", "PM.3", "event"), m("4", "", "")}, ".ttl")
+	want := []string{"person.ttl", "event_PM.2.ttl", "event_PM.3.ttl", "4.ttl"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
 	}
 }
