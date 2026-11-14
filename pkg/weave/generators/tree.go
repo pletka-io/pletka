@@ -50,10 +50,18 @@ func BuildModelSnapshot(in ModelSnapshotInput) *Snapshot {
 				// category share their intermediate path nodes.
 				directScope := catSlug + "/" + directCollectionID
 				for _, field := range collection.Fields {
+					if field.IsHidden {
+						continue
+					}
 					node, fieldNode := buildFieldTreeNode(field, root.Path, rootFieldSlugs, in.Model.OntologyScope, opts, &report, directScope)
 					root.Children = append(root.Children, node)
 					fields = append(fields, fieldNode)
 				}
+				continue
+			}
+			// Hidden = not in use: a hidden placement drops the collection
+			// and everything in it, for every renderer.
+			if collection.Placement != nil && collection.Placement.IsHidden {
 				continue
 			}
 
@@ -98,6 +106,9 @@ func BuildModelSnapshot(in ModelSnapshotInput) *Snapshot {
 			collMembership := fieldNodeCollection(collection, collectionEntity)
 			fieldSlugs := newSlugAllocator()
 			for _, field := range collection.Fields {
+				if field.IsHidden {
+					continue
+				}
 				node, fieldNode := buildFieldTreeNode(field, collectionPath, fieldSlugs, scope, opts, &report, placementScope)
 				fieldNode.CollectionID = collMembership.id
 				fieldNode.CollectionSemanticID = collMembership.semanticID
@@ -105,6 +116,8 @@ func BuildModelSnapshot(in ModelSnapshotInput) *Snapshot {
 				fieldNode.CollectionName = collMembership.name
 				if collection.Placement != nil {
 					fieldNode.CollectionMaxOccurs = collection.Placement.MaxOccurs
+					fieldNode.CollectionMinOccurs = collection.Placement.MinOccurs
+					fieldNode.CollectionIsRequired = collection.Placement.IsRequired
 				}
 				collNode.Children = append(collNode.Children, node)
 				fields = append(fields, fieldNode)
@@ -193,7 +206,12 @@ func BuildCollectionSnapshot(in CollectionSnapshotInput) *Snapshot {
 		Scope:      copyPathElement(in.Collection.OntologyScope),
 	}
 
-	fields := append([]domain.ResolvedField(nil), in.Fields...)
+	fields := make([]domain.ResolvedField, 0, len(in.Fields))
+	for _, f := range in.Fields {
+		if !f.IsHidden {
+			fields = append(fields, f)
+		}
+	}
 	sort.SliceStable(fields, func(i, j int) bool {
 		return fields[i].Position < fields[j].Position
 	})

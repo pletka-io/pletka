@@ -1,6 +1,7 @@
 package generators
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -408,5 +409,98 @@ func TestGraftedFieldTakesTheStubsMax(t *testing.T) {
 	got := graftField(stub, child, ReferencedCollection{})
 	if got.CollectionMaxOccurs == nil || *got.CollectionMaxOccurs != 2 {
 		t.Fatalf("grafted CollectionMaxOccurs = %v, want the stub's 2", got.CollectionMaxOccurs)
+	}
+}
+
+func TestBuildModelSnapshotCarriesPlacementMinAndRequired(t *testing.T) {
+	model, collection, view := birthView()
+	view.Categories[0].Collections[1].Placement = &domain.CollectionPlacement{CollectionID: collection.ID, IsRequired: true, MinOccurs: 1}
+	snap := BuildModelSnapshot(ModelSnapshotInput{
+		Project: domain.Project{Entity: domain.Entity{ID: "LA"}}, Model: model, View: view,
+		Collections: map[string]*domain.Collection{collection.ID: collection},
+		Namespaces:  BuildNamespaceSet(domain.Project{Entity: domain.Entity{ID: "LA"}}, nil),
+		Options:     Options{Lang: "en"},
+	})
+	for _, f := range snap.Fields {
+		if f.Field.SemanticID == "LA.F.2" && (f.CollectionMinOccurs != 1 || !f.CollectionIsRequired) {
+			t.Fatalf("placed collection field: min %d required %v, want 1 true", f.CollectionMinOccurs, f.CollectionIsRequired)
+		}
+	}
+}
+
+func TestGraftedFieldTakesTheStubsMinAndRequired(t *testing.T) {
+	stub := FieldNode{Field: domain.ResolvedField{SemanticID: "S.1", MinOccurs: 1, IsRequired: true}}
+	got := graftField(stub, domain.ResolvedField{SemanticID: "C.1"}, ReferencedCollection{})
+	if got.CollectionMinOccurs != 1 || !got.CollectionIsRequired {
+		t.Fatalf("grafted min %d required %v, want the stub's 1 true", got.CollectionMinOccurs, got.CollectionIsRequired)
+	}
+}
+
+func snapshotIDs(snap *Snapshot) []string {
+	var ids []string
+	for _, f := range snap.Fields {
+		ids = append(ids, f.Field.SemanticID)
+	}
+	var walk func(n views.TreeNode)
+	walk = func(n views.TreeNode) {
+		if n.Kind == views.NodeField || n.Kind == views.NodeCollection {
+			ids = append(ids, "tree:"+n.SemanticID)
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(snap.Tree.Root)
+	sort.Strings(ids)
+	return ids
+}
+
+func TestBuildModelSnapshotDropsHiddenFields(t *testing.T) {
+	model, collection, view := birthView()
+	view.Categories[0].Collections[0].Fields[0].IsHidden = true
+	view.Categories[0].Collections[1].Fields = append(view.Categories[0].Collections[1].Fields,
+		field("field-place", "LA.F.4", "Birth place", 3, pe("property", "crm", "P98_brought_into_life", 0), pe("class", "crm", "E67_Birth", 1), pe("property", "crm", "P7_took_place_at", 2), pe("class", "crm", "E53_Place", 3)))
+	view.Categories[0].Collections[1].Fields[1].IsHidden = true
+	snap := BuildModelSnapshot(ModelSnapshotInput{
+		Project: domain.Project{Entity: domain.Entity{ID: "LA"}}, Model: model, View: view,
+		Collections: map[string]*domain.Collection{collection.ID: collection},
+		Namespaces:  BuildNamespaceSet(domain.Project{Entity: domain.Entity{ID: "LA"}}, nil),
+		Options:     Options{Lang: "en"},
+	})
+	got := strings.Join(snapshotIDs(snap), ",")
+	if want := "LA.F.2,tree:LA.C.1,tree:LA.F.2"; got != want {
+		t.Fatalf("snapshot ids %s, want %s", got, want)
+	}
+}
+
+func TestBuildModelSnapshotDropsHiddenPlacement(t *testing.T) {
+	model, collection, view := birthView()
+	view.Categories[0].Collections[1].Placement = &domain.CollectionPlacement{CollectionID: collection.ID, IsHidden: true}
+	snap := BuildModelSnapshot(ModelSnapshotInput{
+		Project: domain.Project{Entity: domain.Entity{ID: "LA"}}, Model: model, View: view,
+		Collections: map[string]*domain.Collection{collection.ID: collection},
+		Namespaces:  BuildNamespaceSet(domain.Project{Entity: domain.Entity{ID: "LA"}}, nil),
+		Options:     Options{Lang: "en"},
+	})
+	got := strings.Join(snapshotIDs(snap), ",")
+	if want := "LA.F.1,tree:LA.F.1"; got != want {
+		t.Fatalf("snapshot ids %s, want %s", got, want)
+	}
+}
+
+func TestBuildCollectionSnapshotDropsHiddenFields(t *testing.T) {
+	_, collection, _ := birthView()
+	hidden := field("f-b", "LA.F.6", "B", 2, pe("property", "crm", "P2_has_type", 0))
+	hidden.IsHidden = true
+	snap := BuildCollectionSnapshot(CollectionSnapshotInput{
+		Project:    domain.Project{Entity: domain.Entity{ID: "LA"}},
+		Collection: *collection,
+		Fields:     []domain.ResolvedField{field("f-a", "LA.F.5", "A", 1, pe("property", "crm", "P1_is_identified_by", 0)), hidden},
+		Namespaces: BuildNamespaceSet(domain.Project{Entity: domain.Entity{ID: "LA"}}, nil),
+		Options:    Options{Lang: "en"},
+	})
+	got := strings.Join(snapshotIDs(snap), ",")
+	if want := "LA.F.5,tree:LA.C.1,tree:LA.F.5"; got != want {
+		t.Fatalf("snapshot ids %s, want %s", got, want)
 	}
 }

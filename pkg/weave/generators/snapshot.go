@@ -55,6 +55,11 @@ type FieldNode struct {
 	// placed collection, the stub field's own max_occurs for a grafted copy
 	// (the field that places the collection decides it). nil = unbounded.
 	CollectionMaxOccurs *int `json:"collection_max_occurs,omitempty"`
+	// CollectionMinOccurs and CollectionIsRequired come from the same place
+	// as CollectionMaxOccurs: the collection placement, or the stub field's
+	// own min / required for a grafted copy. Zero / false when unplaced.
+	CollectionMinOccurs  int  `json:"collection_min_occurs,omitempty"`
+	CollectionIsRequired bool `json:"collection_is_required,omitempty"`
 
 	// ConceptEnum is the sorted, de-duplicated set of member concept URIs from
 	// the field's bound *sealed* concept lists. Populated only when a concept
