@@ -214,3 +214,15 @@ type CollectionPlacement struct {
 	MaxOccurs    *int   `json:"max_occurs,omitempty"` // nil = unbounded
 	IsHidden     bool   `json:"is_hidden"`
 }
+
+// RequiredMin keeps Required and Min one concept: Required ⇔ Min ≥ 1.
+// Whichever side says required wins, so a stored row never disagrees.
+func RequiredMin(required bool, min int) (bool, int) {
+	if min >= 1 {
+		return true, min
+	}
+	if required {
+		return true, 1
+	}
+	return false, min
+}

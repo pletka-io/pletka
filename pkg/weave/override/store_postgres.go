@@ -695,6 +695,7 @@ func rowToArchivedRef(row sqlcgen.WeaveOverrideRefsArchive) domain.OverrideRef {
 }
 
 func toCreateParams(o *domain.FieldOverride) sqlcgen.WeaveCreateOverrideParams {
+	required, minOccurs := domain.RequiredMin(o.IsRequired, o.MinOccurs)
 	p := sqlcgen.WeaveCreateOverrideParams{
 		FieldID:            o.FieldID,
 		ProjectID:          o.ProjectID,
@@ -709,8 +710,8 @@ func toCreateParams(o *domain.FieldOverride) sqlcgen.WeaveCreateOverrideParams {
 		PartOfCollectionID: dbutil.EmptyToNil(o.PartOfCollectionID),
 		ExpectedValueType:  nil,
 		SetValue:           dbutil.EmptyToNil(o.SetValue),
-		IsRequired:         dbutil.Ptr(o.IsRequired),
-		MinOccurs:          int32Ptr(o.MinOccurs),
+		IsRequired:         dbutil.Ptr(required),
+		MinOccurs:          int32Ptr(minOccurs),
 		IsHidden:           dbutil.Ptr(o.IsHidden),
 		Visibility:         dbutil.EmptyToNil(o.Visibility),
 		StagingID:          o.StagingID,
@@ -723,6 +724,7 @@ func toCreateParams(o *domain.FieldOverride) sqlcgen.WeaveCreateOverrideParams {
 }
 
 func toUpdateParams(o *domain.FieldOverride) sqlcgen.WeaveUpdateOverrideParams {
+	required, minOccurs := domain.RequiredMin(o.IsRequired, o.MinOccurs)
 	p := sqlcgen.WeaveUpdateOverrideParams{
 		ID:                 o.ID,
 		Position:           int32(o.Position),
@@ -734,8 +736,8 @@ func toUpdateParams(o *domain.FieldOverride) sqlcgen.WeaveUpdateOverrideParams {
 		PartOfCollectionID: dbutil.EmptyToNil(o.PartOfCollectionID),
 		ExpectedValueType:  nil,
 		SetValue:           dbutil.EmptyToNil(o.SetValue),
-		IsRequired:         dbutil.Ptr(o.IsRequired),
-		MinOccurs:          int32Ptr(o.MinOccurs),
+		IsRequired:         dbutil.Ptr(required),
+		MinOccurs:          int32Ptr(minOccurs),
 		IsHidden:           dbutil.Ptr(o.IsHidden),
 		Visibility:         dbutil.EmptyToNil(o.Visibility),
 	}

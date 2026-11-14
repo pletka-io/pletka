@@ -27,6 +27,8 @@ single `Entity` struct in the June 2026 purge — see git history for details.)
 `weave_collection_placements` (migration 071) records the
 constraints of one collection group placed in a model's category:
 `is_required`, `min_occurs`, `max_occurs` (NULL = unbounded), `is_hidden`.
+On placements and field overrides alike, `is_required` ⇔ `min_occurs` ≥ 1
+(`domain.RequiredMin`, applied on every write).
 Two constraint layers apply, and they compose:
 
 - **Field constraints inside a collection** (`weave_field_overrides` rows

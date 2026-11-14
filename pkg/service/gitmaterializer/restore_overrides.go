@@ -12,6 +12,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/adoptionsource"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/domain"
 )
 
 type canonicalOverrideDoc struct {
@@ -262,6 +263,7 @@ func (m *Materializer) hydrateBaseOverridesTx(ctx context.Context, q *sqlcgen.Qu
 		if err != nil {
 			return fmt.Errorf("hydrate base override %s: %w", item.Path, err)
 		}
+		required, minOccurs := domain.RequiredMin(doc.IsRequired, doc.MinOccurs)
 		row, err := q.WeaveUpsertBaseOverride(ctx, sqlcgen.WeaveUpsertBaseOverrideParams{
 			FieldID:            fieldID,
 			ProjectID:          projectID,
@@ -274,8 +276,8 @@ func (m *Materializer) hydrateBaseOverridesTx(ctx context.Context, q *sqlcgen.Qu
 			PartOfCollectionID: nullableString(doc.PartOfCollectionID),
 			ExpectedValueType:  nil,
 			SetValue:           nullableString(doc.SetValue),
-			IsRequired:         boolPtr(doc.IsRequired),
-			MinOccurs:          int32Ptr(doc.MinOccurs),
+			IsRequired:         boolPtr(required),
+			MinOccurs:          int32Ptr(minOccurs),
 			MaxOccurs:          int32FromIntPtr(doc.MaxOccurs),
 			IsHidden:           boolPtr(doc.IsHidden),
 			Visibility:         nullableString(doc.Visibility),
@@ -316,6 +318,7 @@ func (m *Materializer) hydrateScopedOverridesTx(ctx context.Context, q *sqlcgen.
 				return fmt.Errorf("hydrate %s override %s: %w", entityType, item.Path, err)
 			}
 			entityID := firstNonEmpty(doc.EntityID, item.OwnerID, ownerID)
+			required, minOccurs := domain.RequiredMin(doc.IsRequired, doc.MinOccurs)
 			overrides = append(overrides, sqlcgen.WeaveCreateOverrideParams{
 				FieldID:            fieldID,
 				ProjectID:          projectID,
@@ -330,8 +333,8 @@ func (m *Materializer) hydrateScopedOverridesTx(ctx context.Context, q *sqlcgen.
 				PartOfCollectionID: nullableString(doc.PartOfCollectionID),
 				ExpectedValueType:  nil,
 				SetValue:           nullableString(doc.SetValue),
-				IsRequired:         boolPtr(doc.IsRequired),
-				MinOccurs:          int32Ptr(doc.MinOccurs),
+				IsRequired:         boolPtr(required),
+				MinOccurs:          int32Ptr(minOccurs),
 				MaxOccurs:          int32FromIntPtr(doc.MaxOccurs),
 				IsHidden:           boolPtr(doc.IsHidden),
 				Visibility:         nullableString(doc.Visibility),

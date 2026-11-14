@@ -16,22 +16,27 @@ import (
 // UpsertPlacement inserts or updates the placement identified by
 // (ModelID, CategoryID, CollectionID). ID is written back on success.
 func (s *postgresStore) UpsertPlacement(ctx context.Context, p *domain.CollectionPlacement) error {
-	row, err := s.queries.WeaveUpsertCollectionPlacement(ctx, sqlcgen.WeaveUpsertCollectionPlacementParams{
-		ProjectID:    p.ProjectID,
-		ModelID:      p.ModelID,
-		CategoryID:   p.CategoryID,
-		CollectionID: p.CollectionID,
-		IsRequired:   p.IsRequired,
-		MinOccurs:    int32(p.MinOccurs),
-		MaxOccurs:    intPtrToInt32Ptr(p.MaxOccurs),
-		IsHidden:     p.IsHidden,
-	})
+	row, err := s.queries.WeaveUpsertCollectionPlacement(ctx, placementParams(p))
 	if err != nil {
 		return fmt.Errorf("upsert collection placement %s/%s/%s: %w",
 			p.ModelID, p.CategoryID, p.CollectionID, err)
 	}
 	p.ID = row.ID
 	return nil
+}
+
+func placementParams(p *domain.CollectionPlacement) sqlcgen.WeaveUpsertCollectionPlacementParams {
+	required, minOccurs := domain.RequiredMin(p.IsRequired, p.MinOccurs)
+	return sqlcgen.WeaveUpsertCollectionPlacementParams{
+		ProjectID:    p.ProjectID,
+		ModelID:      p.ModelID,
+		CategoryID:   p.CategoryID,
+		CollectionID: p.CollectionID,
+		IsRequired:   required,
+		MinOccurs:    int32(minOccurs), //nolint:gosec // min_occurs is a small count
+		MaxOccurs:    intPtrToInt32Ptr(p.MaxOccurs),
+		IsHidden:     p.IsHidden,
+	}
 }
 
 // ListPlacements returns all live placements for a model, ordered by

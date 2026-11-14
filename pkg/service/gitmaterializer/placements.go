@@ -182,9 +182,10 @@ func (m *Materializer) hydratePlacementsTx(ctx context.Context, q *sqlcgen.Queri
 			n := int32(v)
 			max = &n
 		}
+		required, minOccurs := domain.RequiredMin(doc.IsRequired, doc.MinOccurs)
 		_, err = q.WeaveRestoreCollectionPlacement(ctx, sqlcgen.WeaveRestoreCollectionPlacementParams{
 			ProjectID: projectID, ModelID: doc.ModelID, CategoryID: doc.CategoryID, CollectionID: doc.CollectionID,
-			IsRequired: doc.IsRequired, MinOccurs: int32(doc.MinOccurs), MaxOccurs: max, IsHidden: doc.IsHidden,
+			IsRequired: required, MinOccurs: int32(minOccurs), MaxOccurs: max, IsHidden: doc.IsHidden, //nolint:gosec // min_occurs checked <= MaxInt32 above; RequiredMin only raises 0 to 1
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("%s: placement belongs to another project", item.Path)
