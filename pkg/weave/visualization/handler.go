@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -770,7 +772,11 @@ func (h *Handler) fieldRDF(w http.ResponseWriter, r *http.Request, format genera
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	snap, err := h.gens.SnapshotForField(ctx, field.ProjectID, field.ID, generators.Options{})
+	opts, ok := h.exportOptions(w, r, format)
+	if !ok {
+		return
+	}
+	snap, err := h.gens.SnapshotForField(ctx, field.ProjectID, field.ID, opts)
 	if err != nil {
 		h.logger.Error("field snapshot", "id", field.ID, "err", err)
 		apierror.Write(w, r, apierror.InternalWith("failed to build field snapshot: "+err.Error(), err))
@@ -795,7 +801,11 @@ func (h *Handler) modelRDF(w http.ResponseWriter, r *http.Request, format genera
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, h.gens.OptionsFor(format, generators.Options{}))
+	opts, ok := h.exportOptions(w, r, format)
+	if !ok {
+		return
+	}
+	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, opts)
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
 		apierror.Write(w, r, apierror.InternalWith("failed to build model snapshot: "+err.Error(), err))
@@ -820,7 +830,11 @@ func (h *Handler) collectionRDF(w http.ResponseWriter, r *http.Request, format g
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	snap, err := h.gens.SnapshotForCollection(ctx, coll.ProjectID, coll.ID, generators.Options{})
+	opts, ok := h.exportOptions(w, r, format)
+	if !ok {
+		return
+	}
+	snap, err := h.gens.SnapshotForCollection(ctx, coll.ProjectID, coll.ID, opts)
 	if err != nil {
 		h.logger.Error("collection snapshot", "id", coll.ID, "err", err)
 		apierror.Write(w, r, apierror.InternalWith("failed to build collection snapshot: "+err.Error(), err))
@@ -1046,4 +1060,56 @@ func writeError(w http.ResponseWriter, msg string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(DiagramResponse{Success: false, Error: msg})
+}
+
+// parseSHACLOptions reads the SHACL export's query parameters: links
+// (class|iri), closed (0|1), targets (core|sparql), concepts (list|advisory).
+func parseSHACLOptions(q url.Values) (generators.SHACLOptions, error) {
+	var o generators.SHACLOptions
+	pick := func(name string, allowed map[string]bool) (bool, error) {
+		v := q.Get(name)
+		on, ok := allowed[v]
+		if !ok {
+			names := make([]string, 0, len(allowed))
+			for k := range allowed {
+				if k != "" {
+					names = append(names, k)
+				}
+			}
+			sort.Strings(names)
+			return false, fmt.Errorf("%s must be one of %s", name, strings.Join(names, ", "))
+		}
+		return on, nil
+	}
+	var err error
+	if o.LinksIRIOnly, err = pick("links", map[string]bool{"": false, "class": false, "iri": true}); err != nil {
+		return o, err
+	}
+	if o.Closed, err = pick("closed", map[string]bool{"": false, "0": false, "1": true}); err != nil {
+		return o, err
+	}
+	if o.SPARQLTargets, err = pick("targets", map[string]bool{"": false, "core": false, "sparql": true}); err != nil {
+		return o, err
+	}
+	if o.ConceptsAdvisory, err = pick("concepts", map[string]bool{"": false, "list": false, "advisory": true}); err != nil {
+		return o, err
+	}
+	return o, nil
+}
+
+// exportOptions builds the snapshot options for an RDF export: what the
+// renderer asks for, plus the SHACL query options for the SHACL format.
+// false (and a 400 written) when a query option is invalid.
+func (h *Handler) exportOptions(w http.ResponseWriter, r *http.Request, format generators.Format) (generators.Options, bool) {
+	opts := h.gens.OptionsFor(format, generators.Options{})
+	if format != generators.FormatSHACL {
+		return opts, true
+	}
+	shacl, err := parseSHACLOptions(r.URL.Query())
+	if err != nil {
+		apierror.Write(w, r, apierror.BadRequest(err.Error()))
+		return opts, false
+	}
+	opts.SHACL = shacl
+	return opts, true
 }

@@ -60,6 +60,10 @@ type Options struct {
 	// definition per collection instead of one copy per graft.
 	IncludeReferenced bool
 
+	// SHACL holds the SHACL export's options (query parameters on the
+	// shacl export routes).
+	SHACL SHACLOptions
+
 	// ComposeMaxDepth caps graft recursion. Zero falls back to the
 	// built-in default. A collection already on the graft chain is never
 	// grafted again; this is the backstop for pathological data.
@@ -134,3 +138,19 @@ func normalizeOptions(opts Options) Options {
 // stopping condition is structural (no Collection-stub fields left to
 // graft), not the cap — the cap exists only to refuse runaway data.
 const DefaultComposeMaxDepth = 10
+
+// SHACLOptions are the SHACL export's options. The zero value is the
+// default export.
+type SHACLOptions struct {
+	// LinksIRIOnly (links=iri): Model fields check that the value is an IRI,
+	// not its class.
+	LinksIRIOnly bool `json:"links_iri_only,omitempty"`
+	// Closed (closed=1): node shapes allow only the properties they list.
+	Closed bool `json:"closed,omitempty"`
+	// SPARQLTargets (targets=sparql): models with an identity are targeted
+	// with SHACL-AF SPARQL targets instead of an identity test.
+	SPARQLTargets bool `json:"sparql_targets,omitempty"`
+	// ConceptsAdvisory (concepts=advisory): sealed concept lists report
+	// values outside the list as warnings.
+	ConceptsAdvisory bool `json:"concepts_advisory,omitempty"`
+}
