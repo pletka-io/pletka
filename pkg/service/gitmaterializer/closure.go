@@ -18,13 +18,16 @@ import (
 // constant names are local to this package (the sqlcgen RestoreX constants
 // cover a different domain), and their VALUES must never change.
 const (
-	entityTypeModel        = "model"
-	entityTypeCollection   = "collection"
-	entityTypeField        = "field"
-	entityTypeCategory     = "category"
-	entityTypeConceptList  = "concept_list"
-	entityTypeBaseOverride = "base_override"
-	opDelete               = "delete"
+	entityTypeModel              = "model"
+	entityTypeCollection         = "collection"
+	entityTypeField              = "field"
+	entityTypeCategory           = "category"
+	entityTypeConceptList        = "concept_list"
+	entityTypeVocabulary         = "vocabulary"
+	entityTypeVocabularyConcepts = "vocabulary_concepts"
+	entityTypeConceptListEntries = "concept_list_entries"
+	entityTypeBaseOverride       = "base_override"
+	opDelete                     = "delete"
 )
 
 // ScopedRef is one entity whose file(s) a change_set touches. Delete removes
