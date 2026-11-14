@@ -15,9 +15,10 @@ const (
 // ConceptList serializes a domain.ConceptList to canonical YAML for the
 // project tree. Entries and broader edges are not part of the tree yet; the
 // file carries the list itself. Excluded: id, project_id, timestamps,
-// list_type and vocabulary_id (database-local references). Concept lists
+// list_type and vocabulary_id (database-local references); the vocabulary
+// is written as its semantic id when given. Concept lists
 // have no deprecated flag, so the file has no such key.
-func ConceptList(l *domain.ConceptList) ([]byte, error) {
+func ConceptList(l *domain.ConceptList, vocabularySemanticID string) ([]byte, error) {
 	data := map[string]any{
 		keySemanticID:  l.SemanticID,
 		keySystemName:  l.SystemName,
@@ -25,6 +26,9 @@ func ConceptList(l *domain.ConceptList) ([]byte, error) {
 		keyDescription: translationsToMap(l.Description),
 		keyStatus:      l.Status,
 		"is_closed":    l.IsClosed,
+	}
+	if vocabularySemanticID != "" {
+		data["vocabulary"] = vocabularySemanticID
 	}
 	return Encode(data)
 }

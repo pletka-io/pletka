@@ -103,7 +103,7 @@ func (m *Materializer) writeConceptLists(ctx context.Context, workDir, projectID
 	}
 	for _, row := range rows {
 		list := rowToConceptList(row)
-		payload, err := canonical.ConceptList(list)
+		payload, err := canonical.ConceptList(list, "")
 		if err != nil {
 			return fmt.Errorf("encode concept list %s: %w", list.ID, err)
 		}

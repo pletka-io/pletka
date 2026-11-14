@@ -389,7 +389,7 @@ func (m *Materializer) writeConceptListsVersion(ctx context.Context, workDir, pr
 	}
 	for _, row := range rows {
 		list := archivedRowToConceptList(row)
-		payload, err := canonical.ConceptList(list)
+		payload, err := canonical.ConceptList(list, "")
 		if err != nil {
 			return fmt.Errorf("encode archived concept list %s: %w", list.ID, err)
 		}
