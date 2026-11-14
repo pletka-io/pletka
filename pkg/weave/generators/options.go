@@ -60,6 +60,11 @@ type Options struct {
 	// definition per collection instead of one copy per graft.
 	IncludeReferenced bool
 
+	// IncludeClassAncestors fills Snapshot.ClassAncestors from the class
+	// lineage reader. Each class costs an ontology walk, so only renderers
+	// that use the hierarchy ask for it.
+	IncludeClassAncestors bool
+
 	// SHACL holds the SHACL export's options (query parameters on the
 	// shacl export routes).
 	SHACL SHACLOptions

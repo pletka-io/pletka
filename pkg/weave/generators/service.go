@@ -93,10 +93,11 @@ func (s *Service) SetGraftOverrideReader(r GraftOverrideReader) { s.grafts = r }
 func (s *Service) SetConceptEnumReader(r ConceptEnumReader) { s.conceptEnum = r }
 
 // ClassLineageReader returns a class's ancestors (rdfs:subClassOf,
-// transitively) across the given ontology versions, as prefixed names. The
-// class itself may be included; it is dropped.
+// transitively) across the given ontology versions, as prefixed names, and
+// whether any version knows the class. The class itself may be included;
+// it is dropped.
 type ClassLineageReader interface {
-	ClassAncestors(ctx context.Context, versionIDs []string, qname string) ([]string, error)
+	ClassAncestors(ctx context.Context, versionIDs []string, qname string) ([]string, bool, error)
 }
 
 // SetClassLineageReader wires the optional reader that fills
@@ -107,7 +108,7 @@ func (s *Service) SetClassLineageReader(r ClassLineageReader) { s.lineage = r }
 // snapshot uses. Best-effort like concept enums: a class the reader cannot
 // walk is left out (unknown ancestors).
 func (s *Service) attachClassAncestors(ctx context.Context, projectID string, snap *Snapshot) *Snapshot {
-	if s.lineage == nil || snap == nil || !snap.Options.IncludeReferenced {
+	if s.lineage == nil || snap == nil || !snap.Options.IncludeClassAncestors {
 		return snap
 	}
 	resolved, err := s.projects.ResolvedOntologyVersions(ctx, projectID, domain.ResolvedOntologyVersionOpts{})
@@ -122,9 +123,9 @@ func (s *Service) attachClassAncestors(ctx context.Context, projectID string, sn
 	}
 	out := map[string][]string{}
 	for _, qname := range snapshotClasses(snap) {
-		anc, err := s.lineage.ClassAncestors(ctx, versionIDs, qname)
-		if err != nil {
-			continue
+		anc, found, err := s.lineage.ClassAncestors(ctx, versionIDs, qname)
+		if err != nil || !found {
+			continue // unknown ancestors
 		}
 		anc = slices.DeleteFunc(slices.Clone(anc), func(a string) bool { return a == qname })
 		slices.Sort(anc)
@@ -393,8 +394,10 @@ func (s *Service) OptionsFor(format Format, opts Options) Options {
 	if s == nil || s.registry == nil {
 		return opts
 	}
-	if r, ok := s.registry.Renderer(format); ok && r.Spec().IncludeReferenced {
-		opts.IncludeReferenced = true
+	if r, ok := s.registry.Renderer(format); ok {
+		spec := r.Spec()
+		opts.IncludeReferenced = opts.IncludeReferenced || spec.IncludeReferenced
+		opts.IncludeClassAncestors = opts.IncludeClassAncestors || spec.IncludeClassAncestors
 	}
 	return opts
 }

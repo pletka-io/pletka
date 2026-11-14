@@ -30,9 +30,9 @@ type Snapshot struct {
 
 	// ClassAncestors maps each class the snapshot uses (prefixed name) to
 	// its ancestors (rdfs:subClassOf, transitively, across the project's
-	// linked ontology versions), sorted. Set with Options.IncludeReferenced
-	// when a lineage reader is wired; a class missing from the map has
-	// unknown ancestors.
+	// linked ontology versions), sorted. Set with
+	// Options.IncludeClassAncestors when a lineage reader is wired; a class
+	// missing from the map has unknown ancestors (no linked version has it).
 	ClassAncestors map[string][]string `json:"class_ancestors,omitempty"`
 }
 
