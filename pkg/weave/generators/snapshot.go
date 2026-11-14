@@ -21,6 +21,12 @@ type Snapshot struct {
 	Ontologies []domain.ResolvedOntologyVersion `json:"ontologies,omitempty"`
 	Options    Options                          `json:"options"`
 	Report     Report                           `json:"report,omitempty"`
+
+	// Referenced and Grafts are set with Options.IncludeReferenced: the
+	// collections Collection stubs name, keyed by collection id, and the
+	// model's graft overrides, keyed by address.
+	Referenced map[string]ReferencedCollection `json:"referenced,omitempty"`
+	Grafts     map[string]domain.GraftOverride `json:"grafts,omitempty"`
 }
 
 // FieldNode is a resolved field plus its generator resource path.

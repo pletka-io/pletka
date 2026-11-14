@@ -12,6 +12,9 @@ type FormatSpec struct {
 	ContentType   string
 	FileExtension string
 	RequiresTree  bool
+	// IncludeReferenced asks for the collections Collection stubs name and
+	// the model's graft overrides on the snapshot (Options.IncludeReferenced).
+	IncludeReferenced bool
 }
 
 // Renderer writes a resolved Snapshot in one output format.

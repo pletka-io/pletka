@@ -147,6 +147,10 @@ func BuildModelSnapshot(in ModelSnapshotInput) *Snapshot {
 		Options:    opts,
 		Report:     report,
 	}
+	if opts.IncludeReferenced {
+		snap.Referenced = in.Referenced
+		snap.Grafts = in.Grafts
+	}
 	assignShortPathNodeIDs(snap)
 	return snap
 }
@@ -294,10 +298,10 @@ type ModelSnapshotInput struct {
 // strips from them (graftPrefix). Missing says why it could not be loaded
 // ("not found", "has no members"); the other fields are then empty.
 type ReferencedCollection struct {
-	Collection       *domain.Collection
-	Fields           []domain.ResolvedField
-	SharedPathPrefix []domain.PathElement
-	Missing          string
+	Collection       *domain.Collection     `json:"collection,omitempty"`
+	Fields           []domain.ResolvedField `json:"fields,omitempty"`
+	SharedPathPrefix []domain.PathElement   `json:"shared_path_prefix,omitempty"`
+	Missing          string                 `json:"missing,omitempty"`
 }
 
 type CollectionSnapshotInput struct {

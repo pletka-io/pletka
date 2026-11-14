@@ -89,3 +89,24 @@ func TestSnapshotForModelWithoutGraftReaderGraftsAll(t *testing.T) {
 	}
 	t.Fatal("nested graft missing without a graft reader")
 }
+
+func TestSnapshotForModelIncludeReferencedAttachesWithoutGrafting(t *testing.T) {
+	svc := serviceWithNestedModel()
+	const hidden = "OGF.1/LAC.6.F2"
+	svc.SetGraftOverrideReader(&fakeGraftReader{grafts: map[string]domain.GraftOverride{hidden: {Address: hidden, IsHidden: true}}})
+	snap, err := svc.SnapshotForModel(context.Background(), "OG", "m-1", Options{IncludeReferenced: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Referenced) == 0 {
+		t.Fatal("no referenced collections on the snapshot")
+	}
+	if _, ok := snap.Grafts[hidden]; !ok {
+		t.Fatalf("graft overrides not on the snapshot: %v", snap.Grafts)
+	}
+	for _, f := range snap.Fields {
+		if strings.Contains(f.Address, "/") {
+			t.Fatalf("grafted copy %s in a snapshot that only includes references", f.Address)
+		}
+	}
+}

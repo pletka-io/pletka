@@ -168,7 +168,7 @@ func (s *Service) SnapshotForModel(ctx context.Context, projectID, modelID strin
 		return nil, err
 	}
 	var grafts map[string]domain.GraftOverride
-	if opts.ComposeCollections && s.grafts != nil {
+	if (opts.ComposeCollections || opts.IncludeReferenced) && s.grafts != nil {
 		// grafts.yaml lives under the model's tree directory, named by its
 		// semantic id.
 		treeID := model.SemanticID
@@ -275,6 +275,7 @@ func (s *Service) SnapshotForField(ctx context.Context, projectID, fieldID strin
 }
 
 func (s *Service) GenerateModel(ctx context.Context, projectID, modelID string, format Format, w io.Writer, opts Options) error {
+	opts = s.OptionsFor(format, opts)
 	snapshot, err := s.SnapshotForModel(ctx, projectID, modelID, opts)
 	if err != nil {
 		return err
@@ -296,6 +297,18 @@ func (s *Service) GenerateField(ctx context.Context, projectID, fieldID string, 
 		return err
 	}
 	return s.render(ctx, format, snapshot, w)
+}
+
+// OptionsFor returns opts with what the format's renderer asks for; a
+// caller's own settings are kept.
+func (s *Service) OptionsFor(format Format, opts Options) Options {
+	if s == nil || s.registry == nil {
+		return opts
+	}
+	if r, ok := s.registry.Renderer(format); ok && r.Spec().IncludeReferenced {
+		opts.IncludeReferenced = true
+	}
+	return opts
 }
 
 func (s *Service) RenderSnapshot(ctx context.Context, format Format, snapshot *Snapshot, w io.Writer) error {
@@ -386,7 +399,7 @@ func (s *Service) loadCollections(ctx context.Context, projectID string, view *d
 // can say why; a reader error fails the snapshot. nil when composition is
 // off or the reader cannot look collections up by id.
 func (s *Service) loadReferencedCollections(ctx context.Context, view *domain.ModelView, opts Options) (map[string]ReferencedCollection, error) {
-	if !opts.ComposeCollections || view == nil {
+	if (!opts.ComposeCollections && !opts.IncludeReferenced) || view == nil {
 		return nil, nil
 	}
 	lookup, ok := s.collections.(CollectionLookupByID)
