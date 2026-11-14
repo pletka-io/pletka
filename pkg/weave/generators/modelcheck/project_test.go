@@ -56,3 +56,24 @@ func TestProjectRunsModelChecks(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+// a collection placed on several models gives the same finding for each;
+// the project reports it once, naming the models
+func TestProjectFoldsIdenticalCollectionFindings(t *testing.T) {
+	placed := func(model string) *generators.Snapshot {
+		snap := &generators.Snapshot{Model: &domain.Model{Entity: domain.Entity{SemanticID: model}, OntologyScope: el("class", "crm:E7_Activity")}}
+		f := chained("PF.9", "Concept", 0, "", p2, e55)
+		f.CollectionID, f.CollectionSemanticID = "c", "PC.1"
+		snap.Fields = []generators.FieldNode{f}
+		return snap
+	}
+	got := byCode(Project([]*generators.Snapshot{placed("PM.1"), placed("PM.2"), placed("PM.3")}), "C10")
+	if len(got) != 1 || got[0].Model != "" || len(got[0].Models) != 3 || got[0].Models[0] != "PM.1" {
+		t.Fatalf("%+v", got)
+	}
+	// a finding in only one model keeps its model
+	got = byCode(Project([]*generators.Snapshot{placed("PM.1")}), "C10")
+	if len(got) != 1 || got[0].Model != "PM.1" || got[0].Models != nil {
+		t.Fatalf("%+v", got)
+	}
+}

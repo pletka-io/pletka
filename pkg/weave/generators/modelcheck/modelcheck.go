@@ -54,6 +54,15 @@ type Finding struct {
 	Collection string   `json:"collection,omitempty"`
 	Field      string   `json:"field,omitempty"`
 	Message    string   `json:"message"`
+	// Models lists the models a collection finding applies to when
+	// Project folds the same finding from several models (Model is then
+	// empty).
+	Models []string `json:"models,omitempty"`
+}
+
+// key identifies a finding apart from the model(s) it was found in.
+func (f Finding) key() string {
+	return strings.Join([]string{f.Code, string(f.Severity), f.Collection, f.Field, f.Message}, "\x00")
 }
 
 type checker struct {
@@ -70,8 +79,7 @@ type checker struct {
 func (c *checker) add(code string, sev Severity, collection, field, format string, args ...any) {
 	f := Finding{Code: code, Severity: sev, Model: c.scope, Collection: collection, Field: field, Message: fmt.Sprintf(format, args...)}
 	for _, o := range c.out {
-		o.Model = f.Model
-		if o == f {
+		if o.key() == f.key() {
 			return
 		}
 	}
@@ -194,11 +202,7 @@ func Project(snaps []*generators.Snapshot) []Finding {
 			continue
 		}
 		c := check(snap)
-		for _, f := range c.out {
-			if !slices.Contains(out, f) { // collection findings repeat per model
-				out = append(out, f)
-			}
-		}
+		out = append(out, c.out...)
 		if snap.Model == nil {
 			continue
 		}
@@ -208,6 +212,7 @@ func Project(snaps []*generators.Snapshot) []Finding {
 		}
 		byClass[cls] = append(byClass[cls], model{c.model, c.root.values[""]})
 	}
+	out = fold(out)
 	for _, cls := range classes {
 		ms := byClass[cls]
 		var clash []string
@@ -364,4 +369,30 @@ func hiddenByGraft(grafts map[string]domain.GraftOverride, semanticID string) bo
 		}
 	}
 	return false
+}
+
+// fold reports each collection finding once: the same finding from several
+// models (a collection placed on each) becomes one finding naming them.
+// Findings without a collection, and those found in one model only, are
+// kept as they are; order follows first occurrence.
+func fold(in []Finding) []Finding {
+	var out []Finding
+	at := map[string]int{}
+	for _, f := range in {
+		i, seen := at[f.key()]
+		switch {
+		case !seen:
+			at[f.key()] = len(out)
+			out = append(out, f)
+		case f.Collection == "" || f.Model == "" || f.Model == out[i].Model || slices.Contains(out[i].Models, f.Model):
+			// already reported (same model, or a model-free finding)
+		default:
+			if out[i].Model != "" {
+				out[i].Models = []string{out[i].Model}
+				out[i].Model = ""
+			}
+			out[i].Models = append(out[i].Models, f.Model)
+		}
+	}
+	return out
 }
