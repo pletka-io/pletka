@@ -63,6 +63,9 @@ type SnapshotEntityFile struct {
 type SnapshotEntityTree struct {
 	Categories          []SnapshotEntityFile
 	ConceptLists        []SnapshotEntityFile
+	Vocabularies        []SnapshotEntityFile
+	VocabularyConcepts  []SnapshotEntityFile
+	ConceptListEntries  []SnapshotEntityFile
 	Fields              []SnapshotEntityFile
 	Models              []SnapshotEntityFile
 	Collections         []SnapshotEntityFile
@@ -456,6 +459,12 @@ func scanProjectEntities(rootDir string) (SnapshotEntityTree, error) {
 			out.Categories = append(out.Categories, entity)
 		case entityTypeConceptList:
 			out.ConceptLists = append(out.ConceptLists, entity)
+		case entityTypeVocabulary:
+			out.Vocabularies = append(out.Vocabularies, entity)
+		case entityTypeVocabularyConcepts:
+			out.VocabularyConcepts = append(out.VocabularyConcepts, entity)
+		case entityTypeConceptListEntries:
+			out.ConceptListEntries = append(out.ConceptListEntries, entity)
 		case "field":
 			out.Fields = append(out.Fields, entity)
 		case "model":
@@ -482,6 +491,9 @@ func scanProjectEntities(rootDir string) (SnapshotEntityTree, error) {
 	}
 	sortSnapshotEntityFiles(out.Categories)
 	sortSnapshotEntityFiles(out.ConceptLists)
+	sortSnapshotEntityFiles(out.Vocabularies)
+	sortSnapshotEntityFiles(out.VocabularyConcepts)
+	sortSnapshotEntityFiles(out.ConceptListEntries)
 	sortSnapshotEntityFiles(out.Fields)
 	sortSnapshotEntityFiles(out.Models)
 	sortSnapshotEntityFiles(out.Collections)
@@ -512,6 +524,14 @@ func classifySnapshotEntityFile(rel string) (SnapshotEntityFile, bool) {
 			EntityID:   strings.TrimSuffix(segments[1], ".yaml"),
 		}, true
 	case "concept-lists":
+		if len(segments) == 3 && segments[2] == "entries.yaml" {
+			return SnapshotEntityFile{
+				Path:       rel,
+				EntityType: entityTypeConceptListEntries,
+				OwnerID:    segments[1],
+				EntityID:   segments[1],
+			}, true
+		}
 		if len(segments) != 2 || !strings.HasSuffix(segments[1], ".yaml") {
 			return SnapshotEntityFile{}, false
 		}
@@ -520,6 +540,16 @@ func classifySnapshotEntityFile(rel string) (SnapshotEntityFile, bool) {
 			EntityType: entityTypeConceptList,
 			EntityID:   strings.TrimSuffix(segments[1], ".yaml"),
 		}, true
+	case "vocabularies":
+		if len(segments) != 3 {
+			return SnapshotEntityFile{}, false
+		}
+		switch segments[2] {
+		case "vocabulary.yaml":
+			return SnapshotEntityFile{Path: rel, EntityType: entityTypeVocabulary, EntityID: segments[1]}, true
+		case "concepts.yaml":
+			return SnapshotEntityFile{Path: rel, EntityType: entityTypeVocabularyConcepts, OwnerID: segments[1], EntityID: segments[1]}, true
+		}
 	case "fields":
 		if len(segments) == 3 && segments[2] == "field.yaml" {
 			return SnapshotEntityFile{
@@ -744,7 +774,7 @@ func checkTreeFile(rel string, payload []byte) error {
 // bad tree before it writes anything.
 func (s *ProjectSnapshot) checkEntityFiles() error {
 	e := s.Entities
-	for _, group := range [][]SnapshotEntityFile{e.Categories, e.ConceptLists, e.Fields, e.Models, e.Collections, e.BaseOverrides, e.ModelOverrides, e.CollectionOverrides, e.Placements, e.Grafts} {
+	for _, group := range [][]SnapshotEntityFile{e.Categories, e.ConceptLists, e.Vocabularies, e.VocabularyConcepts, e.ConceptListEntries, e.Fields, e.Models, e.Collections, e.BaseOverrides, e.ModelOverrides, e.CollectionOverrides, e.Placements, e.Grafts} {
 		for _, item := range group {
 			if err := checkTreeFile(item.Path, item.Payload); err != nil {
 				return err

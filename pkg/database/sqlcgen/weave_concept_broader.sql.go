@@ -53,6 +53,20 @@ func (q *Queries) WeaveConceptListEntryExists(ctx context.Context, arg WeaveConc
 	return present, err
 }
 
+const weaveDeleteConceptBroaderByVocabulary = `-- name: WeaveDeleteConceptBroaderByVocabulary :exec
+DELETE FROM weave_concept_broader
+WHERE scheme_id IS NULL
+  AND concept_id IN (
+    SELECT id FROM weave_vocabulary_entries WHERE vocabulary_id = $1::text
+)
+`
+
+// Vocabulary-level edges only; list-scoped edges (scheme_id set) are not in the tree.
+func (q *Queries) WeaveDeleteConceptBroaderByVocabulary(ctx context.Context, vocabularyID string) error {
+	_, err := q.db.Exec(ctx, weaveDeleteConceptBroaderByVocabulary, vocabularyID)
+	return err
+}
+
 const weaveListConceptBroaderByScheme = `-- name: WeaveListConceptBroaderByScheme :many
 SELECT id, concept_id, broader_id, scheme_id, position
 FROM weave_concept_broader
@@ -84,6 +98,42 @@ func (q *Queries) WeaveListConceptBroaderByScheme(ctx context.Context, schemeID 
 			&i.SchemeID,
 			&i.Position,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveListConceptBroaderByVocabulary = `-- name: WeaveListConceptBroaderByVocabulary :many
+SELECT c.uri AS concept_uri, b.uri AS broader_uri, cb.position
+FROM weave_concept_broader cb
+JOIN weave_vocabulary_entries c ON c.id = cb.concept_id
+JOIN weave_vocabulary_entries b ON b.id = cb.broader_id
+WHERE c.vocabulary_id = $1::text
+  AND cb.scheme_id IS NULL
+ORDER BY c.uri, cb.position, b.uri
+`
+
+type WeaveListConceptBroaderByVocabularyRow struct {
+	ConceptUri string `json:"concept_uri"`
+	BroaderUri string `json:"broader_uri"`
+	Position   int32  `json:"position"`
+}
+
+func (q *Queries) WeaveListConceptBroaderByVocabulary(ctx context.Context, vocabularyID string) ([]WeaveListConceptBroaderByVocabularyRow, error) {
+	rows, err := q.db.Query(ctx, weaveListConceptBroaderByVocabulary, vocabularyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveListConceptBroaderByVocabularyRow{}
+	for rows.Next() {
+		var i WeaveListConceptBroaderByVocabularyRow
+		if err := rows.Scan(&i.ConceptUri, &i.BroaderUri, &i.Position); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

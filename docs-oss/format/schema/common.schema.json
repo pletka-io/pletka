@@ -5,7 +5,7 @@
   "$defs": {
     "schemaVersion": {"type": "integer", "enum": [1, 2], "description": "1 = materializer through 2026-11; 2 = this specification."},
     "translations": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Language code to text."},
-    "semanticId": {"type": "string", "pattern": "^[A-Za-z0-9]+(?:[FMC]\\.(?:0|[1-9][0-9]*)|\\.(?:CAT|CL)\\.(?:0|[1-9][0-9]*))(?:_[a-z0-9_]+)?$"},
+    "semanticId": {"type": "string", "pattern": "^[A-Za-z0-9]+(?:[FMC]\\.(?:0|[1-9][0-9]*)|\\.(?:CAT|CL|VOC)\\.(?:0|[1-9][0-9]*))(?:_[a-z0-9_]+)?$"},
     "semanticIdOrEmpty": {"anyOf": [{"$ref": "#/$defs/semanticId"}, {"const": ""}]},
     "projectId": {"type": "string", "pattern": "^[A-Za-z0-9]+$"},
     "status": {"type": "string", "description": "Known: draft, published.", "examples": ["draft", "published"]},

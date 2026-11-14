@@ -772,15 +772,11 @@ func (s *Service) EnsureLocalVocabulary(ctx context.Context, projectID string) (
 	return s.ensureLocalVocabulary(ctx, projectID)
 }
 
-// ensureLocalVocabulary returns the id of the project's local vocabulary,
-// creating it (connector_type 'local') if it does not exist. Idempotent.
+// ensureLocalVocabulary returns the id of the project's local vocabulary
+// (<P>.VOCAB.local), creating it (connector_type 'local') if it does not
+// exist. Idempotent.
 func (s *Service) ensureLocalVocabulary(ctx context.Context, projectID string) (string, error) {
-	var id string
-	err := s.pool.QueryRow(ctx, `
-SELECT id FROM weave_vocabularies
-WHERE project_id = $1 AND connector_type = 'local'
-ORDER BY created_at LIMIT 1
-`, projectID).Scan(&id)
+	id, err := s.queries.WeaveFindLocalVocabulary(ctx, projectID)
 	if err == nil && id != "" {
 		return id, nil
 	}

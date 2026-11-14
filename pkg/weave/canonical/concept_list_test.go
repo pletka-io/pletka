@@ -1,6 +1,7 @@
 package canonical
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/pletka-io/pletka/pkg/domain"
@@ -14,12 +15,24 @@ func TestConceptList_CanonicalKeys(t *testing.T) {
 	l.SystemName = "license"
 	l.UIName = domain.Translations{"en": "License"}
 	l.Status = "draft"
-	got, err := ConceptList(l)
+	got, err := ConceptList(l, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "description: {}\nis_closed: true\nsemantic_id: TPC.CL.3\nstatus: draft\nsystem_name: license\nui_name:\n  en: License\n"
 	if string(got) != want {
 		t.Errorf("canonical concept list mismatch:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestConceptList_Vocabulary(t *testing.T) {
+	l := &domain.ConceptList{}
+	l.SemanticID, l.SystemName, l.Status = "SI.CL.1", "x", "draft"
+	got, err := ConceptList(l, "SI.VOC.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(got), "vocabulary: SI.VOC.1\n") {
+		t.Errorf("missing vocabulary key:\n%s", got)
 	}
 }

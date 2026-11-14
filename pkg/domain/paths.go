@@ -15,6 +15,9 @@ type PathSpec struct {
 // EntityTypeConceptListPath is the PathSpec.EntityType of a concept-list file.
 const EntityTypeConceptListPath = "concept_list"
 
+// EntityTypeVocabularyPath is the PathSpec.EntityType of a vocabulary file.
+const EntityTypeVocabularyPath = "vocabulary"
+
 // FilePath returns the path relative to the project working tree where
 // an entity should be materialized.
 func FilePath(spec PathSpec) string {
@@ -25,6 +28,8 @@ func FilePath(spec PathSpec) string {
 		return fmt.Sprintf("categories/%s.yaml", spec.EntityID)
 	case EntityTypeConceptListPath:
 		return fmt.Sprintf("concept-lists/%s.yaml", spec.EntityID)
+	case EntityTypeVocabularyPath:
+		return fmt.Sprintf("vocabularies/%s/vocabulary.yaml", spec.EntityID)
 	case "field":
 		return fmt.Sprintf("fields/%s/field.yaml", spec.EntityID)
 	case "model":
@@ -56,4 +61,14 @@ func OverrideToken(categoryID, collectionID string) string {
 		t += "@" + collectionID
 	}
 	return t
+}
+
+// VocabularyConceptsPath is the concepts file of a vocabulary.
+func VocabularyConceptsPath(id string) string {
+	return fmt.Sprintf("vocabularies/%s/concepts.yaml", id)
+}
+
+// ConceptListEntriesPath is the entries file of a concept list.
+func ConceptListEntriesPath(id string) string {
+	return fmt.Sprintf("concept-lists/%s/entries.yaml", id)
 }

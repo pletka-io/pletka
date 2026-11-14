@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pletka.io/schema/format/2/vocabulary-concepts.schema.json",
+  "title": "vocabularies/<V>/concepts.yaml",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["uri"],
+    "properties": {
+      "uri": {"type": "string"},
+      "label": {"$ref": "common.schema.json#/$defs/translations"},
+      "scope_note": {"$ref": "common.schema.json#/$defs/translations"},
+      "broader": {"type": "array", "items": {"type": "string"}},
+      "top_concept": {"type": "boolean"},
+      "external_id": {"type": "string"},
+      "exact_match": {"type": "array", "items": {"type": "string"}}
+    }
+  }
+}

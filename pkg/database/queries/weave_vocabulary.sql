@@ -421,9 +421,10 @@ SELECT COALESCE(MAX(position), 0) + 1 FROM weave_concept_list_entries WHERE conc
 
 -- name: WeaveFindLocalVocabulary :one
 -- The project's local vocabulary, if it already has one.  (was ensureLocalVocabulary)
+-- Found by its identity <P>.VOCAB.local, not by connector_type: tree
+-- vocabularies (<P>.VOC.n) are 'local' too and must not become the local terms.
 SELECT id FROM weave_vocabularies
-WHERE project_id = $1 AND connector_type = 'local'
-ORDER BY created_at LIMIT 1;
+WHERE project_id = @project_id::text AND semantic_id = @project_id::text || '.VOCAB.local';
 
 -- name: WeaveDeleteConceptListEntryInList :exec
 -- Remove one entry from a list.  (was RemoveConceptListEntry)
@@ -489,3 +490,135 @@ DO UPDATE SET system_name = EXCLUDED.system_name,
               is_closed   = EXCLUDED.is_closed,
               updated_at  = NOW()
 RETURNING *;
+
+-- name: WeaveUpsertProjectVocabulary :one
+INSERT INTO weave_vocabularies (
+    id, created_at, updated_at, semantic_id, system_name,
+    ui_name, description, status, project_id, connector_type, base_uri
+) VALUES (
+    @id::text, NOW(), NOW(), @semantic_id::text, @system_name::text,
+    @ui_name::jsonb, @description::jsonb, @status::text, @project_id::text, 'local', @base_uri::text
+)
+ON CONFLICT (project_id, semantic_id) WHERE semantic_id IS NOT NULL
+DO UPDATE SET system_name = EXCLUDED.system_name,
+              ui_name     = EXCLUDED.ui_name,
+              description = EXCLUDED.description,
+              status      = EXCLUDED.status,
+              base_uri    = EXCLUDED.base_uri,
+              updated_at  = NOW()
+RETURNING id;
+
+-- name: WeaveListProjectTreeVocabularies :many
+SELECT * FROM weave_vocabularies
+WHERE project_id = @project_id::text
+  AND semantic_id ~ '^[A-Z0-9]+\.VOC\.[0-9]+$'
+ORDER BY semantic_id;
+
+-- name: WeaveSetConceptListVocabulary :execrows
+UPDATE weave_concept_lists
+SET vocabulary_id = @vocabulary_id::text, updated_at = NOW()
+WHERE project_id = @project_id::text AND semantic_id = @semantic_id::text;
+
+-- name: WeaveUpsertTreeVocabularyEntry :one
+INSERT INTO weave_vocabulary_entries (
+    id, vocabulary_id, uri, label, scope_note,
+    broader_uri, external_id, config, created_at, updated_at
+) VALUES (
+    @id::text, @vocabulary_id::text, @uri::text, @label::jsonb, @scope_note::jsonb,
+    @broader_uri::text, @external_id::text, @config::jsonb, NOW(), NOW()
+)
+ON CONFLICT (vocabulary_id, uri) DO UPDATE SET
+    label = EXCLUDED.label,
+    scope_note = EXCLUDED.scope_note,
+    broader_uri = EXCLUDED.broader_uri,
+    external_id = EXCLUDED.external_id,
+    config = EXCLUDED.config,
+    updated_at = NOW()
+RETURNING *;
+
+-- name: WeaveDeleteVocabularyEntriesNotIn :exec
+DELETE FROM weave_vocabulary_entries
+WHERE vocabulary_id = @vocabulary_id::text
+  AND NOT (uri = ANY(COALESCE(@uris::text[], '{}')));
+
+-- name: WeaveDeleteConceptListEntriesByList :exec
+DELETE FROM weave_concept_list_entries WHERE concept_list_id = @concept_list_id::text;
+
+-- name: WeaveListVocabularyEntriesForTree :many
+SELECT * FROM weave_vocabulary_entries
+WHERE vocabulary_id = @vocabulary_id::text
+ORDER BY uri;
+
+-- name: WeaveListConceptListEntryURIs :many
+-- vocabulary_id lets the tree writer skip entries from another vocabulary
+-- than the list's.
+SELECT e.uri, e.vocabulary_id
+FROM weave_concept_list_entries le
+JOIN weave_vocabulary_entries e ON e.id = le.vocabulary_entry_id
+WHERE le.concept_list_id = @concept_list_id::text
+ORDER BY le.position, le.id;
+
+-- name: WeaveListProjectTreeVocabulariesArchive :many
+-- The tree vocabularies (<P>.VOC.n) a release archived.
+SELECT * FROM weave_vocabularies_archive
+WHERE project_id = @project_id::text
+  AND version_number = @version_number::text
+  AND semantic_id ~ '^[A-Z0-9]+\.VOC\.[0-9]+$'
+ORDER BY semantic_id;
+
+-- name: WeaveListVocabularyEntriesArchiveForTree :many
+SELECT * FROM weave_vocabulary_entries_archive
+WHERE vocabulary_id = @vocabulary_id::text
+  AND version_number = @version_number::text
+ORDER BY uri;
+
+-- name: WeaveListConceptListEntryURIsArchive :many
+SELECT e.uri, e.vocabulary_id
+FROM weave_concept_list_entries_archive le
+JOIN weave_vocabulary_entries_archive e
+  ON e.id = le.vocabulary_entry_id AND e.version_number = le.version_number
+WHERE le.concept_list_id = @concept_list_id::text
+  AND le.version_number = @version_number::text
+ORDER BY le.position, le.id;
+
+-- name: WeaveGetProjectVocabularyBySystemName :one
+-- The project's vocabulary holding a system_name (unique per project, migration 014).
+SELECT id, semantic_id FROM weave_vocabularies
+WHERE project_id = @project_id::text AND system_name = @system_name::text;
+
+-- name: WeaveGetProjectVocabularyBySemanticID :one
+SELECT id FROM weave_vocabularies
+WHERE project_id = @project_id::text AND semantic_id = @semantic_id::text;
+
+-- name: WeaveClaimVocabularySemanticID :execrows
+-- A tree load takes over a same-name vocabulary that has no semantic id yet.
+UPDATE weave_vocabularies
+SET semantic_id = @semantic_id::text, updated_at = NOW()
+WHERE id = @id::text AND semantic_id IS NULL;
+
+-- name: WeaveListVocabularyEntryRefsNotIn :many
+-- Entries of a vocabulary outside uris that a concept list still uses, as an
+-- entry or as its list_type; the prune in WeaveDeleteVocabularyEntriesNotIn
+-- would hit their foreign keys.
+SELECT e.uri, COALESCE(l.semantic_id, l.id)::text AS concept_list
+FROM weave_vocabulary_entries e
+JOIN weave_concept_lists l
+  ON l.list_type = e.id
+  OR l.id IN (SELECT le.concept_list_id FROM weave_concept_list_entries le WHERE le.vocabulary_entry_id = e.id)
+WHERE e.vocabulary_id = @vocabulary_id::text
+  AND NOT (e.uri = ANY(COALESCE(@uris::text[], '{}')))
+ORDER BY e.uri, concept_list;
+
+-- name: WeaveListProjectConceptListsByVocabulary :many
+-- The project's concept lists bound to a vocabulary; the tree load prunes
+-- those absent from the tree.
+SELECT id, COALESCE(semantic_id, id)::text AS semantic_id
+FROM weave_concept_lists
+WHERE project_id = @project_id::text AND vocabulary_id = @vocabulary_id::text
+ORDER BY id;
+
+-- name: WeaveDeleteProjectVocabulary :execrows
+-- Entries (and with them their broader edges) and weave_project_vocabularies
+-- rows go by ON DELETE CASCADE; bound concept lists must be gone first.
+DELETE FROM weave_vocabularies
+WHERE project_id = @project_id::text AND id = @id::text;

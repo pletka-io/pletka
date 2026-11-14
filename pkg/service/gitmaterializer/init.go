@@ -2,6 +2,7 @@ package gitmaterializer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -95,27 +96,175 @@ func (m *Materializer) writeCategories(ctx context.Context, workDir, projectID s
 }
 
 // writeConceptLists materializes concept-lists/<SEMID>.yaml for every concept
-// list the project owns. Entries and broader edges stay in the database.
+// list the project owns. A list on a tree vocabulary (<P>.VOC.n) names it and
+// gets concept-lists/<SEMID>/entries.yaml when it has entries (an absent file
+// loads as an empty list). A list on any other vocabulary, such as the local
+// terms <P>.VOCAB.local, has no vocabulary key and keeps its entries in the
+// database.
 func (m *Materializer) writeConceptLists(ctx context.Context, workDir, projectID string) error {
+	vocabularies, err := m.queries.WeaveListProjectTreeVocabularies(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("list tree vocabularies: %w", err)
+	}
+	treeVocabularies := make(map[string]string, len(vocabularies))
+	for _, v := range vocabularies {
+		treeVocabularies[v.ID] = derefStr(v.SemanticID)
+	}
 	rows, err := m.queries.WeaveListConceptListsForTree(ctx, projectID)
 	if err != nil {
 		return fmt.Errorf("list concept lists: %w", err)
 	}
 	for _, row := range rows {
 		list := rowToConceptList(row)
-		payload, err := canonical.ConceptList(list)
-		if err != nil {
-			return fmt.Errorf("encode concept list %s: %w", list.ID, err)
+		vocabulary := treeVocabularies[derefStr(list.VocabularyID)]
+		var uris []string
+		if vocabulary != "" {
+			rows, err := m.queries.WeaveListConceptListEntryURIs(ctx, list.ID)
+			if err != nil {
+				return fmt.Errorf("list entries of concept list %s: %w", list.ID, err)
+			}
+			entries := make([]conceptListEntryRef, 0, len(rows))
+			for _, r := range rows {
+				entries = append(entries, conceptListEntryRef{uri: r.Uri, vocabularyID: r.VocabularyID})
+			}
+			uris = m.ownVocabularyEntries(list, vocabulary, derefStr(list.VocabularyID), entries)
 		}
-		path := domain.FilePath(domain.PathSpec{
-			EntityType: entityTypeConceptList,
-			EntityID:   identifierFor(list.SemanticID, list.ID),
-		})
-		if err := writeEntityFile(workDir, path, payload); err != nil {
+		if err := writeConceptListFiles(workDir, list, vocabulary, uris); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// conceptListEntryRef is a list entry's concept URI and the vocabulary that
+// concept belongs to.
+type conceptListEntryRef struct {
+	uri          string
+	vocabularyID string
+}
+
+// ownVocabularyEntries returns the URIs of the entries whose concept belongs
+// to the list's vocabulary, in order. entries.yaml resolves every URI in the
+// list's vocabulary, so an entry from another vocabulary (a local term added
+// to a tree-bound list) cannot be written: it is skipped with a warning
+// naming the list and the URI, and its database row stays.
+func (m *Materializer) ownVocabularyEntries(list *domain.ConceptList, vocabularySemanticID, vocabularyID string, entries []conceptListEntryRef) []string {
+	uris := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.vocabularyID != vocabularyID {
+			m.logger.Warn("concept list entry from another vocabulary left out of the tree",
+				"concept_list", identifierFor(list.SemanticID, list.ID), "vocabulary", vocabularySemanticID, "uri", e.uri)
+			continue
+		}
+		uris = append(uris, e.uri)
+	}
+	return uris
+}
+
+// writeConceptListFiles writes a concept list's header and, when it has
+// entries, its entries.yaml. Shared by the live and the release tree.
+func writeConceptListFiles(workDir string, list *domain.ConceptList, vocabularySemanticID string, uris []string) error {
+	payload, err := canonical.ConceptList(list, vocabularySemanticID)
+	if err != nil {
+		return fmt.Errorf("encode concept list %s: %w", list.ID, err)
+	}
+	id := identifierFor(list.SemanticID, list.ID)
+	if err := writeEntityFile(workDir, domain.FilePath(domain.PathSpec{EntityType: entityTypeConceptList, EntityID: id}), payload); err != nil {
+		return err
+	}
+	if len(uris) == 0 {
+		return nil
+	}
+	payload, err = canonical.ConceptListEntries(uris)
+	if err != nil {
+		return fmt.Errorf("encode entries of concept list %s: %w", list.ID, err)
+	}
+	return writeEntityFile(workDir, domain.ConceptListEntriesPath(id), payload)
+}
+
+// writeVocabularies materializes vocabularies/<V>/vocabulary.yaml and
+// concepts.yaml for every tree vocabulary (<P>.VOC.n) of the project. Other
+// vocabularies (the local terms <P>.VOCAB.local, mounted services) stay in
+// the database. A vocabulary without concepts gets no concepts.yaml; an
+// absent file loads as no concepts.
+func (m *Materializer) writeVocabularies(ctx context.Context, workDir, projectID string) error {
+	rows, err := m.queries.WeaveListProjectTreeVocabularies(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("list tree vocabularies: %w", err)
+	}
+	for _, row := range rows {
+		entries, err := m.queries.WeaveListVocabularyEntriesForTree(ctx, row.ID)
+		if err != nil {
+			return fmt.Errorf("list concepts of vocabulary %s: %w", row.ID, err)
+		}
+		edges, err := m.queries.WeaveListConceptBroaderByVocabulary(ctx, row.ID)
+		if err != nil {
+			return fmt.Errorf("list broader edges of vocabulary %s: %w", row.ID, err)
+		}
+		broader := make(map[string][]string, len(edges))
+		for _, e := range edges {
+			broader[e.ConceptUri] = append(broader[e.ConceptUri], e.BroaderUri)
+		}
+		concepts := make([]canonical.TreeConcept, 0, len(entries))
+		for _, e := range entries {
+			c, err := treeConcept(e.Uri, e.Label, e.ScopeNote, e.ExternalID, e.Config, broader[e.Uri])
+			if err != nil {
+				return fmt.Errorf("vocabulary %s: %w", row.ID, err)
+			}
+			concepts = append(concepts, c)
+		}
+		if err := writeVocabularyFiles(workDir, rowToVocabulary(row), concepts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeVocabularyFiles writes a vocabulary's header and, when it has
+// concepts, its concepts.yaml. Shared by the live and the release tree.
+func writeVocabularyFiles(workDir string, v *domain.Vocabulary, concepts []canonical.TreeConcept) error {
+	payload, err := canonical.Vocabulary(v)
+	if err != nil {
+		return fmt.Errorf("encode vocabulary %s: %w", v.SemanticID, err)
+	}
+	if err := writeEntityFile(workDir, domain.FilePath(domain.PathSpec{EntityType: domain.EntityTypeVocabularyPath, EntityID: v.SemanticID}), payload); err != nil {
+		return err
+	}
+	if len(concepts) == 0 {
+		return nil
+	}
+	payload, err = canonical.VocabularyConcepts(concepts)
+	if err != nil {
+		return fmt.Errorf("encode concepts of vocabulary %s: %w", v.SemanticID, err)
+	}
+	return writeEntityFile(workDir, domain.VocabularyConceptsPath(v.SemanticID), payload)
+}
+
+// conceptEntryConfig is the part of a vocabulary entry's config that
+// concepts.yaml carries (see conceptConfig, which writes it on load).
+type conceptEntryConfig struct {
+	TopConcept bool     `json:"top_concept"`
+	ExactMatch []string `json:"exact_match"`
+}
+
+// treeConcept builds one concepts.yaml item from an entry's columns. An
+// empty external_id and a NULL or JSON-null config mean the key is absent.
+func treeConcept(uri string, label, scopeNote []byte, externalID *string, config []byte, broader []string) (canonical.TreeConcept, error) {
+	var cfg conceptEntryConfig
+	if len(config) > 0 {
+		if err := json.Unmarshal(config, &cfg); err != nil {
+			return canonical.TreeConcept{}, fmt.Errorf("decode config of concept %s: %w", uri, err)
+		}
+	}
+	return canonical.TreeConcept{
+		URI:        uri,
+		Label:      unmarshalTranslations(label),
+		ScopeNote:  unmarshalTranslations(scopeNote),
+		Broader:    broader,
+		TopConcept: cfg.TopConcept,
+		ExternalID: derefStr(externalID),
+		ExactMatch: cfg.ExactMatch,
+	}, nil
 }
 
 // writeOneCategory materializes a single category's file. Shared by

@@ -76,3 +76,16 @@ func TestFilePath(t *testing.T) {
 		})
 	}
 }
+
+func TestVocabularyPaths(t *testing.T) {
+	spec := PathSpec{EntityType: EntityTypeVocabularyPath, EntityID: "SI.VOC.1"}
+	if got := FilePath(spec); got != "vocabularies/SI.VOC.1/vocabulary.yaml" {
+		t.Fatalf("FilePath = %q", got)
+	}
+	if got := VocabularyConceptsPath("SI.VOC.1"); got != "vocabularies/SI.VOC.1/concepts.yaml" {
+		t.Fatalf("VocabularyConceptsPath = %q", got)
+	}
+	if got := ConceptListEntriesPath("SI.CL.4"); got != "concept-lists/SI.CL.4/entries.yaml" {
+		t.Fatalf("ConceptListEntriesPath = %q", got)
+	}
+}

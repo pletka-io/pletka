@@ -24,6 +24,9 @@ func TestKindForPath(t *testing.T) {
 		"forks/model-PM.1.yaml":                    KindForkReceipt,
 		"categories/X.CAT.1.yaml":                  KindCategory,
 		"concept-lists/X.CL.1.yaml":                KindConceptList,
+		"vocabularies/SI.VOC.1/vocabulary.yaml":    KindVocabulary,
+		"vocabularies/SI.VOC.1/concepts.yaml":      KindVocabularyConcepts,
+		"concept-lists/SI.CL.4/entries.yaml":       KindConceptListEntries,
 		"fields/XF.1/field.yaml":                   KindField,
 		"fields/XF.1/base-override.yaml":           KindOverride,
 		"models/XM.1/model.yaml":                   KindModel,
@@ -39,7 +42,7 @@ func TestKindForPath(t *testing.T) {
 			t.Errorf("KindForPath(%q) = %q, %v; want %q", rel, got, ok, want)
 		}
 	}
-	for _, rel := range []string{"README.md", "fields/XF.1/notes.yaml", "models/XM.1/overrides/x/y.yaml", "collections/XC.1/placements/XC.2@_.yaml", "pletka.sum"} {
+	for _, rel := range []string{"README.md", "fields/XF.1/notes.yaml", "models/XM.1/overrides/x/y.yaml", "collections/XC.1/placements/XC.2@_.yaml", "pletka.sum", "vocabularies/SI.VOC.1.yaml", "vocabularies/SI.VOC.1/other.yaml"} {
 		if k, ok := KindForPath(rel); ok {
 			t.Errorf("KindForPath(%q) = %q; want no kind", rel, k)
 		}
@@ -79,6 +82,14 @@ func TestValidate(t *testing.T) {
 		{"placement without model_id, with an unknown key", KindPlacement,
 			"collection_id: XC.1\ncolor: red\n",
 			[]Violation{{Pointer: "", Keyword: "required"}, {Pointer: "/color", Keyword: "additionalProperties"}}},
+		{"vocabulary ok", KindVocabulary, "semantic_id: SI.VOC.1\nsystem_name: arches\nbase_uri: http://localhost:8000/\n", nil},
+		{"vocabulary unknown key", KindVocabulary, "semantic_id: SI.VOC.1\nfoo: 1\n",
+			[]Violation{{Pointer: "/foo", Keyword: "additionalProperties"}}},
+		{"concepts ok", KindVocabularyConcepts, "- uri: http://x/1\n  label: {en: A}\n  broader: [http://x/2, http://x/3]\n  top_concept: false\n", nil},
+		{"concepts need uri", KindVocabularyConcepts, "- label: {en: A}\n",
+			[]Violation{{Pointer: "/0", Keyword: "required"}}},
+		{"entries ok", KindConceptListEntries, "- http://x/1\n- http://x/2\n", nil},
+		{"concept list vocabulary", KindConceptList, "semantic_id: SI.CL.1\nvocabulary: SI.VOC.1\n", nil},
 		{"empty file", KindCategory, "",
 			[]Violation{{Pointer: "", Keyword: "type"}}},
 	}

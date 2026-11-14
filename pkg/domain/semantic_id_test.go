@@ -47,6 +47,18 @@ func TestParseSemanticID(t *testing.T) {
 			},
 		},
 		{
+			input: "SI.VOC.1",
+			want: SemanticID{
+				Raw: "SI.VOC.1", ProjectID: "SI", TypeCode: "VOC",
+				EntityType: "vocabulary", Number: 1,
+			},
+		},
+		{
+			// the local-vocabulary id is DB-only, not a tree id
+			input: "SI.VOCAB.local",
+			want:  SemanticID{Raw: "SI.VOCAB.local"},
+		},
+		{
 			input: "AFSF.10",
 			want: SemanticID{
 				Raw: "AFSF.10", ProjectID: "AFS", TypeCode: "F",
@@ -116,6 +128,7 @@ func TestSemanticID_ID(t *testing.T) {
 		{"LAF.309", "LAF.309"},
 		{"LA.CAT.5", "LA.CAT.5"},
 		{"SEM.CL.6", "SEM.CL.6"},
+		{"SI.VOC.2", "SI.VOC.2"},
 		{"LAM.15_person", "LAM.15"}, // strips system_name
 		{"PDLM.0", "PDLM.0"},
 		{"LAF.x", "LAF.x"}, // unparsed number: the raw string

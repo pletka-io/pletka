@@ -16,6 +16,9 @@ pletka.mod                                        required  module path and requ
 pletka.sum                                        when any requirement is resolved (see modules.md)
 categories/<CAT>.yaml                                       one per category
 concept-lists/<CL>.yaml                                     one per concept list
+concept-lists/<CL>/entries.yaml                             optional: the list's member concept URIs, in order
+vocabularies/<V>/vocabulary.yaml                            one per vocabulary
+vocabularies/<V>/concepts.yaml                              the vocabulary's concepts, sorted by uri
 fields/<F>/field.yaml                                       one per field
 fields/<F>/base-override.yaml                               optional: the field's own placement defaults
 models/<M>/model.yaml
@@ -33,7 +36,7 @@ vendor/projects/<module>@<selector>/...                     optional, see module
 vendor/ontologies/<module>@<version>/...                    optional, see modules.md
 ```
 
-`<CAT>`, `<CL>`, `<F>`, `<M>`, `<C>` are semantic ids. Nothing else is part of
+`<CAT>`, `<CL>`, `<V>`, `<F>`, `<M>`, `<C>` are semantic ids. Nothing else is part of
 the tree. A file in an entity directory that matches no pattern above is an
 error (`unknown-file`). Files outside the entity directories (`README.md`,
 `.github/`, `LICENSE`) are ignored by the loader and MAY exist.
@@ -52,12 +55,12 @@ Grammar (`pkg/domain/semantic_id.go`):
 ```
 semantic-id   = entity-id / grouping-id
 entity-id     = project-id ( "F" / "M" / "C" ) "." number [ "_" system-name ]
-grouping-id   = project-id "." ( "CAT" / "CL" ) "." number [ "_" system-name ]
+grouping-id   = project-id "." ( "CAT" / "CL" / "VOC" ) "." number [ "_" system-name ]
 project-id    = 1*( ALPHA / DIGIT )          ; upper-case by convention, e.g. X, LA
 number        = "0" / %x31-39 *DIGIT         ; no leading zeros
 ```
 
-Examples: `XF.1`, `XM.2`, `XC.3`, `X.CAT.4`, `X.CL.5`.
+Examples: `XF.1`, `XM.2`, `XC.3`, `X.CAT.4`, `X.CL.5`, `X.VOC.6`.
 
 Rules:
 
@@ -65,7 +68,7 @@ Rules:
 - The file or directory name MUST equal the entity's `semantic_id` key.
 - The type code MUST match the directory: `F` under `fields/`, `M` under
   `models/`, `C` under `collections/`, `CAT` under `categories/`, `CL` under
-  `concept-lists/`. **[not built: not checked]**
+  `concept-lists/`, `VOC` under `vocabularies/`. **[not built: not checked]**
 - An entity copied from a parent carries `_adopted_from: <project-id>` and
   keeps the parent's semantic id; a receipt in `adoptions/` MUST record it.
 - The `<token>` after `@` in an override file name only keeps names unique;
@@ -168,10 +171,43 @@ status: draft
 is_closed: false
 ```
 
-The list's entries (concepts, broader edges) are **not** in the tree.
-**[not built]** They move into the tree as `concept-lists/<CL>/entries.yaml`
-when the database stops being their home; the layout then becomes a
-directory per list.
+`vocabulary` (optional) is the semantic id of the vocabulary the list draws
+its concepts from.
+
+### `concept-lists/<CL>/entries.yaml` — [schema](schema/concept-list-entries.schema.json)
+
+The list's member concepts, as concept URIs in the list's order. The URIs
+resolve in the list's vocabulary (`concepts.yaml`).
+
+```yaml
+- http://localhost:8000/0a1b2c3d-0000-0000-0000-000000000001
+- http://localhost:8000/0a1b2c3d-0000-0000-0000-000000000002
+```
+
+### `vocabularies/<V>/vocabulary.yaml` — [schema](schema/vocabulary.schema.json)
+
+```yaml
+semantic_id: SI.VOC.1
+system_name: arches
+ui_name: {en: Arches}
+description: {}
+base_uri: http://localhost:8000/
+status: active
+```
+
+### `vocabularies/<V>/concepts.yaml` — [schema](schema/vocabulary-concepts.schema.json)
+
+A list of the vocabulary's concepts, sorted by `uri`. Only `uri` is required.
+
+```yaml
+- uri: http://localhost:8000/0a1b2c3d-0000-0000-0000-000000000001
+  label: {en: Trowel}
+  scope_note: {}
+  broader: [http://localhost:8000/77c2…]   # absent or [] for none
+  top_concept: false                       # true = hasTopConcept of the scheme
+  external_id: 0a1b2c3d-0000-0000-0000-000000000001
+  exact_match: [http://vocab.getty.edu/aat/300024889]
+```
 
 ### `fields/<F>/field.yaml` — [schema](schema/field.schema.json)
 
