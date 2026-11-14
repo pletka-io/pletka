@@ -42,11 +42,16 @@ const (
 	KindOntology        = "ontology"
 	KindReleasesIndex   = "releases-index"
 	KindGrafts          = "grafts"
+
+	KindVocabulary         = "vocabulary"
+	KindVocabularyConcepts = "vocabulary-concepts"
+	KindConceptListEntries = "concept-list-entries"
 )
 
 var allKinds = []string{
 	KindProject, KindMod, KindCategory, KindConceptList, KindField, KindModel, KindCollection,
 	KindOverride, KindPlacement, KindReceiptsIndex, KindAdoptionReceipt, KindForkReceipt, KindOntology, KindReleasesIndex, KindGrafts,
+	KindVocabulary, KindVocabularyConcepts, KindConceptListEntries,
 }
 
 // Kinds by the whole path, by the first directory (two segments), and by
@@ -67,11 +72,14 @@ var (
 		"concept-lists": KindConceptList,
 	}
 	entityFileKinds = map[string]string{
-		"fields/field.yaml":           KindField,
-		"fields/base-override.yaml":   KindOverride,
-		"models/model.yaml":           KindModel,
-		"models/grafts.yaml":          KindGrafts,
-		"collections/collection.yaml": KindCollection,
+		"fields/field.yaml":            KindField,
+		"fields/base-override.yaml":    KindOverride,
+		"models/model.yaml":            KindModel,
+		"models/grafts.yaml":           KindGrafts,
+		"collections/collection.yaml":  KindCollection,
+		"vocabularies/vocabulary.yaml": KindVocabulary,
+		"vocabularies/concepts.yaml":   KindVocabularyConcepts,
+		"concept-lists/entries.yaml":   KindConceptListEntries,
 	}
 )
 

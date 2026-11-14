@@ -25,6 +25,9 @@
     },
     "is_closed": {
       "type": "boolean"
+    },
+    "vocabulary": {
+      "$ref": "common.schema.json#/$defs/semanticId"
     }
   }
 }

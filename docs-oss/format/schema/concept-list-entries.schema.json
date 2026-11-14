@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pletka.io/schema/format/2/concept-list-entries.schema.json",
+  "title": "concept-lists/<CL>/entries.yaml",
+  "type": "array",
+  "items": {"type": "string"}
+}
