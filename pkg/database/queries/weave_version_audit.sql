@@ -1,0 +1,222 @@
+-- Read-only checks behind `pletka weave audit-versioning`. Every query returns
+-- the same four columns: the rule it checks
+-- (docs-oss/architecture/versioning-and-inheritance.md), the project the
+-- finding belongs to, what it is about, and a sentence for the reader.
+
+-- name: WeaveVersionAuditLinks :many
+-- Parent links looked at one by one, and cycles over the live links.
+WITH RECURSIVE edges AS (
+    SELECT wpi.project_id, wpi.parent_project_id FROM weave_project_inheritance wpi
+    UNION
+    SELECT wp.id, wp.parent_project_id FROM weave_projects wp
+    WHERE COALESCE(wp.parent_project_id, '') <> ''
+),
+walk AS (
+    SELECT e.project_id AS root, e.parent_project_id AS member,
+           ARRAY[e.project_id, e.parent_project_id] AS path, false AS closed
+    FROM edges e
+    UNION ALL
+    SELECT w.root, e.parent_project_id, w.path || e.parent_project_id,
+           e.parent_project_id = ANY(w.path)
+    FROM walk w
+    JOIN edges e ON e.project_id = w.member
+    WHERE NOT w.closed AND cardinality(w.path) < 50
+)
+SELECT 'L8'::text AS rule, wp.id::text AS project_id, wp.parent_project_id::text AS subject,
+       'legacy parent column without a link row'::text AS detail
+FROM weave_projects wp
+WHERE COALESCE(wp.parent_project_id, '') <> ''
+  AND NOT EXISTS (SELECT 1 FROM weave_project_inheritance wpi WHERE wpi.project_id = wp.id)
+UNION ALL
+SELECT 'L7'::text, wp.id::text, wpi.parent_project_id::text,
+       ('legacy parent column says ' || COALESCE(NULLIF(wp.parent_project_id, ''), 'nothing') || ', the primary link says ' || wpi.parent_project_id)::text
+FROM weave_projects wp
+JOIN weave_project_inheritance wpi ON wpi.project_id = wp.id AND wpi.is_primary
+WHERE COALESCE(wp.parent_project_id, '') <> wpi.parent_project_id
+UNION ALL
+SELECT 'L1'::text, wpi.project_id::text, (wpi.parent_project_id || '@' || wpi.source_version)::text,
+       'pinned to a release that does not exist'::text
+FROM weave_project_inheritance wpi
+WHERE wpi.source_mode = 'release'
+  AND NOT EXISTS (SELECT 1 FROM weave_releases r
+                  WHERE r.project_id = wpi.parent_project_id AND r.version = wpi.source_version)
+UNION ALL
+SELECT 'L3'::text, wpi.project_id::text, (wpi.parent_project_id || '@' || wpi.source_version)::text,
+       'pinned to a withdrawn release (allowed; listed so the count is known)'::text
+FROM weave_project_inheritance wpi
+JOIN weave_releases r ON r.project_id = wpi.parent_project_id AND r.version = wpi.source_version
+WHERE wpi.source_mode = 'release' AND r.archived_at IS NOT NULL
+UNION ALL
+SELECT 'L4'::text, w.root::text, array_to_string(w.path, ' > ')::text,
+       'cycle over parent links'::text
+FROM walk w
+WHERE w.closed AND w.member = w.root
+ORDER BY 1, 2, 3;
+
+-- name: WeaveVersionAuditClosures :many
+-- Everything that needs the closure: for each project's draft and for each
+-- release, the projects reached through parent links and the selector each is
+-- reached at ('' is the draft). A pinned member's own links are the ones its
+-- pinned release recorded.
+WITH RECURSIVE links AS (
+    SELECT wpi.project_id, ''::text AS at_version, wpi.parent_project_id,
+           COALESCE(wpi.source_version, '')::text AS selector
+    FROM weave_project_inheritance wpi
+    UNION ALL
+    SELECT wpia.project_id, wpia.version_number, wpia.parent_project_id,
+           COALESCE(wpia.source_version, '')::text
+    FROM weave_project_inheritance_archive wpia
+    WHERE wpia.version_number <> ''
+),
+roots AS (
+    SELECT DISTINCT wpi.project_id AS root, ''::text AS root_version FROM weave_project_inheritance wpi
+    UNION ALL
+    SELECT r.project_id, r.version FROM weave_releases r
+),
+walk AS (
+    SELECT ro.root, ro.root_version, l.parent_project_id AS member, l.selector,
+           ARRAY[ro.root, l.parent_project_id] AS path
+    FROM roots ro
+    JOIN links l ON l.project_id = ro.root AND l.at_version = ro.root_version
+    UNION ALL
+    SELECT w.root, w.root_version, l.parent_project_id, l.selector, w.path || l.parent_project_id
+    FROM walk w
+    JOIN links l ON l.project_id = w.member AND l.at_version = w.selector
+    WHERE cardinality(w.path) < 50 AND NOT (l.parent_project_id = ANY(w.path))
+),
+sel AS (
+    SELECT w.root, w.root_version, w.member, MIN(w.selector) AS selector,
+           COUNT(DISTINCT w.selector) AS selectors,
+           string_agg(DISTINCT CASE WHEN w.selector = '' THEN 'draft' ELSE w.selector END, ', ') AS listed
+    FROM walk w
+    GROUP BY w.root, w.root_version, w.member
+),
+ontology_links AS (
+    -- the root's own links: live for a draft, as recorded for a release
+    SELECT ro.root, ro.root_version, ro.root AS via, wov.ontology_id, wpov.ontology_version_id
+    FROM roots ro
+    JOIN weave_project_ontology_versions wpov ON wpov.project_id = ro.root AND ro.root_version = ''
+    JOIN weave_ontology_versions wov ON wov.id = wpov.ontology_version_id
+    UNION ALL
+    SELECT ro.root, ro.root_version, ro.root, wov.ontology_id, wpova.ontology_version_id
+    FROM roots ro
+    JOIN weave_project_ontology_versions_archive wpova
+      ON wpova.project_id = ro.root AND wpova.version_number = ro.root_version AND ro.root_version <> ''
+    JOIN weave_ontology_versions wov ON wov.id = wpova.ontology_version_id
+    UNION ALL
+    -- members that follow a draft
+    SELECT s.root, s.root_version, s.member, wov.ontology_id, wpov.ontology_version_id
+    FROM sel s
+    JOIN weave_project_ontology_versions wpov ON wpov.project_id = s.member AND s.selector = ''
+    JOIN weave_ontology_versions wov ON wov.id = wpov.ontology_version_id
+    UNION ALL
+    -- pinned members, as their release recorded them
+    SELECT s.root, s.root_version, s.member, wov.ontology_id, wpova.ontology_version_id
+    FROM sel s
+    JOIN weave_project_ontology_versions_archive wpova
+      ON wpova.project_id = s.member AND wpova.version_number = s.selector AND s.selector <> ''
+    JOIN weave_ontology_versions wov ON wov.id = wpova.ontology_version_id
+)
+SELECT 'L5'::text AS rule, s.root::text AS project_id,
+       (s.member || CASE WHEN s.root_version = '' THEN '' ELSE ' in release ' || s.root_version END)::text AS subject,
+       ('reached at more than one selector: ' || s.listed)::text AS detail
+FROM sel s
+WHERE s.selectors > 1
+UNION ALL
+(SELECT DISTINCT ON (w.root, w.root_version) 'L4'::text, w.root::text,
+        array_to_string(w.path, ' > ')::text,
+        ('chain of ' || (cardinality(w.path) - 1) || ' levels, the limit is 10')::text
+ FROM walk w
+ WHERE cardinality(w.path) > 11
+ ORDER BY w.root, w.root_version, cardinality(w.path) DESC)
+UNION ALL
+SELECT DISTINCT 'R5'::text, w.root::text, (w.root_version || ': ' || array_to_string(w.path, ' > '))::text,
+       'release whose closure follows a draft (chain-unpinned)'::text
+FROM walk w
+WHERE w.root_version <> '' AND w.selector = ''
+UNION ALL
+SELECT 'A4'::text, wa.project_id::text, (wa.entity_type || ' ' || wa.source_entity_id)::text,
+       ('adopted from ' || wa.source_project_id || ', which is not in the closure')::text
+FROM weave_adoptions wa
+LEFT JOIN sel s ON s.root = wa.project_id AND s.root_version = '' AND s.member = wa.source_project_id
+WHERE s.member IS NULL AND wa.source_project_id <> wa.project_id
+UNION ALL
+SELECT 'A2'::text, wa.project_id::text, (wa.entity_type || ' ' || wa.source_entity_id)::text,
+       ('receipt says ' || CASE WHEN wa.source_version = '' THEN 'draft' ELSE wa.source_version END
+        || ', the closure selects ' || wa.source_project_id || ' at '
+        || CASE WHEN s.selector = '' THEN 'draft' ELSE s.selector END)::text
+FROM weave_adoptions wa
+JOIN sel s ON s.root = wa.project_id AND s.root_version = '' AND s.member = wa.source_project_id
+WHERE s.selectors = 1 AND wa.source_version <> s.selector
+UNION ALL
+SELECT 'A2'::text, waa.project_id::text,
+       (waa.entity_type || ' ' || waa.source_entity_id || ' in release ' || waa.version_number)::text,
+       ('receipt says ' || CASE WHEN waa.source_version = '' THEN 'draft' ELSE waa.source_version END
+        || ', the closure selects ' || waa.source_project_id || ' at '
+        || CASE WHEN s.selector = '' THEN 'draft' ELSE s.selector END || ' (receipt-off-selector)')::text
+FROM weave_adoptions_archive waa
+JOIN sel s ON s.root = waa.project_id AND s.root_version = waa.version_number AND s.member = waa.source_project_id
+WHERE s.selectors = 1 AND waa.source_version <> s.selector
+UNION ALL
+SELECT 'O2'::text, ol.root::text,
+       (ol.ontology_id || CASE WHEN ol.root_version = '' THEN '' ELSE ' in release ' || ol.root_version END)::text,
+       ('more than one version in the closure and no own link decides: '
+        || string_agg(DISTINCT ol.ontology_version_id || ' via ' || ol.via, ', '))::text
+FROM ontology_links ol
+GROUP BY ol.root, ol.root_version, ol.ontology_id
+HAVING COUNT(DISTINCT ol.ontology_version_id) > 1
+   AND NOT bool_or(ol.via = ol.root)
+ORDER BY 1, 2, 3;
+
+-- name: WeaveVersionAuditSharedClosureRows :many
+-- Closure rows are keyed by version only, so two releases with the same
+-- version string that both reach a project share its rows. Lists each project
+-- and version whose rows more than one release wrote.
+WITH RECURSIVE snap AS (
+    SELECT r.project_id AS root, r.version, r.project_id AS member, ARRAY[r.project_id] AS path
+    FROM weave_releases r
+    UNION ALL
+    SELECT s.root, s.version, wpia.parent_project_id, s.path || wpia.parent_project_id
+    FROM snap s
+    JOIN weave_project_inheritance_archive wpia
+      ON wpia.project_id = s.member AND wpia.version_number = s.version
+    WHERE cardinality(s.path) < 50 AND NOT (wpia.parent_project_id = ANY(s.path))
+)
+SELECT 'R3'::text AS rule, s.member::text AS project_id, s.version::text AS subject,
+       ('closure rows under this version were written by ' || COUNT(DISTINCT s.root)
+        || ' releases: ' || string_agg(DISTINCT s.root, ', ') || ' (closure-ambiguous)')::text AS detail
+FROM snap s
+GROUP BY s.member, s.version
+HAVING COUNT(DISTINCT s.root) > 1
+ORDER BY 1, 2, 3;
+
+-- name: WeaveVersionAuditContent :many
+-- Checks that need no closure: who shows nothing to the public, receipts held
+-- twice, and categories copied when a parent was linked.
+SELECT 'S1'::text AS rule, wp.id::text AS project_id, ''::text AS subject,
+       'public project without a release that is not withdrawn'::text AS detail
+FROM weave_projects wp
+WHERE wp.visibility = 'public'
+  AND NOT EXISTS (SELECT 1 FROM weave_releases r WHERE r.project_id = wp.id AND r.archived_at IS NULL)
+UNION ALL
+SELECT 'A2'::text, wa.project_id::text, (wa.entity_type || ' ' || wa.source_entity_id)::text,
+       ('adopted ' || COUNT(DISTINCT wa.source_version) || ' times at different versions in '
+        || wa.context_entity_type || ' ' || wa.context_entity_id)::text
+FROM weave_adoptions wa
+GROUP BY wa.project_id, wa.context_entity_type, wa.context_entity_id, wa.entity_type,
+         wa.source_project_id, wa.source_entity_id
+HAVING COUNT(DISTINCT wa.source_version) > 1
+UNION ALL
+SELECT 'A8'::text, wa.project_id::text, COALESCE(copy.id, wa.source_entity_id)::text,
+       (CASE
+            WHEN src.id IS NULL THEN 'category receipt whose source is gone: '
+            WHEN copy.id IS NULL THEN 'category receipt without a copy: '
+            WHEN copy.ui_name IS NOT DISTINCT FROM src.ui_name
+             AND copy.description IS NOT DISTINCT FROM src.description THEN 'unchanged copy of '
+            ELSE 'changed copy of '
+        END || wa.source_entity_id)::text
+FROM weave_adoptions wa
+LEFT JOIN weave_categories src ON src.id = wa.source_entity_id AND src.project_id = wa.source_project_id
+LEFT JOIN weave_categories copy ON copy.project_id = wa.project_id AND copy.system_name = src.system_name
+WHERE wa.entity_type = 'category'
+ORDER BY 1, 2, 3;
