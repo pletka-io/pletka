@@ -55,11 +55,13 @@ func (q *Queries) WeaveConceptListEntryExists(ctx context.Context, arg WeaveConc
 
 const weaveDeleteConceptBroaderByVocabulary = `-- name: WeaveDeleteConceptBroaderByVocabulary :exec
 DELETE FROM weave_concept_broader
-WHERE concept_id IN (
+WHERE scheme_id IS NULL
+  AND concept_id IN (
     SELECT id FROM weave_vocabulary_entries WHERE vocabulary_id = $1::text
 )
 `
 
+// Vocabulary-level edges only; list-scoped edges (scheme_id set) are not in the tree.
 func (q *Queries) WeaveDeleteConceptBroaderByVocabulary(ctx context.Context, vocabularyID string) error {
 	_, err := q.db.Exec(ctx, weaveDeleteConceptBroaderByVocabulary, vocabularyID)
 	return err
@@ -112,6 +114,7 @@ FROM weave_concept_broader cb
 JOIN weave_vocabulary_entries c ON c.id = cb.concept_id
 JOIN weave_vocabulary_entries b ON b.id = cb.broader_id
 WHERE c.vocabulary_id = $1::text
+  AND cb.scheme_id IS NULL
 ORDER BY c.uri, cb.position, b.uri
 `
 

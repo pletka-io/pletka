@@ -38,8 +38,10 @@ SELECT EXISTS(
 ) AS present;
 
 -- name: WeaveDeleteConceptBroaderByVocabulary :exec
+-- Vocabulary-level edges only; list-scoped edges (scheme_id set) are not in the tree.
 DELETE FROM weave_concept_broader
-WHERE concept_id IN (
+WHERE scheme_id IS NULL
+  AND concept_id IN (
     SELECT id FROM weave_vocabulary_entries WHERE vocabulary_id = @vocabulary_id::text
 );
 
@@ -49,4 +51,5 @@ FROM weave_concept_broader cb
 JOIN weave_vocabulary_entries c ON c.id = cb.concept_id
 JOIN weave_vocabulary_entries b ON b.id = cb.broader_id
 WHERE c.vocabulary_id = @vocabulary_id::text
+  AND cb.scheme_id IS NULL
 ORDER BY c.uri, cb.position, b.uri;

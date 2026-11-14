@@ -5,6 +5,9 @@ package gitmaterializer
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -297,4 +300,181 @@ func TestHydrateProjectSnapshot_VocabularyErrors(t *testing.T) {
 			t.Fatalf("want error naming vocabulary, concept and list, got %v", err)
 		}
 	})
+}
+
+// TestHydrateProjectSnapshot_VocabularyExactMatch pins that exact_match is
+// kept in the entry config beside top_concept, each key only when set.
+func TestHydrateProjectSnapshot_VocabularyExactMatch(t *testing.T) {
+	pool := hydrateTestPool(t)
+	ctx := context.Background()
+	q := sqlcgen.New(pool)
+	vocabularyTestProject(t, pool, "TVX")
+	root := vocabularyFixture(t, "TVX")
+	mustWrite(t, root, "vocabularies/TVX.VOC.1/concepts.yaml", []byte(`- uri: http://x/1
+  label: {en: One}
+  top_concept: true
+  exact_match: [http://vocab.getty.edu/aat/1, http://vocab.getty.edu/aat/2]
+- uri: http://x/2
+  label: {en: Two}
+  broader: [http://x/1]
+  exact_match: [http://vocab.getty.edu/aat/3]
+- uri: http://x/3
+  label: {en: Three}
+  broader: [http://x/1, http://x/2]
+`))
+	if _, err := NewMaterializer(pool, t.TempDir(), nil).HydrateProjectSnapshot(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	vocabs, _ := q.WeaveListProjectTreeVocabularies(ctx, "TVX")
+	if len(vocabs) != 1 {
+		t.Fatalf("vocabularies %+v", vocabs)
+	}
+	entries, _ := q.WeaveListVocabularyEntriesForTree(ctx, vocabs[0].ID)
+	want := map[string]map[string]any{
+		"http://x/1": {"top_concept": true, "exact_match": []any{"http://vocab.getty.edu/aat/1", "http://vocab.getty.edu/aat/2"}},
+		"http://x/2": {"exact_match": []any{"http://vocab.getty.edu/aat/3"}},
+		"http://x/3": nil,
+	}
+	for _, e := range entries {
+		var got map[string]any
+		if len(e.Config) > 0 {
+			if err := json.Unmarshal(e.Config, &got); err != nil {
+				t.Fatalf("%s config %s: %v", e.Uri, e.Config, err)
+			}
+		}
+		if !reflect.DeepEqual(got, want[e.Uri]) {
+			t.Fatalf("%s config %s, want %v", e.Uri, e.Config, want[e.Uri])
+		}
+	}
+}
+
+// TestHydrateProjectSnapshot_VocabularyKeepsSchemeEdges pins that a load
+// replaces only vocabulary-level broader edges: an edge scoped to a list
+// (scheme_id set, made in the UI) survives and is not listed for the tree.
+func TestHydrateProjectSnapshot_VocabularyKeepsSchemeEdges(t *testing.T) {
+	pool := hydrateTestPool(t)
+	ctx := context.Background()
+	q := sqlcgen.New(pool)
+	vocabularyTestProject(t, pool, "TVS")
+	root := vocabularyFixture(t, "TVS")
+	m := NewMaterializer(pool, t.TempDir(), nil)
+	if _, err := m.HydrateProjectSnapshot(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	vocabs, _ := q.WeaveListProjectTreeVocabularies(ctx, "TVS")
+	if len(vocabs) != 1 {
+		t.Fatalf("vocabularies %+v", vocabs)
+	}
+	entry := func(uri string) string {
+		e, err := q.WeaveGetVocabularyEntryByVocabularyURI(ctx, sqlcgen.WeaveGetVocabularyEntryByVocabularyURIParams{VocabularyID: vocabs[0].ID, Uri: uri})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e.ID
+	}
+	scheme := "TVS.CL.1"
+	if err := q.WeaveAddConceptBroader(ctx, sqlcgen.WeaveAddConceptBroaderParams{ID: "TVS-scoped-edge", ConceptID: entry("http://x/2"), BroaderID: entry("http://x/3"), SchemeID: &scheme}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.HydrateProjectSnapshot(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM weave_concept_broader WHERE id = 'TVS-scoped-edge'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("scoped edge after load: count %d (%v)", n, err)
+	}
+	edges, _ := q.WeaveListConceptBroaderByVocabulary(ctx, vocabs[0].ID)
+	for _, e := range edges {
+		if e.ConceptUri == "http://x/2" && e.BroaderUri == "http://x/3" {
+			t.Fatalf("scoped edge listed as vocabulary-level: %+v", edges)
+		}
+	}
+	if len(edges) != 3 {
+		t.Fatalf("edges %+v, want the three from the file", edges)
+	}
+}
+
+// TestHydrateProjectSnapshot_VocabularyIdempotent pins that loading the same
+// tree twice leaves entries, edges and list membership as they were.
+func TestHydrateProjectSnapshot_VocabularyIdempotent(t *testing.T) {
+	pool := hydrateTestPool(t)
+	ctx := context.Background()
+	q := sqlcgen.New(pool)
+	vocabularyTestProject(t, pool, "TVI")
+	root := vocabularyFixture(t, "TVI")
+	m := NewMaterializer(pool, t.TempDir(), nil)
+	type state struct {
+		entryIDs map[string]string
+		edges    []sqlcgen.WeaveListConceptBroaderByVocabularyRow
+		members  []string
+	}
+	read := func() state {
+		vocabs, _ := q.WeaveListProjectTreeVocabularies(ctx, "TVI")
+		if len(vocabs) != 1 {
+			t.Fatalf("vocabularies %+v", vocabs)
+		}
+		st := state{entryIDs: map[string]string{}}
+		entries, _ := q.WeaveListVocabularyEntriesForTree(ctx, vocabs[0].ID)
+		for _, e := range entries {
+			st.entryIDs[e.Uri] = e.ID
+		}
+		st.edges, _ = q.WeaveListConceptBroaderByVocabulary(ctx, vocabs[0].ID)
+		rows, err := pool.Query(ctx, `SELECT e.uri || '@' || le.position FROM weave_concept_list_entries le JOIN weave_vocabulary_entries e ON e.id = le.vocabulary_entry_id WHERE le.concept_list_id = 'TVI.CL.1' ORDER BY le.position`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var s string
+			_ = rows.Scan(&s)
+			st.members = append(st.members, s)
+		}
+		return st
+	}
+	if _, err := m.HydrateProjectSnapshot(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	first := read()
+	if _, err := m.HydrateProjectSnapshot(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	second := read()
+	if !reflect.DeepEqual(first.entryIDs, second.entryIDs) || len(first.entryIDs) != 3 {
+		t.Fatalf("entry ids changed: %v -> %v", first.entryIDs, second.entryIDs)
+	}
+	if !slices.Equal(first.edges, second.edges) || len(first.edges) != 3 {
+		t.Fatalf("edges changed: %+v -> %+v", first.edges, second.edges)
+	}
+	if !slices.Equal(first.members, second.members) || !slices.Equal(first.members, []string{"http://x/3@0", "http://x/2@1"}) {
+		t.Fatalf("list entries changed: %v -> %v", first.members, second.members)
+	}
+}
+
+// TestHydrateProjectSnapshot_VocabularyWithoutConcepts pins that a
+// vocabulary without concepts.yaml loads as zero concepts.
+func TestHydrateProjectSnapshot_VocabularyWithoutConcepts(t *testing.T) {
+	pool := hydrateTestPool(t)
+	ctx := context.Background()
+	q := sqlcgen.New(pool)
+	vocabularyTestProject(t, pool, "TVN")
+	root := vocabularyFixture(t, "TVN")
+	m := NewMaterializer(pool, t.TempDir(), nil)
+	if _, err := m.HydrateProjectSnapshot(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"vocabularies/TVN.VOC.1/concepts.yaml", "concept-lists/TVN.CL.1/entries.yaml"} {
+		if err := os.Remove(filepath.Join(root, rel)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := m.HydrateProjectSnapshot(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	vocabs, _ := q.WeaveListProjectTreeVocabularies(ctx, "TVN")
+	if len(vocabs) != 1 {
+		t.Fatalf("vocabularies %+v", vocabs)
+	}
+	if entries, _ := q.WeaveListVocabularyEntriesForTree(ctx, vocabs[0].ID); len(entries) != 0 {
+		t.Fatalf("entries %d, want 0", len(entries))
+	}
 }

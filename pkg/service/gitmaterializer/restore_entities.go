@@ -210,6 +210,7 @@ type canonicalConceptDoc struct {
 	Broader    []string            `json:"broader"`
 	TopConcept bool                `json:"top_concept"`
 	ExternalID string              `json:"external_id"`
+	ExactMatch []string            `json:"exact_match"`
 }
 
 // treeConceptList is a concept list loaded from the tree: its row id and,
@@ -251,6 +252,8 @@ func hydrateVocabularySlice(ctx context.Context, q *sqlcgen.Queries, projectID s
 		}
 		lists[item.EntityID] = list
 	}
+	// Clearing drops entry custom_label on vocabulary-bound lists: it is not
+	// in the tree, and entries.yaml is their whole membership.
 	for _, item := range entities.ConceptLists {
 		list := lists[item.EntityID]
 		if list.vocabularyID == "" {
@@ -260,12 +263,21 @@ func hydrateVocabularySlice(ctx context.Context, q *sqlcgen.Queries, projectID s
 			return fmt.Errorf("hydrate concept list %s: clear entries: %w", item.Path, err)
 		}
 	}
+	conceptFiles := map[string]SnapshotEntityFile{}
 	for _, item := range entities.VocabularyConcepts {
-		vocabularyID, ok := vocabularies[item.OwnerID]
-		if !ok {
+		if _, ok := vocabularies[item.OwnerID]; !ok {
 			return fmt.Errorf("hydrate concepts %s: vocabulary %s has no vocabulary.yaml", item.Path, item.OwnerID)
 		}
-		if err := hydrateVocabularyConceptsFile(ctx, q, item, vocabularyID); err != nil {
+		conceptFiles[item.OwnerID] = item
+	}
+	// A vocabulary without concepts.yaml has no concepts: the tree is the
+	// whole vocabulary.
+	for _, item := range entities.Vocabularies {
+		file, ok := conceptFiles[item.EntityID]
+		if !ok {
+			file = SnapshotEntityFile{Path: domain.VocabularyConceptsPath(item.EntityID), OwnerID: item.EntityID, Payload: []byte("[]\n")}
+		}
+		if err := hydrateVocabularyConceptsFile(ctx, q, file, vocabularies[item.EntityID]); err != nil {
 			return err
 		}
 	}
@@ -419,9 +431,9 @@ func hydrateVocabularyConceptsFile(ctx context.Context, q *sqlcgen.Queries, item
 		if len(c.Broader) > 0 {
 			broaderURI = c.Broader[0]
 		}
-		var config []byte
-		if c.TopConcept {
-			config = []byte(`{"top_concept": true}`)
+		config, err := conceptConfig(c)
+		if err != nil {
+			return fmt.Errorf("hydrate concepts %s: config of %s: %w", item.Path, c.URI, err)
 		}
 		row, err := q.WeaveUpsertTreeVocabularyEntry(ctx, sqlcgen.WeaveUpsertTreeVocabularyEntryParams{
 			ID:           ids.GenerateULID(),
@@ -470,6 +482,23 @@ func hydrateVocabularyConceptsFile(ctx context.Context, q *sqlcgen.Queries, item
 		}
 	}
 	return nil
+}
+
+// conceptConfig is the entry config holding what concepts.yaml carries
+// beyond the entry columns: top_concept and exact_match, each only when set;
+// nil (NULL) when neither is.
+func conceptConfig(c canonicalConceptDoc) ([]byte, error) {
+	config := map[string]any{}
+	if c.TopConcept {
+		config["top_concept"] = true
+	}
+	if len(c.ExactMatch) > 0 {
+		config["exact_match"] = c.ExactMatch
+	}
+	if len(config) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(config)
 }
 
 // hydrateConceptListEntriesFile recreates a list's entries in file order,
