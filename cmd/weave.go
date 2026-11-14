@@ -18,6 +18,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/app"
 	"github.com/pletka-io/pletka/pkg/app/cliruntime"
 	"github.com/pletka-io/pletka/pkg/auth"
+	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 )
 
@@ -266,16 +267,12 @@ func runWeaveGenerateAll(
 	} else if isSnapshotASCIIFormat(weaveGenerateOpts.format) {
 		ext = ".txt"
 	}
-	for _, m := range models {
+	filenames := modelFilenames(models, ext)
+	for i, m := range models {
 		if m == nil || m.ID == "" {
 			continue
 		}
-		base := strings.TrimSpace(m.SystemName)
-		if base == "" {
-			base = m.ID
-		}
-		filename := safeFilename(base) + ext
-		path := filepath.Join(weaveGenerateOpts.outDir, filename)
+		path := filepath.Join(weaveGenerateOpts.outDir, filenames[i])
 		f, err := os.Create(path)
 		if err != nil {
 			return fmt.Errorf("create %s: %w", path, err)
@@ -327,6 +324,41 @@ func safeFilename(s string) string {
 	}
 	out := safeFilenameRegex.ReplaceAllString(s, "_")
 	return strings.Trim(out, "_")
+}
+
+// modelFilenames names one file per model: its system name, or its id
+// when it has none. Models whose names collide each get their semantic id
+// (else id) appended, so no export overwrites another.
+func modelFilenames(models []*domain.Model, ext string) []string {
+	base := make([]string, len(models))
+	count := map[string]int{}
+	for i, m := range models {
+		if m == nil {
+			continue
+		}
+		b := strings.TrimSpace(m.SystemName)
+		if b == "" {
+			b = m.ID
+		}
+		base[i] = safeFilename(b)
+		count[strings.ToLower(base[i])]++
+	}
+	out := make([]string, len(models))
+	for i, m := range models {
+		if m == nil {
+			continue
+		}
+		name := base[i]
+		if count[strings.ToLower(name)] > 1 {
+			id := m.SemanticID
+			if id == "" {
+				id = m.ID
+			}
+			name += "_" + safeFilename(id)
+		}
+		out[i] = name + ext
+	}
+	return out
 }
 
 // isSnapshotFormat reports whether the requested format is a request to
