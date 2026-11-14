@@ -64,6 +64,26 @@ func (q *Queries) WeaveAddProjectServiceVocabulary(ctx context.Context, arg Weav
 	return id, err
 }
 
+const weaveClaimVocabularySemanticID = `-- name: WeaveClaimVocabularySemanticID :execrows
+UPDATE weave_vocabularies
+SET semantic_id = $1::text, updated_at = NOW()
+WHERE id = $2::text AND semantic_id IS NULL
+`
+
+type WeaveClaimVocabularySemanticIDParams struct {
+	SemanticID string `json:"semantic_id"`
+	ID         string `json:"id"`
+}
+
+// A tree load takes over a same-name vocabulary that has no semantic id yet.
+func (q *Queries) WeaveClaimVocabularySemanticID(ctx context.Context, arg WeaveClaimVocabularySemanticIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, weaveClaimVocabularySemanticID, arg.SemanticID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const weaveConceptListDecoration = `-- name: WeaveConceptListDecoration :many
 SELECT
     cl.id,
@@ -745,6 +765,46 @@ func (q *Queries) WeaveGetProjectConceptListArchive(ctx context.Context, arg Wea
 		&i.VersionNumber,
 		&i.IsClosed,
 	)
+	return i, err
+}
+
+const weaveGetProjectVocabularyBySemanticID = `-- name: WeaveGetProjectVocabularyBySemanticID :one
+SELECT id FROM weave_vocabularies
+WHERE project_id = $1::text AND semantic_id = $2::text
+`
+
+type WeaveGetProjectVocabularyBySemanticIDParams struct {
+	ProjectID  string `json:"project_id"`
+	SemanticID string `json:"semantic_id"`
+}
+
+func (q *Queries) WeaveGetProjectVocabularyBySemanticID(ctx context.Context, arg WeaveGetProjectVocabularyBySemanticIDParams) (string, error) {
+	row := q.db.QueryRow(ctx, weaveGetProjectVocabularyBySemanticID, arg.ProjectID, arg.SemanticID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
+const weaveGetProjectVocabularyBySystemName = `-- name: WeaveGetProjectVocabularyBySystemName :one
+SELECT id, semantic_id FROM weave_vocabularies
+WHERE project_id = $1::text AND system_name = $2::text
+`
+
+type WeaveGetProjectVocabularyBySystemNameParams struct {
+	ProjectID  string `json:"project_id"`
+	SystemName string `json:"system_name"`
+}
+
+type WeaveGetProjectVocabularyBySystemNameRow struct {
+	ID         string  `json:"id"`
+	SemanticID *string `json:"semantic_id"`
+}
+
+// The project's vocabulary holding a system_name (unique per project, migration 014).
+func (q *Queries) WeaveGetProjectVocabularyBySystemName(ctx context.Context, arg WeaveGetProjectVocabularyBySystemNameParams) (WeaveGetProjectVocabularyBySystemNameRow, error) {
+	row := q.db.QueryRow(ctx, weaveGetProjectVocabularyBySystemName, arg.ProjectID, arg.SystemName)
+	var i WeaveGetProjectVocabularyBySystemNameRow
+	err := row.Scan(&i.ID, &i.SemanticID)
 	return i, err
 }
 
@@ -1496,6 +1556,50 @@ func (q *Queries) WeaveListVocabularyEntriesForTree(ctx context.Context, vocabul
 	return items, nil
 }
 
+const weaveListVocabularyEntryRefsNotIn = `-- name: WeaveListVocabularyEntryRefsNotIn :many
+SELECT e.uri, COALESCE(l.semantic_id, l.id)::text AS concept_list
+FROM weave_vocabulary_entries e
+JOIN weave_concept_lists l
+  ON l.list_type = e.id
+  OR l.id IN (SELECT le.concept_list_id FROM weave_concept_list_entries le WHERE le.vocabulary_entry_id = e.id)
+WHERE e.vocabulary_id = $1::text
+  AND NOT (e.uri = ANY(COALESCE($2::text[], '{}')))
+ORDER BY e.uri, concept_list
+`
+
+type WeaveListVocabularyEntryRefsNotInParams struct {
+	VocabularyID string   `json:"vocabulary_id"`
+	Uris         []string `json:"uris"`
+}
+
+type WeaveListVocabularyEntryRefsNotInRow struct {
+	Uri         string `json:"uri"`
+	ConceptList string `json:"concept_list"`
+}
+
+// Entries of a vocabulary outside uris that a concept list still uses, as an
+// entry or as its list_type; the prune in WeaveDeleteVocabularyEntriesNotIn
+// would hit their foreign keys.
+func (q *Queries) WeaveListVocabularyEntryRefsNotIn(ctx context.Context, arg WeaveListVocabularyEntryRefsNotInParams) ([]WeaveListVocabularyEntryRefsNotInRow, error) {
+	rows, err := q.db.Query(ctx, weaveListVocabularyEntryRefsNotIn, arg.VocabularyID, arg.Uris)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveListVocabularyEntryRefsNotInRow{}
+	for rows.Next() {
+		var i WeaveListVocabularyEntryRefsNotInRow
+		if err := rows.Scan(&i.Uri, &i.ConceptList); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveListVocabularySettingsOptions = `-- name: WeaveListVocabularySettingsOptions :many
 SELECT
     v.id,
@@ -1799,7 +1903,7 @@ func (q *Queries) WeaveSetConceptListEntryPositionInList(ctx context.Context, ar
 	return err
 }
 
-const weaveSetConceptListVocabulary = `-- name: WeaveSetConceptListVocabulary :exec
+const weaveSetConceptListVocabulary = `-- name: WeaveSetConceptListVocabulary :execrows
 UPDATE weave_concept_lists
 SET vocabulary_id = $1::text, updated_at = NOW()
 WHERE project_id = $2::text AND semantic_id = $3::text
@@ -1811,9 +1915,12 @@ type WeaveSetConceptListVocabularyParams struct {
 	SemanticID   string `json:"semantic_id"`
 }
 
-func (q *Queries) WeaveSetConceptListVocabulary(ctx context.Context, arg WeaveSetConceptListVocabularyParams) error {
-	_, err := q.db.Exec(ctx, weaveSetConceptListVocabulary, arg.VocabularyID, arg.ProjectID, arg.SemanticID)
-	return err
+func (q *Queries) WeaveSetConceptListVocabulary(ctx context.Context, arg WeaveSetConceptListVocabularyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, weaveSetConceptListVocabulary, arg.VocabularyID, arg.ProjectID, arg.SemanticID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const weaveUpdateConceptList = `-- name: WeaveUpdateConceptList :exec

@@ -513,7 +513,7 @@ WHERE project_id = @project_id::text
   AND semantic_id ~ '^[A-Z0-9]+\.VOC\.[0-9]+$'
 ORDER BY semantic_id;
 
--- name: WeaveSetConceptListVocabulary :exec
+-- name: WeaveSetConceptListVocabulary :execrows
 UPDATE weave_concept_lists
 SET vocabulary_id = @vocabulary_id::text, updated_at = NOW()
 WHERE project_id = @project_id::text AND semantic_id = @semantic_id::text;
@@ -554,3 +554,31 @@ FROM weave_concept_list_entries le
 JOIN weave_vocabulary_entries e ON e.id = le.vocabulary_entry_id
 WHERE le.concept_list_id = @concept_list_id::text
 ORDER BY le.position, le.id;
+
+-- name: WeaveGetProjectVocabularyBySystemName :one
+-- The project's vocabulary holding a system_name (unique per project, migration 014).
+SELECT id, semantic_id FROM weave_vocabularies
+WHERE project_id = @project_id::text AND system_name = @system_name::text;
+
+-- name: WeaveGetProjectVocabularyBySemanticID :one
+SELECT id FROM weave_vocabularies
+WHERE project_id = @project_id::text AND semantic_id = @semantic_id::text;
+
+-- name: WeaveClaimVocabularySemanticID :execrows
+-- A tree load takes over a same-name vocabulary that has no semantic id yet.
+UPDATE weave_vocabularies
+SET semantic_id = @semantic_id::text, updated_at = NOW()
+WHERE id = @id::text AND semantic_id IS NULL;
+
+-- name: WeaveListVocabularyEntryRefsNotIn :many
+-- Entries of a vocabulary outside uris that a concept list still uses, as an
+-- entry or as its list_type; the prune in WeaveDeleteVocabularyEntriesNotIn
+-- would hit their foreign keys.
+SELECT e.uri, COALESCE(l.semantic_id, l.id)::text AS concept_list
+FROM weave_vocabulary_entries e
+JOIN weave_concept_lists l
+  ON l.list_type = e.id
+  OR l.id IN (SELECT le.concept_list_id FROM weave_concept_list_entries le WHERE le.vocabulary_entry_id = e.id)
+WHERE e.vocabulary_id = @vocabulary_id::text
+  AND NOT (e.uri = ANY(COALESCE(@uris::text[], '{}')))
+ORDER BY e.uri, concept_list;

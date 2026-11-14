@@ -206,6 +206,7 @@ func bumpEntityCounters(ctx context.Context, q *sqlcgen.Queries, projectID strin
 		{entityTypeCollection, entities.Collections},
 		{entityTypeCategory, entities.Categories},
 		{entityTypeConceptList, entities.ConceptLists},
+		{entityTypeVocabulary, entities.Vocabularies},
 	}
 	for _, k := range kinds {
 		var maxN int64

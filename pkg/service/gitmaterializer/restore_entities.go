@@ -12,6 +12,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/ids"
 	nsutil "github.com/pletka-io/pletka/pkg/namespace"
 )
 
@@ -101,10 +102,8 @@ func (m *Materializer) HydrateProjectEntities(ctx context.Context, plan *Restore
 			return err
 		}
 	}
-	for _, item := range plan.Snapshot.Entities.ConceptLists {
-		if err := hydrateConceptListFile(ctx, q, projectID, item); err != nil {
-			return err
-		}
+	if err := hydrateVocabularySlice(ctx, q, projectID, plan.Snapshot.Entities); err != nil {
+		return err
 	}
 	for _, item := range plan.Snapshot.Entities.Fields {
 		if err := hydrateFieldFile(ctx, q, projectID, item, expand); err != nil {
@@ -192,24 +191,161 @@ type canonicalConceptListDoc struct {
 	Description map[string]string `json:"description"`
 	Status      string            `json:"status"`
 	IsClosed    bool              `json:"is_closed"`
+	Vocabulary  string            `json:"vocabulary"`
+}
+
+type canonicalVocabularyDoc struct {
+	SemanticID  string              `json:"semantic_id"`
+	SystemName  string              `json:"system_name"`
+	UIName      domain.Translations `json:"ui_name"`
+	Description domain.Translations `json:"description"`
+	Status      string              `json:"status"`
+	BaseURI     string              `json:"base_uri"`
+}
+
+type canonicalConceptDoc struct {
+	URI        string              `json:"uri"`
+	Label      domain.Translations `json:"label"`
+	ScopeNote  domain.Translations `json:"scope_note"`
+	Broader    []string            `json:"broader"`
+	TopConcept bool                `json:"top_concept"`
+	ExternalID string              `json:"external_id"`
+}
+
+// treeConceptList is a concept list loaded from the tree: its row id and,
+// when the header names one, its vocabulary's row id.
+type treeConceptList struct {
+	id           string
+	vocabularyID string
+}
+
+// hydrateVocabularySlice loads vocabularies, concept lists, concepts and
+// list entries, in an order the foreign keys allow:
+//
+//  1. vocabularies (claim a same-name row, then upsert by semantic id);
+//  2. concept-list headers, binding vocabulary_id;
+//  3. delete the entries of every list whose header names a vocabulary
+//     (entries.yaml is then their complete membership; an absent file is
+//     an empty list). A list without one keeps its entries, as before
+//     entries were in the tree;
+//  4. concepts per vocabulary: upsert, prune those not in the file, then
+//     replace the vocabulary-level broader edges;
+//  5. list entries in file order.
+//
+// Step 3 precedes the prune in step 4 because weave_concept_list_entries
+// references weave_vocabulary_entries without ON DELETE.
+func hydrateVocabularySlice(ctx context.Context, q *sqlcgen.Queries, projectID string, entities SnapshotEntityTree) error {
+	vocabularies := map[string]string{}
+	for _, item := range entities.Vocabularies {
+		id, err := hydrateVocabularyFile(ctx, q, projectID, item)
+		if err != nil {
+			return err
+		}
+		vocabularies[item.EntityID] = id
+	}
+	lists := map[string]treeConceptList{}
+	for _, item := range entities.ConceptLists {
+		list, err := hydrateConceptListFile(ctx, q, projectID, item, vocabularies)
+		if err != nil {
+			return err
+		}
+		lists[item.EntityID] = list
+	}
+	for _, item := range entities.ConceptLists {
+		list := lists[item.EntityID]
+		if list.vocabularyID == "" {
+			continue
+		}
+		if err := q.WeaveDeleteConceptListEntriesByList(ctx, list.id); err != nil {
+			return fmt.Errorf("hydrate concept list %s: clear entries: %w", item.Path, err)
+		}
+	}
+	for _, item := range entities.VocabularyConcepts {
+		vocabularyID, ok := vocabularies[item.OwnerID]
+		if !ok {
+			return fmt.Errorf("hydrate concepts %s: vocabulary %s has no vocabulary.yaml", item.Path, item.OwnerID)
+		}
+		if err := hydrateVocabularyConceptsFile(ctx, q, item, vocabularyID); err != nil {
+			return err
+		}
+	}
+	for _, item := range entities.ConceptListEntries {
+		list, ok := lists[item.OwnerID]
+		if !ok {
+			return fmt.Errorf("hydrate concept-list entries %s: concept list %s is not in the tree", item.Path, item.OwnerID)
+		}
+		if err := hydrateConceptListEntriesFile(ctx, q, item, list); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// hydrateVocabularyFile upserts a tree vocabulary by (project, semantic id)
+// and returns its row id. A row holding the same system_name (unique per
+// project) without a semantic id is claimed first, so a vocabulary an older
+// import created becomes the tree's; one owned by another semantic id is an
+// error rather than a unique-index violation.
+func hydrateVocabularyFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile) (string, error) {
+	doc, err := decodeTreeFile[canonicalVocabularyDoc](item.Path, item.Payload)
+	if err != nil {
+		return "", fmt.Errorf("hydrate vocabulary %s: decode payload: %w", item.Path, err)
+	}
+	semanticID := strings.TrimSpace(doc.SemanticID)
+	if semanticID == "" {
+		return "", fmt.Errorf("hydrate vocabulary %s: missing semantic_id", item.Path)
+	}
+	if semanticID != item.EntityID {
+		return "", fmt.Errorf("hydrate vocabulary %s: semantic_id %q must equal the directory name", item.Path, semanticID)
+	}
+	systemName := strings.TrimSpace(doc.SystemName)
+	if systemName != "" {
+		same, err := q.WeaveGetProjectVocabularyBySystemName(ctx, sqlcgen.WeaveGetProjectVocabularyBySystemNameParams{ProjectID: projectID, SystemName: systemName})
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+		case err != nil:
+			return "", fmt.Errorf("hydrate vocabulary %s: lookup system_name %q: %w", item.Path, systemName, err)
+		case same.SemanticID == nil:
+			if _, err := q.WeaveClaimVocabularySemanticID(ctx, sqlcgen.WeaveClaimVocabularySemanticIDParams{ID: same.ID, SemanticID: semanticID}); err != nil {
+				return "", fmt.Errorf("hydrate vocabulary %s: claim vocabulary %s: %w", item.Path, same.ID, err)
+			}
+		case *same.SemanticID != semanticID:
+			return "", fmt.Errorf("hydrate vocabulary %s: vocabulary %s: system_name %q is already used by vocabulary %s in project %s", item.Path, semanticID, systemName, *same.SemanticID, projectID)
+		}
+	}
+	id, err := q.WeaveUpsertProjectVocabulary(ctx, sqlcgen.WeaveUpsertProjectVocabularyParams{
+		ID:          ids.GenerateULID(),
+		SemanticID:  semanticID,
+		SystemName:  systemName,
+		UiName:      marshalTranslationsForRestore(doc.UIName),
+		Description: marshalTranslationsForRestore(doc.Description),
+		Status:      restoreStatus(doc.Status),
+		ProjectID:   projectID,
+		BaseUri:     strings.TrimSpace(doc.BaseURI),
+	})
+	if err != nil {
+		return "", fmt.Errorf("hydrate vocabulary %s: upsert: %w", item.Path, err)
+	}
+	return id, nil
 }
 
 // hydrateConceptListFile upserts a concept list by (project, semantic id).
 // The row id is the semantic id, the convention the vocabulary slice uses.
-// Entries and broader edges are not in the tree and are left untouched.
-func hydrateConceptListFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile) error {
+// A header naming a vocabulary (a tree vocabulary, or one the project
+// already has, such as its local terms) binds vocabulary_id.
+func hydrateConceptListFile(ctx context.Context, q *sqlcgen.Queries, projectID string, item SnapshotEntityFile, vocabularies map[string]string) (treeConceptList, error) {
 	doc, err := decodeTreeFile[canonicalConceptListDoc](item.Path, item.Payload)
 	if err != nil {
-		return fmt.Errorf("hydrate concept list %s: decode payload: %w", item.Path, err)
+		return treeConceptList{}, fmt.Errorf("hydrate concept list %s: decode payload: %w", item.Path, err)
 	}
 	semanticID := strings.TrimSpace(doc.SemanticID)
 	if semanticID == "" {
-		return fmt.Errorf("hydrate concept list %s: missing semantic_id", item.Path)
+		return treeConceptList{}, fmt.Errorf("hydrate concept list %s: missing semantic_id", item.Path)
 	}
 	if semanticID != item.EntityID {
-		return fmt.Errorf("hydrate concept list %s: semantic_id %q must equal the file name", item.Path, semanticID)
+		return treeConceptList{}, fmt.Errorf("hydrate concept list %s: semantic_id %q must equal the file name", item.Path, semanticID)
 	}
-	if _, err := q.WeaveUpsertConceptList(ctx, sqlcgen.WeaveUpsertConceptListParams{
+	row, err := q.WeaveUpsertConceptList(ctx, sqlcgen.WeaveUpsertConceptListParams{
 		ID:          semanticID,
 		SemanticID:  nullableString(semanticID),
 		SystemName:  nullableString(doc.SystemName),
@@ -218,8 +354,151 @@ func hydrateConceptListFile(ctx context.Context, q *sqlcgen.Queries, projectID s
 		Status:      restoreStatus(doc.Status),
 		ProjectID:   projectID,
 		IsClosed:    doc.IsClosed,
-	}); err != nil {
-		return fmt.Errorf("hydrate concept list %s: upsert: %w", item.Path, err)
+	})
+	if err != nil {
+		return treeConceptList{}, fmt.Errorf("hydrate concept list %s: upsert: %w", item.Path, err)
+	}
+	list := treeConceptList{id: row.ID}
+	vocabulary := strings.TrimSpace(doc.Vocabulary)
+	if vocabulary == "" {
+		return list, nil
+	}
+	vocabularyID, ok := vocabularies[vocabulary]
+	if !ok {
+		vocabularyID, err = q.WeaveGetProjectVocabularyBySemanticID(ctx, sqlcgen.WeaveGetProjectVocabularyBySemanticIDParams{ProjectID: projectID, SemanticID: vocabulary})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return treeConceptList{}, fmt.Errorf("hydrate concept list %s: vocabulary %s is neither in the tree nor in project %s", item.Path, vocabulary, projectID)
+		}
+		if err != nil {
+			return treeConceptList{}, fmt.Errorf("hydrate concept list %s: lookup vocabulary %s: %w", item.Path, vocabulary, err)
+		}
+	}
+	n, err := q.WeaveSetConceptListVocabulary(ctx, sqlcgen.WeaveSetConceptListVocabularyParams{VocabularyID: vocabularyID, ProjectID: projectID, SemanticID: semanticID})
+	if err != nil {
+		return treeConceptList{}, fmt.Errorf("hydrate concept list %s: set vocabulary %s: %w", item.Path, vocabulary, err)
+	}
+	if n == 0 {
+		return treeConceptList{}, fmt.Errorf("hydrate concept list %s: set vocabulary %s: no list row %s in project %s", item.Path, vocabulary, semanticID, projectID)
+	}
+	list.vocabularyID = vocabularyID
+	return list, nil
+}
+
+// hydrateVocabularyConceptsFile makes the vocabulary's entries exactly the
+// file's concepts. broader_uri keeps the first broader; every broader is an
+// edge in weave_concept_broader (scheme NULL, position = index). The
+// broader_path columns are not maintained here.
+func hydrateVocabularyConceptsFile(ctx context.Context, q *sqlcgen.Queries, item SnapshotEntityFile, vocabularyID string) error {
+	concepts, err := decodeTreeFile[[]canonicalConceptDoc](item.Path, item.Payload)
+	if err != nil {
+		return fmt.Errorf("hydrate concepts %s: decode payload: %w", item.Path, err)
+	}
+	uris := make([]string, 0, len(concepts))
+	inFile := map[string]bool{}
+	for _, c := range concepts {
+		if strings.TrimSpace(c.URI) == "" {
+			return fmt.Errorf("hydrate concepts %s: concept without uri", item.Path)
+		}
+		uris = append(uris, c.URI)
+		inFile[c.URI] = true
+	}
+	for _, c := range concepts {
+		for _, b := range c.Broader {
+			if b == c.URI {
+				return fmt.Errorf("hydrate concepts %s: concept %s lists itself as broader", item.Path, c.URI)
+			}
+			if !inFile[b] {
+				return fmt.Errorf("hydrate concepts %s: concept %s has broader %s, which is not in this file", item.Path, c.URI, b)
+			}
+		}
+	}
+
+	entryIDs := make(map[string]string, len(concepts))
+	for _, c := range concepts {
+		var broaderURI string
+		if len(c.Broader) > 0 {
+			broaderURI = c.Broader[0]
+		}
+		var config []byte
+		if c.TopConcept {
+			config = []byte(`{"top_concept": true}`)
+		}
+		row, err := q.WeaveUpsertTreeVocabularyEntry(ctx, sqlcgen.WeaveUpsertTreeVocabularyEntryParams{
+			ID:           ids.GenerateULID(),
+			VocabularyID: vocabularyID,
+			Uri:          c.URI,
+			Label:        marshalTranslationsForRestore(c.Label),
+			ScopeNote:    marshalTranslationsForRestore(c.ScopeNote),
+			BroaderUri:   broaderURI,
+			ExternalID:   c.ExternalID,
+			Config:       config,
+		})
+		if err != nil {
+			return fmt.Errorf("hydrate concepts %s: upsert %s: %w", item.Path, c.URI, err)
+		}
+		entryIDs[c.URI] = row.ID
+	}
+
+	refs, err := q.WeaveListVocabularyEntryRefsNotIn(ctx, sqlcgen.WeaveListVocabularyEntryRefsNotInParams{VocabularyID: vocabularyID, Uris: uris})
+	if err != nil {
+		return fmt.Errorf("hydrate concepts %s: check removed concepts: %w", item.Path, err)
+	}
+	if len(refs) > 0 {
+		used := make([]string, 0, len(refs))
+		for _, r := range refs {
+			used = append(used, fmt.Sprintf("%s (concept list %s)", r.Uri, r.ConceptList))
+		}
+		return fmt.Errorf("hydrate concepts %s: vocabulary %s: concepts removed from the file are still used: %s", item.Path, item.OwnerID, strings.Join(used, ", "))
+	}
+	if err := q.WeaveDeleteVocabularyEntriesNotIn(ctx, sqlcgen.WeaveDeleteVocabularyEntriesNotInParams{VocabularyID: vocabularyID, Uris: uris}); err != nil {
+		return fmt.Errorf("hydrate concepts %s: remove concepts not in the file: %w", item.Path, err)
+	}
+
+	if err := q.WeaveDeleteConceptBroaderByVocabulary(ctx, vocabularyID); err != nil {
+		return fmt.Errorf("hydrate concepts %s: clear broader edges: %w", item.Path, err)
+	}
+	for _, c := range concepts {
+		for i, b := range c.Broader {
+			if err := q.WeaveAddConceptBroader(ctx, sqlcgen.WeaveAddConceptBroaderParams{
+				ID:        ids.GenerateULID(),
+				ConceptID: entryIDs[c.URI],
+				BroaderID: entryIDs[b],
+				Position:  int32(i),
+			}); err != nil {
+				return fmt.Errorf("hydrate concepts %s: broader %s of %s: %w", item.Path, b, c.URI, err)
+			}
+		}
+	}
+	return nil
+}
+
+// hydrateConceptListEntriesFile recreates a list's entries in file order,
+// each URI resolved in the list's vocabulary. The list's old entries were
+// deleted before the concepts were loaded (see hydrateVocabularySlice).
+func hydrateConceptListEntriesFile(ctx context.Context, q *sqlcgen.Queries, item SnapshotEntityFile, list treeConceptList) error {
+	if list.vocabularyID == "" {
+		return fmt.Errorf("hydrate concept-list entries %s: concept list %s names no vocabulary", item.Path, item.OwnerID)
+	}
+	uris, err := decodeTreeFile[[]string](item.Path, item.Payload)
+	if err != nil {
+		return fmt.Errorf("hydrate concept-list entries %s: decode payload: %w", item.Path, err)
+	}
+	for i, uri := range uris {
+		entry, err := q.WeaveGetVocabularyEntryByVocabularyURI(ctx, sqlcgen.WeaveGetVocabularyEntryByVocabularyURIParams{VocabularyID: list.vocabularyID, Uri: uri})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("hydrate concept-list entries %s: concept list %s: %s is not a concept of its vocabulary", item.Path, item.OwnerID, uri)
+		}
+		if err != nil {
+			return fmt.Errorf("hydrate concept-list entries %s: resolve %s: %w", item.Path, uri, err)
+		}
+		if _, err := q.WeaveCreateConceptListEntry(ctx, sqlcgen.WeaveCreateConceptListEntryParams{
+			ID:                ids.GenerateULID(),
+			ConceptListID:     list.id,
+			VocabularyEntryID: entry.ID,
+			Position:          int32(i),
+		}); err != nil {
+			return fmt.Errorf("hydrate concept-list entries %s: add %s: %w", item.Path, uri, err)
+		}
 	}
 	return nil
 }
