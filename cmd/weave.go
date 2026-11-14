@@ -59,7 +59,8 @@ Examples:
   pletka weave generate --project LA --kind model --id LAM.9 --format snapshot --out tmp/LAM.9.snapshot.json
   pletka weave generate --project LA --kind field --id LAF.4 --format turtle --base-prefix ex --base-uri https://example.org/ns/la/
   pletka weave generate --project LA --kind collection --id LAC.1 --format turtle --rdf-node-mode resource
-  pletka weave generate --project LA --kind collection --id LAC.1 --format jsonld`,
+  pletka weave generate --project LA --kind collection --id LAC.1 --format jsonld
+  pletka weave generate --project LA --kind model --id LAM.1 --format snapshot --snapshot-for shacl`,
 		RunE: runWeaveGenerate(renderers),
 	}
 
@@ -76,6 +77,7 @@ Examples:
 	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.mermaid, "mermaid-mode", string(generators.MermaidModeOntology), "Mermaid mode: ontology or instance")
 	weaveGenerateCmd.Flags().BoolVar(&weaveGenerateOpts.composeCollections, "compose-collections", false, "graft under every Collection-stub field the collections its collection_model refs name, recursively (snap-level pass; affects every renderer that consumes snap.Fields)")
 	weaveGenerateCmd.Flags().IntVar(&weaveGenerateOpts.composeMaxDepth, "compose-max-depth", 0, "cap collection composition recursion (0 = built-in default, currently 10)")
+	weaveGenerateCmd.Flags().StringVar(&weaveGenerateOpts.snapshotFor, "snapshot-for", "", "with a snapshot format: build the snapshot with what this output format's renderer asks for (e.g. referenced collections, class ancestors), so the dump shows what that renderer gets")
 
 	return weaveGenerateCmd
 }
@@ -94,6 +96,7 @@ var weaveGenerateOpts struct {
 	mermaid            string
 	composeCollections bool
 	composeMaxDepth    int
+	snapshotFor        string
 }
 
 func runWeaveGenerate(renderers []generators.Renderer) func(cmd *cobra.Command, args []string) error {
@@ -169,6 +172,10 @@ func runWeaveGenerate(renderers []generators.Renderer) func(cmd *cobra.Command, 
 			MermaidMode:        mermaidMode,
 			ComposeCollections: weaveGenerateOpts.composeCollections,
 			ComposeMaxDepth:    weaveGenerateOpts.composeMaxDepth,
+		}
+		genOpts, err = snapshotOptions(genOpts, weaveGenerateOpts.snapshotFor, dumpSnapshot, renderers)
+		if err != nil {
+			return err
 		}
 		projectID := weaveGenerateOpts.projectID
 		id := weaveGenerateOpts.id
@@ -478,4 +485,25 @@ func newGeneratorCLIRuntime(pool *pgxpool.Pool, renderers []generators.Renderer)
 	opts := app.Options{Pool: pool, Logger: logger}
 	opts.GeneratorRenderers = renderers
 	return app.NewGeneratorRuntime(opts)
+}
+
+// snapshotOptions applies --snapshot-for: a snapshot dump built with the
+// options that format's renderer asks for. Empty leaves opts alone.
+func snapshotOptions(opts generators.Options, snapshotFor string, dumpSnapshot bool, renderers []generators.Renderer) (generators.Options, error) {
+	if snapshotFor == "" {
+		return opts, nil
+	}
+	if !dumpSnapshot {
+		return opts, fmt.Errorf("--snapshot-for needs a snapshot format (--format snapshot, tree, ascii or paths)")
+	}
+	format, err := parseGeneratorFormat(snapshotFor, availableFormats(renderers))
+	if err != nil {
+		return opts, fmt.Errorf("--snapshot-for: %w", err)
+	}
+	for _, r := range renderers {
+		if spec := r.Spec(); spec.Format == format {
+			return generators.OptionsForSpec(spec, opts), nil
+		}
+	}
+	return opts, nil
 }

@@ -395,10 +395,16 @@ func (s *Service) OptionsFor(format Format, opts Options) Options {
 		return opts
 	}
 	if r, ok := s.registry.Renderer(format); ok {
-		spec := r.Spec()
-		opts.IncludeReferenced = opts.IncludeReferenced || spec.IncludeReferenced
-		opts.IncludeClassAncestors = opts.IncludeClassAncestors || spec.IncludeClassAncestors
+		opts = OptionsForSpec(r.Spec(), opts)
 	}
+	return opts
+}
+
+// OptionsForSpec returns opts with what a renderer's spec asks for; a
+// caller's own settings are kept.
+func OptionsForSpec(spec FormatSpec, opts Options) Options {
+	opts.IncludeReferenced = opts.IncludeReferenced || spec.IncludeReferenced
+	opts.IncludeClassAncestors = opts.IncludeClassAncestors || spec.IncludeClassAncestors
 	return opts
 }
 
