@@ -32,6 +32,7 @@ var typeCodeMap = map[string]string{
 	"C":   "collection",
 	"CAT": "category",
 	"CL":  "concept_list",
+	"VOC": "vocabulary",
 }
 
 // entityTypeToPlural maps entity types to their URL path segment.
@@ -41,6 +42,13 @@ var entityTypeToPlural = map[string]string{
 	"collection":   "collections",
 	"category":     "categories",
 	"concept_list": "concept-lists",
+	"vocabulary":   "vocabularies",
+}
+
+// isDottedTypeCode reports whether code is a type code written as
+// <P>.<code>.<n> rather than appended to the project id (<P><code>.<n>).
+func isDottedTypeCode(code string) bool {
+	return code == "CAT" || code == "CL" || code == "VOC"
 }
 
 // ParseSemanticID parses a semantic identifier string into its components.
@@ -61,8 +69,8 @@ func ParseSemanticID(raw string) SemanticID {
 
 	parts := strings.Split(idPart, ".")
 
-	// Namespaced pattern: PREFIX.CAT.NUMBER, PREFIX.CL.NUMBER (3 parts)
-	if len(parts) == 3 && (parts[1] == "CAT" || parts[1] == "CL") {
+	// Namespaced pattern: PREFIX.CAT.NUMBER, PREFIX.CL.NUMBER, PREFIX.VOC.NUMBER (3 parts)
+	if len(parts) == 3 && isDottedTypeCode(parts[1]) {
 		sid.ProjectID = parts[0]
 		sid.TypeCode = parts[1]
 		sid.EntityType = typeCodeMap[parts[1]]
@@ -113,7 +121,7 @@ func (s SemanticID) ID() string {
 	if s.Number < 0 {
 		return s.Raw
 	}
-	if s.TypeCode == "CAT" || s.TypeCode == "CL" {
+	if isDottedTypeCode(s.TypeCode) {
 		return fmt.Sprintf("%s.%s.%d", s.ProjectID, s.TypeCode, s.Number)
 	}
 	if s.TypeCode != "" && s.ProjectID != "" {
