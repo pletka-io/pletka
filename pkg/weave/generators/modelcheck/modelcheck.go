@@ -59,10 +59,16 @@ type Finding struct {
 type checker struct {
 	model string
 	out   []Finding
+	root  *branchTree // the model's own paths, for its identity
 }
 
+// add records a finding once: a collection placed on the model and also
+// named by a stub is checked from both sides.
 func (c *checker) add(code string, sev Severity, collection, field, format string, args ...any) {
-	c.out = append(c.out, Finding{Code: code, Severity: sev, Model: c.model, Collection: collection, Field: field, Message: fmt.Sprintf(format, args...)})
+	f := Finding{Code: code, Severity: sev, Model: c.model, Collection: collection, Field: field, Message: fmt.Sprintf(format, args...)}
+	if !slices.Contains(c.out, f) {
+		c.out = append(c.out, f)
+	}
 }
 
 // Model checks one model snapshot.
@@ -70,6 +76,10 @@ func Model(snap *generators.Snapshot) []Finding {
 	if snap == nil {
 		return nil
 	}
+	return check(snap).out
+}
+
+func check(snap *generators.Snapshot) *checker {
 	c := &checker{}
 	if snap.Model != nil {
 		c.model = snap.Model.SemanticID
@@ -107,7 +117,62 @@ func Model(snap *generators.Snapshot) []Finding {
 		c.sameClassTwins(members, collection, collection)
 	}
 	c.sameClassTwins(root, c.model, "")
-	return c.out
+	c.root = root
+	if snap.Model != nil && len(root.values[""]) == 0 {
+		c.add("C13", Note, "", "", "%s is identified by its class alone", c.model)
+	}
+	return c
+}
+
+// Project checks every model snapshot, then reports C5: models sharing a
+// class that no required fixed value tells apart.
+func Project(snaps []*generators.Snapshot) []Finding {
+	type model struct {
+		id     string
+		values map[string][]string
+	}
+	var out []Finding
+	byClass := map[string][]model{}
+	var classes []string
+	for _, snap := range snaps {
+		if snap == nil {
+			continue
+		}
+		c := check(snap)
+		out = append(out, c.out...)
+		if snap.Model == nil {
+			continue
+		}
+		cls := classKey(snap.Model.OntologyScope)
+		if _, seen := byClass[cls]; !seen {
+			classes = append(classes, cls)
+		}
+		byClass[cls] = append(byClass[cls], model{c.model, c.root.values[""]})
+	}
+	for _, cls := range classes {
+		ms := byClass[cls]
+		for i := range ms {
+			for j := i + 1; j < len(ms); j++ {
+				if valuesApart(ms[i].values, ms[j].values) {
+					continue
+				}
+				out = append(out, Finding{Code: "C5", Severity: Error, Model: ms[i].id,
+					Message: fmt.Sprintf("%s and %s share class %s and no required fixed value tells them apart", ms[i].id, ms[j].id, cls)})
+			}
+		}
+	}
+	return out
+}
+
+// classKey names a scope by its class and any additional types.
+func classKey(scope domain.PathElement) string {
+	names := make([]string, 0, 1+len(scope.AdditionalTypes))
+	names = append(names, scope.PrefixedName())
+	for _, t := range scope.AdditionalTypes {
+		names = append(names, t.PrefixedName())
+	}
+	slices.Sort(names[1:])
+	return strings.Join(names, ", ")
 }
 
 // fieldChecks runs C3, C4, C9 and C10 on one field.

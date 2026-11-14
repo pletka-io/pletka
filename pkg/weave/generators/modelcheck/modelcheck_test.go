@@ -108,3 +108,18 @@ func TestReferencedMembersAreChecked(t *testing.T) {
 		t.Fatalf("%+v", fs)
 	}
 }
+
+// a collection placed on the model and also named by a stub is checked
+// twice; its findings are reported once
+func TestFindingsAreReportedOnce(t *testing.T) {
+	f := fn("PF.1", "Concept", 0, nil, el("property", "crm:P2_has_type"), el("class", "crm:E55_Type"))
+	f.CollectionID, f.CollectionSemanticID = "c", "PC.1"
+	snap := snapOf(f)
+	snap.Referenced = map[string]generators.ReferencedCollection{"c": {
+		Collection: &domain.Collection{Entity: domain.Entity{ID: "c", SemanticID: "PC.1"}},
+		Fields:     []domain.ResolvedField{f.Field},
+	}}
+	if diff := cmp.Diff([]string{"C10:PF.1"}, codes(Model(snap))); diff != "" {
+		t.Fatal(diff)
+	}
+}
