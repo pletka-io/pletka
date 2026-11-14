@@ -30,3 +30,25 @@ func TestOptionsForAsksForWhatTheRendererNeeds(t *testing.T) {
 		t.Fatal("OptionsFor cleared a caller's IncludeReferenced")
 	}
 }
+
+type ancestorsSpecRenderer struct{}
+
+func (ancestorsSpecRenderer) Spec() FormatSpec {
+	return FormatSpec{Format: "ancestors-test", IncludeClassAncestors: true}
+}
+
+func (ancestorsSpecRenderer) Render(context.Context, *Snapshot, io.Writer) error { return nil }
+
+func TestOptionsForAsksForClassAncestors(t *testing.T) {
+	reg, err := NewRegistry(ancestorsSpecRenderer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Service{registry: reg}
+	if !s.OptionsFor("ancestors-test", Options{}).IncludeClassAncestors {
+		t.Fatal("IncludeClassAncestors = false for a renderer that asks for it")
+	}
+	if s.OptionsFor("unknown", Options{}).IncludeClassAncestors {
+		t.Fatal("IncludeClassAncestors = true for an unknown format")
+	}
+}

@@ -17,6 +17,7 @@ type branchTree struct {
 	groups map[groupKey][]string          // child node keys, first seen first
 	class  map[string]string              // node key → class
 	ending map[string][]ending            // node key → each field ending there
+	fields map[string][]string            // node key → fields reaching it, for messages
 	values map[string]map[string][]string // node key → property → required fixed values one step below
 }
 
@@ -25,6 +26,8 @@ type branchTree struct {
 type ending struct {
 	self  string
 	extra map[string][]string
+	iri   bool   // a URI/File field: checked as an IRI, not by class
+	field string // its semantic id
 }
 
 type groupKey struct{ parent, prop string }
@@ -35,6 +38,7 @@ func newBranchTree(norm func(string) string) *branchTree {
 		groups: map[groupKey][]string{},
 		class:  map[string]string{},
 		ending: map[string][]ending{},
+		fields: map[string][]string{},
 		values: map[string]map[string][]string{},
 	}
 }
@@ -58,7 +62,11 @@ func (t *branchTree) add(path []domain.PathElement, f domain.ResolvedField, extr
 			next := path[j+1]
 			key := next.PathNode
 			if key == "" {
-				key = parent + "/" + prop + "/" + next.PrefixedName()
+				name := next.PrefixedName()
+				if name == "" {
+					name = next.URI
+				}
+				key = parent + "/" + prop + "/" + name
 			}
 			gk := groupKey{parent, prop}
 			if _, seen := t.groups[gk]; !seen {
@@ -68,8 +76,11 @@ func (t *branchTree) add(path []domain.PathElement, f domain.ResolvedField, extr
 				t.groups[gk] = append(t.groups[gk], key)
 				t.class[key] = next.PrefixedName()
 			}
+			if !slices.Contains(t.fields[key], f.SemanticID) {
+				t.fields[key] = append(t.fields[key], f.SemanticID)
+			}
 			if j+1 == len(path)-1 {
-				t.ending[key] = append(t.ending[key], ending{self: set, extra: extra})
+				t.ending[key] = append(t.ending[key], ending{self: set, extra: extra, iri: iriValue(f), field: f.SemanticID})
 				if required && set != "" {
 					t.addValue(parent, prop, set)
 				}
@@ -158,8 +169,9 @@ func valuesApart(a, b map[string][]string) bool {
 }
 
 // sameClassTwins reports C6 for each group with two same-class branches
-// that are not apart, once per (group, class). where names the model or
-// collection for the message.
+// that are not apart, once per (group, class). URI/File branches are
+// checked as IRIs, so they never count as class branches; nor do classes
+// without a name. where names the model or collection for the message.
 func (c *checker) sameClassTwins(t *branchTree, where, collection string) {
 	for _, gk := range t.order {
 		bs := t.branches(gk)
@@ -167,12 +179,38 @@ func (c *checker) sameClassTwins(t *branchTree, where, collection string) {
 		for i := range bs {
 			for j := i + 1; j < len(bs); j++ {
 				cls := t.class[bs[i].node]
-				if cls != t.class[bs[j].node] || reported[cls] || t.apart(bs[i], bs[j]) {
+				if cls == "" || cls != t.class[bs[j].node] || reported[cls] || bs[i].iri || bs[j].iri || t.apart(bs[i], bs[j]) {
 					continue
 				}
 				reported[cls] = true
-				c.add("C6", Error, collection, "", "%s: %s has %s branches that no required fixed value tells apart", where, gk.prop, cls)
+				c.add("C6", Error, collection, "", "%s: %s %s has %s branches (%s, %s) that no required fixed value tells apart",
+					where, t.place(gk.parent), gk.prop, cls, t.label(bs[i]), t.label(bs[j]))
 			}
 		}
 	}
+}
+
+// place says where a group sits: at the root, or under a class node.
+func (t *branchTree) place(parent string) string {
+	if parent == "" {
+		return "at the root,"
+	}
+	return "under " + t.class[parent] + ","
+}
+
+// label names a branch by the field ending there, else the fields reaching
+// its node.
+func (t *branchTree) label(b branch) string {
+	if b.field != "" {
+		return b.field
+	}
+	return strings.Join(t.fields[b.node], "+")
+}
+
+func iriValue(f domain.ResolvedField) bool {
+	switch valueType(f) {
+	case "uri", "url", "file/bitstream", "file list":
+		return true
+	}
+	return false
 }

@@ -15,6 +15,8 @@ type FormatSpec struct {
 	// IncludeReferenced asks for the collections Collection stubs name and
 	// the model's graft overrides on the snapshot (Options.IncludeReferenced).
 	IncludeReferenced bool
+	// IncludeClassAncestors asks for Snapshot.ClassAncestors.
+	IncludeClassAncestors bool
 }
 
 // Renderer writes a resolved Snapshot in one output format.

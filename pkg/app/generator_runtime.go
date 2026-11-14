@@ -14,6 +14,7 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"github.com/pletka-io/pletka/pkg/weave/genwiring"
 	"github.com/pletka-io/pletka/pkg/weave/model"
+	weaveontology "github.com/pletka-io/pletka/pkg/weave/ontology"
 	"github.com/pletka-io/pletka/pkg/weave/release"
 	"github.com/pletka-io/pletka/pkg/weave/vocabulary"
 )
@@ -78,6 +79,7 @@ func NewGeneratorRuntime(opts Options) (*GeneratorRuntime, error) {
 	// Sealed-list value enums in generated schemas (#3599).
 	genSvc.SetConceptEnumReader(vocabulary.NewService(opts.Pool, nil))
 	genSvc.SetGraftOverrideReader(NewGraftOverrideStore(opts.Pool))
+	genSvc.SetClassLineageReader(weaveontology.NewService(weaveontology.NewPostgresStore(opts.Pool), weaveStore.Projects(), opts.Logger))
 	return &GeneratorRuntime{
 		Service:     genSvc,
 		models:      model.NewPostgresStore(opts.Pool),

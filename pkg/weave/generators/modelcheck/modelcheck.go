@@ -165,7 +165,9 @@ func check(snap *generators.Snapshot) *checker {
 			}
 			c.fieldChecks(f, f.PathElements, collection)
 			c.unresolvedRefs(snap, f, collection)
-			members.add(f.PathElements, f, c.stubValues(f, snap))
+			if !hiddenByGraft(snap.Grafts, f.SemanticID) {
+				members.add(f.PathElements, f, c.stubValues(f, snap))
+			}
 		}
 		c.sameClassTwins(members, collection, collection)
 	}
@@ -351,4 +353,15 @@ func refIDs(refs []domain.EntityRef) (ids, names []string) {
 		names = append(names, name)
 	}
 	return ids, names
+}
+
+// hiddenByGraft reports a member a graft override hides at some address;
+// it is left out of its collection's C6 analysis.
+func hiddenByGraft(grafts map[string]domain.GraftOverride, semanticID string) bool {
+	for addr, g := range grafts {
+		if g.IsHidden && strings.HasSuffix(addr, "/"+semanticID) {
+			return true
+		}
+	}
+	return false
 }

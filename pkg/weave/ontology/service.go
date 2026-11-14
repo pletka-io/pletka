@@ -544,6 +544,29 @@ func (s *Service) ListClasses(ctx context.Context, versionID string) ([]*domain.
 	return s.store.ListClassesByVersion(ctx, versionID)
 }
 
+// ClassAncestors returns qname and its ancestors (rdfs:subClassOf,
+// transitively) across the given ontology versions, for generator
+// snapshots (generators.ClassLineageReader); found is false when no version
+// has the class.
+func (s *Service) ClassAncestors(ctx context.Context, versionIDs []string, qname string) ([]string, bool, error) {
+	found := false
+	for _, v := range versionIDs {
+		c, err := s.store.GetClassByQname(ctx, v, qname)
+		if err != nil {
+			return nil, false, err
+		}
+		if c != nil {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, false, nil
+	}
+	anc, err := autocomplete.ClassLineage(ctx, s.store, versionIDs, qname)
+	return anc, err == nil, err
+}
+
 func (s *Service) GetClassByQname(ctx context.Context, versionID, qname string) (*domain.OntologyClass, error) {
 	c, err := s.store.GetClassByQname(ctx, versionID, qname)
 	if err != nil {
