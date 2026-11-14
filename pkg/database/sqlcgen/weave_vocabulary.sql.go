@@ -1236,6 +1236,41 @@ func (q *Queries) WeaveListConceptListEntryURIs(ctx context.Context, conceptList
 	return items, nil
 }
 
+const weaveListConceptListEntryURIsArchive = `-- name: WeaveListConceptListEntryURIsArchive :many
+SELECT e.uri
+FROM weave_concept_list_entries_archive le
+JOIN weave_vocabulary_entries_archive e
+  ON e.id = le.vocabulary_entry_id AND e.version_number = le.version_number
+WHERE le.concept_list_id = $1::text
+  AND le.version_number = $2::text
+ORDER BY le.position, le.id
+`
+
+type WeaveListConceptListEntryURIsArchiveParams struct {
+	ConceptListID string `json:"concept_list_id"`
+	VersionNumber string `json:"version_number"`
+}
+
+func (q *Queries) WeaveListConceptListEntryURIsArchive(ctx context.Context, arg WeaveListConceptListEntryURIsArchiveParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, weaveListConceptListEntryURIsArchive, arg.ConceptListID, arg.VersionNumber)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var uri string
+		if err := rows.Scan(&uri); err != nil {
+			return nil, err
+		}
+		items = append(items, uri)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveListConceptListMemberURIs = `-- name: WeaveListConceptListMemberURIs :many
 SELECT DISTINCT ve.uri
 FROM weave_concept_lists cl
@@ -1477,6 +1512,55 @@ func (q *Queries) WeaveListProjectTreeVocabularies(ctx context.Context, projectI
 	return items, nil
 }
 
+const weaveListProjectTreeVocabulariesArchive = `-- name: WeaveListProjectTreeVocabulariesArchive :many
+SELECT id, project_id, semantic_id, system_name, ui_name, description, status, connector_type, base_uri, config, deprecated, created_at, updated_at, version_number FROM weave_vocabularies_archive
+WHERE project_id = $1::text
+  AND version_number = $2::text
+  AND semantic_id ~ '^[A-Z0-9]+\.VOC\.[0-9]+$'
+ORDER BY semantic_id
+`
+
+type WeaveListProjectTreeVocabulariesArchiveParams struct {
+	ProjectID     string `json:"project_id"`
+	VersionNumber string `json:"version_number"`
+}
+
+// The tree vocabularies (<P>.VOC.n) a release archived.
+func (q *Queries) WeaveListProjectTreeVocabulariesArchive(ctx context.Context, arg WeaveListProjectTreeVocabulariesArchiveParams) ([]WeaveVocabulariesArchive, error) {
+	rows, err := q.db.Query(ctx, weaveListProjectTreeVocabulariesArchive, arg.ProjectID, arg.VersionNumber)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveVocabulariesArchive{}
+	for rows.Next() {
+		var i WeaveVocabulariesArchive
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.SemanticID,
+			&i.SystemName,
+			&i.UiName,
+			&i.Description,
+			&i.Status,
+			&i.ConnectorType,
+			&i.BaseUri,
+			&i.Config,
+			&i.Deprecated,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VersionNumber,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const weaveListVocabularies = `-- name: WeaveListVocabularies :many
 SELECT id, created_at, updated_at, semantic_id, system_name, ui_name, description, status, project_id, connector_type, base_uri, config, config_encrypted, deprecated FROM weave_vocabularies
 ORDER BY system_name ASC
@@ -1506,6 +1590,52 @@ func (q *Queries) WeaveListVocabularies(ctx context.Context) ([]WeaveVocabulary,
 			&i.Config,
 			&i.ConfigEncrypted,
 			&i.Deprecated,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const weaveListVocabularyEntriesArchiveForTree = `-- name: WeaveListVocabularyEntriesArchiveForTree :many
+SELECT id, vocabulary_id, uri, label, scope_note, broader_uri, broader_path, broader_path_items, external_id, created_at, updated_at, version_number, config FROM weave_vocabulary_entries_archive
+WHERE vocabulary_id = $1::text
+  AND version_number = $2::text
+ORDER BY uri
+`
+
+type WeaveListVocabularyEntriesArchiveForTreeParams struct {
+	VocabularyID  string `json:"vocabulary_id"`
+	VersionNumber string `json:"version_number"`
+}
+
+func (q *Queries) WeaveListVocabularyEntriesArchiveForTree(ctx context.Context, arg WeaveListVocabularyEntriesArchiveForTreeParams) ([]WeaveVocabularyEntriesArchive, error) {
+	rows, err := q.db.Query(ctx, weaveListVocabularyEntriesArchiveForTree, arg.VocabularyID, arg.VersionNumber)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WeaveVocabularyEntriesArchive{}
+	for rows.Next() {
+		var i WeaveVocabularyEntriesArchive
+		if err := rows.Scan(
+			&i.ID,
+			&i.VocabularyID,
+			&i.Uri,
+			&i.Label,
+			&i.ScopeNote,
+			&i.BroaderUri,
+			&i.BroaderPath,
+			&i.BroaderPathItems,
+			&i.ExternalID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.VersionNumber,
+			&i.Config,
 		); err != nil {
 			return nil, err
 		}

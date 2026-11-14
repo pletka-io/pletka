@@ -28,6 +28,9 @@ func (m *Materializer) writeProjectTreeVersion(ctx context.Context, workDir, pro
 	if err := m.writeCategoriesVersion(ctx, workDir, projectID, version); err != nil {
 		return err
 	}
+	if err := m.writeVocabulariesVersion(ctx, workDir, projectID, version); err != nil {
+		return err
+	}
 	if err := m.writeConceptListsVersion(ctx, workDir, projectID, version); err != nil {
 		return err
 	}
@@ -381,20 +384,66 @@ func (m *Materializer) writeCategoriesVersion(ctx context.Context, workDir, proj
 	return nil
 }
 
-// writeConceptListsVersion materializes the concept lists a release archived.
+// writeConceptListsVersion materializes the concept lists a release archived,
+// with the entries of lists on a tree vocabulary (see writeConceptLists).
 func (m *Materializer) writeConceptListsVersion(ctx context.Context, workDir, projectID, version string) error {
+	vocabularies, err := m.queries.WeaveListProjectTreeVocabulariesArchive(ctx, sqlcgen.WeaveListProjectTreeVocabulariesArchiveParams{ProjectID: projectID, VersionNumber: version})
+	if err != nil {
+		return fmt.Errorf("list archived tree vocabularies: %w", err)
+	}
+	treeVocabularies := make(map[string]string, len(vocabularies))
+	for _, v := range vocabularies {
+		treeVocabularies[v.ID] = derefStr(v.SemanticID)
+	}
 	rows, err := m.queries.WeaveListConceptListsArchiveForTree(ctx, sqlcgen.WeaveListConceptListsArchiveForTreeParams{ProjectID: projectID, VersionNumber: version})
 	if err != nil {
 		return fmt.Errorf("list archived concept lists: %w", err)
 	}
 	for _, row := range rows {
 		list := archivedRowToConceptList(row)
-		payload, err := canonical.ConceptList(list, "")
-		if err != nil {
-			return fmt.Errorf("encode archived concept list %s: %w", list.ID, err)
+		vocabulary := treeVocabularies[derefStr(list.VocabularyID)]
+		var uris []string
+		if vocabulary != "" {
+			uris, err = m.queries.WeaveListConceptListEntryURIsArchive(ctx, sqlcgen.WeaveListConceptListEntryURIsArchiveParams{ConceptListID: list.ID, VersionNumber: version})
+			if err != nil {
+				return fmt.Errorf("list archived entries of concept list %s: %w", list.ID, err)
+			}
 		}
-		path := domain.FilePath(domain.PathSpec{EntityType: entityTypeConceptList, EntityID: identifierFor(list.SemanticID, list.ID)})
-		if err := writeEntityFile(workDir, path, payload); err != nil {
+		if err := writeConceptListFiles(workDir, list, vocabulary, uris); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeVocabulariesVersion materializes the tree vocabularies a release
+// archived (see writeVocabularies). The archive keeps no vocabulary-level
+// broader edges (weave_concept_broader_archive holds list-scoped edges
+// only), so a concept's broader is its archived broader_uri, the first
+// broader: a polyhierarchical concept keeps one broader in a release tree.
+func (m *Materializer) writeVocabulariesVersion(ctx context.Context, workDir, projectID, version string) error {
+	vocabularies, err := m.queries.WeaveListProjectTreeVocabulariesArchive(ctx, sqlcgen.WeaveListProjectTreeVocabulariesArchiveParams{ProjectID: projectID, VersionNumber: version})
+	if err != nil {
+		return fmt.Errorf("list archived tree vocabularies: %w", err)
+	}
+	for _, row := range vocabularies {
+		entries, err := m.queries.WeaveListVocabularyEntriesArchiveForTree(ctx, sqlcgen.WeaveListVocabularyEntriesArchiveForTreeParams{VocabularyID: row.ID, VersionNumber: version})
+		if err != nil {
+			return fmt.Errorf("list archived concepts of vocabulary %s: %w", row.ID, err)
+		}
+		concepts := make([]canonical.TreeConcept, 0, len(entries))
+		for _, e := range entries {
+			var broader []string
+			if b := derefStr(e.BroaderUri); b != "" {
+				broader = []string{b}
+			}
+			c, err := treeConcept(e.Uri, e.Label, e.ScopeNote, e.ExternalID, e.Config, broader)
+			if err != nil {
+				return fmt.Errorf("archived vocabulary %s: %w", row.ID, err)
+			}
+			concepts = append(concepts, c)
+		}
+		if err := writeVocabularyFiles(workDir, archivedRowToVocabulary(row), concepts); err != nil {
 			return err
 		}
 	}

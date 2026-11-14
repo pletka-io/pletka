@@ -284,6 +284,42 @@ func rowToOverrideRef(row sqlcgen.WeaveOverrideRef) domain.OverrideRef {
 	}
 }
 
+// rowToVocabulary maps a live vocabulary row to the fields of its
+// vocabulary.yaml.
+func rowToVocabulary(row sqlcgen.WeaveVocabulary) *domain.Vocabulary {
+	return &domain.Vocabulary{
+		Entity: domain.Entity{
+			ID:          row.ID,
+			SemanticID:  derefStr(row.SemanticID),
+			SystemName:  derefStr(row.SystemName),
+			UIName:      unmarshalTranslations(row.UiName),
+			Description: unmarshalTranslations(row.Description),
+			Status:      domain.Status(row.Status),
+			ProjectID:   row.ProjectID,
+		},
+		ConnectorType: row.ConnectorType,
+		BaseURI:       derefStr(row.BaseUri),
+	}
+}
+
+// archivedRowToVocabulary maps a release-archived vocabulary row like
+// rowToVocabulary.
+func archivedRowToVocabulary(row sqlcgen.WeaveVocabulariesArchive) *domain.Vocabulary {
+	return &domain.Vocabulary{
+		Entity: domain.Entity{
+			ID:          row.ID,
+			SemanticID:  derefStr(row.SemanticID),
+			SystemName:  derefStr(row.SystemName),
+			UIName:      unmarshalTranslations(row.UiName),
+			Description: unmarshalTranslations(row.Description),
+			Status:      domain.Status(row.Status),
+			ProjectID:   row.ProjectID,
+		},
+		ConnectorType: row.ConnectorType,
+		BaseURI:       derefStr(row.BaseUri),
+	}
+}
+
 // rowToConceptList maps a live concept-list row to the domain type.
 func rowToConceptList(row sqlcgen.WeaveConceptList) *domain.ConceptList {
 	return &domain.ConceptList{

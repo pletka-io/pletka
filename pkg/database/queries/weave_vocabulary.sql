@@ -555,6 +555,29 @@ JOIN weave_vocabulary_entries e ON e.id = le.vocabulary_entry_id
 WHERE le.concept_list_id = @concept_list_id::text
 ORDER BY le.position, le.id;
 
+-- name: WeaveListProjectTreeVocabulariesArchive :many
+-- The tree vocabularies (<P>.VOC.n) a release archived.
+SELECT * FROM weave_vocabularies_archive
+WHERE project_id = @project_id::text
+  AND version_number = @version_number::text
+  AND semantic_id ~ '^[A-Z0-9]+\.VOC\.[0-9]+$'
+ORDER BY semantic_id;
+
+-- name: WeaveListVocabularyEntriesArchiveForTree :many
+SELECT * FROM weave_vocabulary_entries_archive
+WHERE vocabulary_id = @vocabulary_id::text
+  AND version_number = @version_number::text
+ORDER BY uri;
+
+-- name: WeaveListConceptListEntryURIsArchive :many
+SELECT e.uri
+FROM weave_concept_list_entries_archive le
+JOIN weave_vocabulary_entries_archive e
+  ON e.id = le.vocabulary_entry_id AND e.version_number = le.version_number
+WHERE le.concept_list_id = @concept_list_id::text
+  AND le.version_number = @version_number::text
+ORDER BY le.position, le.id;
+
 -- name: WeaveGetProjectVocabularyBySystemName :one
 -- The project's vocabulary holding a system_name (unique per project, migration 014).
 SELECT id, semantic_id FROM weave_vocabularies

@@ -49,6 +49,9 @@ func (m *Materializer) writeProjectTree(ctx context.Context, workDir, projectID 
 	if err := m.writeCategories(ctx, workDir, projectID); err != nil {
 		return err
 	}
+	if err := m.writeVocabularies(ctx, workDir, projectID); err != nil {
+		return err
+	}
 	if err := m.writeConceptLists(ctx, workDir, projectID); err != nil {
 		return err
 	}
