@@ -580,3 +580,53 @@ func nameTypeField() domain.ResolvedField {
 		},
 	}
 }
+
+func TestSPARQLRenderRefusesSetValueThroughHostileNamespace(t *testing.T) {
+	snap := fieldSnapshot(t, fieldWithSetValue("x:val"))
+	snap.Namespaces.Bindings = append(snap.Namespaces.Bindings,
+		generators.NamespaceBinding{Prefix: "x", Namespace: "https://data.example.org/x> } #"})
+	out, err := renderErr(snap)
+	if err == nil || !strings.Contains(err.Error(), "is not an IRI") {
+		t.Fatalf("err = %v", err)
+	}
+	if out != "" {
+		t.Fatalf("rendered despite error:\n%s", out)
+	}
+}
+
+func TestSPARQLRenderRefusesPathPastLiteral(t *testing.T) {
+	rf := domain.ResolvedField{
+		ID: "f1", SemanticID: "LAF.9", SystemName: "odd", ExpectedValueType: "Concept",
+		PathElements: []domain.PathElement{
+			pe("class", "crm", "E21_Person", 0),
+			pe("property", "crm", "P3_has_note", 1),
+			{Type: "literal", Prefix: "rdf", LocalName: "langString", URI: "rdf:langString", Position: 2},
+			pe("property", "crm", "P2_has_type", 3),
+			pe("class", "crm", "E55_Type", 4),
+		},
+	}
+	_, err := renderErr(fieldSnapshot(t, rf))
+	if err == nil || err.Error() != "sparql renderer: field LAF.9: path continues after a literal" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSPARQLRenderRefusesCountVariableCollision(t *testing.T) {
+	rf := fieldWithSystemName("")
+	rf.SemanticID = "count"
+	snap := fieldSnapshot(t, rf)
+	snap.Options.SPARQLCount = true
+	_, err := renderErr(snap)
+	if err == nil || err.Error() != "sparql renderer: field count: variable ?count collides" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSPARQLRenderRefusesNodeVariableCollision(t *testing.T) {
+	rf := fieldWithSetValue("")
+	rf.SemanticID, rf.SystemName = "e55_type", "1"
+	_, err := renderErr(fieldSnapshot(t, rf))
+	if err == nil || err.Error() != "sparql renderer: field e55_type: variable ?e55_type_1 collides" {
+		t.Fatalf("err = %v", err)
+	}
+}

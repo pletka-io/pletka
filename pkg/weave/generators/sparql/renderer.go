@@ -135,8 +135,8 @@ func (q *queryWriter) nodeVar(n *exportgraph.ResourceNode) string {
 }
 
 // graphSteps walks the field's primary path through the export graph: the
-// class steps the graph made nodes for, then the literal ending if any. The
-// walk ends at the first literal.
+// class steps the graph made nodes for, then the literal ending if any. A
+// path that goes on after a literal is malformed.
 func (q *queryWriter) graphSteps(field *generators.FieldNode) ([]step, error) {
 	var steps []step
 	var pending *domain.PathElement
@@ -159,6 +159,9 @@ func (q *queryWriter) graphSteps(field *generators.FieldNode) ([]step, error) {
 			if pending != nil {
 				steps = append(steps, step{predicate: *pending, literal: true})
 			}
+			if continuesAfter(field.Path[i+1:]) {
+				return nil, fmt.Errorf("sparql renderer: field %s: path continues after a literal", oneLine(field.Field.SemanticID))
+			}
 			return steps, q.checkBinding(field, last)
 		}
 	}
@@ -180,9 +183,19 @@ func (q *queryWriter) checkBinding(field *generators.FieldNode, last *exportgrap
 	return nil
 }
 
+// continuesAfter reports a property or class in the rest of a path.
+func continuesAfter(rest []generators.PathNode) bool {
+	for _, pn := range rest {
+		if pn.Element.Type == "property" || pn.Element.Type == "class" {
+			return true
+		}
+	}
+	return false
+}
+
 // subPathSteps walks a legacy subfield path, which the export graph does
 // not hold: class steps bind to their path_node_id when set, else ?sN.
-func subPathSteps(path []generators.PathNode, scope domain.PathElement) []step {
+func subPathSteps(path []generators.PathNode, scope domain.PathElement, sem string) ([]step, error) {
 	var steps []step
 	var pending *domain.PathElement
 	for i, pn := range path {
@@ -204,13 +217,16 @@ func subPathSteps(path []generators.PathNode, scope domain.PathElement) []step {
 			if pending != nil {
 				steps = append(steps, step{predicate: *pending, literal: true})
 			}
-			return steps
+			if continuesAfter(path[i+1:]) {
+				return nil, fmt.Errorf("sparql renderer: field %s: path continues after a literal", oneLine(sem))
+			}
+			return steps, nil
 		}
 	}
 	if pending != nil {
 		steps = append(steps, step{predicate: *pending, literal: true})
 	}
-	return steps
+	return steps, nil
 }
 
 func classTypes(e domain.PathElement, additional []domain.TypeRef) []domain.TypeRef {
@@ -232,7 +248,11 @@ func (q *queryWriter) writeField(b *strings.Builder, field *generators.FieldNode
 	for i, sub := range field.SubPaths {
 		b.WriteByte('\n')
 		writeComment(b, fmt.Sprintf("legacy subfield path %d", i+1))
-		if err := q.writeQuery(b, field, subPathSteps(sub, field.Scope), fmt.Sprintf("%s_p%d", value, i+1)); err != nil {
+		subSteps, err := subPathSteps(sub, field.Scope, field.Field.SemanticID)
+		if err != nil {
+			return err
+		}
+		if err := q.writeQuery(b, field, subSteps, fmt.Sprintf("%s_p%d", value, i+1)); err != nil {
 			return err
 		}
 	}
@@ -259,6 +279,7 @@ func (q *queryWriter) writeQuery(b *strings.Builder, field *generators.FieldNode
 
 	selected, labelled := value, false
 	subject := "?subject"
+	vars := []string{"?subject"}
 	for i, s := range steps {
 		pred, err := q.name(s.predicate.Prefix, s.predicate.LocalName, s.predicate.URI, sem)
 		if err != nil {
@@ -266,6 +287,7 @@ func (q *queryWriter) writeQuery(b *strings.Builder, field *generators.FieldNode
 		}
 		if i < len(steps)-1 {
 			fmt.Fprintf(&body, "  %s %s %s .\n", subject, pred, s.nodeVar)
+			vars = append(vars, s.nodeVar)
 			if err := q.writeTypeTriple(&body, s.nodeVar, s.types, sem); err != nil {
 				return err
 			}
@@ -275,7 +297,8 @@ func (q *queryWriter) writeQuery(b *strings.Builder, field *generators.FieldNode
 		object := value
 		if sv := field.Field.SetValue; sv != "" {
 			object = rdfterm.Term(sv, q.snap.Namespaces)
-			if !strings.HasPrefix(object, "<") {
+			// Term expands a bound prefix without checking its namespace
+			if !isIRIRef(object) {
 				return fmt.Errorf("sparql renderer: field %s: set value %q is not an IRI", sem, sv)
 			}
 			selected = subject
@@ -283,6 +306,19 @@ func (q *queryWriter) writeQuery(b *strings.Builder, field *generators.FieldNode
 			labelled = !s.literal && wantsLabelClause(field.Field.ExpectedValueType)
 		}
 		fmt.Fprintf(&body, "  %s %s %s .\n", subject, pred, object)
+	}
+
+	if selected == value {
+		vars = append(vars, value)
+	}
+	if labelled && !q.snap.Options.SPARQLCount {
+		vars = append(vars, value+"_label")
+	}
+	if q.snap.Options.SPARQLCount {
+		vars = append(vars, "?count")
+	}
+	if err := checkCollisions(vars, sem); err != nil {
+		return err
 	}
 
 	if q.snap.Options.SPARQLCount {
@@ -297,6 +333,24 @@ func (q *queryWriter) writeQuery(b *strings.Builder, field *generators.FieldNode
 	b.WriteString("}\n")
 	if q.snap.Options.SPARQLLimit > 0 && !q.snap.Options.SPARQLCount {
 		fmt.Fprintf(b, "LIMIT %d\n", q.snap.Options.SPARQLLimit)
+	}
+	return nil
+}
+
+// isIRIRef reports an <IRI> whose body holds no character an IRIREF
+// cannot.
+func isIRIRef(s string) bool {
+	return len(s) >= 2 && s[0] == '<' && s[len(s)-1] == '>' && !strings.ContainsFunc(s[1:len(s)-1], rdfterm.NotIRIChar)
+}
+
+// checkCollisions refuses a query in which two roles share a variable.
+func checkCollisions(vars []string, sem string) error {
+	seen := make(map[string]bool, len(vars))
+	for _, v := range vars {
+		if seen[v] {
+			return fmt.Errorf("sparql renderer: field %s: variable %s collides", sem, v)
+		}
+		seen[v] = true
 	}
 	return nil
 }
