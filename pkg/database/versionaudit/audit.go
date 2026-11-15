@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"text/tabwriter"
 
@@ -25,6 +26,21 @@ type Finding struct {
 	Subject string `json:"subject"`
 	// Detail is one sentence for the reader.
 	Detail string `json:"detail"`
+}
+
+// Rules are the rule ids this audit can report, sorted.
+var Rules = []string{"A2", "A4", "A8", "L1", "L3", "L4", "L5", "L7", "L8", "O2", "R3", "R5", "S1"}
+
+// UnknownRules returns the given ids this audit cannot report, in the order
+// given. Ids are case-sensitive, as they are in the rules page.
+func UnknownRules(rules []string) []string {
+	var out []string
+	for _, r := range rules {
+		if !slices.Contains(Rules, r) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // Run executes every check and returns the findings ordered by rule, project

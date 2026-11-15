@@ -4,6 +4,7 @@ package versionaudit_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -144,6 +145,21 @@ func TestRun_ReportsEachRule(t *testing.T) {
 		if !has(want.rule, want.project, want.subject, want.detail) {
 			t.Errorf("missing finding %+v", want)
 		}
+	}
+
+	// Every rule the package says it can report is seeded above, and nothing
+	// is reported under an id the package does not list.
+	var seen []string
+	for _, f := range got {
+		seen = append(seen, f.Rule)
+	}
+	for _, r := range versionaudit.Rules {
+		if !slices.Contains(seen, r) {
+			t.Errorf("rule %s is listed in Rules but no seeded finding has it", r)
+		}
+	}
+	if unknown := versionaudit.UnknownRules(seen); len(unknown) > 0 {
+		t.Errorf("findings carry rule ids missing from Rules: %v", unknown)
 	}
 
 	// Healthy neighbours: ZVAB's receipt matches its pin, and neither ZVAA nor
