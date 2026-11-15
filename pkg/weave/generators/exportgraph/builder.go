@@ -6,6 +6,7 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
+	"github.com/pletka-io/pletka/pkg/weave/generators/rdfterm"
 	"github.com/pletka-io/pletka/pkg/weave/views"
 )
 
@@ -65,6 +66,11 @@ func (b *builder) addField(field *generators.FieldNode) {
 		element := node.Element
 		switch element.Type {
 		case "class":
+			if rdfterm.IsDatatype(element) {
+				b.addLiteral(currentKey, pendingProperty, element, field)
+				pendingProperty = nil
+				continue
+			}
 			if i == 0 && sameElement(element, b.nodesByKey[b.graph.RootKey].Class) {
 				continue
 			}
@@ -114,11 +120,12 @@ func (b *builder) addLiteral(currentKey string, pendingProperty *domain.PathElem
 		return
 	}
 	predicate := *pendingProperty
-	if predicate.URI == "" {
+	if predicate.URI == "" && predicate.LocalName == "" {
 		predicate = literal
 	}
 	binding := LiteralBinding{
 		Predicate: predicate,
+		End:       literal,
 		Field:     b.fieldBinding(field, currentKey),
 	}
 	current.Literals = append(current.Literals, binding)

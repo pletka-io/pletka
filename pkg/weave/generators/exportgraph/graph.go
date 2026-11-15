@@ -59,7 +59,10 @@ type ResourceEdge struct {
 // LiteralBinding records a terminal literal/value field on a resource node.
 type LiteralBinding struct {
 	Predicate domain.PathElement `json:"predicate"`
-	Field     FieldBinding       `json:"field"`
+	// End is the leaf element: a datatype or literal; zero when the path
+	// ends at the property.
+	End   domain.PathElement `json:"end,omitempty"`
+	Field FieldBinding       `json:"field"`
 }
 
 // FieldBinding keeps the form-field identity attached to the graph node that

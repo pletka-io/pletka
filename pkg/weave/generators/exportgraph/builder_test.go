@@ -214,3 +214,62 @@ func groupByKind(graph *exportgraph.Graph, kind views.NodeKind) *exportgraph.Vis
 	}
 	return nil
 }
+
+// A class step naming an XSD datatype ends the path as a literal: the time
+// span gets a literal binding, not a "date" resource node.
+func TestBuildTreatsDatatypeClassStepAsLiteral(t *testing.T) {
+	snap := snapshotWithField(t, "TS.F.1", []domain.PathElement{
+		{Type: "property", Prefix: "crm", LocalName: "P4_has_time-span"},
+		{Type: "class", Prefix: "crm", LocalName: "E52_Time-Span", PathNode: "ts"},
+		{Type: "property", Prefix: "crm", LocalName: "P82a_begin_of_the_begin"},
+		{Type: "class", Prefix: "xsd", LocalName: "date", PathNode: "ts/date"},
+	})
+	g := exportgraph.Build(snap)
+	for _, n := range g.Nodes {
+		if n.Class.LocalName == "date" {
+			t.Fatalf("xsd:date became a resource node %q", n.Key)
+		}
+	}
+	ts := nodeByClass(t, g, "E52_Time-Span")
+	if len(ts.Literals) != 1 || ts.Literals[0].Predicate.LocalName != "P82a_begin_of_the_begin" {
+		t.Fatalf("time span literals = %+v", ts.Literals)
+	}
+	if ts.Literals[0].End.LocalName != "date" {
+		t.Fatalf("literal end = %+v, want xsd:date", ts.Literals[0].End)
+	}
+}
+
+// snapshotWithField builds a model snapshot (root E21_Person) holding one
+// directly placed field with the given ontology path.
+func snapshotWithField(t *testing.T, semanticID string, path []domain.PathElement) *generators.Snapshot {
+	t.Helper()
+	model := domain.Model{
+		Entity:        domain.Entity{ID: "model-test", SemanticID: "TS.M.1", SystemName: "test"},
+		OntologyScope: class("E21_Person"),
+	}
+	view := domain.ModelView{
+		Categories: []domain.CategoryGroup{{
+			ID: "cat-test",
+			Collections: []domain.CollectionGroup{{
+				ID:     "__direct__",
+				Fields: []domain.ResolvedField{resolvedField("field-test", semanticID, "test_field", append([]domain.PathElement{class("E21_Person")}, path...))},
+			}},
+		}},
+	}
+	return generators.BuildModelSnapshot(generators.ModelSnapshotInput{
+		Model:   model,
+		View:    view,
+		Options: generators.Options{Lang: "en"},
+	})
+}
+
+func nodeByClass(t *testing.T, graph *exportgraph.Graph, local string) *exportgraph.ResourceNode {
+	t.Helper()
+	for _, node := range graph.Nodes {
+		if node.Class.LocalName == local {
+			return node
+		}
+	}
+	t.Fatalf("no node with class %q", local)
+	return nil
+}
