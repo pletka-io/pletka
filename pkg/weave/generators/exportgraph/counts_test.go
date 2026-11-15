@@ -23,7 +23,7 @@ func tprop(q string) generators.PathNode {
 
 func tclass(q, chain string) generators.PathNode {
 	e := qel("class", q)
-	e.PathNode, e.PathNodeID = chain, chain
+	e.PathNode = chain
 	return generators.PathNode{Element: e}
 }
 
@@ -211,5 +211,30 @@ func TestPathEndingOnPropertyKeepsLiteralWithCounts(t *testing.T) {
 	}
 	if lits[0].Min != 1 || lits[0].Max == nil || *lits[0].Max != 2 {
 		t.Fatalf("counts = %d/%v, want 1/2", lits[0].Min, lits[0].Max)
+	}
+}
+
+// the node Key stays the generated PathNodeID when the element has one,
+// while identity follows the PathNode chain
+func TestNodeKeyIsPathNodeIDWhenPresent(t *testing.T) {
+	cls := tclass("crm:E52_Time-Span", "d/p4/e52")
+	cls.Element.PathNodeID = "E52_1"
+	g := buildCounts("crm:E7_Activity",
+		tfield("F.1", 0, false, nil, tprop("crm:P4_has_time-span"), cls, tprop("crm:P3_has_note"), tlit("xsd:string")),
+	)
+	if got := rootOf(t, g).Edges[0].TargetKey; got != "E52_1" {
+		t.Fatalf("target key = %q, want E52_1", got)
+	}
+}
+
+// a field with no collection that ends on an anchor step overwrites the
+// step's counts with its own, as the reference does
+func TestFieldWithoutCollectionEndingOnAnchorOverwritesCounts(t *testing.T) {
+	snap := nameSnapshot() // placement 1..3
+	typ := tfield("LAF.9", 0, false, intp(2), tprop("crm:P1_is_identified_by"), tclass("crm:E33_E41_Linguistic_Appellation", "c/name/p1/e33"))
+	snap.Fields = append(snap.Fields, typ)
+	entry := rootOf(t, buildCountsSnap(snap)).Edges[0]
+	if entry.Min != 0 || entry.Max == nil || *entry.Max != 2 {
+		t.Fatalf("counts = %d/%v, want the field's 0/2", entry.Min, entry.Max)
 	}
 }

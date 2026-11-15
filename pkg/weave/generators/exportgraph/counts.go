@@ -11,18 +11,15 @@ func EffectiveMin(required bool, min int) int {
 }
 
 // addEnding records that field's path ends on edge. The first ending also
-// sets the edge's own counts; on an entry step it only tightens them.
+// sets the edge's own counts.
 func addEnding(edge *ResourceEdge, field *generators.FieldNode) {
 	min, max := EffectiveMin(field.Field.IsRequired, field.Field.MinOccurs), field.Field.MaxOccurs
 	edge.Endings = append(edge.Endings, Ending{FieldID: field.Field.ID, Min: min, Max: max})
-	if len(edge.Endings) > 1 {
-		return
+	if len(edge.Endings) == 1 {
+		// overwrites any placement counts; a field with a collection
+		// re-applies the placement next, made stricter by this ending
+		edge.Min, edge.Max = min, max
 	}
-	if edge.Entry {
-		tighten(edge, min, max)
-		return
-	}
-	edge.Min, edge.Max = min, max
 }
 
 // applyPlacement marks edge as the entry into a placed collection and gives

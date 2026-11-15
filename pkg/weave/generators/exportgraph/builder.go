@@ -21,6 +21,7 @@ func Build(snap *generators.Snapshot) *Graph {
 		groupByKey:  make(map[string]*VisualGroup),
 		fieldGroups: make(map[string][]string),
 		anchors:     collectionAnchors(snap.Tree),
+		keyByIdent:  make(map[string]string),
 		graph:       &Graph{Source: snap},
 	}
 	b.buildRoot()
@@ -40,6 +41,8 @@ type builder struct {
 	fieldGroups map[string][]string
 	// anchors maps a placed collection's anchor PathNode to its semantic id.
 	anchors map[string]string
+	// keyByIdent maps a class node's identity to its Key.
+	keyByIdent map[string]string
 }
 
 func (b *builder) buildRoot() {
@@ -91,6 +94,7 @@ func (b *builder) addField(field *generators.FieldNode) {
 					AdditionalTypes: append([]domain.TypeRef(nil), element.AdditionalTypes...),
 				}
 				b.addNode(next)
+				b.keyByIdent[b.nodeIdentity(currentKey, *pendingProperty, element)] = nextKey
 			} else {
 				next.Class = mergeClassElement(next.Class, element)
 				next.AdditionalTypes = mergeTypeRefs(next.AdditionalTypes, element.AdditionalTypes)
@@ -294,14 +298,36 @@ func (b *builder) keyForPath(elements []domain.PathElement) string {
 	return currentKey
 }
 
-// resourceKey is the export-graph node identity. It is the class
-// element's generated path_node_id — the structural node id the
-// snapshot stamps onto every path element. The
-// parentKey/predicate/class structural fallback (no #instance= legacy
-// splice) covers elements that carry no path_node_id.
+// nodeIdentity decides which path steps share a node: the class element's
+// PathNode chain when set (unique per branch), else the parent plus the
+// prefixed names of property and class, so a CURIE and a full IRI for the
+// same step merge.
+func (b *builder) nodeIdentity(parentKey string, predicate domain.PathElement, class domain.PathElement) string {
+	if class.PathNode != "" {
+		return "pn:" + class.PathNode
+	}
+	return "st:" + parentKey + "/" + stepName(predicate) + "/" + stepName(class)
+}
+
+func stepName(e domain.PathElement) string {
+	if e.LocalName != "" {
+		return e.PrefixedName()
+	}
+	return e.URI
+}
+
+// resourceKey is the export-graph node Key. A node already seen under the
+// same identity keeps its Key; a new one takes the generated path_node_id,
+// else its PathNode chain, else a structural parent/predicate/class key.
 func (b *builder) resourceKey(parentKey string, predicate domain.PathElement, class domain.PathElement) string {
-	if class.PathNodeID != "" {
+	if key, ok := b.keyByIdent[b.nodeIdentity(parentKey, predicate, class)]; ok {
+		return key
+	}
+	switch {
+	case class.PathNodeID != "":
 		return class.PathNodeID
+	case class.PathNode != "":
+		return class.PathNode
 	}
 	return parentKey + "/" + elementIdentity(predicate) + "/" + elementIdentity(class)
 }
