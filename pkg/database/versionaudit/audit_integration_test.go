@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/pletka-io/pletka/internal/testdb"
 	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
 	"github.com/pletka-io/pletka/pkg/database/versionaudit"
@@ -52,14 +54,16 @@ func TestRun_ReportsEachRule(t *testing.T) {
 		"ZVACA", "ZVACB", // cycle through the legacy column
 		"ZVAD", "ZVAA", "ZVAB", // diamond on ZVAG, ontology conflict
 		"ZVAR", "ZVAS", // releases
-		"ZVAX",   // receipts without a link
-		"ZVAPUB", // public, never released
+		"ZVAX",         // receipts without a link
+		"ZVAPUB",       // public, never released
+		"ZVAK", "ZVAJ", // cycle through a pinned release
 	} {
 		exec(`INSERT INTO weave_projects (id, owner_id) VALUES ($1, 'ZVA_OWNER')`, id)
 	}
 	exec(`INSERT INTO weave_releases (project_id, version, created_by_id) VALUES
 		('ZVAG', '1.0.0', 'ZVA_OWNER'), ('ZVAG', '2.0.0', 'ZVA_OWNER'),
-		('ZVAR', '1.0.0', 'ZVA_OWNER'), ('ZVAS', '1.0.0', 'ZVA_OWNER')`)
+		('ZVAR', '1.0.0', 'ZVA_OWNER'), ('ZVAS', '1.0.0', 'ZVA_OWNER'),
+		('ZVAJ', '1.0.0', 'ZVA_OWNER')`)
 	exec(`INSERT INTO weave_releases (project_id, version, created_by_id, archived_at) VALUES ('ZVAP', '0.9.0', 'ZVA_OWNER', now())`)
 
 	// L8: legacy column, no link row. L7: legacy column disagrees with the primary link.
@@ -105,7 +109,27 @@ func TestRun_ReportsEachRule(t *testing.T) {
 		('ZVAL7', 'project', 'ZVAL7', 'category', 'ZVAP', 'ZVAP.CAT.1'),
 		('ZVAL7', 'project', 'ZVAL7', 'category', 'ZVAP', 'ZVAP.CAT.2')`)
 
-	all, err := versionaudit.Run(ctx, sqlcgen.New(pool))
+	// L4 through a pin: ZVAK pins ZVAJ 1.0.0, whose recorded chain leads back to ZVAK.
+	exec(`INSERT INTO weave_project_inheritance (project_id, parent_project_id, is_primary, source_mode, source_version) VALUES ('ZVAK', 'ZVAJ', true, 'release', '1.0.0')`)
+	exec(`INSERT INTO weave_project_inheritance_archive (project_id, parent_project_id, is_primary, version_number, source_mode) VALUES ('ZVAJ', 'ZVAK', true, '1.0.0', 'draft')`)
+	// A4 healthy neighbour: ZVAL8's only parent is the legacy column, and it adopts from that parent.
+	exec(`INSERT INTO weave_adoptions (project_id, context_entity_type, context_entity_id, entity_type, source_project_id, source_entity_id) VALUES
+		('ZVAL8', 'project', 'ZVAL8', 'field', 'ZVAP', 'ZVAPF.1')`)
+	// A8: two local categories carry the name of one copied category.
+	exec(`INSERT INTO weave_categories (id, semantic_id, system_name, ui_name, project_id) VALUES
+		('ZVAP.CAT.3', 'ZVAP.CAT.3', 'find', '{"en":"Find"}', 'ZVAP'),
+		('ZVAL7.CAT.3', 'ZVAL7.CAT.3', 'find', '{"en":"Find"}', 'ZVAL7'),
+		('ZVAL7.CAT.4', 'ZVAL7.CAT.4', 'find', '{"en":"Finds"}', 'ZVAL7')`)
+	exec(`INSERT INTO weave_adoptions (project_id, context_entity_type, context_entity_id, entity_type, source_project_id, source_entity_id) VALUES
+		('ZVAL7', 'project', 'ZVAL7', 'category', 'ZVAP', 'ZVAP.CAT.3')`)
+
+	// As the command runs it: one read-only transaction.
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	all, err := versionaudit.Run(ctx, sqlcgen.New(tx))
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -141,6 +165,8 @@ func TestRun_ReportsEachRule(t *testing.T) {
 		{"S1", "ZVAPUB", "", "public project without a release"},
 		{"A8", "ZVAL7", "ZVAL7.CAT.1", "unchanged copy of ZVAP.CAT.1"},
 		{"A8", "ZVAL7", "ZVAL7.CAT.2", "changed copy of ZVAP.CAT.2"},
+		{"A8", "ZVAL7", "ZVAL7.CAT.3", "2 categories share the name of ZVAP.CAT.3"},
+		{"L4", "ZVAK", "ZVAK > ZVAJ > ZVAK", "cycle"},
 	} {
 		if !has(want.rule, want.project, want.subject, want.detail) {
 			t.Errorf("missing finding %+v", want)
@@ -164,12 +190,20 @@ func TestRun_ReportsEachRule(t *testing.T) {
 
 	// Healthy neighbours: ZVAB's receipt matches its pin, and neither ZVAA nor
 	// ZVAB has a diamond or an ontology conflict of its own.
+	cat3 := 0
 	for _, f := range got {
+		if f.Rule == "A8" && strings.HasSuffix(f.Detail, "ZVAP.CAT.3") {
+			cat3++
+		}
 		switch {
-		case f.Rule == "A2" && f.ProjectID == "ZVAB",
+		case f.Rule == "A4" && f.ProjectID == "ZVAL8",
+			f.Rule == "A2" && f.ProjectID == "ZVAB",
 			(f.Rule == "L5" || f.Rule == "O2") && (f.ProjectID == "ZVAA" || f.ProjectID == "ZVAB"):
 			t.Errorf("unexpected finding %+v", f)
 		}
+	}
+	if cat3 != 1 {
+		t.Errorf("receipt of ZVAP.CAT.3 reported %d times, want once", cat3)
 	}
 	if t.Failed() {
 		for _, f := range got {

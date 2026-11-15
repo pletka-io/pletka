@@ -91,7 +91,8 @@ func Run(ctx context.Context, q *sqlcgen.Queries) ([]Finding, error) {
 		}
 		return a.Subject < b.Subject
 	})
-	return out, nil
+	// a cycle over live links is seen by both the link and the closure check
+	return slices.Compact(out), nil
 }
 
 // Filter keeps the findings of the given rules; no rules keeps everything.

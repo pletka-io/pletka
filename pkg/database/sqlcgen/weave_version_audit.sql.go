@@ -19,22 +19,32 @@ WITH RECURSIVE links AS (
            COALESCE(wpia.source_version, '')::text
     FROM weave_project_inheritance_archive wpia
     WHERE wpia.version_number <> ''
+    UNION ALL
+    SELECT wp.id, ''::text, wp.parent_project_id, ''::text
+    FROM weave_projects wp
+    WHERE COALESCE(wp.parent_project_id, '') <> ''
+      AND NOT EXISTS (SELECT 1 FROM weave_project_inheritance wpi WHERE wpi.project_id = wp.id)
 ),
 roots AS (
-    SELECT DISTINCT wpi.project_id AS root, ''::text AS root_version FROM weave_project_inheritance wpi
+    SELECT DISTINCT l.project_id AS root, ''::text AS root_version FROM links l WHERE l.at_version = ''
     UNION ALL
     SELECT r.project_id, r.version FROM weave_releases r
 ),
-walk AS (
+allwalk AS (
     SELECT ro.root, ro.root_version, l.parent_project_id AS member, l.selector,
-           ARRAY[ro.root, l.parent_project_id] AS path
+           ARRAY[ro.root, l.parent_project_id] AS path,
+           l.parent_project_id = ro.root AS closed
     FROM roots ro
     JOIN links l ON l.project_id = ro.root AND l.at_version = ro.root_version
     UNION ALL
-    SELECT w.root, w.root_version, l.parent_project_id, l.selector, w.path || l.parent_project_id
-    FROM walk w
+    SELECT w.root, w.root_version, l.parent_project_id, l.selector, w.path || l.parent_project_id,
+           l.parent_project_id = ANY(w.path)
+    FROM allwalk w
     JOIN links l ON l.project_id = w.member AND l.at_version = w.selector
-    WHERE cardinality(w.path) < 50 AND NOT (l.parent_project_id = ANY(w.path))
+    WHERE NOT w.closed AND cardinality(w.path) < 50
+),
+walk AS (
+    SELECT root, root_version, member, selector, path, closed FROM allwalk aw WHERE NOT aw.closed
 ),
 sel AS (
     SELECT w.root, w.root_version, w.member, MIN(w.selector) AS selector,
@@ -81,6 +91,12 @@ UNION ALL
  FROM walk w
  WHERE cardinality(w.path) > 11
  ORDER BY w.root, w.root_version, cardinality(w.path) DESC)
+UNION ALL
+SELECT DISTINCT 'L4'::text, aw.root::text,
+       (array_to_string(aw.path, ' > ') || CASE WHEN aw.root_version = '' THEN '' ELSE ' in release ' || aw.root_version END)::text,
+       'cycle over parent links'::text
+FROM allwalk aw
+WHERE aw.closed AND aw.member = aw.root
 UNION ALL
 SELECT DISTINCT 'R5'::text, w.root::text, (w.root_version || ': ' || array_to_string(w.path, ' > '))::text,
        'release whose closure follows a draft (chain-unpinned)'::text
@@ -131,7 +147,10 @@ type WeaveVersionAuditClosuresRow struct {
 // Everything that needs the closure: for each project's draft and for each
 // release, the projects reached through parent links and the selector each is
 // reached at (” is the draft). A pinned member's own links are the ones its
-// pinned release recorded.
+// pinned release recorded. A project with no link rows follows the draft of
+// its legacy parent column, as a release cut reads it.
+// a step that returns to a project already on the path closes a cycle; it is
+// reported as L4 and is not part of the closure
 func (q *Queries) WeaveVersionAuditClosures(ctx context.Context) ([]WeaveVersionAuditClosuresRow, error) {
 	rows, err := q.db.Query(ctx, weaveVersionAuditClosures)
 	if err != nil {
@@ -176,13 +195,21 @@ SELECT 'A8'::text, wa.project_id::text, COALESCE(copy.id, wa.source_entity_id)::
        (CASE
             WHEN src.id IS NULL THEN 'category receipt whose source is gone: '
             WHEN copy.id IS NULL THEN 'category receipt without a copy: '
+            WHEN copy.n > 1 THEN copy.n || ' categories share the name of '
             WHEN copy.ui_name IS NOT DISTINCT FROM src.ui_name
              AND copy.description IS NOT DISTINCT FROM src.description THEN 'unchanged copy of '
             ELSE 'changed copy of '
         END || wa.source_entity_id)::text
 FROM weave_adoptions wa
 LEFT JOIN weave_categories src ON src.id = wa.source_entity_id AND src.project_id = wa.source_project_id
-LEFT JOIN weave_categories copy ON copy.project_id = wa.project_id AND copy.system_name = src.system_name
+LEFT JOIN LATERAL (
+    -- categories are matched by name, and a name is not unique in a project
+    SELECT c.id, c.ui_name, c.description, COUNT(*) OVER () AS n
+    FROM weave_categories c
+    WHERE c.project_id = wa.project_id AND c.system_name = src.system_name
+    ORDER BY c.id
+    LIMIT 1
+) copy ON true
 WHERE wa.entity_type = 'category'
 ORDER BY 1, 2, 3
 `
