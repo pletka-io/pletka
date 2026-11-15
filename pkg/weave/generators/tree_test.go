@@ -143,6 +143,28 @@ func TestBuildCollectionSnapshotSortsFields(t *testing.T) {
 	}
 }
 
+// Fields that share a position sort by semantic id, whatever order the
+// database returned them in.
+func TestBuildCollectionSnapshotBreaksPositionTies(t *testing.T) {
+	collection := domain.Collection{
+		Entity:        domain.Entity{ID: "collection-1", SemanticID: "LA.C.1", SystemName: "Birth"},
+		OntologyScope: pe("class", "crm", "E67_Birth", 0),
+	}
+	snapshot := BuildCollectionSnapshot(CollectionSnapshotInput{
+		Project:    domain.Project{Entity: domain.Entity{ID: "LA"}},
+		Collection: collection,
+		Fields: []domain.ResolvedField{
+			field("field-b", "LA.F.2", "B", 10),
+			field("field-a", "LA.F.1", "A", 10),
+		},
+		Options: Options{Lang: "en"},
+	})
+
+	if got := snapshot.Fields[0].Field.SemanticID; got != "LA.F.1" {
+		t.Fatalf("first field = %q, want LA.F.1", got)
+	}
+}
+
 func TestBuildFieldSnapshotUsesFieldAsRoot(t *testing.T) {
 	base := domain.Field{
 		Entity:        domain.Entity{ID: "field-1", SemanticID: "LA.F.1", SystemName: "Name"},

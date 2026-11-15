@@ -877,9 +877,17 @@ func groupByCategory(
 				collMinPos[entry.id] = minFieldPos
 			}
 
-			// Sort fields by Position within collection.
+			// Sort fields by Position within collection; ties by semantic id,
+			// then id, so the database's row order never shows.
 			sort.Slice(entry.fields, func(i, j int) bool {
-				return entry.fields[i].Position < entry.fields[j].Position
+				a, b := entry.fields[i], entry.fields[j]
+				if a.Position != b.Position {
+					return a.Position < b.Position
+				}
+				if a.SemanticID != b.SemanticID {
+					return a.SemanticID < b.SemanticID
+				}
+				return a.ID < b.ID
 			})
 
 			collGroup.Fields = entry.fields
@@ -902,9 +910,12 @@ func groupByCategory(
 		groups = append(groups, cg)
 	}
 
-	// Sort categories by position.
+	// Sort categories by position; ties by id, since groups come from a map.
 	sort.Slice(groups, func(i, j int) bool {
-		return groups[i].Position < groups[j].Position
+		if groups[i].Position != groups[j].Position {
+			return groups[i].Position < groups[j].Position
+		}
+		return groups[i].ID < groups[j].ID
 	})
 
 	return groups

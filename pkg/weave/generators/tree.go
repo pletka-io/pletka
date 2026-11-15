@@ -217,7 +217,14 @@ func BuildCollectionSnapshot(in CollectionSnapshotInput) *Snapshot {
 		}
 	}
 	sort.SliceStable(fields, func(i, j int) bool {
-		return fields[i].Position < fields[j].Position
+		a, b := fields[i], fields[j]
+		if a.Position != b.Position {
+			return a.Position < b.Position
+		}
+		if a.SemanticID != b.SemanticID {
+			return a.SemanticID < b.SemanticID
+		}
+		return a.ID < b.ID
 	})
 
 	fieldNodes := make([]FieldNode, 0, len(fields))

@@ -56,3 +56,31 @@ func TestComputeSharedPathPrefixIgnoresURIForm(t *testing.T) {
 		t.Fatalf("prefix: %+v", got)
 	}
 }
+
+// TestGroupByCategoryTiesAreDeterministic: fields that share a position sort
+// by semantic id, then id, and categories that share a position sort by id,
+// so neither the database's row order nor map iteration shows in the result.
+func TestGroupByCategoryTiesAreDeterministic(t *testing.T) {
+	cats := map[string]*categoryInfo{
+		"CAT.B": {ID: "CAT.B", Position: 1},
+		"CAT.A": {ID: "CAT.A", Position: 1},
+	}
+	field := func(id, sem, cat string) domain.ResolvedField {
+		return domain.ResolvedField{ID: id, SemanticID: sem, CategoryID: cat, Position: 1}
+	}
+	for _, fields := range [][]domain.ResolvedField{
+		{field("x2", "LAF.393", "CAT.A"), field("x1", "LAF.389", "CAT.A"), field("x3", "LAF.5", "CAT.B")},
+		{field("x3", "LAF.5", "CAT.B"), field("x1", "LAF.389", "CAT.A"), field("x2", "LAF.393", "CAT.A")},
+	} {
+		for i := 0; i < 20; i++ { // map iteration order varies; the result must not
+			groups := groupByCategory(fields, cats, nil)
+			if len(groups) != 2 || groups[0].ID != "CAT.A" || groups[1].ID != "CAT.B" {
+				t.Fatalf("run %d: categories %+v, want CAT.A then CAT.B", i, groups)
+			}
+			got := groups[0].Collections[0].Fields
+			if len(got) != 2 || got[0].SemanticID != "LAF.389" || got[1].SemanticID != "LAF.393" {
+				t.Fatalf("run %d: fields %+v, want LAF.389 then LAF.393", i, got)
+			}
+		}
+	}
+}

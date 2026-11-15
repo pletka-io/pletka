@@ -170,6 +170,7 @@ func TestTurtleRendererGroupsFieldsBySharedClassPath(t *testing.T) {
 		Fields: []domain.ResolvedField{
 			{
 				ID:         "field-content",
+				Position:   1,
 				SemanticID: "LAF.6",
 				SystemName: "name_content",
 				Description: domain.Translations{
@@ -184,6 +185,7 @@ func TestTurtleRendererGroupsFieldsBySharedClassPath(t *testing.T) {
 			},
 			{
 				ID:         "field-type",
+				Position:   2,
 				SemanticID: "LAF.5",
 				SystemName: "name_type",
 				Description: domain.Translations{
@@ -198,6 +200,7 @@ func TestTurtleRendererGroupsFieldsBySharedClassPath(t *testing.T) {
 			},
 			{
 				ID:         "field-label",
+				Position:   3,
 				SemanticID: "LAF.4",
 				SystemName: "name_label",
 				Description: domain.Translations{
@@ -259,6 +262,7 @@ func TestTurtleRendererDefaultsClassResourcesToBlankNodes(t *testing.T) {
 		Fields: []domain.ResolvedField{
 			{
 				ID:         "field-content",
+				Position:   1,
 				SemanticID: "LAF.6",
 				SystemName: "name_content",
 				Description: domain.Translations{
@@ -273,6 +277,7 @@ func TestTurtleRendererDefaultsClassResourcesToBlankNodes(t *testing.T) {
 			},
 			{
 				ID:         "field-type",
+				Position:   2,
 				SemanticID: "LAF.5",
 				SystemName: "name_type",
 				Description: domain.Translations{
@@ -287,6 +292,7 @@ func TestTurtleRendererDefaultsClassResourcesToBlankNodes(t *testing.T) {
 			},
 			{
 				ID:         "field-label",
+				Position:   3,
 				SemanticID: "LAF.4",
 				SystemName: "name_label",
 				Description: domain.Translations{
