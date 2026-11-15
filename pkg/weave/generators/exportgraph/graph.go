@@ -34,6 +34,18 @@ type ResourceNode struct {
 	Groups          []GroupBinding      `json:"groups,omitempty"`
 	SourcePaths     []SourcePathBinding `json:"source_paths,omitempty"`
 	AdditionalTypes []domain.TypeRef    `json:"additional_types,omitempty"`
+	// Collection is set on the anchor node of a placed collection.
+	Collection *CollectionAnchor `json:"collection,omitempty"`
+}
+
+// CollectionAnchor identifies the placed collection a node anchors.
+type CollectionAnchor struct {
+	SemanticID string              `json:"semantic_id"`
+	Label      domain.Translations `json:"label,omitempty"`
+	// Address is "<root semantic id>/<collection semantic id>", with
+	// "/<anchor path node id>" appended when the same collection is placed
+	// more than once. Renderers add their own prefix.
+	Address string `json:"address"`
 }
 
 type ResourceSource struct {

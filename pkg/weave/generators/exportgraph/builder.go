@@ -22,6 +22,7 @@ func Build(snap *generators.Snapshot) *Graph {
 		fieldGroups: make(map[string][]string),
 		anchors:     collectionAnchors(snap.Tree),
 		keyByIdent:  make(map[string]string),
+		addresses:   make(map[string]bool),
 		graph:       &Graph{Source: snap},
 	}
 	b.buildRoot()
@@ -41,6 +42,8 @@ type builder struct {
 	fieldGroups map[string][]string
 	// anchors maps a placed collection's anchor PathNode to its semantic id.
 	anchors map[string]string
+	// addresses holds the collection addresses taken so far.
+	addresses map[string]bool
 	// keyByIdent maps a class node's identity to its Key.
 	keyByIdent map[string]string
 }
@@ -107,8 +110,16 @@ func (b *builder) addField(field *generators.FieldNode) {
 			if i == len(field.Path)-1 {
 				addEnding(edge, field)
 			}
-			if _, ok := b.anchors[element.PathNode]; ok && element.PathNode != "" && field.CollectionID != "" {
+			if sem, ok := b.anchors[element.PathNode]; ok && element.PathNode != "" && field.CollectionID != "" {
 				applyPlacement(edge, field)
+				if next.Collection == nil {
+					addr := stableRootID(b.snap) + "/" + sem
+					if b.addresses[addr] {
+						addr += "/" + element.PathNodeID
+					}
+					b.addresses[addr] = true
+					next.Collection = &CollectionAnchor{SemanticID: sem, Label: field.CollectionName, Address: addr}
+				}
 			}
 			currentKey = nextKey
 			pendingProperty = nil
