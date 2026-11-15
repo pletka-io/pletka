@@ -54,6 +54,23 @@ type ResourceEdge struct {
 	Predicate domain.PathElement `json:"predicate"`
 	TargetKey string             `json:"target_key"`
 	FieldIDs  []string           `json:"field_ids,omitempty"`
+
+	// Min/Max count the step per parent node: the first ending field's
+	// counts, the collection placement for an entry step (made stricter by
+	// a field ending on it), or Min 1 when something below is required.
+	Min int  `json:"min"`
+	Max *int `json:"max,omitempty"`
+	// Entry marks the step into a placed collection's anchor.
+	Entry bool `json:"entry,omitempty"`
+	// Endings are the fields whose path ends on this step, in field order.
+	Endings []Ending `json:"endings,omitempty"`
+}
+
+// Ending is one field's own counts on the step its path ends on.
+type Ending struct {
+	FieldID string `json:"field_id"`
+	Min     int    `json:"min"`
+	Max     *int   `json:"max,omitempty"`
 }
 
 // LiteralBinding records a terminal literal/value field on a resource node.
@@ -63,6 +80,9 @@ type LiteralBinding struct {
 	// ends at the property.
 	End   domain.PathElement `json:"end,omitempty"`
 	Field FieldBinding       `json:"field"`
+	// Min/Max are the field's own counts per parent node.
+	Min int  `json:"min"`
+	Max *int `json:"max,omitempty"`
 }
 
 // FieldBinding keeps the form-field identity attached to the graph node that

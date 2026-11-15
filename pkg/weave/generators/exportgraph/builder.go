@@ -20,12 +20,14 @@ func Build(snap *generators.Snapshot) *Graph {
 		nodesByKey:  make(map[string]*ResourceNode),
 		groupByKey:  make(map[string]*VisualGroup),
 		fieldGroups: make(map[string][]string),
+		anchors:     collectionAnchors(snap.Tree),
 		graph:       &Graph{Source: snap},
 	}
 	b.buildRoot()
 	b.collectGroups()
 	b.buildFields()
 	b.resolveGroupBranches()
+	propagateRequired(b.graph, b.nodesByKey)
 	return b.graph
 }
 
@@ -36,6 +38,8 @@ type builder struct {
 	nodesByKey  map[string]*ResourceNode
 	groupByKey  map[string]*VisualGroup
 	fieldGroups map[string][]string
+	// anchors maps a placed collection's anchor PathNode to its semantic id.
+	anchors map[string]string
 }
 
 func (b *builder) buildRoot() {
@@ -95,7 +99,13 @@ func (b *builder) addField(field *generators.FieldNode) {
 			addUniqueSourcePath(&next.SourcePaths, field.Field.ID, node.RelativePath)
 			addUniqueFieldSource(&next.Source.Fields, field)
 			addUniquePathSource(&next.Source.Paths, node)
-			b.addResourceEdge(currentKey, *pendingProperty, nextKey, field.Field.ID)
+			edge := b.addResourceEdge(currentKey, *pendingProperty, nextKey, field.Field.ID)
+			if i == len(field.Path)-1 {
+				addEnding(edge, field)
+			}
+			if _, ok := b.anchors[element.PathNode]; ok && element.PathNode != "" && field.CollectionID != "" {
+				applyPlacement(edge, field)
+			}
 			currentKey = nextKey
 			pendingProperty = nil
 		case "property":
@@ -111,6 +121,10 @@ func (b *builder) addField(field *generators.FieldNode) {
 		}
 	}
 
+	if pendingProperty != nil {
+		// the path ends on a property with no leaf element
+		b.addLiteral(currentKey, pendingProperty, domain.PathElement{}, field)
+	}
 	b.bindFieldToNode(currentKey, field)
 }
 
@@ -127,6 +141,8 @@ func (b *builder) addLiteral(currentKey string, pendingProperty *domain.PathElem
 		Predicate: predicate,
 		End:       literal,
 		Field:     b.fieldBinding(field, currentKey),
+		Min:       EffectiveMin(field.Field.IsRequired, field.Field.MinOccurs),
+		Max:       field.Field.MaxOccurs,
 	}
 	current.Literals = append(current.Literals, binding)
 	addUniqueFieldSource(&current.Source.Fields, field)
@@ -170,16 +186,20 @@ func (b *builder) addNode(node *ResourceNode) {
 	b.graph.Nodes = append(b.graph.Nodes, node)
 }
 
-func (b *builder) addResourceEdge(sourceKey string, predicate domain.PathElement, targetKey string, fieldID string) {
+// addResourceEdge returns the edge it created or found; the pointer is valid
+// until the next edge is appended to the source node.
+func (b *builder) addResourceEdge(sourceKey string, predicate domain.PathElement, targetKey string, fieldID string) *ResourceEdge {
 	source := b.nodesByKey[sourceKey]
 	if source == nil {
-		return
+		return &ResourceEdge{}
 	}
 	for i := range source.Edges {
 		edge := &source.Edges[i]
-		if edge.TargetKey == targetKey && sameElement(edge.Predicate, predicate) {
+		// steps compare by prefixed name: stored paths mix CURIEs and
+		// full IRIs for the same step
+		if edge.TargetKey == targetKey && edge.Predicate.SameStep(predicate) {
 			addUniqueString(&edge.FieldIDs, fieldID)
-			return
+			return edge
 		}
 	}
 	source.Edges = append(source.Edges, ResourceEdge{
@@ -187,6 +207,7 @@ func (b *builder) addResourceEdge(sourceKey string, predicate domain.PathElement
 		TargetKey: targetKey,
 		FieldIDs:  nonEmptyStrings(fieldID),
 	})
+	return &source.Edges[len(source.Edges)-1]
 }
 
 func (b *builder) collectGroups() {
@@ -484,5 +505,25 @@ func copyPathElements(in []domain.PathElement) []domain.PathElement {
 		out[i] = element
 		out[i].AdditionalTypes = append([]domain.TypeRef(nil), element.AdditionalTypes...)
 	}
+	return out
+}
+
+// collectionAnchors maps each placed collection's anchor PathNode to the
+// collection's semantic id.
+func collectionAnchors(tree *views.Tree) map[string]string {
+	out := map[string]string{}
+	if tree == nil {
+		return out
+	}
+	var walk func(views.TreeNode)
+	walk = func(t views.TreeNode) {
+		if t.Kind == views.NodeCollection && t.Anchor != nil && t.Anchor.PathNode != "" {
+			out[t.Anchor.PathNode] = t.SemanticID
+		}
+		for _, c := range t.Children {
+			walk(c)
+		}
+	}
+	walk(tree.Root)
 	return out
 }
