@@ -40,6 +40,9 @@ type Options struct {
 	// SPARQLCount swaps the SELECT projection for COUNT(?value) — the
 	// caller wants result cardinality, not the rows themselves.
 	SPARQLCount bool
+	// SPARQLKind is the requested query kind; empty means entries.
+	// SPARQLCount is kept in step with it for the count kind.
+	SPARQLKind SPARQLKind
 
 	// X3MLTargets supplies the project's linked ontologies so the X3ML
 	// renderer can emit one <target> block per ontology.
@@ -158,4 +161,22 @@ type SHACLOptions struct {
 	// ConceptsAdvisory (concepts=advisory): sealed concept lists report
 	// values outside the list as warnings.
 	ConceptsAdvisory bool `json:"concepts_advisory,omitempty"`
+}
+
+// SPARQLKind names a kind of SPARQL query a generator endpoint can emit.
+type SPARQLKind string
+
+const (
+	SPARQLKindEntries SPARQLKind = "entries"
+	SPARQLKindCount   SPARQLKind = "count"
+)
+
+// SPARQLKinds lists the kinds offered for a root level, in display order.
+// Unknown levels offer none.
+func SPARQLKinds(root EntityKind) []SPARQLKind {
+	switch root {
+	case EntityField, EntityCollection, EntityModel:
+		return []SPARQLKind{SPARQLKindEntries, SPARQLKindCount}
+	}
+	return nil
 }

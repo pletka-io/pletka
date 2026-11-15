@@ -51,6 +51,8 @@ func Mount(parent chi.Router, h Host) {
 
 	withVersion := parent.With(weaveauth.WithProjectVersionContext)
 
+	withVersion.Get("/gen/sparql/kinds", handler.GetSPARQLKinds)
+
 	withVersion.Get("/gen/models/{modelID}/diagram", handler.GetModelDiagram)
 	withVersion.Get("/gen/models/{modelID}/turtle", handler.GetModelTurtle)
 	withVersion.Get("/gen/models/{modelID}/jsonld", handler.GetModelJSONLD)
