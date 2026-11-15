@@ -27,3 +27,4 @@ Format: [`TEMPLATE.md`](TEMPLATE.md). Numbering is zero-padded and sequential.
 | [0006](0006-override-shared-infrastructure-slice.md) | Override is a shared infrastructure slice — peer entity slices may import it directly; the peer-isolation rule otherwise stays hard. |
 | [0007](0007-host-injection-over-global-registration.md) | Host injection over global registration — extensions are explicit constructor arguments through app/CLI options; no package-global registries, no `init()`. |
 | [0009](0009-server-errors-through-one-door.md) | Server errors go through one door that takes the cause — 5xx only via functions that require the `error`; lint bans the other paths. |
+| [0010](0010-export-graph-is-the-generator-basis.md) | The export graph is the basis for every generator — all generators read `exportgraph.Build`, not raw field paths; its JSON is the contract for script generators. |
