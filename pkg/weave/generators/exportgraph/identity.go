@@ -58,8 +58,8 @@ func NodeIdentity(n *ResourceNode, g *Graph, ns generators.NamespaceSet) Identit
 			if min < 1 {
 				continue
 			}
-			if f := endingField(g, e.TargetKey, end.FieldID); f != nil {
-				add(e.Predicate.PrefixedName(), f.Field.SetValue)
+			if end.Field != nil {
+				add(e.Predicate.PrefixedName(), end.Field.Field.SetValue)
 			}
 		}
 	}
@@ -67,16 +67,6 @@ func NodeIdentity(n *ResourceNode, g *Graph, ns generators.NamespaceSet) Identit
 		id.Values = nil
 	}
 	return id
-}
-
-// endingField finds the field that ends on the node with key.
-func endingField(g *Graph, key, fieldID string) *generators.FieldNode {
-	for _, b := range g.Fields {
-		if b.NodeKey == key && b.ID == fieldID {
-			return b.Source
-		}
-	}
-	return nil
 }
 
 // Distinguishable reports whether no value can match both identities: their

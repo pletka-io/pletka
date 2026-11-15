@@ -66,6 +66,19 @@ func TestIdentityKeepsEveryFixedValue(t *testing.T) {
 	}
 }
 
+func TestIdentityResolvesEndingFieldWithoutID(t *testing.T) {
+	a := tfield("", 0, false, nil, tprop("crm:P2_has_type"), tclass("crm:E55_Type", ""))
+	b := tfield("", 0, true, nil, tprop("crm:P2_has_type"), tclass("crm:E55_Type", ""))
+	b.Field.SetValue = "http://vocab.getty.edu/aat/9"
+	g := exportgraph.Build(&generators.Snapshot{
+		Model:  &domain.Model{Entity: domain.Entity{SemanticID: "M.1"}, OntologyScope: qel("class", "crm:E33_E41_Linguistic_Appellation")},
+		Fields: []generators.FieldNode{a, b},
+	})
+	if got := idOf(t, g).Values["crm:P2_has_type"]; !cmp.Equal(got, []string{"<http://vocab.getty.edu/aat/9>"}) {
+		t.Fatalf("second ending's set value lost: %v", got)
+	}
+}
+
 func TestDistinguishable(t *testing.T) {
 	primary := idOf(t, typedName([2]any{"http://vocab.getty.edu/aat/300404670", true}))
 	alt := idOf(t, typedName([2]any{"http://vocab.getty.edu/aat/300404671", true}))

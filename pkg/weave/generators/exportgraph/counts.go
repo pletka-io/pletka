@@ -14,7 +14,7 @@ func EffectiveMin(required bool, min int) int {
 // sets the edge's own counts.
 func addEnding(edge *ResourceEdge, field *generators.FieldNode) {
 	min, max := EffectiveMin(field.Field.IsRequired, field.Field.MinOccurs), field.Field.MaxOccurs
-	edge.Endings = append(edge.Endings, Ending{FieldID: field.Field.ID, Min: min, Max: max})
+	edge.Endings = append(edge.Endings, Ending{FieldID: field.Field.ID, Min: min, Max: max, Field: field})
 	if len(edge.Endings) == 1 {
 		// overwrites any placement counts; a field with a collection
 		// re-applies the placement next, made stricter by this ending

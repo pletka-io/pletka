@@ -83,6 +83,8 @@ type Ending struct {
 	FieldID string `json:"field_id"`
 	Min     int    `json:"min"`
 	Max     *int   `json:"max,omitempty"`
+	// Field is the ending field itself, for readers that need its set value.
+	Field *generators.FieldNode `json:"-"`
 }
 
 // LiteralBinding records a terminal literal/value field on a resource node.
