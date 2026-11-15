@@ -134,6 +134,32 @@ func TestEntryEdgeCountsComeFromPlacement(t *testing.T) {
 	}
 }
 
+// Every field with a collection that ends on the entry step counts that
+// step: its ending carries the placement made stricter by its own counts.
+func TestEveryEndingOnEntryStepCarriesThePlacement(t *testing.T) {
+	snap := nameSnapshot()
+	ending := func(sem string, max *int) generators.FieldNode {
+		f := tfield(sem, 0, false, max, tprop("crm:P1_is_identified_by"), tclass("crm:E33_E41_Linguistic_Appellation", "c/name/p1/e33"))
+		f.CollectionID, f.CollectionSemanticID = "c1", "LAC.1"
+		f.CollectionMinOccurs, f.CollectionMaxOccurs = 1, intp(3)
+		return f
+	}
+	snap.Fields = append(snap.Fields, ending("LAF.9", intp(2)), ending("LAF.10", nil))
+	entry := rootOf(t, buildCountsSnap(snap)).Edges[0]
+	if len(entry.Endings) != 2 {
+		t.Fatalf("endings = %+v, want 2", entry.Endings)
+	}
+	for i, want := range []int{2, 3} {
+		end := entry.Endings[i]
+		if end.Min != 1 || end.Max == nil || *end.Max != want {
+			t.Errorf("ending %s = %d..%v, want 1..%d", end.FieldID, end.Min, end.Max, want)
+		}
+	}
+	if !entry.Entry || entry.Min != 1 || entry.Max == nil || *entry.Max != 2 {
+		t.Errorf("entry edge = %d..%v, want 1..2 (placement and first ending)", entry.Min, entry.Max)
+	}
+}
+
 func TestFieldsMergeOnPathNode(t *testing.T) {
 	a := tfield("F.1", 0, false, nil, tprop("crm:P4_has_time-span"), tclass("crm:E52_Time-Span", "d/p4/e52"), tprop("crm:P82a_begin_of_the_begin"), tlit("xsd:dateTime"))
 	b := tfield("F.2", 0, false, nil, tprop("crm:P4_has_time-span"), tclass("crm:E52_Time-Span", "d/p4/e52"), tprop("crm:P82b_end_of_the_end"), tlit("xsd:dateTime"))

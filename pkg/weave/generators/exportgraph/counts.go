@@ -23,21 +23,30 @@ func addEnding(edge *ResourceEdge, field *generators.FieldNode) {
 }
 
 // applyPlacement marks edge as the entry into a placed collection and gives
-// it the placement's counts, made stricter by a field that ends on it.
+// it the placement's counts, made stricter by the first field that ends on
+// it. When field itself ends on edge, its ending gets the placement's
+// counts made stricter by its own.
 func applyPlacement(edge *ResourceEdge, field *generators.FieldNode) {
+	min, max := EffectiveMin(field.CollectionIsRequired, field.CollectionMinOccurs), field.CollectionMaxOccurs
+	if n := len(edge.Endings); n > 0 && edge.Endings[n-1].Field == field {
+		end := &edge.Endings[n-1]
+		end.Min, end.Max = tighten(min, max, end.Min, end.Max)
+	}
 	edge.Entry = true
-	edge.Min = EffectiveMin(field.CollectionIsRequired, field.CollectionMinOccurs)
-	edge.Max = field.CollectionMaxOccurs
+	edge.Min, edge.Max = min, max
 	if len(edge.Endings) > 0 {
-		tighten(edge, edge.Endings[0].Min, edge.Endings[0].Max)
+		edge.Min, edge.Max = tighten(edge.Min, edge.Max, edge.Endings[0].Min, edge.Endings[0].Max)
 	}
 }
 
-func tighten(edge *ResourceEdge, min int, max *int) {
-	edge.Min = maxInt(edge.Min, min)
-	if max != nil && (edge.Max == nil || *max < *edge.Max) {
-		edge.Max = max
+// tighten returns the stricter of two counts: the larger min, the smaller
+// max.
+func tighten(min int, max *int, otherMin int, otherMax *int) (int, *int) {
+	min = maxInt(min, otherMin)
+	if otherMax != nil && (max == nil || *otherMax < *max) {
+		max = otherMax
 	}
+	return min, max
 }
 
 func maxInt(a, b int) int {
