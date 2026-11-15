@@ -1,0 +1,89 @@
+package cmd
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/pletka-io/pletka/pkg/app/cliruntime"
+	"github.com/pletka-io/pletka/pkg/database/sqlcgen"
+	"github.com/pletka-io/pletka/pkg/database/versionaudit"
+)
+
+var weaveAuditVersioningOpts struct {
+	format string
+	rules  []string
+}
+
+func newWeaveAuditVersioningCommand() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "audit-versioning",
+		Short: "List where the data breaks the versioning and inheritance rules",
+		Long: `Reads parent links, releases, adoption receipts, ontology links and
+categories and lists every place where they break a rule of
+docs-oss/architecture/versioning-and-inheritance.md. Each finding names the
+rule, the project, what it is about, and why.
+
+Report-only: nothing is modified. Exits zero when the report was produced,
+whether or not it has findings; findings are the expected result of running
+this before a rule is enforced.
+
+Limits of this version:
+  - a project whose only parent is the legacy parent column has no closure
+    here; L8 lists it and the closure checks skip it
+  - A8 compares a copied category with its source's draft
+  - R3 lists every release that reaches a project under the shared version;
+    where rows are already shared that list is an upper bound
+
+Examples:
+  pletka weave audit-versioning
+  pletka weave audit-versioning --rule L5 --rule A2
+  pletka weave audit-versioning --format json > audit.json`,
+		RunE: runWeaveAuditVersioning,
+	}
+	c.Flags().StringVar(&weaveAuditVersioningOpts.format, "format", "text", "output format: text or json")
+	c.Flags().StringArrayVar(&weaveAuditVersioningOpts.rules, "rule", nil,
+		"limit the report to a rule id (repeatable); known: "+strings.Join(versionaudit.Rules, ", "))
+	return c
+}
+
+// checkAuditVersioningFlags rejects a format or rule id the command does not
+// know, before a database connection is opened.
+func checkAuditVersioningFlags(format string, rules []string) error {
+	if format != "text" && format != "json" {
+		return fmt.Errorf("invalid --format %q: want text or json", format)
+	}
+	if unknown := versionaudit.UnknownRules(rules); len(unknown) > 0 {
+		return fmt.Errorf("unknown --rule %s: known rules are %s",
+			strings.Join(unknown, ", "), strings.Join(versionaudit.Rules, ", "))
+	}
+	return nil
+}
+
+func runWeaveAuditVersioning(cmd *cobra.Command, args []string) error {
+	opts := weaveAuditVersioningOpts
+	if err := checkAuditVersioningFlags(opts.format, opts.rules); err != nil {
+		return err
+	}
+	cmd.SilenceUsage = true
+
+	ctx := context.Background()
+	pool, err := cliruntime.OpenPingedPGXPool(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	findings, err := versionaudit.Run(ctx, sqlcgen.New(pool))
+	if err != nil {
+		return err
+	}
+	findings = versionaudit.Filter(findings, opts.rules)
+	if opts.format == "json" {
+		return versionaudit.WriteJSON(os.Stdout, findings)
+	}
+	return versionaudit.WriteText(os.Stdout, findings)
+}
