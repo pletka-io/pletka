@@ -630,3 +630,64 @@ func TestSPARQLRenderRefusesNodeVariableCollision(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// modelSnapshot builds a model snapshot with the fields placed directly
+// under one category.
+func modelSnapshot(t *testing.T, fields ...domain.ResolvedField) *generators.Snapshot {
+	t.Helper()
+	snap := generators.BuildModelSnapshot(generators.ModelSnapshotInput{
+		Project: domain.Project{Entity: domain.Entity{ID: "LA"}, Namespace: "https://data.example.org/ns/LA/"},
+		Model: domain.Model{
+			Entity:        domain.Entity{ID: "m1", SemanticID: "LAM.1", SystemName: "person"},
+			OntologyScope: pe("class", "crm", "E21_Person", 0),
+		},
+		View: domain.ModelView{Categories: []domain.CategoryGroup{{
+			ID:          "cat",
+			Collections: []domain.CollectionGroup{{ID: "__direct__", Fields: fields}},
+		}}},
+		Namespaces: crmNamespaces(),
+	})
+	if len(snap.Report.Errors) > 0 {
+		t.Fatalf("snapshot errors: %v", snap.Report.Errors)
+	}
+	return snap
+}
+
+func TestSPARQLRenderModelSkipsRefusedField(t *testing.T) {
+	bad := fieldWithSetValue("pletka:concept/01M5HDTNR3Q5Z7SBYF94RGEYZF")
+	bad.PathElements[0] = pe("class", "crm", "E21_Person", 0)
+	snap := modelSnapshot(t, fieldWithSystemName("name"), bad, nameTypeField())
+	out, err := renderErr(snap)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if c := strings.Count(out, "SELECT DISTINCT "); c != 2 {
+		t.Errorf("SELECT count = %d, want 2:\n%s", c, out)
+	}
+	want := "# field LAF.12 skipped: set value \"pletka:concept/01M5HDTNR3Q5Z7SBYF94RGEYZF\" is not an IRI\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("missing skip comment %q:\n%s", want, out)
+	}
+}
+
+func TestSPARQLRenderSkipCommentStaysOneLine(t *testing.T) {
+	bad := fieldWithSetValue("x\ny")
+	bad.SemanticID = "LAF.12\nSELECT"
+	bad.PathElements[0] = pe("class", "crm", "E21_Person", 0)
+	out := render(t, modelSnapshot(t, bad))
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "SELECT") {
+			t.Fatalf("skip comment broke a line:\n%s", out)
+		}
+	}
+	if !strings.Contains(out, "# field LAF.12 SELECT skipped: ") {
+		t.Fatalf("missing skip comment:\n%s", out)
+	}
+}
+
+func TestSPARQLRenderFieldLevelRefusalStillErrors(t *testing.T) {
+	_, err := renderErr(fieldSnapshot(t, fieldWithSetValue("pletka:concept/01M5HDTNR3Q5Z7SBYF94RGEYZF")))
+	if err == nil || !strings.Contains(err.Error(), "is not an IRI") {
+		t.Fatalf("err = %v", err)
+	}
+}

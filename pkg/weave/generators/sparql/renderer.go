@@ -16,11 +16,14 @@
 //
 // Scopes: field roots emit one SELECT statement; model + collection roots
 // emit one SELECT statement per field, separated by a blank line, so
-// consumers can run them individually.
+// consumers can run them individually. A field the renderer refuses (see
+// FieldError) is skipped at those scopes, with a "# field <semantic id>
+// skipped: <reason>" comment in its place; a field root returns the error.
 package sparql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -56,32 +59,84 @@ const (
 
 // Render implements generators.Renderer.
 func (r *Renderer) Render(ctx context.Context, snap *generators.Snapshot, w io.Writer) error {
+	_, err := r.RenderReport(ctx, snap, w)
+	return err
+}
+
+// FieldError is a field the renderer refuses to write a query for: a set
+// value that is not an IRI, a path that goes on after a literal, a term
+// that is not an IRI, or two roles sharing a variable.
+type FieldError struct {
+	SemanticID string
+	Reason     string
+}
+
+func (e *FieldError) Error() string {
+	return "sparql renderer: field " + oneLine(e.SemanticID) + ": " + oneLine(e.Reason)
+}
+
+// Comment is the single line that takes the refused query's place.
+func (e *FieldError) Comment() string {
+	return oneLine("field " + e.SemanticID + " skipped: " + e.Reason)
+}
+
+func fieldErr(sem, format string, args ...any) error {
+	return &FieldError{SemanticID: sem, Reason: fmt.Sprintf(format, args...)}
+}
+
+// RenderReport renders like Render and returns the fields it skipped. At
+// model and collection level a refused field (a FieldError) is skipped: a
+// "# field <semantic id> skipped: <reason>" comment takes the place of its
+// query. A field-level render returns the refusal as its error.
+func (r *Renderer) RenderReport(ctx context.Context, snap *generators.Snapshot, w io.Writer) ([]FieldError, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	if snap == nil {
-		return fmt.Errorf("sparql renderer: snapshot is nil")
+		return nil, fmt.Errorf("sparql renderer: snapshot is nil")
 	}
 	if len(snap.Report.Errors) > 0 {
-		return fmt.Errorf("sparql renderer: snapshot has %d error(s)", len(snap.Report.Errors))
+		return nil, fmt.Errorf("sparql renderer: snapshot has %d error(s)", len(snap.Report.Errors))
 	}
 
 	q := newQueryWriter(snap, exportgraph.Build(snap))
 	var b strings.Builder
 	if err := writePrefixes(&b, snap.Namespaces, collectUsedPrefixes(snap, q.root)); err != nil {
-		return err
+		return nil, err
 	}
+	var skipped []FieldError
 	for i := range snap.Fields {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		if err := q.writeField(&b, &snap.Fields[i]); err != nil {
-			return err
+		field := &snap.Fields[i]
+		var fb strings.Builder
+		err := q.writeField(&fb, field)
+		var fe *FieldError
+		if errors.As(err, &fe) && snap.RootKind != generators.EntityField {
+			fe.SemanticID = fieldSem(field)
+			skipped = append(skipped, *fe)
+			writeComment(&b, fe.Comment())
+			continue
 		}
+		if err != nil {
+			return nil, err
+		}
+		b.WriteString(fb.String())
 	}
 
 	_, err := io.WriteString(w, b.String())
-	return err
+	return skipped, err
+}
+
+// fieldSem names a field in queries and comments: its semantic id, else
+// its id, on one line.
+func fieldSem(field *generators.FieldNode) string {
+	sem := field.Field.SemanticID
+	if sem == "" {
+		sem = field.Field.ID
+	}
+	return oneLine(sem)
 }
 
 type queryWriter struct {
@@ -160,7 +215,7 @@ func (q *queryWriter) graphSteps(field *generators.FieldNode) ([]step, error) {
 				steps = append(steps, step{predicate: *pending, literal: true})
 			}
 			if continuesAfter(field.Path[i+1:]) {
-				return nil, fmt.Errorf("sparql renderer: field %s: path continues after a literal", oneLine(field.Field.SemanticID))
+				return nil, fieldErr(fieldSem(field), "path continues after a literal")
 			}
 			return steps, q.checkBinding(field, last)
 		}
@@ -176,8 +231,7 @@ func (q *queryWriter) graphSteps(field *generators.FieldNode) ([]step, error) {
 func (q *queryWriter) checkBinding(field *generators.FieldNode, last *exportgraph.ResourceNode) error {
 	for _, fb := range q.graph.Fields {
 		if fb.Source == field && last != nil && fb.NodeKey != last.Key {
-			return fmt.Errorf("sparql renderer: field %s: path walk ends at %s, graph binds %s",
-				oneLine(field.Field.SemanticID), oneLine(last.Key), oneLine(fb.NodeKey))
+			return fieldErr(fieldSem(field), "path walk ends at %s, graph binds %s", last.Key, fb.NodeKey)
 		}
 	}
 	return nil
@@ -218,7 +272,7 @@ func subPathSteps(path []generators.PathNode, scope domain.PathElement, sem stri
 				steps = append(steps, step{predicate: *pending, literal: true})
 			}
 			if continuesAfter(path[i+1:]) {
-				return nil, fmt.Errorf("sparql renderer: field %s: path continues after a literal", oneLine(sem))
+				return nil, fieldErr(sem, "path continues after a literal")
 			}
 			return steps, nil
 		}
@@ -248,7 +302,7 @@ func (q *queryWriter) writeField(b *strings.Builder, field *generators.FieldNode
 	for i, sub := range field.SubPaths {
 		b.WriteByte('\n')
 		writeComment(b, fmt.Sprintf("legacy subfield path %d", i+1))
-		subSteps, err := subPathSteps(sub, field.Scope, field.Field.SemanticID)
+		subSteps, err := subPathSteps(sub, field.Scope, fieldSem(field))
 		if err != nil {
 			return err
 		}
@@ -264,11 +318,7 @@ func (q *queryWriter) writeField(b *strings.Builder, field *generators.FieldNode
 // value ends the path on the value itself, and the query selects the node
 // that carries it.
 func (q *queryWriter) writeQuery(b *strings.Builder, field *generators.FieldNode, steps []step, value string) error {
-	sem := field.Field.SemanticID
-	if sem == "" {
-		sem = field.Field.ID
-	}
-	sem = oneLine(sem)
+	sem := fieldSem(field)
 
 	var body strings.Builder
 	if q.snap.RootKind != generators.EntityField && q.root != nil {
@@ -297,9 +347,8 @@ func (q *queryWriter) writeQuery(b *strings.Builder, field *generators.FieldNode
 		object := value
 		if sv := field.Field.SetValue; sv != "" {
 			object = rdfterm.Term(sv, q.snap.Namespaces)
-			// Term expands a bound prefix without checking its namespace
 			if !isIRIRef(object) {
-				return fmt.Errorf("sparql renderer: field %s: set value %q is not an IRI", sem, sv)
+				return fieldErr(sem, "set value %q is not an IRI", sv)
 			}
 			selected = subject
 		} else {
@@ -348,7 +397,7 @@ func checkCollisions(vars []string, sem string) error {
 	seen := make(map[string]bool, len(vars))
 	for _, v := range vars {
 		if seen[v] {
-			return fmt.Errorf("sparql renderer: field %s: variable %s collides", sem, v)
+			return fieldErr(sem, "variable %s collides", v)
 		}
 		seen[v] = true
 	}
@@ -396,7 +445,7 @@ func (q *queryWriter) name(prefix, local, uri, sem string) (string, error) {
 		!strings.ContainsFunc(uri, rdfterm.NotIRIChar) {
 		return "<" + uri + ">", nil
 	}
-	return "", fmt.Errorf("sparql renderer: field %s: term %q is not an IRI", sem, prefix+":"+local)
+	return "", fieldErr(sem, "term %q is not an IRI", prefix+":"+local)
 }
 
 func resolvePrefix(ns generators.NamespaceSet, prefix string) (string, bool) {
