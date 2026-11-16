@@ -130,7 +130,16 @@ SELECT
     f.ontology_path  AS field_ontology_path,
     f.expected_value_type AS field_expected_value_type,
     f.path_elements  AS field_path_elements,
-    f.subfield_paths AS field_subfield_paths
+    f.subfield_paths AS field_subfield_paths,
+    f.description    AS field_description,
+    -- The collection override the model places this field in: an empty
+    -- model description inherits from it before the field's own.
+    (SELECT co.description FROM weave_field_overrides co
+      WHERE co.entity_type = 'collection'
+        AND co.entity_id = fo.part_of_collection_id
+        AND co.field_id = fo.field_id
+        AND co.project_id = fo.project_id
+      ORDER BY co.id LIMIT 1)::jsonb AS collection_description
 FROM weave_field_overrides fo
 JOIN weave_fields f ON f.id = fo.field_id
 WHERE fo.entity_type = 'model'
@@ -151,7 +160,8 @@ SELECT
     f.ontology_path  AS field_ontology_path,
     f.expected_value_type AS field_expected_value_type,
     f.path_elements  AS field_path_elements,
-    f.subfield_paths AS field_subfield_paths
+    f.subfield_paths AS field_subfield_paths,
+    f.description    AS field_description
 FROM weave_field_overrides fo
 JOIN weave_fields f ON f.id = fo.field_id
 WHERE fo.entity_type = 'collection'
