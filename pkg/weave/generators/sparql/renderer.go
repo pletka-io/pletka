@@ -191,7 +191,8 @@ func (q *queryWriter) nodeVar(n *exportgraph.ResourceNode) string {
 
 // graphSteps walks the field's primary path through the export graph: the
 // class steps the graph made nodes for, then the literal ending if any. A
-// path that goes on after a literal is malformed.
+// path that goes on after a literal (or after a property followed by a
+// property, which the graph ends as a literal) is malformed.
 func (q *queryWriter) graphSteps(field *generators.FieldNode) ([]step, error) {
 	var steps []step
 	var pending *domain.PathElement
@@ -201,6 +202,10 @@ func (q *queryWriter) graphSteps(field *generators.FieldNode) ([]step, error) {
 		e := pn.Element
 		switch {
 		case e.Type == "property":
+			if pending != nil {
+				// a property after a property: the first ends the path
+				return nil, fieldErr(fieldSem(field), "path continues after a literal")
+			}
 			pending = &e
 		case e.Type == "class" && !rdfterm.IsDatatype(e):
 			n, ok := q.nodeOf[pn]
@@ -256,6 +261,9 @@ func subPathSteps(path []generators.PathNode, scope domain.PathElement, sem stri
 		e := pn.Element
 		switch {
 		case e.Type == "property":
+			if pending != nil {
+				return nil, fieldErr(sem, "path continues after a literal")
+			}
 			pending = &e
 		case e.Type == "class" && !rdfterm.IsDatatype(e):
 			if pending == nil || (i == 0 && e.SameStep(scope)) {

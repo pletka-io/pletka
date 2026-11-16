@@ -273,3 +273,47 @@ func nodeByClass(t *testing.T, graph *exportgraph.Graph, local string) *exportgr
 	t.Fatalf("no node with class %q", local)
 	return nil
 }
+
+// A literal ends the field's path: steps after it add nothing to the graph,
+// and the field stays bound to the node that holds the literal.
+func TestBuildStopsAtLiteral(t *testing.T) {
+	snap := snapshotWithField(t, "TS.F.2", []domain.PathElement{
+		prop("P3_has_note"),
+		{Type: "literal", Prefix: "rdf", LocalName: "langString"},
+		prop("P2_has_type"),
+		class("E55_Type"),
+	})
+	g := exportgraph.Build(snap)
+	if len(g.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want only the root", len(g.Nodes))
+	}
+	root := g.Nodes[0]
+	if len(root.Edges) != 0 {
+		t.Fatalf("root edges = %+v, want none", root.Edges)
+	}
+	if len(root.Literals) != 1 || root.Literals[0].Predicate.LocalName != "P3_has_note" {
+		t.Fatalf("root literals = %+v", root.Literals)
+	}
+	if g.Fields[0].NodeKey != root.Key {
+		t.Fatalf("field bound to %q, want root", g.Fields[0].NodeKey)
+	}
+}
+
+// A property followed by a property ends the path on the first one, as a
+// literal step whose end is the next element.
+func TestBuildPropertyAfterPropertyEndsPath(t *testing.T) {
+	snap := snapshotWithField(t, "TS.F.3", []domain.PathElement{
+		prop("P3_has_note"),
+		prop("P2_has_type"),
+		class("E55_Type"),
+	})
+	g := exportgraph.Build(snap)
+	if len(g.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want only the root", len(g.Nodes))
+	}
+	root := g.Nodes[0]
+	if len(root.Literals) != 1 || root.Literals[0].Predicate.LocalName != "P3_has_note" ||
+		root.Literals[0].End.LocalName != "P2_has_type" {
+		t.Fatalf("root literals = %+v", root.Literals)
+	}
+}

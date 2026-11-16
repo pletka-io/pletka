@@ -691,3 +691,19 @@ func TestSPARQLRenderFieldLevelRefusalStillErrors(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestSPARQLRenderRefusesPathPastPropertyEnding(t *testing.T) {
+	rf := domain.ResolvedField{
+		ID: "f1", SemanticID: "LAF.10", SystemName: "odd", ExpectedValueType: "Concept",
+		PathElements: []domain.PathElement{
+			pe("class", "crm", "E21_Person", 0),
+			pe("property", "crm", "P3_has_note", 1),
+			pe("property", "crm", "P2_has_type", 2),
+			pe("class", "crm", "E55_Type", 3),
+		},
+	}
+	out, err := renderErr(fieldSnapshot(t, rf))
+	if err == nil || err.Error() != "sparql renderer: field LAF.10: path continues after a literal" {
+		t.Fatalf("err = %v\n%s", err, out)
+	}
+}

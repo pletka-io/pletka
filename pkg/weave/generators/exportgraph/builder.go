@@ -67,10 +67,14 @@ func (b *builder) buildFields() {
 	}
 }
 
+// addField walks the field's path into the graph. A literal ends the path,
+// as does a property followed by another property (a literal step whose end
+// is that property): nothing after it is added.
 func (b *builder) addField(field *generators.FieldNode) {
 	currentKey := b.graph.RootKey
 	var pendingProperty *domain.PathElement
 
+path:
 	for i := range field.Path {
 		node := &field.Path[i]
 		element := node.Element
@@ -79,7 +83,7 @@ func (b *builder) addField(field *generators.FieldNode) {
 			if rdfterm.IsDatatype(element) {
 				b.addLiteral(currentKey, pendingProperty, element, field)
 				pendingProperty = nil
-				continue
+				break path
 			}
 			if i == 0 && sameElement(element, b.nodesByKey[b.graph.RootKey].Class) {
 				continue
@@ -124,14 +128,21 @@ func (b *builder) addField(field *generators.FieldNode) {
 			currentKey = nextKey
 			pendingProperty = nil
 		case "property":
+			if pendingProperty != nil {
+				b.addLiteral(currentKey, pendingProperty, element, field)
+				pendingProperty = nil
+				break path
+			}
 			pendingProperty = &element
 		case "literal":
 			b.addLiteral(currentKey, pendingProperty, element, field)
 			pendingProperty = nil
+			break path
 		default:
 			if node.Role == generators.PathRoleLiteral {
 				b.addLiteral(currentKey, pendingProperty, element, field)
 				pendingProperty = nil
+				break path
 			}
 		}
 	}
