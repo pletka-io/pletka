@@ -148,13 +148,20 @@ func (g *gitRunner) RevParseHead(ctx context.Context) (string, error) {
 // constantly by the materializer, and an unscheduled gc means unpredictable
 // latency and I/O on the app box at a moment nothing chose. Repacking, if it
 // is ever wanted, belongs in a maintenance job that can be reasoned about.
+// Since git 2.54 a commit starts `git maintenance run --auto --detach`
+// instead of `gc --auto`, and its default tasks (geometric repack,
+// multi-pack-index, commit-graph) ignore gc.auto. maintenance.auto=false
+// stops that child; older git ignores the key.
+//
 // It is injected through GIT_CONFIG_* rather than "-c" so the command's argv
 // is untouched: the error messages below quote args verbatim, and gosec reads
 // an appended argv as tainted input.
 var noAutoGC = []string{
-	"GIT_CONFIG_COUNT=1",
+	"GIT_CONFIG_COUNT=2",
 	"GIT_CONFIG_KEY_0=gc.auto",
 	"GIT_CONFIG_VALUE_0=0",
+	"GIT_CONFIG_KEY_1=maintenance.auto",
+	"GIT_CONFIG_VALUE_1=false",
 }
 
 func (g *gitRunner) run(ctx context.Context, extraEnv []string, args ...string) error {
