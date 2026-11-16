@@ -454,7 +454,14 @@ func literalFieldOrder(binding exportgraph.LiteralBinding, fieldOrder map[string
 	return int(^uint(0) >> 1)
 }
 
+// ontologyLiteralElement is the leaf a literal binding ends on: its End (a
+// datatype or literal element), else the field path's literal element,
+// else a generic rdfs literal. A property End (a path ending on a property
+// followed by another) is not a datatype and is not shown.
 func ontologyLiteralElement(binding exportgraph.LiteralBinding) domain.PathElement {
+	if binding.End.Type != "" && binding.End.Type != "property" {
+		return binding.End
+	}
 	if binding.Field.Source != nil {
 		for i := len(binding.Field.Source.Path) - 1; i >= 0; i-- {
 			node := binding.Field.Source.Path[i]
