@@ -22,7 +22,8 @@ func IsDatatype(e domain.PathElement) bool {
 }
 
 // Term writes a set value as an IRI when it is one (absolute http(s) or
-// urn:, or a CURIE whose prefix the project binds), else as a quoted string.
+// urn:, or a CURIE whose prefix the project binds to a namespace that keeps
+// the expansion a valid IRIREF), else as a quoted string.
 func Term(v string, ns generators.NamespaceSet) string {
 	if strings.ContainsFunc(v, NotIRIChar) {
 		return Quote(v)
@@ -31,7 +32,7 @@ func Term(v string, ns generators.NamespaceSet) string {
 		return "<" + v + ">"
 	}
 	if prefix, local, ok := strings.Cut(v, ":"); ok {
-		if base, bound := ns.ResolvePrefix(prefix); bound {
+		if base, bound := ns.ResolvePrefix(prefix); bound && !strings.ContainsFunc(base+local, NotIRIChar) {
 			return "<" + base + local + ">"
 		}
 	}

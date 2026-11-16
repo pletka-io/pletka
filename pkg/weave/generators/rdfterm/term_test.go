@@ -72,3 +72,13 @@ func TestClassList(t *testing.T) {
 		t.Fatalf("ClassList = %q", got)
 	}
 }
+
+func TestTermBoundPrefixWithBadNamespaceIsQuoted(t *testing.T) {
+	ns := generators.NamespaceSet{
+		ByPrefix: map[string]string{"bad": "http://example.org/a b/"},
+		Bindings: []generators.NamespaceBinding{{Prefix: "bad", Namespace: "http://example.org/a b/"}},
+	}
+	if got, want := Term("bad:x", ns), `"bad:x"`; got != want {
+		t.Fatalf("Term(bad:x) = %s, want %s", got, want)
+	}
+}
