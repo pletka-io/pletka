@@ -75,14 +75,23 @@ func (r *Renderer) Render(ctx context.Context, snap *generators.Snapshot, w io.W
 		Namespaces: buildNamespaces(snap),
 	}
 
+	var skips strings.Builder
 	for _, field := range snap.Fields {
-		fd, err := r.fieldEntry(ctx, snap, field)
+		fd, skipped, err := r.fieldEntry(ctx, snap, field)
 		if err != nil {
 			return err
+		}
+		if skipped != nil {
+			// a refused field gets no entry; say why above the document
+			skips.WriteString("# " + skipped.Comment() + "\n")
+			continue
 		}
 		doc.Fields = append(doc.Fields, fd)
 	}
 
+	if _, err := io.WriteString(w, skips.String()); err != nil {
+		return err
+	}
 	enc := yaml.NewEncoder(w)
 	enc.SetIndent(2)
 	defer enc.Close()
@@ -123,15 +132,20 @@ func (s literalString) MarshalYAML() (any, error) {
 }
 
 // fieldEntry builds one YAML entry for the resolved field, embedding a
-// single-field SPARQL SELECT so consumers can run it directly.
-func (r *Renderer) fieldEntry(ctx context.Context, snap *generators.Snapshot, field generators.FieldNode) (fieldEntry, error) {
+// single-field SPARQL SELECT so consumers can run it directly. A field the
+// SPARQL renderer skips comes back as the skip, with no entry.
+func (r *Renderer) fieldEntry(ctx context.Context, snap *generators.Snapshot, field generators.FieldNode) (fieldEntry, *sparql.FieldError, error) {
 	subSnap := *snap
 	subSnap.Fields = []generators.FieldNode{field}
 	subSnap.Tree = nil
 
 	var buf bytes.Buffer
-	if err := r.sparql.Render(ctx, &subSnap, &buf); err != nil {
-		return fieldEntry{}, fmt.Errorf("researchspace: render sparql for %s: %w", field.Field.SystemName, err)
+	skipped, err := r.sparql.RenderReport(ctx, &subSnap, &buf)
+	if err != nil {
+		return fieldEntry{}, nil, fmt.Errorf("researchspace: render sparql for %s: %w", field.Field.SystemName, err)
+	}
+	if len(skipped) > 0 {
+		return fieldEntry{}, &skipped[0], nil
 	}
 
 	lang := snap.Options.Lang
@@ -147,7 +161,7 @@ func (r *Renderer) fieldEntry(ctx context.Context, snap *generators.Snapshot, fi
 		Description: description,
 		Datatype:    datatypeFor(field.Field.ExpectedValueType),
 		Queries:     []query{{Select: literalString(strings.TrimSpace(buf.String()))}},
-	}, nil
+	}, nil, nil
 }
 
 // buildNamespaces flattens the snapshot's namespace bindings into a

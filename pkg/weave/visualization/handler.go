@@ -299,7 +299,11 @@ func (h *Handler) modelSPARQL(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	opts := sparqlOptionsFromRequest(r)
+	opts, err := sparqlOptionsFromRequest(r, generators.EntityModel)
+	if err != nil {
+		apierror.Write(w, r, apierror.BadRequest(err.Error()))
+		return
+	}
 	snap, err := h.gens.SnapshotForModel(ctx, model.ProjectID, model.ID, opts)
 	if err != nil {
 		h.logger.Error("model snapshot", "id", model.ID, "err", err)
@@ -318,7 +322,11 @@ func (h *Handler) collectionSPARQL(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	opts := sparqlOptionsFromRequest(r)
+	opts, err := sparqlOptionsFromRequest(r, generators.EntityCollection)
+	if err != nil {
+		apierror.Write(w, r, apierror.BadRequest(err.Error()))
+		return
+	}
 	snap, err := h.gens.SnapshotForCollection(ctx, coll.ProjectID, coll.ID, opts)
 	if err != nil {
 		h.logger.Error("collection snapshot", "id", coll.ID, "err", err)
@@ -337,7 +345,11 @@ func (h *Handler) fieldSPARQL(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "not found", http.StatusNotFound)
 		return
 	}
-	opts := sparqlOptionsFromRequest(r)
+	opts, err := sparqlOptionsFromRequest(r, generators.EntityField)
+	if err != nil {
+		apierror.Write(w, r, apierror.BadRequest(err.Error()))
+		return
+	}
 	snap, err := h.gens.SnapshotForField(ctx, field.ProjectID, field.ID, opts)
 	if err != nil {
 		h.logger.Error("field snapshot", "id", field.ID, "err", err)
@@ -1008,14 +1020,33 @@ func (h *Handler) effectiveVersion(ctx context.Context, project *pkgdomain.Proje
 	return auth.ResolveEffectiveVersion(snap, project, explicit, latest)
 }
 
-// sparqlOptionsFromRequest reads ?count and ?limit from the URL.
+// sparqlOptionsFromRequest reads ?kind, ?count and ?limit from the URL.
 // Default LIMIT is 100 (matches the legacy Python default); pass
-// ?limit=0 to suppress the LIMIT clause; ?count=1 swaps the SELECT
-// for a COUNT(?value) projection and skips the LIMIT.
-func sparqlOptionsFromRequest(r *http.Request) generators.Options {
+// ?limit=0 to suppress the LIMIT clause. ?kind=count (or the legacy
+// ?count=1) swaps the SELECT for a COUNT(?value) projection and skips
+// the LIMIT. A kind the level does not offer is an error.
+func sparqlOptionsFromRequest(r *http.Request, level generators.EntityKind) (generators.Options, error) {
 	opts := generators.Options{SPARQLLimit: 100}
+	kind := generators.SPARQLKind(r.URL.Query().Get("kind"))
 	switch strings.ToLower(r.URL.Query().Get("count")) {
 	case "1", "true", "yes":
+		kind = generators.SPARQLKindCount
+	}
+	if kind == "" {
+		kind = generators.SPARQLKindEntries
+	}
+	offered := generators.SPARQLKinds(level)
+	names := make([]string, len(offered))
+	found := false
+	for i, k := range offered {
+		names[i] = string(k)
+		found = found || k == kind
+	}
+	if !found {
+		return opts, fmt.Errorf("kind must be one of %s", strings.Join(names, ", "))
+	}
+	opts.SPARQLKind = kind
+	if kind == generators.SPARQLKindCount {
 		opts.SPARQLCount = true
 		opts.SPARQLLimit = 0
 	}
@@ -1025,7 +1056,23 @@ func sparqlOptionsFromRequest(r *http.Request) generators.Options {
 			opts.SPARQLLimit = n
 		}
 	}
-	return opts
+	return opts, nil
+}
+
+// GetSPARQLKinds handles GET /gen/sparql/kinds?level=field|collection|model.
+// It lists static per-level metadata, so it needs no project context and
+// no derivative-format gate (nothing project-owned is disclosed).
+func (h *Handler) GetSPARQLKinds(w http.ResponseWriter, r *http.Request) {
+	level := generators.EntityKind(r.URL.Query().Get("level"))
+	kinds := generators.SPARQLKinds(level)
+	if kinds == nil {
+		apierror.Write(w, r, apierror.BadRequest("level must be one of field, collection, model"))
+		return
+	}
+	writeJSON(w, struct {
+		Level generators.EntityKind   `json:"level"`
+		Kinds []generators.SPARQLKind `json:"kinds"`
+	}{level, kinds})
 }
 
 func mermaidOptionsFromRequest(r *http.Request) (generators.Options, error) {

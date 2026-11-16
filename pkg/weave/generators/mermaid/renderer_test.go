@@ -328,3 +328,31 @@ func assertMermaidGolden(t *testing.T, got string, path string) {
 	}
 	assertMermaid(t, got, string(want))
 }
+
+// A datatype class step ends the path as a literal; the literal node shows
+// the datatype, not a generic rdfs:Literal.
+func TestRendererShowsLiteralDatatype(t *testing.T) {
+	snap := generators.BuildCollectionSnapshot(generators.CollectionSnapshotInput{
+		Project: domain.Project{Entity: domain.Entity{ID: "LA"}, Namespace: "https://data.example.org/ns/LA/"},
+		Collection: domain.Collection{
+			Entity:        domain.Entity{ID: "collection-ts", SemanticID: "LAC.2", SystemName: "timespan"},
+			OntologyScope: pe("class", "crm", "E5_Event", "E5", 0),
+		},
+		Fields: []domain.ResolvedField{{
+			ID: "field-begin", SemanticID: "LAF.8", SystemName: "begin", Position: 1,
+			PathElements: []domain.PathElement{
+				pe("property", "crm", "P4_has_time-span", "", 0),
+				pe("class", "crm", "E52_Time-Span", "E52", 1),
+				pe("property", "crm", "P82a_begin_of_the_begin", "", 2),
+				pe("class", "xsd", "date", "", 3),
+			},
+		}},
+	})
+	var buf bytes.Buffer
+	if err := NewRenderer().Render(context.Background(), snap, &buf); err != nil {
+		t.Fatalf("Render() error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "-->|crm:P82a_begin_of_the_begin| 2[xsd:date]:::Literal") {
+		t.Fatalf("date literal not labeled xsd:date:\n%s", buf.String())
+	}
+}

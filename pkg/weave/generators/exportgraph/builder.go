@@ -6,8 +6,12 @@ import (
 
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
+	"github.com/pletka-io/pletka/pkg/weave/generators/rdfterm"
 	"github.com/pletka-io/pletka/pkg/weave/views"
 )
+
+// elemClass is the path element type of a class step.
+const elemClass = "class"
 
 // Build creates a graph-template view of a generator snapshot.
 func Build(snap *generators.Snapshot) *Graph {
@@ -19,12 +23,16 @@ func Build(snap *generators.Snapshot) *Graph {
 		nodesByKey:  make(map[string]*ResourceNode),
 		groupByKey:  make(map[string]*VisualGroup),
 		fieldGroups: make(map[string][]string),
+		anchors:     collectionAnchors(snap.Tree),
+		keyByIdent:  make(map[string]string),
+		addresses:   make(map[string]bool),
 		graph:       &Graph{Source: snap},
 	}
 	b.buildRoot()
 	b.collectGroups()
 	b.buildFields()
 	b.resolveGroupBranches()
+	propagateRequired(b.graph, b.nodesByKey)
 	return b.graph
 }
 
@@ -35,6 +43,12 @@ type builder struct {
 	nodesByKey  map[string]*ResourceNode
 	groupByKey  map[string]*VisualGroup
 	fieldGroups map[string][]string
+	// anchors maps a placed collection's anchor PathNode to its semantic id.
+	anchors map[string]string
+	// addresses holds the collection addresses taken so far.
+	addresses map[string]bool
+	// keyByIdent maps a class node's identity to its Key.
+	keyByIdent map[string]string
 }
 
 func (b *builder) buildRoot() {
@@ -56,15 +70,24 @@ func (b *builder) buildFields() {
 	}
 }
 
+// addField walks the field's path into the graph. A literal ends the path,
+// as does a property followed by another property (a literal step whose end
+// is that property): nothing after it is added.
 func (b *builder) addField(field *generators.FieldNode) {
 	currentKey := b.graph.RootKey
 	var pendingProperty *domain.PathElement
 
+path:
 	for i := range field.Path {
 		node := &field.Path[i]
 		element := node.Element
 		switch element.Type {
-		case "class":
+		case elemClass:
+			if rdfterm.IsDatatype(element) {
+				b.addLiteral(currentKey, pendingProperty, element, field)
+				pendingProperty = nil
+				break path
+			}
 			if i == 0 && sameElement(element, b.nodesByKey[b.graph.RootKey].Class) {
 				continue
 			}
@@ -81,6 +104,7 @@ func (b *builder) addField(field *generators.FieldNode) {
 					AdditionalTypes: append([]domain.TypeRef(nil), element.AdditionalTypes...),
 				}
 				b.addNode(next)
+				b.keyByIdent[b.nodeIdentity(currentKey, *pendingProperty, element)] = nextKey
 			} else {
 				next.Class = mergeClassElement(next.Class, element)
 				next.AdditionalTypes = mergeTypeRefs(next.AdditionalTypes, element.AdditionalTypes)
@@ -89,22 +113,47 @@ func (b *builder) addField(field *generators.FieldNode) {
 			addUniqueSourcePath(&next.SourcePaths, field.Field.ID, node.RelativePath)
 			addUniqueFieldSource(&next.Source.Fields, field)
 			addUniquePathSource(&next.Source.Paths, node)
-			b.addResourceEdge(currentKey, *pendingProperty, nextKey, field.Field.ID)
+			edge := b.addResourceEdge(currentKey, *pendingProperty, nextKey, field.Field.ID)
+			if i == len(field.Path)-1 {
+				addEnding(edge, field)
+			}
+			if sem, ok := b.anchors[element.PathNode]; ok && element.PathNode != "" && field.CollectionID != "" {
+				applyPlacement(edge, field)
+				if next.Collection == nil {
+					addr := stableRootID(b.snap) + "/" + sem
+					if b.addresses[addr] {
+						addr += "/" + element.PathNodeID
+					}
+					b.addresses[addr] = true
+					next.Collection = &CollectionAnchor{SemanticID: sem, Label: field.CollectionName, Address: addr}
+				}
+			}
 			currentKey = nextKey
 			pendingProperty = nil
 		case "property":
+			if pendingProperty != nil {
+				b.addLiteral(currentKey, pendingProperty, element, field)
+				pendingProperty = nil
+				break path
+			}
 			pendingProperty = &element
 		case "literal":
 			b.addLiteral(currentKey, pendingProperty, element, field)
 			pendingProperty = nil
+			break path
 		default:
 			if node.Role == generators.PathRoleLiteral {
 				b.addLiteral(currentKey, pendingProperty, element, field)
 				pendingProperty = nil
+				break path
 			}
 		}
 	}
 
+	if pendingProperty != nil {
+		// the path ends on a property with no leaf element
+		b.addLiteral(currentKey, pendingProperty, domain.PathElement{}, field)
+	}
 	b.bindFieldToNode(currentKey, field)
 }
 
@@ -114,12 +163,15 @@ func (b *builder) addLiteral(currentKey string, pendingProperty *domain.PathElem
 		return
 	}
 	predicate := *pendingProperty
-	if predicate.URI == "" {
+	if predicate.URI == "" && predicate.LocalName == "" {
 		predicate = literal
 	}
 	binding := LiteralBinding{
 		Predicate: predicate,
+		End:       literal,
 		Field:     b.fieldBinding(field, currentKey),
+		Min:       EffectiveMin(field.Field.IsRequired, field.Field.MinOccurs),
+		Max:       field.Field.MaxOccurs,
 	}
 	current.Literals = append(current.Literals, binding)
 	addUniqueFieldSource(&current.Source.Fields, field)
@@ -155,6 +207,9 @@ func (b *builder) fieldBinding(field *generators.FieldNode, nodeKey string) Fiel
 		RelativePath: field.RelativePath,
 		NodeKey:      nodeKey,
 		GroupKeys:    append([]string(nil), b.fieldGroups[field.RelativePath]...),
+
+		SetValue:          field.Field.SetValue,
+		ExpectedValueType: field.Field.ExpectedValueType,
 	}
 }
 
@@ -163,16 +218,20 @@ func (b *builder) addNode(node *ResourceNode) {
 	b.graph.Nodes = append(b.graph.Nodes, node)
 }
 
-func (b *builder) addResourceEdge(sourceKey string, predicate domain.PathElement, targetKey string, fieldID string) {
+// addResourceEdge returns the edge it created or found; the pointer is valid
+// until the next edge is appended to the source node.
+func (b *builder) addResourceEdge(sourceKey string, predicate domain.PathElement, targetKey string, fieldID string) *ResourceEdge {
 	source := b.nodesByKey[sourceKey]
 	if source == nil {
-		return
+		return &ResourceEdge{}
 	}
 	for i := range source.Edges {
 		edge := &source.Edges[i]
-		if edge.TargetKey == targetKey && sameElement(edge.Predicate, predicate) {
+		// steps compare by prefixed name: stored paths mix CURIEs and
+		// full IRIs for the same step
+		if edge.TargetKey == targetKey && edge.Predicate.SameStep(predicate) {
 			addUniqueString(&edge.FieldIDs, fieldID)
-			return
+			return edge
 		}
 	}
 	source.Edges = append(source.Edges, ResourceEdge{
@@ -180,6 +239,7 @@ func (b *builder) addResourceEdge(sourceKey string, predicate domain.PathElement
 		TargetKey: targetKey,
 		FieldIDs:  nonEmptyStrings(fieldID),
 	})
+	return &source.Edges[len(source.Edges)-1]
 }
 
 func (b *builder) collectGroups() {
@@ -250,7 +310,7 @@ func (b *builder) keyForPath(elements []domain.PathElement) string {
 	var pendingProperty *domain.PathElement
 	for i, element := range elements {
 		switch element.Type {
-		case "class":
+		case elemClass:
 			if i == 0 && sameElement(element, b.nodesByKey[b.graph.RootKey].Class) {
 				continue
 			}
@@ -266,14 +326,36 @@ func (b *builder) keyForPath(elements []domain.PathElement) string {
 	return currentKey
 }
 
-// resourceKey is the export-graph node identity. It is the class
-// element's generated path_node_id — the structural node id the
-// snapshot stamps onto every path element. The
-// parentKey/predicate/class structural fallback (no #instance= legacy
-// splice) covers elements that carry no path_node_id.
+// nodeIdentity decides which path steps share a node: the class element's
+// PathNode chain when set (unique per branch), else the parent plus the
+// prefixed names of property and class, so a CURIE and a full IRI for the
+// same step merge.
+func (b *builder) nodeIdentity(parentKey string, predicate domain.PathElement, class domain.PathElement) string {
+	if class.PathNode != "" {
+		return "pn:" + class.PathNode
+	}
+	return "st:" + parentKey + "/" + stepName(predicate) + "/" + stepName(class)
+}
+
+func stepName(e domain.PathElement) string {
+	if e.LocalName != "" {
+		return e.PrefixedName()
+	}
+	return e.URI
+}
+
+// resourceKey is the export-graph node Key. A node already seen under the
+// same identity keeps its Key; a new one takes the generated path_node_id,
+// else its PathNode chain, else a structural parent/predicate/class key.
 func (b *builder) resourceKey(parentKey string, predicate domain.PathElement, class domain.PathElement) string {
-	if class.PathNodeID != "" {
+	if key, ok := b.keyByIdent[b.nodeIdentity(parentKey, predicate, class)]; ok {
+		return key
+	}
+	switch {
+	case class.PathNodeID != "":
 		return class.PathNodeID
+	case class.PathNode != "":
+		return class.PathNode
 	}
 	return parentKey + "/" + elementIdentity(predicate) + "/" + elementIdentity(class)
 }
@@ -477,5 +559,25 @@ func copyPathElements(in []domain.PathElement) []domain.PathElement {
 		out[i] = element
 		out[i].AdditionalTypes = append([]domain.TypeRef(nil), element.AdditionalTypes...)
 	}
+	return out
+}
+
+// collectionAnchors maps each placed collection's anchor PathNode to the
+// collection's semantic id.
+func collectionAnchors(tree *views.Tree) map[string]string {
+	out := map[string]string{}
+	if tree == nil {
+		return out
+	}
+	var walk func(views.TreeNode)
+	walk = func(t views.TreeNode) {
+		if t.Kind == views.NodeCollection && t.Anchor != nil && t.Anchor.PathNode != "" {
+			out[t.Anchor.PathNode] = t.SemanticID
+		}
+		for _, c := range t.Children {
+			walk(c)
+		}
+	}
+	walk(tree.Root)
 	return out
 }

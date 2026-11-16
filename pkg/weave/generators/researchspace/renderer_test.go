@@ -150,3 +150,50 @@ func TestRSDatatypeMapping(t *testing.T) {
 		}
 	}
 }
+
+func TestRSRenderSkipsRefusedField(t *testing.T) {
+	snap := generators.BuildCollectionSnapshot(generators.CollectionSnapshotInput{
+		Project: domain.Project{Entity: domain.Entity{ID: "LA"}, Namespace: "https://data.example.org/ns/LA/"},
+		Collection: domain.Collection{
+			Entity:        domain.Entity{ID: "c-name", SemanticID: "LAC.1", SystemName: "name"},
+			OntologyScope: pe("class", "crm", "E1_CRM_Entity", 0),
+		},
+		Fields: []domain.ResolvedField{
+			{
+				ID: "f-type", SemanticID: "LAF.2", SystemName: "name_type", ExpectedValueType: "Concept",
+				PathElements: []domain.PathElement{
+					pe("property", "crm", "P1_is_identified_by", 0),
+					pe("class", "crm", "E33_E41_Linguistic_Appellation", 1),
+					pe("property", "crm", "P2_has_type", 2),
+					pe("class", "crm", "E55_Type", 3),
+				},
+			},
+			{
+				ID: "f-bad", SemanticID: "LAF.3", SystemName: "fixed_type", ExpectedValueType: "Concept",
+				SetValue: "pletka:concept/01M5HDTNR3Q5Z7SBYF94RGEYZF",
+				PathElements: []domain.PathElement{
+					pe("property", "crm", "P2_has_type", 0),
+					pe("class", "crm", "E55_Type", 1),
+				},
+			},
+		},
+		Namespaces: crmNamespaces(),
+	})
+
+	var buf bytes.Buffer
+	if err := NewRenderer().Render(context.Background(), snap, &buf); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	got := buf.String()
+	want := "# field LAF.3 skipped: set value \"pletka:concept/01M5HDTNR3Q5Z7SBYF94RGEYZF\" is not an IRI\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("missing skip comment %q:\n%s", want, got)
+	}
+	var doc rsDocument
+	if err := yaml.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, got)
+	}
+	if len(doc.Fields) != 1 || doc.Fields[0].ID != "name_type" {
+		t.Fatalf("fields = %+v, want only name_type", doc.Fields)
+	}
+}

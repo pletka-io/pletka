@@ -214,3 +214,106 @@ func groupByKind(graph *exportgraph.Graph, kind views.NodeKind) *exportgraph.Vis
 	}
 	return nil
 }
+
+// A class step naming an XSD datatype ends the path as a literal: the time
+// span gets a literal binding, not a "date" resource node.
+func TestBuildTreatsDatatypeClassStepAsLiteral(t *testing.T) {
+	snap := snapshotWithField(t, "TS.F.1", []domain.PathElement{
+		{Type: "property", Prefix: "crm", LocalName: "P4_has_time-span"},
+		{Type: "class", Prefix: "crm", LocalName: "E52_Time-Span", PathNode: "ts"},
+		{Type: "property", Prefix: "crm", LocalName: "P82a_begin_of_the_begin"},
+		{Type: "class", Prefix: "xsd", LocalName: "date", PathNode: "ts/date"},
+	})
+	g := exportgraph.Build(snap)
+	for _, n := range g.Nodes {
+		if n.Class.LocalName == "date" {
+			t.Fatalf("xsd:date became a resource node %q", n.Key)
+		}
+	}
+	ts := nodeByClass(t, g, "E52_Time-Span")
+	if len(ts.Literals) != 1 || ts.Literals[0].Predicate.LocalName != "P82a_begin_of_the_begin" {
+		t.Fatalf("time span literals = %+v", ts.Literals)
+	}
+	if ts.Literals[0].End.LocalName != "date" {
+		t.Fatalf("literal end = %+v, want xsd:date", ts.Literals[0].End)
+	}
+}
+
+// snapshotWithField builds a model snapshot (root E21_Person) holding one
+// directly placed field with the given ontology path.
+func snapshotWithField(t *testing.T, semanticID string, path []domain.PathElement) *generators.Snapshot {
+	t.Helper()
+	model := domain.Model{
+		Entity:        domain.Entity{ID: "model-test", SemanticID: "TS.M.1", SystemName: "test"},
+		OntologyScope: class("E21_Person"),
+	}
+	view := domain.ModelView{
+		Categories: []domain.CategoryGroup{{
+			ID: "cat-test",
+			Collections: []domain.CollectionGroup{{
+				ID:     "__direct__",
+				Fields: []domain.ResolvedField{resolvedField("field-test", semanticID, "test_field", append([]domain.PathElement{class("E21_Person")}, path...))},
+			}},
+		}},
+	}
+	return generators.BuildModelSnapshot(generators.ModelSnapshotInput{
+		Model:   model,
+		View:    view,
+		Options: generators.Options{Lang: "en"},
+	})
+}
+
+func nodeByClass(t *testing.T, graph *exportgraph.Graph, local string) *exportgraph.ResourceNode {
+	t.Helper()
+	for _, node := range graph.Nodes {
+		if node.Class.LocalName == local {
+			return node
+		}
+	}
+	t.Fatalf("no node with class %q", local)
+	return nil
+}
+
+// A literal ends the field's path: steps after it add nothing to the graph,
+// and the field stays bound to the node that holds the literal.
+func TestBuildStopsAtLiteral(t *testing.T) {
+	snap := snapshotWithField(t, "TS.F.2", []domain.PathElement{
+		prop("P3_has_note"),
+		{Type: "literal", Prefix: "rdf", LocalName: "langString"},
+		prop("P2_has_type"),
+		class("E55_Type"),
+	})
+	g := exportgraph.Build(snap)
+	if len(g.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want only the root", len(g.Nodes))
+	}
+	root := g.Nodes[0]
+	if len(root.Edges) != 0 {
+		t.Fatalf("root edges = %+v, want none", root.Edges)
+	}
+	if len(root.Literals) != 1 || root.Literals[0].Predicate.LocalName != "P3_has_note" {
+		t.Fatalf("root literals = %+v", root.Literals)
+	}
+	if g.Fields[0].NodeKey != root.Key {
+		t.Fatalf("field bound to %q, want root", g.Fields[0].NodeKey)
+	}
+}
+
+// A property followed by a property ends the path on the first one, as a
+// literal step whose end is the next element.
+func TestBuildPropertyAfterPropertyEndsPath(t *testing.T) {
+	snap := snapshotWithField(t, "TS.F.3", []domain.PathElement{
+		prop("P3_has_note"),
+		prop("P2_has_type"),
+		class("E55_Type"),
+	})
+	g := exportgraph.Build(snap)
+	if len(g.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want only the root", len(g.Nodes))
+	}
+	root := g.Nodes[0]
+	if len(root.Literals) != 1 || root.Literals[0].Predicate.LocalName != "P3_has_note" ||
+		root.Literals[0].End.LocalName != "P2_has_type" {
+		t.Fatalf("root literals = %+v", root.Literals)
+	}
+}

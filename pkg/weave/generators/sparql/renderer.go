@@ -1,31 +1,46 @@
-// Package sparql renders a weave generator snapshot as a SPARQL SELECT
-// query (or COUNT variant). Mirrors the Python SparqlTransformer's
-// observable shape — PREFIX block, SELECT of the field value variable,
-// WHERE pattern that walks the field path with one Triple per property,
-// optional rdfs:label clause, OPTIONAL Set_Value type filter — but
-// consumes the resolved snapshot directly so we can drop the
-// Airtable-formula complexity the Python version inherited.
+// Package sparql renders a weave generator snapshot as SPARQL SELECT
+// queries (or the COUNT variant): a PREFIX block, then one query per field
+// that walks the field's path through the export graph with one triple per
+// property and an optional rdfs:label clause for resource values.
 //
-// Variable naming: each class hop binds to its generated
-// path_node_id, and the terminal value binds to the field's semantic id
-// plus system name — so variables are traceable and never collide when a
-// model/collection merges many field queries.
+// Variable naming: the root is ?subject; every class node binds to its
+// generated path_node_id, so two fields through the same node use the same
+// variable; the terminal value binds to the field's semantic id plus system
+// name. Every name passes through sparqlVar, every IRI is a prefixed name
+// from a bound prefix or an IRIREF without forbidden characters, and comment
+// lines are single lines: no snapshot text can change the query's shape.
 //
-// Scopes: field roots emit one SELECT statement; model + collection
-// roots emit one SELECT statement per resolved field, separated by a
-// blank line so consumers can run them individually or feed the whole
-// stream to a SPARQL endpoint that accepts multiple queries.
+// Class checks: model and collection scopes type ?subject (their identity);
+// a field query does not, since a field is placed under many classes. Every
+// class node between the root and the value is typed; the last node is not.
+//
+// Scopes: field roots emit one SELECT statement; model + collection roots
+// emit one SELECT statement per field, separated by a blank line, so
+// consumers can run them individually. A field the renderer refuses (see
+// FieldError) is skipped at those scopes, with a "# field <semantic id>
+// skipped: <reason>" comment in its place; a field root returns the error.
 package sparql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/pletka-io/pletka/pkg/domain"
 	"github.com/pletka-io/pletka/pkg/weave/generators"
+	"github.com/pletka-io/pletka/pkg/weave/generators/exportgraph"
+	"github.com/pletka-io/pletka/pkg/weave/generators/rdfterm"
+)
+
+// Path element types and the root subject variable.
+const (
+	elemClass    = "class"
+	elemProperty = "property"
+	subjectVar   = "?subject"
 )
 
 // Renderer writes SPARQL SELECT queries from a weave snapshot.
@@ -44,87 +59,470 @@ func (r *Renderer) Spec() generators.FormatSpec {
 	}
 }
 
+const (
+	rdfNamespace  = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+	rdfsNamespace = "http://www.w3.org/2000/01/rdf-schema#"
+)
+
 // Render implements generators.Renderer.
 func (r *Renderer) Render(ctx context.Context, snap *generators.Snapshot, w io.Writer) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if snap == nil {
-		return fmt.Errorf("sparql renderer: snapshot is nil")
-	}
-	if len(snap.Report.Errors) > 0 {
-		return fmt.Errorf("sparql renderer: snapshot has %d error(s)", len(snap.Report.Errors))
-	}
-
-	var b strings.Builder
-	used := collectUsedPrefixes(snap)
-	if err := writePrefixes(&b, snap.Namespaces, used); err != nil {
-		return err
-	}
-
-	first := true
-	for _, field := range snap.Fields {
-		if !first {
-			b.WriteByte('\n')
-		}
-		first = false
-		writeFieldQuery(&b, snap, field)
-	}
-
-	_, err := io.WriteString(w, b.String())
+	_, err := r.RenderReport(ctx, snap, w)
 	return err
 }
 
-// collectUsedPrefixes scans every field path and reports the namespace
-// prefixes that appear, plus rdf+rdfs which the renderer always uses.
-func collectUsedPrefixes(snap *generators.Snapshot) map[string]struct{} {
-	used := map[string]struct{}{
-		"rdf":  {},
-		"rdfs": {},
+// FieldError is a field the renderer refuses to write a query for: a set
+// value that is not an IRI, a path that goes on after a literal, a term
+// that is not an IRI, or two roles sharing a variable.
+type FieldError struct {
+	SemanticID string
+	Reason     string
+}
+
+func (e *FieldError) Error() string {
+	return "sparql renderer: field " + oneLine(e.SemanticID) + ": " + oneLine(e.Reason)
+}
+
+// Comment is the single line that takes the refused query's place.
+func (e *FieldError) Comment() string {
+	return oneLine("field " + e.SemanticID + " skipped: " + e.Reason)
+}
+
+func fieldErr(sem, format string, args ...any) error {
+	return &FieldError{SemanticID: sem, Reason: fmt.Sprintf(format, args...)}
+}
+
+// RenderReport renders like Render and returns the fields it skipped. At
+// model and collection level a refused field (a FieldError) is skipped: a
+// "# field <semantic id> skipped: <reason>" comment takes the place of its
+// query. A field-level render returns the refusal as its error.
+func (r *Renderer) RenderReport(ctx context.Context, snap *generators.Snapshot, w io.Writer) ([]FieldError, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	for _, field := range snap.Fields {
-		if field.Scope.Prefix != "" {
-			used[field.Scope.Prefix] = struct{}{}
+	if snap == nil {
+		return nil, fmt.Errorf("sparql renderer: snapshot is nil")
+	}
+	if len(snap.Report.Errors) > 0 {
+		return nil, fmt.Errorf("sparql renderer: snapshot has %d error(s)", len(snap.Report.Errors))
+	}
+
+	q := newQueryWriter(snap, exportgraph.Build(snap))
+	var b strings.Builder
+	if err := writePrefixes(&b, snap.Namespaces, collectUsedPrefixes(snap, q.root)); err != nil {
+		return nil, err
+	}
+	var skipped []FieldError
+	for i := range snap.Fields {
+		if i > 0 {
+			b.WriteByte('\n')
 		}
-		for _, t := range field.Scope.AdditionalTypes {
+		field := &snap.Fields[i]
+		var fb strings.Builder
+		err := q.writeField(&fb, field)
+		var fe *FieldError
+		if errors.As(err, &fe) && snap.RootKind != generators.EntityField {
+			fe.SemanticID = fieldSem(field)
+			skipped = append(skipped, *fe)
+			writeComment(&b, fe.Comment())
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		b.WriteString(fb.String())
+	}
+
+	_, err := io.WriteString(w, b.String())
+	return skipped, err
+}
+
+// fieldSem names a field in queries and comments: its semantic id, else
+// its id, on one line.
+func fieldSem(field *generators.FieldNode) string {
+	sem := field.Field.SemanticID
+	if sem == "" {
+		sem = field.Field.ID
+	}
+	return oneLine(sem)
+}
+
+type queryWriter struct {
+	snap  *generators.Snapshot
+	graph *exportgraph.Graph
+	root  *exportgraph.ResourceNode
+	// nodeOf maps a field path's class step to the graph node it reaches.
+	nodeOf map[*generators.PathNode]*exportgraph.ResourceNode
+	// pos is each node's position in the graph, for nodes without an id.
+	pos map[*exportgraph.ResourceNode]int
+}
+
+func newQueryWriter(snap *generators.Snapshot, g *exportgraph.Graph) *queryWriter {
+	q := &queryWriter{
+		snap:   snap,
+		graph:  g,
+		nodeOf: map[*generators.PathNode]*exportgraph.ResourceNode{},
+		pos:    map[*exportgraph.ResourceNode]int{},
+	}
+	for i, n := range g.Nodes {
+		if n.Key == g.RootKey {
+			q.root = n
+		}
+		q.pos[n] = i
+		for _, p := range n.Source.Paths {
+			q.nodeOf[p] = n
+		}
+	}
+	return q
+}
+
+// step is one property of a field path and the class node it reaches; a
+// step ending on a literal (or on a bare property) has no node.
+type step struct {
+	predicate domain.PathElement
+	nodeVar   string
+	types     []domain.TypeRef
+	literal   bool
+}
+
+// nodeVar names a graph node: ?subject for the root, the sanitized
+// path_node_id when there is one, else its position in the graph.
+func (q *queryWriter) nodeVar(n *exportgraph.ResourceNode) string {
+	if n == q.root {
+		return subjectVar
+	}
+	if id := n.Class.PathNodeID; id != "" {
+		return "?" + sparqlVar(id)
+	}
+	return fmt.Sprintf("?s%d", q.pos[n])
+}
+
+// graphSteps walks the field's primary path through the export graph: the
+// class steps the graph made nodes for, then the literal ending if any. A
+// path that goes on after a literal (or after a property followed by a
+// property, which the graph ends as a literal) is malformed.
+func (q *queryWriter) graphSteps(field *generators.FieldNode) ([]step, error) {
+	var steps []step
+	var pending *domain.PathElement
+	last := q.root
+	for i := range field.Path {
+		pn := &field.Path[i]
+		e := pn.Element
+		switch {
+		case e.Type == elemProperty:
+			if pending != nil {
+				// a property after a property: the first ends the path
+				return nil, fieldErr(fieldSem(field), "path continues after a literal")
+			}
+			pending = &e
+		case e.Type == elemClass && !rdfterm.IsDatatype(e):
+			n, ok := q.nodeOf[pn]
+			if !ok || pending == nil {
+				continue
+			}
+			steps = append(steps, step{predicate: *pending, nodeVar: q.nodeVar(n), types: classTypes(n.Class, n.AdditionalTypes)})
+			last = n
+			pending = nil
+		case e.Type == elemClass || e.Type == "literal" || pn.Role == generators.PathRoleLiteral:
+			if pending != nil {
+				steps = append(steps, step{predicate: *pending, literal: true})
+			}
+			if continuesAfter(field.Path[i+1:]) {
+				return nil, fieldErr(fieldSem(field), "path continues after a literal")
+			}
+			return steps, q.checkBinding(field, last)
+		}
+	}
+	if pending != nil {
+		steps = append(steps, step{predicate: *pending, literal: true})
+	}
+	return steps, q.checkBinding(field, last)
+}
+
+// checkBinding confirms the walk reached the node the graph bound the
+// field to.
+func (q *queryWriter) checkBinding(field *generators.FieldNode, last *exportgraph.ResourceNode) error {
+	for _, fb := range q.graph.Fields {
+		if fb.Source == field && last != nil && fb.NodeKey != last.Key {
+			return fieldErr(fieldSem(field), "path walk ends at %s, graph binds %s", last.Key, fb.NodeKey)
+		}
+	}
+	return nil
+}
+
+// continuesAfter reports a property or class in the rest of a path.
+func continuesAfter(rest []generators.PathNode) bool {
+	for _, pn := range rest {
+		if pn.Element.Type == elemProperty || pn.Element.Type == elemClass {
+			return true
+		}
+	}
+	return false
+}
+
+// subPathSteps walks a legacy subfield path, which the export graph does
+// not hold: class steps bind to their path_node_id when set, else ?sN.
+func subPathSteps(path []generators.PathNode, scope domain.PathElement, sem string) ([]step, error) {
+	var steps []step
+	var pending *domain.PathElement
+	for i, pn := range path {
+		e := pn.Element
+		switch {
+		case e.Type == elemProperty:
+			if pending != nil {
+				return nil, fieldErr(sem, "path continues after a literal")
+			}
+			pending = &e
+		case e.Type == elemClass && !rdfterm.IsDatatype(e):
+			if pending == nil || (i == 0 && e.SameStep(scope)) {
+				continue
+			}
+			v := fmt.Sprintf("?s%d", len(steps)+1)
+			if e.PathNodeID != "" {
+				v = "?" + sparqlVar(e.PathNodeID)
+			}
+			steps = append(steps, step{predicate: *pending, nodeVar: v, types: classTypes(e, e.AdditionalTypes)})
+			pending = nil
+		case e.Type == elemClass || e.Type == "literal" || pn.Role == generators.PathRoleLiteral:
+			if pending != nil {
+				steps = append(steps, step{predicate: *pending, literal: true})
+			}
+			if continuesAfter(path[i+1:]) {
+				return nil, fieldErr(sem, "path continues after a literal")
+			}
+			return steps, nil
+		}
+	}
+	if pending != nil {
+		steps = append(steps, step{predicate: *pending, literal: true})
+	}
+	return steps, nil
+}
+
+func classTypes(e domain.PathElement, additional []domain.TypeRef) []domain.TypeRef {
+	return append([]domain.TypeRef{{URI: e.URI, Prefix: e.Prefix, LocalName: e.LocalName}}, additional...)
+}
+
+// writeField emits the field's primary query, then one independent query
+// per legacy subfield path (same field, distinct value variable): subfields
+// are additional value paths on the same entity, not required joins.
+func (q *queryWriter) writeField(b *strings.Builder, field *generators.FieldNode) error {
+	steps, err := q.graphSteps(field)
+	if err != nil {
+		return err
+	}
+	value := valueVar(field)
+	if err := q.writeQuery(b, field, steps, value); err != nil {
+		return err
+	}
+	for i, sub := range field.SubPaths {
+		b.WriteByte('\n')
+		writeComment(b, fmt.Sprintf("legacy subfield path %d", i+1))
+		subSteps, err := subPathSteps(sub, field.Scope, fieldSem(field))
+		if err != nil {
+			return err
+		}
+		if err := q.writeQuery(b, field, subSteps, fmt.Sprintf("%s_p%d", value, i+1)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeQuery emits one SELECT (or COUNT) query over the steps. The last
+// step's object is the value variable, or the field's set value: a set
+// value ends the path on the value itself, and the query selects the node
+// that carries it.
+func (q *queryWriter) writeQuery(b *strings.Builder, field *generators.FieldNode, steps []step, value string) error {
+	sem := fieldSem(field)
+
+	var body strings.Builder
+	if q.snap.RootKind != generators.EntityField && q.root != nil {
+		if err := q.writeTypeTriple(&body, subjectVar, classTypes(q.root.Class, q.root.AdditionalTypes), sem); err != nil {
+			return err
+		}
+	}
+
+	selected, labeled := value, false
+	subject := subjectVar
+	vars := []string{subjectVar}
+	for i, s := range steps {
+		pred, err := q.name(s.predicate.Prefix, s.predicate.LocalName, s.predicate.URI, sem)
+		if err != nil {
+			return err
+		}
+		if i < len(steps)-1 {
+			fmt.Fprintf(&body, "  %s %s %s .\n", subject, pred, s.nodeVar)
+			vars = append(vars, s.nodeVar)
+			if err := q.writeTypeTriple(&body, s.nodeVar, s.types, sem); err != nil {
+				return err
+			}
+			subject = s.nodeVar
+			continue
+		}
+		object := value
+		if sv := field.Field.SetValue; sv != "" {
+			object = rdfterm.Term(sv, q.snap.Namespaces)
+			if !isIRIRef(object) {
+				return fieldErr(sem, "set value %q is not an IRI", sv)
+			}
+			selected = subject
+		} else {
+			labeled = !s.literal && wantsLabelClause(field.Field.ExpectedValueType)
+		}
+		fmt.Fprintf(&body, "  %s %s %s .\n", subject, pred, object)
+	}
+
+	if selected == value {
+		vars = append(vars, value)
+	}
+	if labeled && !q.snap.Options.SPARQLCount {
+		vars = append(vars, value+"_label")
+	}
+	if q.snap.Options.SPARQLCount {
+		vars = append(vars, "?count")
+	}
+	if err := checkCollisions(vars, sem); err != nil {
+		return err
+	}
+
+	q.writeSelect(b, body.String(), selected, value, labeled)
+	return nil
+}
+
+// writeSelect wraps a query body in its SELECT (or COUNT), the optional
+// label clause and the limit.
+func (q *queryWriter) writeSelect(b *strings.Builder, body, selected, value string, labeled bool) {
+	count := q.snap.Options.SPARQLCount
+	if count {
+		fmt.Fprintf(b, "SELECT (COUNT(%s) AS ?count) WHERE {\n", selected)
+	} else {
+		fmt.Fprintf(b, "SELECT DISTINCT %s WHERE {\n", selected)
+	}
+	b.WriteString(body)
+	if labeled && !count {
+		fmt.Fprintf(b, "  OPTIONAL { %s rdfs:label %s_label . }\n", value, value)
+	}
+	b.WriteString("}\n")
+	if q.snap.Options.SPARQLLimit > 0 && !count {
+		fmt.Fprintf(b, "LIMIT %d\n", q.snap.Options.SPARQLLimit)
+	}
+}
+
+// isIRIRef reports an <IRI> whose body holds no character an IRIREF
+// cannot.
+func isIRIRef(s string) bool {
+	return len(s) >= 2 && s[0] == '<' && s[len(s)-1] == '>' && !strings.ContainsFunc(s[1:len(s)-1], rdfterm.NotIRIChar)
+}
+
+// checkCollisions refuses a query in which two roles share a variable.
+func checkCollisions(vars []string, sem string) error {
+	seen := make(map[string]bool, len(vars))
+	for _, v := range vars {
+		if seen[v] {
+			return fieldErr(sem, "variable %s collides", v)
+		}
+		seen[v] = true
+	}
+	return nil
+}
+
+// writeTypeTriple emits "subject a C1, C2 ." for the types that carry a
+// name; nothing when none does.
+func (q *queryWriter) writeTypeTriple(b *strings.Builder, subject string, types []domain.TypeRef, sem string) error {
+	names := make([]string, 0, len(types))
+	for _, t := range types {
+		if (t.Prefix == "" || t.LocalName == "") && t.URI == "" {
+			continue
+		}
+		n, err := q.name(t.Prefix, t.LocalName, t.URI, sem)
+		if err != nil {
+			return err
+		}
+		names = append(names, n)
+	}
+	if len(names) > 0 {
+		fmt.Fprintf(b, "  %s a %s .\n", subject, strings.Join(names, ", "))
+	}
+	return nil
+}
+
+var (
+	pnPrefix = regexp.MustCompile(`^[A-Za-z]([A-Za-z0-9_.-]*[A-Za-z0-9_-])?$`)
+	pnLocal  = regexp.MustCompile(`^[A-Za-z0-9_]([A-Za-z0-9_.-]*[A-Za-z0-9_-])?$`)
+)
+
+// name writes an ontology term: a prefixed name when prefix and local name
+// are plain names, else the IRI the bound prefix expands to, else the
+// element's own absolute IRI. Anything else is an error, never raw text.
+func (q *queryWriter) name(prefix, local, uri, sem string) (string, error) {
+	if prefix != "" && local != "" {
+		if pnPrefix.MatchString(prefix) && pnLocal.MatchString(local) {
+			return prefix + ":" + local, nil
+		}
+		if base, ok := resolvePrefix(q.snap.Namespaces, prefix); ok && !strings.ContainsFunc(base+local, rdfterm.NotIRIChar) {
+			return "<" + base + local + ">", nil
+		}
+	}
+	if (strings.HasPrefix(uri, "http://") || strings.HasPrefix(uri, "https://") || strings.HasPrefix(uri, "urn:")) &&
+		!strings.ContainsFunc(uri, rdfterm.NotIRIChar) {
+		return "<" + uri + ">", nil
+	}
+	return "", fieldErr(sem, "term %q is not an IRI", prefix+":"+local)
+}
+
+func resolvePrefix(ns generators.NamespaceSet, prefix string) (string, bool) {
+	switch prefix {
+	case "rdf":
+		return rdfNamespace, true
+	case "rdfs":
+		return rdfsNamespace, true
+	}
+	return ns.ResolvePrefix(prefix)
+}
+
+// collectUsedPrefixes reports the namespace prefixes of the root class (for
+// model and collection scopes) and every field path, plus rdf+rdfs which
+// the renderer always uses.
+func collectUsedPrefixes(snap *generators.Snapshot, root *exportgraph.ResourceNode) map[string]struct{} {
+	used := map[string]struct{}{"rdf": {}, "rdfs": {}}
+	add := func(e domain.PathElement) {
+		if e.Prefix != "" {
+			used[e.Prefix] = struct{}{}
+		}
+		for _, t := range e.AdditionalTypes {
 			if t.Prefix != "" {
 				used[t.Prefix] = struct{}{}
 			}
 		}
-		paths := append([][]generators.PathNode{field.Path}, field.SubPaths...)
-		for _, p := range paths {
+	}
+	if root != nil && snap.RootKind != generators.EntityField {
+		add(root.Class)
+	}
+	for _, field := range snap.Fields {
+		add(field.Scope)
+		for _, p := range append([][]generators.PathNode{field.Path}, field.SubPaths...) {
 			for _, node := range p {
-				if node.Element.Prefix != "" {
-					used[node.Element.Prefix] = struct{}{}
-				}
-				for _, t := range node.Element.AdditionalTypes {
-					if t.Prefix != "" {
-						used[t.Prefix] = struct{}{}
-					}
-				}
+				add(node.Element)
 			}
 		}
 	}
 	return used
 }
 
-// writePrefixes emits PREFIX declarations for every namespace that
-// appears in any field path. Prefixes referenced by the snapshot but
-// missing from the bundle surface as a hard error so the caller knows
-// the project's namespace bindings are incomplete.
+// writePrefixes emits PREFIX declarations for every used prefix. A prefix
+// the bundle does not bind is a hard error so the caller knows the
+// project's namespace bindings are incomplete; a prefix that is not a
+// plain name is not declared (its terms are written as full IRIs).
 func writePrefixes(b *strings.Builder, namespaces generators.NamespaceSet, used map[string]struct{}) error {
 	var missing []string
 	for prefix := range used {
-		if prefix == "rdf" || prefix == "rdfs" {
-			continue
-		}
-		if _, ok := namespaces.ResolvePrefix(prefix); !ok {
+		if _, ok := resolvePrefix(namespaces, prefix); !ok {
 			missing = append(missing, prefix)
 		}
 	}
 	if len(missing) > 0 {
 		sort.Strings(missing)
-		return fmt.Errorf("sparql renderer: missing namespace binding(s) for prefix: %s", strings.Join(missing, ", "))
+		return fmt.Errorf("sparql renderer: missing namespace binding(s) for prefix: %s", oneLine(strings.Join(missing, ", ")))
 	}
 
 	prefixes := make([]string, 0, len(used))
@@ -133,131 +531,60 @@ func writePrefixes(b *strings.Builder, namespaces generators.NamespaceSet, used 
 	}
 	sort.Strings(prefixes)
 	for _, prefix := range prefixes {
-		switch prefix {
-		case "rdf":
-			b.WriteString("PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n")
-		case "rdfs":
-			b.WriteString("PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n")
-		default:
-			namespace, _ := namespaces.ResolvePrefix(prefix)
-			fmt.Fprintf(b, "PREFIX %s: <%s>\n", prefix, namespace)
+		if !pnPrefix.MatchString(prefix) {
+			continue
 		}
+		namespace, _ := resolvePrefix(namespaces, prefix)
+		if strings.ContainsFunc(namespace, rdfterm.NotIRIChar) {
+			return fmt.Errorf("sparql renderer: namespace for prefix %s is not an IRI: %q", prefix, namespace)
+		}
+		fmt.Fprintf(b, "PREFIX %s: <%s>\n", prefix, namespace)
 	}
 	b.WriteByte('\n')
 	return nil
 }
 
-// writeFieldQuery emits one SELECT (or COUNT) query for a single
-// FieldNode. Variable layout:
-//
-//	?subject — root entity matching the field's scope class
-//	?{path_node_id} — intermediate path resources (one per class hop)
-//	?{semID}_{systemName} — terminal value (literal or resource)
-//
-// rdfs:label is added as an OPTIONAL clause when the terminal is a
-// non-temporal resource — matches the Python heuristic.
-func writeFieldQuery(b *strings.Builder, snap *generators.Snapshot, field generators.FieldNode) {
-	// Primary path query, then one independent query per legacy subfield path
-	// (same field binding / scope class, distinct value variable). Each path
-	// is a self-contained BGP — subfields are additional value-paths on the
-	// same entity, not required joins, so they never constrain each other.
-	writeOnePathQuery(b, snap, field, field.Path, valueVar(field))
-	for i, sub := range field.SubPaths {
-		b.WriteByte('\n')
-		fmt.Fprintf(b, "# legacy subfield path %d\n", i+1)
-		writeOnePathQuery(b, snap, field, sub, fmt.Sprintf("%s_p%d", valueVar(field), i+1))
-	}
+// writeComment writes a single-line comment.
+func writeComment(b *strings.Builder, text string) {
+	b.WriteString("# " + oneLine(text) + "\n")
 }
 
-// writeOnePathQuery emits one SELECT (or COUNT) query for a single path of a
-// field, binding the terminal to value.
-func writeOnePathQuery(b *strings.Builder, snap *generators.Snapshot, field generators.FieldNode, pathNodes []generators.PathNode, value string) {
-	if snap.Options.SPARQLCount {
-		writeQueryHeader(b, fmt.Sprintf("SELECT (COUNT(%s) AS ?count) WHERE {", value))
-	} else {
-		writeQueryHeader(b, fmt.Sprintf("SELECT DISTINCT %s WHERE {", value))
-	}
-
-	// Type triple for the field's scope class.
-	writeTypeTriple(b, "?subject", field.Scope)
-
-	// Path triples. Each class hop's variable is its path_node_id; the
-	// terminal value lands in the field's own value variable.
-	subject := "?subject"
-	classNames := classVarNames(pathNodes)
-	for i, node := range pathNodes {
-		switch node.Role {
-		case generators.PathRoleProperty:
-			object := nextObjectVar(pathNodes, i, classNames, value)
-			fmt.Fprintf(b, "  %s %s:%s %s .\n", subject, node.Element.Prefix, node.Element.LocalName, object)
-			subject = object
-		case generators.PathRoleClass:
-			// Class hops emit a type triple on the subject we just bound.
-			if subject != "?subject" {
-				writeTypeTriple(b, subject, node.Element)
-			}
-		case generators.PathRoleLiteral, generators.PathRoleTerminal:
-			// Terminal values land in the value var directly via the
-			// preceding property triple — nothing to emit here.
+// oneLine replaces control characters (line breaks among them) with spaces.
+func oneLine(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || r == 0x85 || r == 0x2028 || r == 0x2029 {
+			return ' '
 		}
-	}
-
-	// Set_Value (override / base) → crm:P2_has_type filter, mirroring Python.
-	if setValue := fieldSetValue(field.Field); setValue != "" {
-		fmt.Fprintf(b, "  %s <http://www.cidoc-crm.org/cidoc-crm/P2_has_type> <%s> .\n", value, setValue)
-	}
-
-	// rdfs:label OPTIONAL clause for non-temporal resource terminals.
-	if !snap.Options.SPARQLCount && wantsLabelClause(pathNodes, field.Field.ExpectedValueType) {
-		fmt.Fprintf(b, "  OPTIONAL { %s rdfs:label %s_label . }\n", value, value)
-	}
-
-	b.WriteString("}\n")
-	if snap.Options.SPARQLLimit > 0 && !snap.Options.SPARQLCount {
-		fmt.Fprintf(b, "LIMIT %d\n", snap.Options.SPARQLLimit)
-	}
+		return r
+	}, s)
 }
 
-func writeQueryHeader(b *strings.Builder, line string) {
-	b.WriteString(line)
-	b.WriteByte('\n')
-}
-
-// classVarNames assigns a variable name to every intermediate class hop
-// in the path: its generated path_node_id, so the
-// variable traces back to the node and class nodes reached through the
-// same placement+prefix coreference instead of colliding on a bare ?sN
-// counter. ?subject stays the scope class. Falls back to ?sN only for
-// elements that carry no path_node_id.
-func classVarNames(path []generators.PathNode) map[int]string {
-	names := map[int]string{}
-	counter := 0
-	for i, node := range path {
-		if node.Role != generators.PathRoleClass {
-			continue
-		}
-		counter++
-		if id := node.Element.PathNodeID; id != "" {
-			names[i] = "?" + id
-		} else {
-			names[i] = fmt.Sprintf("?s%d", counter)
-		}
-	}
-	return names
-}
-
-// sparqlVar normalises an identifier into a SPARQL variable token —
-// dots, dashes, spaces and colons collapsed to underscores.
+// sparqlVar turns an identifier into a SPARQL variable name: only
+// [A-Za-z0-9_] survive (everything else becomes _), and a leading digit is
+// prefixed with v_.
 func sparqlVar(s string) string {
-	r := strings.NewReplacer(".", "_", "-", "_", " ", "_", ":", "_")
-	return r.Replace(strings.TrimSpace(s))
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(s) {
+		if r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	out := b.String()
+	switch {
+	case out == "":
+		return "v"
+	case out[0] >= '0' && out[0] <= '9':
+		return "v_" + out
+	}
+	return out
 }
 
-// valueVar is the SPARQL variable bound to a field's terminal value —
-// the field's semantic id + system name, so each field's value is a
-// distinct, traceable column rather than every field merging onto a
-// shared ?value.
-func valueVar(field generators.FieldNode) string {
+// valueVar is the variable bound to a field's terminal value: the field's
+// semantic id plus system name, so each field's value is a distinct,
+// traceable column.
+func valueVar(field *generators.FieldNode) string {
 	base := field.Field.SemanticID
 	if base == "" {
 		base = field.Field.ID
@@ -268,62 +595,9 @@ func valueVar(field generators.FieldNode) string {
 	return "?" + sparqlVar(base)
 }
 
-// nextObjectVar returns the variable name for the property triple's
-// object position. Property at path index i targets the next class node
-// (or the literal terminal which collapses onto the field value var).
-func nextObjectVar(path []generators.PathNode, i int, classNames map[int]string, value string) string {
-	for j := i + 1; j < len(path); j++ {
-		switch path[j].Role {
-		case generators.PathRoleClass:
-			if name, ok := classNames[j]; ok {
-				return name
-			}
-			return fmt.Sprintf("?s%d", j)
-		case generators.PathRoleLiteral, generators.PathRoleTerminal:
-			return value
-		}
-	}
-	// Property is the path's last node — its object is the value.
-	return value
-}
-
-// writeTypeTriple emits "subject a Class1, Class2 ." with one class per
-// type on the element (primary + additionals). No output when neither
-// prefix nor local-name resolves.
-func writeTypeTriple(b *strings.Builder, subject string, element domain.PathElement) {
-	types := element.AllTypes()
-	names := make([]string, 0, len(types))
-	for _, t := range types {
-		if t.Prefix == "" || t.LocalName == "" {
-			continue
-		}
-		names = append(names, t.Prefix+":"+t.LocalName)
-	}
-	if len(names) == 0 {
-		return
-	}
-	fmt.Fprintf(b, "  %s a %s .\n", subject, strings.Join(names, ", "))
-}
-
-// fieldSetValue returns the resolved Set_Value URI for this field.
-// The snapshot already applies the override chain, so the field-level
-// value is authoritative.
-func fieldSetValue(rf domain.ResolvedField) string {
-	return rf.SetValue
-}
-
-// wantsLabelClause returns true when the terminal value is a resource
-// for which rdfs:label is meaningful. Date / Integer literals get
-// nothing; resource terminals get an OPTIONAL clause that callers can
-// use to surface a human-readable label.
-func wantsLabelClause(pathNodes []generators.PathNode, expectedValueType string) bool {
-	if len(pathNodes) == 0 {
-		return false
-	}
-	last := pathNodes[len(pathNodes)-1]
-	if last.Role == generators.PathRoleLiteral {
-		return false
-	}
+// wantsLabelClause reports a resource value type for which rdfs:label is
+// meaningful; literal value types get none.
+func wantsLabelClause(expectedValueType string) bool {
 	switch strings.ToLower(expectedValueType) {
 	case "date", "integer", "string", "decimal", "boolean":
 		return false
