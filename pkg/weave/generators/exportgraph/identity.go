@@ -31,8 +31,10 @@ type Identity struct {
 // NodeIdentity reads n's identity: its class and the fixed values of every
 // required set-value field one step from it. A literal counts when its Min
 // is at least 1; an edge ending counts when its own count is (the first
-// ending takes the edge's Min, later ones their own).
-func NodeIdentity(n *ResourceNode, g *Graph, ns generators.NamespaceSet) Identity {
+// ending takes the edge's Min, later ones their own). It reads the fields
+// through their in-memory links, so n must come from a graph made by Build,
+// not one decoded from JSON.
+func NodeIdentity(n *ResourceNode, ns generators.NamespaceSet) Identity {
 	id := Identity{Class: rdfterm.ClassList(n.Class), Values: map[string][]string{}}
 	add := func(prop, setValue string) {
 		v := strings.TrimSpace(setValue)

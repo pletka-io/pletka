@@ -29,7 +29,7 @@ func typedName(sets ...[2]any) *exportgraph.Graph {
 
 func idOf(t *testing.T, g *exportgraph.Graph) exportgraph.Identity {
 	t.Helper()
-	return exportgraph.NodeIdentity(rootOf(t, g), g, testNS())
+	return exportgraph.NodeIdentity(rootOf(t, g), testNS())
 }
 
 func TestIdentityTakesRequiredOneStepSetValues(t *testing.T) {

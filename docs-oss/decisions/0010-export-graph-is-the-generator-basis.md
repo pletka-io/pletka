@@ -44,6 +44,13 @@ The graph carries:
   of required one-step set-value fields), `Distinguishable`, and
   `Identity.WithLineage`, which let a renderer tell sibling branches apart.
   The shared RDF term rules live in `pkg/weave/generators/rdfterm`.
+- **Field facts:** each `FieldBinding` carries the field's `set_value` and
+  `expected_value_type`, so a script generator reading the JSON has them.
+
+What the JSON does not carry: `Ending.Field` and `FieldBinding.Source` (the
+field nodes themselves) are in-memory only, as are the other `Source`
+links. `NodeIdentity` reads the set values through them, so it needs a graph
+from `Build`, not one decoded from JSON.
 
 Migration status:
 

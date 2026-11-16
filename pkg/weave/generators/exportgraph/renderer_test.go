@@ -18,6 +18,7 @@ import (
 // and decodes back into a Graph with the same content.
 func TestRendererDocumentRoundTrips(t *testing.T) {
 	f := tfield("F.1", 1, true, intp(3), tprop("crm:P1_is_identified_by"), tclass("crm:E41_Appellation", "n1"), tprop("crm:P190_has_symbolic_content"), tlit("xsd:string"))
+	f.Field.SetValue, f.Field.ExpectedValueType = "Fixed name", "string"
 	snap := &generators.Snapshot{
 		Fields: []generators.FieldNode{f},
 		Tree:   &views.Tree{Root: views.TreeNode{Scope: ptr(qel("class", "crm:E21_Person"))}},
@@ -27,7 +28,7 @@ func TestRendererDocumentRoundTrips(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := buf.String()
-	for _, key := range []string{`"min"`, `"max"`, `"end"`, `"identity_source"`} {
+	for _, key := range []string{`"min"`, `"max"`, `"end"`, `"identity_source"`, `"set_value": "Fixed name"`, `"expected_value_type": "string"`} {
 		if !strings.Contains(doc, key) {
 			t.Errorf("document lacks %s:\n%s", key, doc)
 		}
@@ -51,5 +52,25 @@ func TestRendererDocumentRoundTrips(t *testing.T) {
 	}
 	if again.String() != doc {
 		t.Fatalf("re-encoded document differs:\n%s", again.String())
+	}
+}
+
+// A literal step that ends at the property has no end element, and the
+// document writes no "end" key for it.
+func TestRendererOmitsEmptyEnd(t *testing.T) {
+	f := tfield("F.1", 0, false, nil, tprop("crm:P3_has_note"))
+	snap := &generators.Snapshot{
+		Fields: []generators.FieldNode{f},
+		Tree:   &views.Tree{Root: views.TreeNode{Scope: ptr(qel("class", "crm:E21_Person"))}},
+	}
+	var buf bytes.Buffer
+	if err := exportgraph.NewRenderer().Render(context.Background(), snap, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), `"literals"`) {
+		t.Fatalf("no literal binding:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), `"end"`) {
+		t.Fatalf("document writes an empty end:\n%s", buf.String())
 	}
 }

@@ -84,6 +84,7 @@ type Ending struct {
 	Min     int    `json:"min"`
 	Max     *int   `json:"max,omitempty"`
 	// Field is the ending field itself, for readers that need its set value.
+	// In memory only: a graph decoded from JSON has none.
 	Field *generators.FieldNode `json:"-"`
 }
 
@@ -92,7 +93,7 @@ type LiteralBinding struct {
 	Predicate domain.PathElement `json:"predicate"`
 	// End is the leaf element: a datatype or literal; zero when the path
 	// ends at the property.
-	End   domain.PathElement `json:"end,omitempty"`
+	End   domain.PathElement `json:"end,omitzero"`
 	Field FieldBinding       `json:"field"`
 	// Min/Max are the field's own counts per parent node.
 	Min int  `json:"min"`
@@ -111,6 +112,10 @@ type FieldBinding struct {
 	RelativePath string              `json:"relative_path,omitempty"`
 	NodeKey      string              `json:"node_key,omitempty"`
 	GroupKeys    []string            `json:"group_keys,omitempty"`
+	// SetValue and ExpectedValueType are the field's own, for readers of
+	// the JSON document, which does not carry Source.
+	SetValue          string `json:"set_value,omitempty"`
+	ExpectedValueType string `json:"expected_value_type,omitempty"`
 }
 
 // VisualGroup is a presentation grouping from the model view tree. Categories

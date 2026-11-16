@@ -204,6 +204,9 @@ func (b *builder) fieldBinding(field *generators.FieldNode, nodeKey string) Fiel
 		RelativePath: field.RelativePath,
 		NodeKey:      nodeKey,
 		GroupKeys:    append([]string(nil), b.fieldGroups[field.RelativePath]...),
+
+		SetValue:          field.Field.SetValue,
+		ExpectedValueType: field.Field.ExpectedValueType,
 	}
 }
 
