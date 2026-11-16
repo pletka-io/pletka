@@ -41,7 +41,7 @@ func resolveModelRowToField(row sqlcgen.WeaveResolveForModelRow) domain.Resolved
 		ProjectID:          domain.ParseSemanticID(row.FieldID).ProjectID,
 		OntologyPath:       dbutil.NilToEmpty(row.FieldOntologyPath),
 		DisplayName:        unmarshalDomainTranslations(row.DisplayName),
-		Description:        unmarshalDomainTranslations(row.Description),
+		Description:        inheritDescription(row.Description, row.CollectionDescription, row.FieldDescription),
 		Position:           int(row.Position),
 		ExpectedValueType:  dbutil.NilToEmpty(row.FieldExpectedValueType),
 		SetValue:           dbutil.NilToEmpty(row.SetValue),
@@ -87,7 +87,7 @@ func resolveCollectionRowToField(row sqlcgen.WeaveResolveForCollectionRow) domai
 		ProjectID:          domain.ParseSemanticID(row.FieldID).ProjectID,
 		OntologyPath:       dbutil.NilToEmpty(row.FieldOntologyPath),
 		DisplayName:        unmarshalDomainTranslations(row.DisplayName),
-		Description:        unmarshalDomainTranslations(row.Description),
+		Description:        inheritDescription(row.Description, row.FieldDescription),
 		Position:           int(row.Position),
 		ExpectedValueType:  dbutil.NilToEmpty(row.FieldExpectedValueType),
 		SetValue:           dbutil.NilToEmpty(row.SetValue),
@@ -113,6 +113,24 @@ func resolveCollectionRowToField(row sqlcgen.WeaveResolveForCollectionRow) domai
 	}
 
 	return rf
+}
+
+// inheritDescription returns the first level's description that has text.
+// An empty override description is a gap, not a blank: a model override
+// inherits from the collection override that places the field, then from
+// the field itself. With no text anywhere the first level is kept as is.
+// ponytail: one collection level; a collection nested in another does not
+// look past its direct parent.
+func inheritDescription(levels ...[]byte) domain.Translations {
+	for _, b := range levels {
+		t := unmarshalDomainTranslations(b)
+		for _, v := range t {
+			if strings.TrimSpace(v) != "" {
+				return t
+			}
+		}
+	}
+	return unmarshalDomainTranslations(levels[0])
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +403,8 @@ type archivedResolvedRow struct {
 	FieldOntologyPath      *string
 	FieldExpectedValueType *string
 	FieldPathElements      []byte
+	FieldDescription       []byte
+	CollectionDescription  []byte
 }
 
 func (r *resolver) resolveForModelVersion(ctx context.Context, modelID, projectID, version string) ([]domain.ResolvedField, error) {
@@ -394,7 +414,16 @@ func (r *resolver) resolveForModelVersion(ctx context.Context, modelID, projectI
 			fo.display_name, fo.description, fo.collection_name, fo.category_id, fo.part_of_collection_id,
 			fo.set_value, fo.is_required, fo.min_occurs, fo.max_occurs, fo.is_hidden, fo.visibility,
 			fo.staging_id,
-			f.semantic_id, f.system_name, f.ontology_path, f.expected_value_type, f.path_elements
+			f.semantic_id, f.system_name, f.ontology_path, f.expected_value_type, f.path_elements,
+			f.description,
+			(SELECT co.description FROM weave_field_overrides_archive co
+			  WHERE co.entity_type = 'collection'
+			    AND co.entity_id = fo.part_of_collection_id
+			    AND co.field_id = fo.field_id
+			    AND co.project_id = fo.project_id
+			    AND co.version_number = fo.version_number
+			    AND fo.entity_type = 'model'
+			  ORDER BY co.id LIMIT 1)
 		FROM weave_field_overrides_archive fo
 		JOIN weave_fields_archive f
 		  ON f.id = fo.field_id
@@ -442,7 +471,16 @@ func (r *resolver) resolveForCollectionVersion(ctx context.Context, collectionID
 			fo.display_name, fo.description, fo.collection_name, fo.category_id, fo.part_of_collection_id,
 			fo.set_value, fo.is_required, fo.min_occurs, fo.max_occurs, fo.is_hidden, fo.visibility,
 			fo.staging_id,
-			f.semantic_id, f.system_name, f.ontology_path, f.expected_value_type, f.path_elements
+			f.semantic_id, f.system_name, f.ontology_path, f.expected_value_type, f.path_elements,
+			f.description,
+			(SELECT co.description FROM weave_field_overrides_archive co
+			  WHERE co.entity_type = 'collection'
+			    AND co.entity_id = fo.part_of_collection_id
+			    AND co.field_id = fo.field_id
+			    AND co.project_id = fo.project_id
+			    AND co.version_number = fo.version_number
+			    AND fo.entity_type = 'model'
+			  ORDER BY co.id LIMIT 1)
 		FROM weave_field_overrides_archive fo
 		JOIN weave_fields_archive f
 		  ON f.id = fo.field_id
@@ -491,6 +529,7 @@ func scanArchivedResolvedRow(scanner interface{ Scan(...any) error }) (archivedR
 		&row.SetValue, &row.IsRequired, &row.MinOccurs, &row.MaxOccurs, &row.IsHidden, &row.Visibility,
 		&row.StagingID,
 		&row.FieldSemanticID, &row.FieldSystemName, &row.FieldOntologyPath, &row.FieldExpectedValueType, &row.FieldPathElements,
+		&row.FieldDescription, &row.CollectionDescription,
 	)
 	return row, err
 }
@@ -503,7 +542,7 @@ func archivedResolvedRowToField(row archivedResolvedRow, source string) domain.R
 		ProjectID:          domain.ParseSemanticID(row.FieldID).ProjectID,
 		OntologyPath:       dbutil.NilToEmpty(row.FieldOntologyPath),
 		DisplayName:        unmarshalDomainTranslations(row.DisplayName),
-		Description:        unmarshalDomainTranslations(row.Description),
+		Description:        inheritDescription(row.Description, row.CollectionDescription, row.FieldDescription),
 		Position:           int(row.Position),
 		ExpectedValueType:  dbutil.NilToEmpty(row.FieldExpectedValueType),
 		SetValue:           dbutil.NilToEmpty(row.SetValue),

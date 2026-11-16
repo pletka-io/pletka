@@ -7,6 +7,7 @@ package sqlcgen
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
@@ -1123,7 +1124,8 @@ SELECT
     f.ontology_path  AS field_ontology_path,
     f.expected_value_type AS field_expected_value_type,
     f.path_elements  AS field_path_elements,
-    f.subfield_paths AS field_subfield_paths
+    f.subfield_paths AS field_subfield_paths,
+    f.description    AS field_description
 FROM weave_field_overrides fo
 JOIN weave_fields f ON f.id = fo.field_id
 WHERE fo.entity_type = 'collection'
@@ -1167,6 +1169,7 @@ type WeaveResolveForCollectionRow struct {
 	FieldExpectedValueType *string   `json:"field_expected_value_type"`
 	FieldPathElements      []byte    `json:"field_path_elements"`
 	FieldSubfieldPaths     []byte    `json:"field_subfield_paths"`
+	FieldDescription       []byte    `json:"field_description"`
 }
 
 // Returns ALL overrides for a collection with field identity joined.
@@ -1209,6 +1212,7 @@ func (q *Queries) WeaveResolveForCollection(ctx context.Context, arg WeaveResolv
 			&i.FieldExpectedValueType,
 			&i.FieldPathElements,
 			&i.FieldSubfieldPaths,
+			&i.FieldDescription,
 		); err != nil {
 			return nil, err
 		}
@@ -1232,7 +1236,16 @@ SELECT
     f.ontology_path  AS field_ontology_path,
     f.expected_value_type AS field_expected_value_type,
     f.path_elements  AS field_path_elements,
-    f.subfield_paths AS field_subfield_paths
+    f.subfield_paths AS field_subfield_paths,
+    f.description    AS field_description,
+    -- The collection override the model places this field in: an empty
+    -- model description inherits from it before the field's own.
+    (SELECT co.description FROM weave_field_overrides co
+      WHERE co.entity_type = 'collection'
+        AND co.entity_id = fo.part_of_collection_id
+        AND co.field_id = fo.field_id
+        AND co.project_id = fo.project_id
+      ORDER BY co.id LIMIT 1)::jsonb AS collection_description
 FROM weave_field_overrides fo
 JOIN weave_fields f ON f.id = fo.field_id
 WHERE fo.entity_type = 'model'
@@ -1247,35 +1260,37 @@ type WeaveResolveForModelParams struct {
 }
 
 type WeaveResolveForModelRow struct {
-	ID                     int64     `json:"id"`
-	FieldID                string    `json:"field_id"`
-	ProjectID              string    `json:"project_id"`
-	EntityType             string    `json:"entity_type"`
-	EntityID               string    `json:"entity_id"`
-	Position               int32     `json:"position"`
-	CollectionOrder        int32     `json:"collection_order"`
-	DisplayName            []byte    `json:"display_name"`
-	Description            []byte    `json:"description"`
-	CollectionName         []byte    `json:"collection_name"`
-	CategoryID             *string   `json:"category_id"`
-	PartOfCollectionID     *string   `json:"part_of_collection_id"`
-	SetValue               *string   `json:"set_value"`
-	IsRequired             *bool     `json:"is_required"`
-	MinOccurs              *int32    `json:"min_occurs"`
-	MaxOccurs              *int32    `json:"max_occurs"`
-	IsHidden               *bool     `json:"is_hidden"`
-	Visibility             *string   `json:"visibility"`
-	StagingID              *int64    `json:"staging_id"`
-	CreatedAt              time.Time `json:"created_at"`
-	UpdatedAt              time.Time `json:"updated_at"`
-	ContentHash            *string   `json:"content_hash"`
-	FieldSemanticID        *string   `json:"field_semantic_id"`
-	FieldSystemName        *string   `json:"field_system_name"`
-	FieldOntologyScope     []byte    `json:"field_ontology_scope"`
-	FieldOntologyPath      *string   `json:"field_ontology_path"`
-	FieldExpectedValueType *string   `json:"field_expected_value_type"`
-	FieldPathElements      []byte    `json:"field_path_elements"`
-	FieldSubfieldPaths     []byte    `json:"field_subfield_paths"`
+	ID                     int64           `json:"id"`
+	FieldID                string          `json:"field_id"`
+	ProjectID              string          `json:"project_id"`
+	EntityType             string          `json:"entity_type"`
+	EntityID               string          `json:"entity_id"`
+	Position               int32           `json:"position"`
+	CollectionOrder        int32           `json:"collection_order"`
+	DisplayName            []byte          `json:"display_name"`
+	Description            []byte          `json:"description"`
+	CollectionName         []byte          `json:"collection_name"`
+	CategoryID             *string         `json:"category_id"`
+	PartOfCollectionID     *string         `json:"part_of_collection_id"`
+	SetValue               *string         `json:"set_value"`
+	IsRequired             *bool           `json:"is_required"`
+	MinOccurs              *int32          `json:"min_occurs"`
+	MaxOccurs              *int32          `json:"max_occurs"`
+	IsHidden               *bool           `json:"is_hidden"`
+	Visibility             *string         `json:"visibility"`
+	StagingID              *int64          `json:"staging_id"`
+	CreatedAt              time.Time       `json:"created_at"`
+	UpdatedAt              time.Time       `json:"updated_at"`
+	ContentHash            *string         `json:"content_hash"`
+	FieldSemanticID        *string         `json:"field_semantic_id"`
+	FieldSystemName        *string         `json:"field_system_name"`
+	FieldOntologyScope     []byte          `json:"field_ontology_scope"`
+	FieldOntologyPath      *string         `json:"field_ontology_path"`
+	FieldExpectedValueType *string         `json:"field_expected_value_type"`
+	FieldPathElements      []byte          `json:"field_path_elements"`
+	FieldSubfieldPaths     []byte          `json:"field_subfield_paths"`
+	FieldDescription       []byte          `json:"field_description"`
+	CollectionDescription  json.RawMessage `json:"collection_description"`
 }
 
 // Returns ALL overrides for a model with field identity joined.
@@ -1320,6 +1335,8 @@ func (q *Queries) WeaveResolveForModel(ctx context.Context, arg WeaveResolveForM
 			&i.FieldExpectedValueType,
 			&i.FieldPathElements,
 			&i.FieldSubfieldPaths,
+			&i.FieldDescription,
+			&i.CollectionDescription,
 		); err != nil {
 			return nil, err
 		}
