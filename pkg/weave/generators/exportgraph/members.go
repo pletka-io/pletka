@@ -20,7 +20,7 @@ func BuildMembers(rc generators.ReferencedCollection, addr string, grafts map[st
 	}
 	anchor := coll.OntologyScope
 	for _, e := range rc.SharedPathPrefix {
-		if e.Type == "class" {
+		if e.Type == elemClass {
 			anchor = e
 		}
 	}

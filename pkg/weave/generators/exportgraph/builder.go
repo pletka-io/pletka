@@ -10,6 +10,9 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/views"
 )
 
+// elemClass is the path element type of a class step.
+const elemClass = "class"
+
 // Build creates a graph-template view of a generator snapshot.
 func Build(snap *generators.Snapshot) *Graph {
 	if snap == nil {
@@ -79,7 +82,7 @@ path:
 		node := &field.Path[i]
 		element := node.Element
 		switch element.Type {
-		case "class":
+		case elemClass:
 			if rdfterm.IsDatatype(element) {
 				b.addLiteral(currentKey, pendingProperty, element, field)
 				pendingProperty = nil
@@ -307,7 +310,7 @@ func (b *builder) keyForPath(elements []domain.PathElement) string {
 	var pendingProperty *domain.PathElement
 	for i, element := range elements {
 		switch element.Type {
-		case "class":
+		case elemClass:
 			if i == 0 && sameElement(element, b.nodesByKey[b.graph.RootKey].Class) {
 				continue
 			}

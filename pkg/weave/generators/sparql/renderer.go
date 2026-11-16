@@ -36,6 +36,13 @@ import (
 	"github.com/pletka-io/pletka/pkg/weave/generators/rdfterm"
 )
 
+// Path element types and the root subject variable.
+const (
+	elemClass    = "class"
+	elemProperty = "property"
+	subjectVar   = "?subject"
+)
+
 // Renderer writes SPARQL SELECT queries from a weave snapshot.
 type Renderer struct{}
 
@@ -177,11 +184,11 @@ type step struct {
 	literal   bool
 }
 
-// nodeVar names a graph node: ?subject for the root, the sanitised
+// nodeVar names a graph node: ?subject for the root, the sanitized
 // path_node_id when there is one, else its position in the graph.
 func (q *queryWriter) nodeVar(n *exportgraph.ResourceNode) string {
 	if n == q.root {
-		return "?subject"
+		return subjectVar
 	}
 	if id := n.Class.PathNodeID; id != "" {
 		return "?" + sparqlVar(id)
@@ -201,13 +208,13 @@ func (q *queryWriter) graphSteps(field *generators.FieldNode) ([]step, error) {
 		pn := &field.Path[i]
 		e := pn.Element
 		switch {
-		case e.Type == "property":
+		case e.Type == elemProperty:
 			if pending != nil {
 				// a property after a property: the first ends the path
 				return nil, fieldErr(fieldSem(field), "path continues after a literal")
 			}
 			pending = &e
-		case e.Type == "class" && !rdfterm.IsDatatype(e):
+		case e.Type == elemClass && !rdfterm.IsDatatype(e):
 			n, ok := q.nodeOf[pn]
 			if !ok || pending == nil {
 				continue
@@ -215,7 +222,7 @@ func (q *queryWriter) graphSteps(field *generators.FieldNode) ([]step, error) {
 			steps = append(steps, step{predicate: *pending, nodeVar: q.nodeVar(n), types: classTypes(n.Class, n.AdditionalTypes)})
 			last = n
 			pending = nil
-		case e.Type == "class" || e.Type == "literal" || pn.Role == generators.PathRoleLiteral:
+		case e.Type == elemClass || e.Type == "literal" || pn.Role == generators.PathRoleLiteral:
 			if pending != nil {
 				steps = append(steps, step{predicate: *pending, literal: true})
 			}
@@ -245,7 +252,7 @@ func (q *queryWriter) checkBinding(field *generators.FieldNode, last *exportgrap
 // continuesAfter reports a property or class in the rest of a path.
 func continuesAfter(rest []generators.PathNode) bool {
 	for _, pn := range rest {
-		if pn.Element.Type == "property" || pn.Element.Type == "class" {
+		if pn.Element.Type == elemProperty || pn.Element.Type == elemClass {
 			return true
 		}
 	}
@@ -260,12 +267,12 @@ func subPathSteps(path []generators.PathNode, scope domain.PathElement, sem stri
 	for i, pn := range path {
 		e := pn.Element
 		switch {
-		case e.Type == "property":
+		case e.Type == elemProperty:
 			if pending != nil {
 				return nil, fieldErr(sem, "path continues after a literal")
 			}
 			pending = &e
-		case e.Type == "class" && !rdfterm.IsDatatype(e):
+		case e.Type == elemClass && !rdfterm.IsDatatype(e):
 			if pending == nil || (i == 0 && e.SameStep(scope)) {
 				continue
 			}
@@ -275,7 +282,7 @@ func subPathSteps(path []generators.PathNode, scope domain.PathElement, sem stri
 			}
 			steps = append(steps, step{predicate: *pending, nodeVar: v, types: classTypes(e, e.AdditionalTypes)})
 			pending = nil
-		case e.Type == "class" || e.Type == "literal" || pn.Role == generators.PathRoleLiteral:
+		case e.Type == elemClass || e.Type == "literal" || pn.Role == generators.PathRoleLiteral:
 			if pending != nil {
 				steps = append(steps, step{predicate: *pending, literal: true})
 			}
@@ -330,14 +337,14 @@ func (q *queryWriter) writeQuery(b *strings.Builder, field *generators.FieldNode
 
 	var body strings.Builder
 	if q.snap.RootKind != generators.EntityField && q.root != nil {
-		if err := q.writeTypeTriple(&body, "?subject", classTypes(q.root.Class, q.root.AdditionalTypes), sem); err != nil {
+		if err := q.writeTypeTriple(&body, subjectVar, classTypes(q.root.Class, q.root.AdditionalTypes), sem); err != nil {
 			return err
 		}
 	}
 
-	selected, labelled := value, false
-	subject := "?subject"
-	vars := []string{"?subject"}
+	selected, labeled := value, false
+	subject := subjectVar
+	vars := []string{subjectVar}
 	for i, s := range steps {
 		pred, err := q.name(s.predicate.Prefix, s.predicate.LocalName, s.predicate.URI, sem)
 		if err != nil {
@@ -360,7 +367,7 @@ func (q *queryWriter) writeQuery(b *strings.Builder, field *generators.FieldNode
 			}
 			selected = subject
 		} else {
-			labelled = !s.literal && wantsLabelClause(field.Field.ExpectedValueType)
+			labeled = !s.literal && wantsLabelClause(field.Field.ExpectedValueType)
 		}
 		fmt.Fprintf(&body, "  %s %s %s .\n", subject, pred, object)
 	}
@@ -368,7 +375,7 @@ func (q *queryWriter) writeQuery(b *strings.Builder, field *generators.FieldNode
 	if selected == value {
 		vars = append(vars, value)
 	}
-	if labelled && !q.snap.Options.SPARQLCount {
+	if labeled && !q.snap.Options.SPARQLCount {
 		vars = append(vars, value+"_label")
 	}
 	if q.snap.Options.SPARQLCount {
@@ -378,20 +385,27 @@ func (q *queryWriter) writeQuery(b *strings.Builder, field *generators.FieldNode
 		return err
 	}
 
-	if q.snap.Options.SPARQLCount {
+	q.writeSelect(b, body.String(), selected, value, labeled)
+	return nil
+}
+
+// writeSelect wraps a query body in its SELECT (or COUNT), the optional
+// label clause and the limit.
+func (q *queryWriter) writeSelect(b *strings.Builder, body, selected, value string, labeled bool) {
+	count := q.snap.Options.SPARQLCount
+	if count {
 		fmt.Fprintf(b, "SELECT (COUNT(%s) AS ?count) WHERE {\n", selected)
 	} else {
 		fmt.Fprintf(b, "SELECT DISTINCT %s WHERE {\n", selected)
 	}
-	b.WriteString(body.String())
-	if labelled && !q.snap.Options.SPARQLCount {
+	b.WriteString(body)
+	if labeled && !count {
 		fmt.Fprintf(b, "  OPTIONAL { %s rdfs:label %s_label . }\n", value, value)
 	}
 	b.WriteString("}\n")
-	if q.snap.Options.SPARQLLimit > 0 && !q.snap.Options.SPARQLCount {
+	if q.snap.Options.SPARQLLimit > 0 && !count {
 		fmt.Fprintf(b, "LIMIT %d\n", q.snap.Options.SPARQLLimit)
 	}
-	return nil
 }
 
 // isIRIRef reports an <IRI> whose body holds no character an IRIREF

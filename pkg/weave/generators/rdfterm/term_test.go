@@ -1,10 +1,10 @@
 package rdfterm
 
 import (
-	"github.com/pletka-io/pletka/pkg/weave/generators"
 	"testing"
 
 	"github.com/pletka-io/pletka/pkg/domain"
+	"github.com/pletka-io/pletka/pkg/weave/generators"
 )
 
 func TestIsDatatype(t *testing.T) {

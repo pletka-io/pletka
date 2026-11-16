@@ -167,8 +167,10 @@ type SHACLOptions struct {
 type SPARQLKind string
 
 const (
+	// SPARQLKindEntries selects the values a path reaches.
 	SPARQLKindEntries SPARQLKind = "entries"
-	SPARQLKindCount   SPARQLKind = "count"
+	// SPARQLKindCount counts the values a path reaches.
+	SPARQLKindCount SPARQLKind = "count"
 )
 
 // SPARQLKinds lists the kinds offered for a root level, in display order.

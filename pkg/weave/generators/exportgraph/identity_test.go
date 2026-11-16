@@ -15,7 +15,7 @@ func testNS() generators.NamespaceSet { return generators.NamespaceSet{ByPrefix:
 // typedName is a Name node with one set-value field per entry of sets
 // (value, required) at the same P2 -> E55 step.
 func typedName(sets ...[2]any) *exportgraph.Graph {
-	var fields []generators.FieldNode
+	fields := make([]generators.FieldNode, 0, len(sets))
 	for i, s := range sets {
 		f := tfield("LAF."+string(rune('1'+i)), 0, s[1].(bool), nil, tprop("crm:P2_has_type"), tclass("crm:E55_Type", ""))
 		f.Field.SetValue = s[0].(string)

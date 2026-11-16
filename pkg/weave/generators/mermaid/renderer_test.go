@@ -353,6 +353,6 @@ func TestRendererShowsLiteralDatatype(t *testing.T) {
 		t.Fatalf("Render() error: %v", err)
 	}
 	if !strings.Contains(buf.String(), "-->|crm:P82a_begin_of_the_begin| 2[xsd:date]:::Literal") {
-		t.Fatalf("date literal not labelled xsd:date:\n%s", buf.String())
+		t.Fatalf("date literal not labeled xsd:date:\n%s", buf.String())
 	}
 }

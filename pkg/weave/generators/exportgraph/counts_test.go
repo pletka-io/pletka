@@ -39,10 +39,10 @@ func tfield(sem string, min int, required bool, max *int, path ...generators.Pat
 	}
 }
 
-func buildCounts(root string, fields ...generators.FieldNode) *exportgraph.Graph {
+func buildCounts(fields ...generators.FieldNode) *exportgraph.Graph {
 	return exportgraph.Build(&generators.Snapshot{
 		Fields: fields,
-		Tree:   &views.Tree{Root: views.TreeNode{Scope: ptr(qel("class", root))}},
+		Tree:   &views.Tree{Root: views.TreeNode{Scope: ptr(qel("class", "crm:E7_Activity"))}},
 	})
 }
 
@@ -164,7 +164,7 @@ func TestFieldsMergeOnPathNode(t *testing.T) {
 	a := tfield("F.1", 0, false, nil, tprop("crm:P4_has_time-span"), tclass("crm:E52_Time-Span", "d/p4/e52"), tprop("crm:P82a_begin_of_the_begin"), tlit("xsd:dateTime"))
 	b := tfield("F.2", 0, false, nil, tprop("crm:P4_has_time-span"), tclass("crm:E52_Time-Span", "d/p4/e52"), tprop("crm:P82b_end_of_the_end"), tlit("xsd:dateTime"))
 	c := tfield("F.3", 0, false, nil, tprop("crm:P4_has_time-span"), tclass("crm:E52_Time-Span", "other/p4/e52"), tprop("crm:P3_has_note"), tlit("xsd:string"))
-	g := buildCounts("crm:E7_Activity", a, b, c)
+	g := buildCounts(a, b, c)
 	root := rootOf(t, g)
 	if len(root.Edges) != 2 {
 		t.Fatalf("root edges = %d, want 2 (one merged E52, one separate)", len(root.Edges))
@@ -177,7 +177,7 @@ func TestFieldsMergeOnPathNode(t *testing.T) {
 func TestRequiredFieldMakesStepsAboveRequired(t *testing.T) {
 	// Required with Min 0 counts as Min 1
 	label := tfield("F.1", 0, true, nil, tprop("crm:P4_has_time-span"), tclass("crm:E52_Time-Span", "d/p4/e52"), tprop("rdfs:label"), tlit("xsd:string"))
-	g := buildCounts("crm:E7_Activity", label)
+	g := buildCounts(label)
 	if got := rootOf(t, g).Edges[0].Min; got != 1 {
 		t.Fatalf("P4 step min = %d, want 1 (a required field below it)", got)
 	}
@@ -198,7 +198,7 @@ func TestStepsMatchAcrossCURIEAndFullIRI(t *testing.T) {
 	}
 	a := tfield("F.1", 0, false, nil, tprop("crm:P4_has_time-span"), tclass("crm:E52_Time-Span", "d/p4/e52"), tprop("crm:P82a_begin_of_the_begin"), tlit("xsd:dateTime"))
 	b := tfield("F.2", 0, false, nil, fullIRI(tprop("crm:P4_has_time-span")), fullIRI(tclass("crm:E52_Time-Span", "d/p4/e52")), tprop("crm:P82b_end_of_the_end"), tlit("xsd:dateTime"))
-	g := buildCounts("crm:E7_Activity", a, b)
+	g := buildCounts(a, b)
 	root := rootOf(t, g)
 	if len(root.Edges) != 1 || len(nodeOf(t, g, root.Edges[0].TargetKey).Literals) != 2 {
 		t.Fatalf("CURIE and full-IRI steps did not merge: %d root edges", len(root.Edges))
@@ -207,7 +207,7 @@ func TestStepsMatchAcrossCURIEAndFullIRI(t *testing.T) {
 
 // two fields ending on the same class node both keep their constraints
 func TestFieldsEndingOnOneNodeKeepTheirOwnCounts(t *testing.T) {
-	g := buildCounts("crm:E7_Activity",
+	g := buildCounts(
 		tfield("F.1", 1, false, intp(1), tprop("crm:P1_is_identified_by"), tclass("crm:E41_Appellation", "d/p1/e41")),
 		tfield("F.2", 0, false, nil, tprop("crm:P1_is_identified_by"), tclass("crm:E41_Appellation", "d/p1/e41")),
 	)
@@ -228,7 +228,7 @@ func TestFieldsEndingOnOneNodeKeepTheirOwnCounts(t *testing.T) {
 
 // R1: a path ending on a property with no leaf element still binds a literal
 func TestPathEndingOnPropertyKeepsLiteralWithCounts(t *testing.T) {
-	g := buildCounts("crm:E7_Activity",
+	g := buildCounts(
 		tfield("F.1", 0, true, intp(2), tprop("crm:P3_has_note")),
 	)
 	lits := rootOf(t, g).Literals
@@ -245,7 +245,7 @@ func TestPathEndingOnPropertyKeepsLiteralWithCounts(t *testing.T) {
 func TestNodeKeyIsPathNodeIDWhenPresent(t *testing.T) {
 	cls := tclass("crm:E52_Time-Span", "d/p4/e52")
 	cls.Element.PathNodeID = "E52_1"
-	g := buildCounts("crm:E7_Activity",
+	g := buildCounts(
 		tfield("F.1", 0, false, nil, tprop("crm:P4_has_time-span"), cls, tprop("crm:P3_has_note"), tlit("xsd:string")),
 	)
 	if got := rootOf(t, g).Edges[0].TargetKey; got != "E52_1" {

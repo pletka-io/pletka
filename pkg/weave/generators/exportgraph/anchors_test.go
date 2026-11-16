@@ -68,8 +68,9 @@ func TestCoreAnchorsMatchMemberPathNodes(t *testing.T) {
 // addresses; the second carries its node id.
 func TestSameCollectionTwiceGetsTwoAddresses(t *testing.T) {
 	g := exportgraph.Build(anchorSnapshot(t, "M.1", 2))
-	var addrs []string
-	for _, n := range anchorNodes(g) {
+	nodes := anchorNodes(g)
+	addrs := make([]string, 0, len(nodes))
+	for _, n := range nodes {
 		addrs = append(addrs, n.Collection.Address)
 	}
 	sort.Strings(addrs)

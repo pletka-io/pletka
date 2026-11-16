@@ -386,7 +386,7 @@ func TestSPARQLRenderHostileNamesStayInert(t *testing.T) {
 		t.Fatalf("hostile name leaked into the query:\n%s", out)
 	}
 	if !regexp.MustCompile(`\?LAF_1_x_+`).MatchString(out) {
-		t.Fatalf("value variable not sanitised:\n%s", out)
+		t.Fatalf("value variable not sanitized:\n%s", out)
 	}
 }
 

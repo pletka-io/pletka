@@ -20,7 +20,7 @@ func TestSPARQLKindOption(t *testing.T) {
 		{"kind=count", true, 0},
 		{"count=1", true, 0},
 	} {
-		r := httptest.NewRequest(http.MethodGet, "/x?"+tt.query, nil)
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x?"+tt.query, nil)
 		opts, err := sparqlOptionsFromRequest(r, generators.EntityField)
 		if err != nil {
 			t.Fatalf("%q: %v", tt.query, err)
@@ -32,7 +32,7 @@ func TestSPARQLKindOption(t *testing.T) {
 }
 
 func TestSPARQLKindRejectsUnofferedKind(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/x?kind=coverage", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x?kind=coverage", nil)
 	_, err := sparqlOptionsFromRequest(r, generators.EntityField)
 	if err == nil || err.Error() != "kind must be one of entries, count" {
 		t.Fatalf("err = %v", err)
@@ -43,7 +43,7 @@ func TestSPARQLKindsRoute(t *testing.T) {
 	h := &Handler{}
 	get := func(target string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
-		h.GetSPARQLKinds(w, httptest.NewRequest(http.MethodGet, target, nil))
+		h.GetSPARQLKinds(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil))
 		return w
 	}
 	w := get("/gen/sparql/kinds?level=model")
