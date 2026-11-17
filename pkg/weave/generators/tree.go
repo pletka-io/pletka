@@ -114,6 +114,7 @@ func BuildModelSnapshot(in ModelSnapshotInput) *Snapshot {
 				fieldNode.CollectionSemanticID = collMembership.semanticID
 				fieldNode.CollectionSystemName = collMembership.systemName
 				fieldNode.CollectionName = collMembership.name
+				fieldNode.CollectionDescription = collMembership.description
 				if collection.Placement != nil {
 					fieldNode.CollectionMaxOccurs = collection.Placement.MaxOccurs
 					fieldNode.CollectionMinOccurs = collection.Placement.MinOccurs
@@ -173,10 +174,11 @@ func collectionSystemName(collection *domain.Collection) string {
 // in order to group fields by their owning Pletka Collection without
 // re-traversing the model tree.
 type collectionMembership struct {
-	id         string
-	semanticID string
-	systemName string
-	name       domain.Translations
+	id          string
+	semanticID  string
+	systemName  string
+	name        domain.Translations
+	description domain.Translations
 }
 
 func fieldNodeCollection(view domain.CollectionGroup, entity *domain.Collection) collectionMembership {
@@ -190,6 +192,7 @@ func fieldNodeCollection(view domain.CollectionGroup, entity *domain.Collection)
 		if entity.UIName != nil && len(entity.UIName) > 0 {
 			out.name = entity.UIName
 		}
+		out.description = entity.Description
 	}
 	return out
 }

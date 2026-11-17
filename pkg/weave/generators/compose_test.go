@@ -449,3 +449,19 @@ func TestComposeSkipsHiddenMembers(t *testing.T) {
 		t.Fatalf("visible member missing: %v", keys(got))
 	}
 }
+
+func TestCollectionDescriptionReachesFieldNodes(t *testing.T) {
+	// Renderers write the collection's definition on the node that
+	// collects it (Arches help text), so field nodes carry it like the name.
+	desc := domain.Translations{"en": "The names this thing is known by."}
+	target := nameCollection("c-name", "LAC.1")
+	target.Collection.Description = desc
+	stub := stubNode(stubField("s", "LAF.30", "timespan_name", tsName(), "c-name"), "c-ts")
+	if got := graftField(stub, target.Fields[0], target); got.CollectionDescription["en"] != desc["en"] {
+		t.Errorf("grafted field: CollectionDescription %v, want %v", got.CollectionDescription, desc)
+	}
+	view := domain.CollectionGroup{ID: "c-name", Name: domain.Translations{"en": "Name"}}
+	if got := fieldNodeCollection(view, target.Collection); got.description["en"] != desc["en"] {
+		t.Errorf("placed field: description %v, want %v", got.description, desc)
+	}
+}
