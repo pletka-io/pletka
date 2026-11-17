@@ -139,14 +139,14 @@ func WriteText(w io.Writer, findings []Finding) error {
 		counts[f.Rule]++
 	}
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "RULE\tFINDINGS")
+	_, _ = fmt.Fprintln(tw, "RULE\tFINDINGS")
 	for _, r := range rules {
-		fmt.Fprintf(tw, "%s\t%d\n", r, counts[r])
+		_, _ = fmt.Fprintf(tw, "%s\t%d\n", r, counts[r])
 	}
-	fmt.Fprintln(tw)
-	fmt.Fprintln(tw, "RULE\tPROJECT\tSUBJECT\tDETAIL")
+	_, _ = fmt.Fprintln(tw)
+	_, _ = fmt.Fprintln(tw, "RULE\tPROJECT\tSUBJECT\tDETAIL")
 	for _, f := range findings {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", f.Rule, f.ProjectID, f.Subject, f.Detail)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", f.Rule, f.ProjectID, f.Subject, f.Detail)
 	}
 	return tw.Flush()
 }

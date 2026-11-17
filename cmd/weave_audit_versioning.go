@@ -61,7 +61,7 @@ Examples:
 // checkAuditVersioningFlags rejects a format or rule id the command does not
 // know, before a database connection is opened.
 func checkAuditVersioningFlags(format string, rules []string) error {
-	if format != "text" && format != "json" {
+	if format != verifyFormatText && format != replayFormatJSON {
 		return fmt.Errorf("invalid --format %q: want text or json", format)
 	}
 	if unknown := versionaudit.UnknownRules(rules); len(unknown) > 0 {
@@ -102,7 +102,7 @@ func runWeaveAuditVersioning(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	findings = versionaudit.Filter(findings, opts.rules)
-	if opts.format == "json" {
+	if opts.format == replayFormatJSON {
 		return versionaudit.WriteJSON(os.Stdout, findings)
 	}
 	return versionaudit.WriteText(os.Stdout, findings)
