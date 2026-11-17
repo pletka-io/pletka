@@ -1574,7 +1574,7 @@ func (s *Service) Delete(ctx context.Context, projectID, versionID string) error
 	samples := make([]domain.FieldUsageSample, 0, 10)
 	allIDs := append([]string{versionID}, cascadeIDs...)
 	for _, id := range allIDs {
-		count, cerr := s.store.CountPathElementUsage(ctx, projectID, id)
+		count, cerr := s.store.CountBlockingUsage(ctx, projectID, id, allIDs)
 		if cerr != nil {
 			return fmt.Errorf("count usage: %w", cerr)
 		}
@@ -1679,6 +1679,10 @@ func (s *Service) collectCascadeExtensionIDs(ctx context.Context, projectID, tar
 		o, oerr := s.ontology.GetByID(ctx, v.OntologyID)
 		if oerr != nil || o == nil {
 			continue
+		}
+		// Another version of the base stays linked: its extensions stay too.
+		if v.OntologyID == targetOntologyID {
+			return nil, nil
 		}
 		// Extension AND extends the target base.
 		if !o.IsExtension() {

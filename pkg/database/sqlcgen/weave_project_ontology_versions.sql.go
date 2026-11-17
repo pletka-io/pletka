@@ -20,6 +20,69 @@ func (q *Queries) WeaveClearProjectPrimaryOntologies(ctx context.Context, projec
 	return err
 }
 
+const weaveCountBlockingOntologyUsage = `-- name: WeaveCountBlockingOntologyUsage :one
+WITH kept_qnames AS (
+    SELECT oc.qname
+    FROM weave_ontology_classes oc
+    JOIN weave_project_ontology_versions wpov ON wpov.ontology_version_id = oc.ontology_version_id
+    WHERE wpov.project_id = $1 AND wpov.version_number = ''
+      AND wpov.ontology_version_id <> ALL($2::text[])
+    UNION
+    SELECT op.qname
+    FROM weave_ontology_properties op
+    JOIN weave_project_ontology_versions wpov ON wpov.ontology_version_id = op.ontology_version_id
+    WHERE wpov.project_id = $1 AND wpov.version_number = ''
+      AND wpov.ontology_version_id <> ALL($2::text[])
+), version_qnames AS (
+    SELECT oc.qname FROM weave_ontology_classes oc
+    LEFT JOIN kept_qnames k ON k.qname = oc.qname
+    WHERE oc.ontology_version_id = $3 AND k.qname IS NULL
+    UNION
+    SELECT op.qname FROM weave_ontology_properties op
+    LEFT JOIN kept_qnames k ON k.qname = op.qname
+    WHERE op.ontology_version_id = $3 AND k.qname IS NULL
+), entities_using AS (
+    SELECT 'field:' || f.id AS entity_key
+    FROM weave_fields f,
+         LATERAL jsonb_array_elements(COALESCE(f.path_elements, '[]'::jsonb)) AS elem
+    WHERE f.project_id = $1
+      AND ((elem->>'prefix') || ':' || (elem->>'local_name')) IN (SELECT vq.qname FROM version_qnames vq)
+    UNION
+    SELECT 'field:' || f.id
+    FROM weave_fields f
+    WHERE f.project_id = $1
+      AND ((f.ontology_scope->>'prefix') || ':' || (f.ontology_scope->>'local_name')) IN (SELECT vq.qname FROM version_qnames vq)
+    UNION
+    SELECT 'model:' || m.id
+    FROM weave_models m
+    WHERE m.project_id = $1
+      AND ((m.ontology_scope->>'prefix') || ':' || (m.ontology_scope->>'local_name')) IN (SELECT vq.qname FROM version_qnames vq)
+    UNION
+    SELECT 'collection:' || c.id
+    FROM weave_collections c
+    WHERE c.project_id = $1
+      AND ((c.ontology_scope->>'prefix') || ':' || (c.ontology_scope->>'local_name')) IN (SELECT vq.qname FROM version_qnames vq)
+)
+SELECT COUNT(*)::bigint FROM entities_using
+`
+
+type WeaveCountBlockingOntologyUsageParams struct {
+	ProjectID string   `json:"project_id"`
+	Removing  []string `json:"removing"`
+	VersionID string   `json:"version_id"`
+}
+
+// The unlink guard: fields, models and collections of the project that name a
+// term of the version which no linked version outside the removal provides.
+// A project can link two versions of one ontology, and an import can carry
+// terms of another ontology; a term that stays available does not block.
+func (q *Queries) WeaveCountBlockingOntologyUsage(ctx context.Context, arg WeaveCountBlockingOntologyUsageParams) (int64, error) {
+	row := q.db.QueryRow(ctx, weaveCountBlockingOntologyUsage, arg.ProjectID, arg.Removing, arg.VersionID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const weaveCountPathElementsForVersionInProject = `-- name: WeaveCountPathElementsForVersionInProject :one
 SELECT COUNT(*) FROM weave_path_elements wpe
 JOIN weave_fields wf ON wpe.field_id = wf.id
