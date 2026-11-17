@@ -26,6 +26,10 @@ type Finding struct {
 	Subject string `json:"subject"`
 	// Detail is one sentence for the reader.
 	Detail string `json:"detail"`
+	// Grandfathered is the flag of the named exception that covers the
+	// finding, or empty. The finding still stands; the exception says it is
+	// known and kept.
+	Grandfathered string `json:"grandfathered,omitempty"`
 }
 
 // Rules are the rule ids this audit can report, sorted.
@@ -79,6 +83,7 @@ func Run(ctx context.Context, q *sqlcgen.Queries) ([]Finding, error) {
 	}
 	for _, r := range content {
 		add(r.Rule, r.ProjectID, r.Subject, r.Detail)
+		out[len(out)-1].Grandfathered = r.Grandfathered
 	}
 
 	sort.SliceStable(out, func(i, j int) bool {
@@ -124,29 +129,37 @@ func WriteJSON(w io.Writer, findings []Finding) error {
 	return enc.Encode(findings)
 }
 
-// WriteText writes a count per rule, then one line per finding.
+// WriteText writes a count per rule, with how many of those are
+// grandfathered, then one line per finding.
 func WriteText(w io.Writer, findings []Finding) error {
 	if len(findings) == 0 {
 		_, err := fmt.Fprintln(w, "no findings")
 		return err
 	}
-	counts := map[string]int{}
+	counts, kept := map[string]int{}, map[string]int{}
 	var rules []string
 	for _, f := range findings {
 		if counts[f.Rule] == 0 {
 			rules = append(rules, f.Rule)
 		}
 		counts[f.Rule]++
+		if f.Grandfathered != "" {
+			kept[f.Rule]++
+		}
 	}
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "RULE\tFINDINGS")
+	_, _ = fmt.Fprintln(tw, "RULE\tFINDINGS\tGRANDFATHERED")
 	for _, r := range rules {
-		_, _ = fmt.Fprintf(tw, "%s\t%d\n", r, counts[r])
+		_, _ = fmt.Fprintf(tw, "%s\t%d\t%d\n", r, counts[r], kept[r])
 	}
 	_, _ = fmt.Fprintln(tw)
 	_, _ = fmt.Fprintln(tw, "RULE\tPROJECT\tSUBJECT\tDETAIL")
 	for _, f := range findings {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", f.Rule, f.ProjectID, f.Subject, f.Detail)
+		detail := f.Detail
+		if f.Grandfathered != "" {
+			detail += " [grandfathered: " + f.Grandfathered + "]"
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", f.Rule, f.ProjectID, f.Subject, detail)
 	}
 	return tw.Flush()
 }

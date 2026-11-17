@@ -30,6 +30,7 @@ func TestRun_ReportsEachRule(t *testing.T) {
 	t.Cleanup(func() {
 		bg := context.Background()
 		for _, sql := range []string{
+			`DELETE FROM weave_rule_exceptions WHERE project_id LIKE 'ZVA%'`,
 			`DELETE FROM weave_adoptions_archive WHERE project_id LIKE 'ZVA%'`,
 			`DELETE FROM weave_adoptions WHERE project_id LIKE 'ZVA%'`,
 			`DELETE FROM weave_categories WHERE project_id LIKE 'ZVA%'`,
@@ -103,6 +104,11 @@ func TestRun_ReportsEachRule(t *testing.T) {
 	// O2 without a closure: ZVAOWN links both versions itself, live and in its release.
 	exec(`INSERT INTO weave_project_ontology_versions (project_id, ontology_version_id, added_at) VALUES ('ZVAOWN', 'ZVAONT_1', now()), ('ZVAOWN', 'ZVAONT_2', now())`)
 	exec(`INSERT INTO weave_project_ontology_versions_archive (project_id, ontology_version_id, added_at, version_number) VALUES ('ZVAOWN', 'ZVAONT_1', now(), '1.0.0'), ('ZVAOWN', 'ZVAONT_2', now(), '1.0.0')`)
+	// Grandfathered: ZVAOWN's own double link is a named exception. The same
+	// flag on ZVAD must not mark its closure conflict: an exception does not
+	// spread to what a project inherits.
+	exec(`INSERT INTO weave_rule_exceptions (project_id, flag, subject, note) VALUES
+		('ZVAOWN', 'ontology-mixed', 'zvaont', 'test'), ('ZVAD', 'ontology-mixed', 'zvaont', 'test')`)
 	// S1: public, never released.
 	exec(`UPDATE weave_projects SET visibility = 'public' WHERE id = 'ZVAPUB'`)
 	// A8: two categories copied from ZVAP into ZVAL7, one edited since.
@@ -181,6 +187,17 @@ func TestRun_ReportsEachRule(t *testing.T) {
 		}
 	}
 
+	// Only the draft finding of the named project is marked.
+	for _, f := range got {
+		want := ""
+		if f.Rule == "O2" && f.ProjectID == "ZVAOWN" && f.Subject == "zvaont" {
+			want = "ontology-mixed"
+		}
+		if f.Grandfathered != want {
+			t.Errorf("%s %s %q: grandfathered = %q, want %q", f.Rule, f.ProjectID, f.Subject, f.Grandfathered, want)
+		}
+	}
+
 	// Every rule the package says it can report is seeded above, and nothing
 	// is reported under an id the package does not list.
 	var seen []string
@@ -223,6 +240,19 @@ func TestRun_ReportsEachRule(t *testing.T) {
 	if t.Failed() {
 		for _, f := range got {
 			t.Logf("%s\t%s\t%s\t%s", f.Rule, f.ProjectID, f.Subject, f.Detail)
+		}
+	}
+
+	// An exception that has ended marks nothing.
+	_ = tx.Rollback(ctx)
+	exec(`UPDATE weave_rule_exceptions SET ended_at = now() WHERE project_id = 'ZVAOWN'`)
+	again, err := versionaudit.Run(ctx, sqlcgen.New(pool))
+	if err != nil {
+		t.Fatalf("Run after the exception ended: %v", err)
+	}
+	for _, f := range again {
+		if f.ProjectID == "ZVAOWN" && f.Grandfathered != "" {
+			t.Errorf("ended exception still marks %s %q", f.Rule, f.Subject)
 		}
 	}
 }

@@ -213,16 +213,20 @@ ORDER BY 1, 2, 3;
 -- name: WeaveVersionAuditContent :many
 -- Checks that need no closure: who shows nothing to the public, receipts held
 -- twice, a project that links two versions of one ontology itself, and
--- categories copied when a parent was linked.
+-- categories copied when a parent was linked. grandfathered names the flag of
+-- a named exception that covers the finding; only a draft's own double link
+-- can have one.
 SELECT 'S1'::text AS rule, wp.id::text AS project_id, ''::text AS subject,
-       'public project without a release that is not withdrawn'::text AS detail
+       'public project without a release that is not withdrawn'::text AS detail,
+       ''::text AS grandfathered
 FROM weave_projects wp
 WHERE wp.visibility = 'public'
   AND NOT EXISTS (SELECT 1 FROM weave_releases r WHERE r.project_id = wp.id AND r.archived_at IS NULL)
 UNION ALL
 SELECT 'A2'::text, wa.project_id::text, (wa.entity_type || ' ' || wa.source_entity_id)::text,
        ('adopted ' || COUNT(DISTINCT wa.source_version) || ' times at different versions in '
-        || wa.context_entity_type || ' ' || wa.context_entity_id)::text
+        || wa.context_entity_type || ' ' || wa.context_entity_id)::text,
+       ''::text
 FROM weave_adoptions wa
 GROUP BY wa.project_id, wa.context_entity_type, wa.context_entity_id, wa.entity_type,
          wa.source_project_id, wa.source_entity_id
@@ -230,7 +234,8 @@ HAVING COUNT(DISTINCT wa.source_version) > 1
 UNION ALL
 SELECT 'O2'::text, x.project_id::text,
        (o.prefix || CASE WHEN x.version_number = '' THEN '' ELSE ' in release ' || x.version_number END)::text,
-       ('links more than one version itself: ' || string_agg(wov.version_string, ', ' ORDER BY wov.version_string))::text
+       ('links more than one version itself: ' || string_agg(wov.version_string, ', ' ORDER BY wov.version_string))::text,
+       COALESCE(wre.flag, '')::text
 FROM (
     SELECT wpov.project_id, ''::text AS version_number, wpov.ontology_version_id
     FROM weave_project_ontology_versions wpov
@@ -241,7 +246,9 @@ FROM (
 ) x
 JOIN weave_ontology_versions wov ON wov.id = x.ontology_version_id
 JOIN weave_ontologies o ON o.id = wov.ontology_id
-GROUP BY x.project_id, x.version_number, wov.ontology_id, o.prefix
+LEFT JOIN weave_rule_exceptions wre ON wre.project_id = x.project_id AND wre.flag = 'ontology-mixed'
+    AND wre.subject = o.prefix AND wre.ended_at IS NULL AND x.version_number = ''
+GROUP BY x.project_id, x.version_number, wov.ontology_id, o.prefix, wre.flag
 HAVING COUNT(DISTINCT x.ontology_version_id) > 1
 UNION ALL
 SELECT 'A8'::text, wa.project_id::text, COALESCE(copy.id, wa.source_entity_id)::text,
@@ -252,7 +259,8 @@ SELECT 'A8'::text, wa.project_id::text, COALESCE(copy.id, wa.source_entity_id)::
             WHEN copy.ui_name IS NOT DISTINCT FROM src.ui_name
              AND copy.description IS NOT DISTINCT FROM src.description THEN 'unchanged copy of '
             ELSE 'changed copy of '
-        END || wa.source_entity_id)::text
+        END || wa.source_entity_id)::text,
+       ''::text
 FROM weave_adoptions wa
 LEFT JOIN weave_categories src ON src.id = wa.source_entity_id AND src.project_id = wa.source_project_id
 LEFT JOIN LATERAL (
