@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -492,7 +493,69 @@ func (p *RDFParser) extractClasses(rdf *RDFRoot, versionID string) []*OntologyCl
 		classes = append(classes, class)
 	}
 
+	// Untyped statements about a class, e.g. CRMsci 2.0's "E27_Site
+	// subClassOf S20" on a CRM class: rdfs:subClassOf implies rdfs:Class,
+	// so keep the hierarchy. After all declarations, so they merge.
+	for _, desc := range rdf.Descriptions {
+		if desc.Type == nil && len(desc.SubClassOf) > 0 {
+			classes = mergeSuperClasses(classes, p.resolveURI(desc.About, baseURI),
+				[]string(p.resolveURIList(desc.SubClassOf, baseURI)), versionID, p)
+		}
+	}
+
 	return classes
+}
+
+// propertyTypeObject is the PropertyType of object properties.
+const propertyTypeObject = "ObjectProperty"
+
+// mergeSuperClasses adds supers to the class uri: to the class already
+// parsed from this file, or to a new class without label (a statement about
+// a term another ontology declares, as typed rdfs:Class stubs already are).
+func mergeSuperClasses(classes []*OntologyClass, uri string, supers []string, versionID string, p *RDFParser) []*OntologyClass {
+	if uri == "" {
+		return classes
+	}
+	for _, c := range classes {
+		if c.URI == uri {
+			for _, s := range supers {
+				if !slices.Contains(c.SuperClasses, s) {
+					c.SuperClasses = append(c.SuperClasses, s)
+				}
+			}
+			return classes
+		}
+	}
+	return append(classes, &OntologyClass{
+		OntologyVersionID: versionID,
+		URI:               uri,
+		LocalName:         p.extractLocalName(uri),
+		SuperClasses:      supers,
+	})
+}
+
+// mergeSuperProperties is mergeSuperClasses for rdfs:subPropertyOf.
+func mergeSuperProperties(props []*OntologyProperty, uri string, supers []string, versionID string, p *RDFParser) []*OntologyProperty {
+	if uri == "" {
+		return props
+	}
+	for _, pr := range props {
+		if pr.URI == uri {
+			for _, s := range supers {
+				if !slices.Contains(pr.SuperProperties, s) {
+					pr.SuperProperties = append(pr.SuperProperties, s)
+				}
+			}
+			return props
+		}
+	}
+	return append(props, &OntologyProperty{
+		OntologyVersionID: versionID,
+		URI:               uri,
+		LocalName:         p.extractLocalName(uri),
+		PropertyType:      propertyTypeObject,
+		SuperProperties:   supers,
+	})
 }
 
 // isClassType checks if a rdf:type URI indicates a class declaration
@@ -549,7 +612,7 @@ func (p *RDFParser) extractProperties(rdf *RDFRoot, versionID string) []*Ontolog
 
 	// 2. OWL-style: <owl:ObjectProperty>
 	for i := range rdf.ObjectProperties {
-		properties = append(properties, convertProp(&rdf.ObjectProperties[i], "ObjectProperty"))
+		properties = append(properties, convertProp(&rdf.ObjectProperties[i], propertyTypeObject))
 	}
 
 	// 3. OWL-style: <owl:DatatypeProperty>
@@ -590,6 +653,15 @@ func (p *RDFParser) extractProperties(rdf *RDFRoot, versionID string) []*Ontolog
 		}
 
 		properties = append(properties, prop)
+	}
+
+	// Untyped "P39_measured subPropertyOf O24_measured" (CRMsci 2.0):
+	// rdfs:subPropertyOf implies rdf:Property.
+	for _, desc := range rdf.Descriptions {
+		if desc.Type == nil && len(desc.SubPropertyOf) > 0 {
+			properties = mergeSuperProperties(properties, p.resolveURI(desc.About, baseURI),
+				[]string(p.resolveURIList(desc.SubPropertyOf, baseURI)), versionID, p)
+		}
 	}
 
 	return properties
@@ -657,9 +729,9 @@ func (p *RDFParser) validateLabels(classes []*OntologyClass, properties []*Ontol
 func descriptionPropertyType(typeURI string) string {
 	switch typeURI {
 	case "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property":
-		return "ObjectProperty"
+		return propertyTypeObject
 	case "http://www.w3.org/2002/07/owl#ObjectProperty":
-		return "ObjectProperty"
+		return propertyTypeObject
 	case "http://www.w3.org/2002/07/owl#DatatypeProperty":
 		return "DatatypeProperty"
 	case "http://www.w3.org/2002/07/owl#AnnotationProperty":
@@ -784,7 +856,7 @@ func (p *RDFParser) determinePropertyType(prop *RDFProperty) string {
 	}
 
 	// Default to object property for ontologies like CIDOC-CRM.
-	return "ObjectProperty"
+	return propertyTypeObject
 }
 
 // isLiteralRange reports whether a range URI denotes a literal value type:

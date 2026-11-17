@@ -519,3 +519,69 @@ func TestParseDatatypeTypedNodes(t *testing.T) {
 		}
 	}
 }
+
+func TestParseUntypedDescriptionStatements(t *testing.T) {
+	// CRMsci 2.0 states facts about CRM terms with untyped rdf:Description:
+	// E27 Site is an S20 Rigid Physical Feature (and so an E53 Place), and
+	// P39 measured is a sub-property of O24 measured. RDFS infers the type
+	// from rdfs:subClassOf / rdfs:subPropertyOf; dropping them loses the
+	// hierarchy (B33: Arches then refuses Site as a Place).
+	input := `<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+    xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+    xmlns:crm="http://www.cidoc-crm.org/cidoc-crm/"
+    xmlns:crmsci="http://www.cidoc-crm.org/extensions/crmsci/"
+    xml:base="http://www.cidoc-crm.org/extensions/crmsci/">
+  <rdfs:Class rdf:about="S20_Rigid_Physical_Feature">
+    <rdfs:label xml:lang="en">Rigid Physical Feature</rdfs:label>
+    <rdfs:subClassOf rdf:resource="http://www.cidoc-crm.org/cidoc-crm/E53_Place"/>
+  </rdfs:Class>
+  <rdf:Description rdf:about="http://www.cidoc-crm.org/cidoc-crm/E27_Site">
+    <rdfs:subClassOf rdf:resource="S20_Rigid_Physical_Feature"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="S20_Rigid_Physical_Feature">
+    <rdfs:subClassOf rdf:resource="http://www.cidoc-crm.org/cidoc-crm/E26_Physical_Feature"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://www.cidoc-crm.org/cidoc-crm/P39_measured">
+    <rdfs:subPropertyOf rdf:resource="O24_measured"/>
+  </rdf:Description>
+  <rdf:Description rdf:about="http://www.cidoc-crm.org/cidoc-crm/E1_CRM_Entity">
+    <rdfs:comment>no hierarchy statement: not a declaration</rdfs:comment>
+  </rdf:Description>
+</rdf:RDF>`
+
+	result, err := NewRDFParser().Parse(strings.NewReader(input), "CRMsci_v2.rdf", int64(len(input)))
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	classes := map[string][]string{}
+	for _, c := range result.Classes {
+		if _, dup := classes[c.URI]; dup {
+			t.Errorf("class %s emitted twice", c.URI)
+		}
+		classes[c.URI] = c.SuperClasses
+	}
+	sci := "http://www.cidoc-crm.org/extensions/crmsci/"
+	crm := "http://www.cidoc-crm.org/cidoc-crm/"
+	if got := classes[crm+"E27_Site"]; len(got) != 1 || got[0] != sci+"S20_Rigid_Physical_Feature" {
+		t.Errorf("E27_Site superclasses = %v, want [S20]", got)
+	}
+	if got := classes[sci+"S20_Rigid_Physical_Feature"]; len(got) != 2 {
+		t.Errorf("S20 superclasses = %v, want E53 and E26 merged", got)
+	}
+	if _, ok := classes[crm+"E1_CRM_Entity"]; ok {
+		t.Errorf("E1 has no hierarchy statement and must not become a class")
+	}
+	if len(classes) != 2 {
+		t.Errorf("got %d classes, want 2: %v", len(classes), classes)
+	}
+
+	if len(result.Properties) != 1 {
+		t.Fatalf("got %d properties, want 1 (P39)", len(result.Properties))
+	}
+	p := result.Properties[0]
+	if p.URI != crm+"P39_measured" || len(p.SuperProperties) != 1 || p.SuperProperties[0] != sci+"O24_measured" {
+		t.Errorf("P39 = %s %v, want sub-property of O24", p.URI, p.SuperProperties)
+	}
+}
