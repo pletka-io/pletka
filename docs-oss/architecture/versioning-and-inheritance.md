@@ -50,7 +50,8 @@ tests are built against it. Each rule has an id to cite in tests and reviews.
    or bypass it ([`design.md`](versioning/design.md)).
 7. **Old data is reported, not broken.** Rules are enforced on new writes
    after an audit; releases cut before a rule are flagged and read by one
-   legacy reader.
+   legacy reader. A draft whose repair would change its meaning may be
+   grandfathered by name (D13).
 
 ## Rules
 
@@ -138,7 +139,7 @@ version" and "read at the selector" are the same statement.)
 | V5 | Every broader edge belongs to one project's scheme. | not built | |
 | V6 | Term pickers search the vocabulary as it is now. | holds | |
 | O1 | A project's ontologies are its own links plus those of its closure, each at its selector. | partial | closure |
-| O2 | A closure holds one version per ontology. The project's own link decides; otherwise a write is refused (409 `ontology-version-conflict`). A read under an existing conflict warns and uses the nearest link in closure order. | not built | closure |
+| O2 | A closure holds one version per ontology, and a project links one version per ontology itself. The project's own link decides; otherwise a write is refused (409 `ontology-version-conflict`). A project that links two versions itself and uses both is grandfathered as `ontology-mixed` (D13). A read under an existing conflict warns and uses the nearest link in closure order. | not built | closure |
 | O3 | An ontology version is a revision (version string + content hash). A linked or released revision cannot be re-imported or deleted. | not built | |
 | O4 | The defaults ontology is an explicit link (version + hash) in every project, release and `pletka.mod`. | not built | closure |
 | O5 | Namespace bindings resolve own, then closure order, then global; other projects' at their selector. Global bindings used by a release are locked with it (R3).| partial | closure |
@@ -167,7 +168,7 @@ version" and "read at the selector" are the same statement.)
 | K9 | `pletka.sum` hashes content files only. | partial | |
 | M1 | Before a rule is enforced, a read-only audit lists every violation per instance. | not built | audit |
 | M2 | Releases are never rewritten. Releases that break a rule are flagged and read by the legacy reader, which is the only place old fallbacks live. | not built | legacy reader |
-| M3 | Drafts are brought into line per rule, by migration or by curators from the audit list, before the rule is enforced. | not built | audit |
+| M3 | Drafts are brought into line per rule, by migration or by curators from the audit list, before the rule is enforced. A draft whose repair would change its meaning may instead be grandfathered: a named exception per project and flag, which cannot grow and ends when repaired (D13). | not built | audit |
 
 ## Order of work (summary)
 

@@ -51,9 +51,20 @@ One function; autocomplete, validation, exports and verify-git use it.
 | one version in the closure | fine | that version |
 | two versions, root links one itself | fine | the root's |
 | two versions, root links none | refused, `ontology-version-conflict`, naming both paths | nearest link in closure order, with a warning (D7) |
+| root links two versions itself | refused, same error | both, only for a project grandfathered as `ontology-mixed` |
 
 The primary flag on an ontology link orders display; it does not pick a
 version, and an ancestor's flag never beats the root's own link.
+
+**Grandfathered: `ontology-mixed` (D13).** Some projects link two versions
+of one ontology themselves since the import, and use terms that exist in only
+one of them, from both. Removing either link breaks fields. Such a project
+keeps both links as a named exception: it cannot add a third version or
+re-add a removed one, its draft shows the warning, a cut carries the flag
+into the release, and the exception ends when the paths are rewritten to one
+version. A second link that is unused is not grandfathered; it is removed. A
+project that reaches a grandfathered one and links no version itself is in
+the ordinary conflict of the table above.
 
 **Terms missing in the deciding version (O6).** Root links ontology version
 B itself; a parent's release was written against version A. The parent's

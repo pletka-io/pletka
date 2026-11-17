@@ -146,6 +146,11 @@ resolver hands a flagged release to the legacy reader, which contains the old
 behaviour for exactly those flags. New code paths contain no fallback. When
 no instance has a release with a given flag, that branch is deleted.
 
+A draft can carry a flag too, when it is grandfathered (D13,
+`ontology-mixed`). The flag is set from an audit run, the guard that enforces
+the rule lets exactly that exception through and nothing larger, and a
+release cut from such a draft takes the flag with it into this reader.
+
 ### 10. Audit
 
 A read-only command that runs the rules over an instance and lists

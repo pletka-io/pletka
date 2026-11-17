@@ -1,6 +1,6 @@
 # Decisions
 
-The decisions behind the rule set, taken on 2026-11-14, with the options
+The decisions behind the rule set, taken in November 2026, with the options
 that were weighed.
 
 | # | Question | Recommendation | Answer |
@@ -16,6 +16,7 @@ that were weighed.
 | D9 | Permission to read a release: present or archived project visibility? | Present. | **Present** (2026-11-14) |
 | D10 | Example values are references, but must not block. | Exempt from A5 and L6; reported. | **Exempt; a cut warns only** (2026-11-14) |
 | D11 | Keep the closure lock in the database although a pinned parent's own release already holds its links? | Keep. | **Keep** (2026-11-14) |
+| D13 | A draft breaks a rule and repairing it is modelling work, not cleanup. Must it be repaired before the rule is enforced? | No: it may be grandfathered, by name. | **Grandfathering allowed** (2026-11-17) |
 
 ## Detail
 
@@ -224,3 +225,52 @@ copying them under the child's release (R3) is redundant. Recommended: keep
 it. It is the database form of `pletka.sum`, it makes a release view one
 lookup instead of a walk, and the round trip database ↔ git (plan phase 7)
 compares exactly these two.
+
+
+### D13. Grandfathering a draft
+
+**Decided 2026-11-17: a draft that breaks a rule may be grandfathered instead
+of repaired.**
+
+M3 said drafts are brought into line before a rule is enforced. The first
+audit showed a case where that is not a cleanup. Eight projects link two
+versions of one ontology themselves; all sixteen links date from one import.
+For four of them one link is unused and can be removed. The other four use
+terms that exist in one version only, from both versions: three with CIDOC-CRM
+6.2 and 7.1.3 (the temporal relations P114–P120 exist in 6.2 only), one with
+two versions of another ontology. Removing a link there breaks fields; keeping
+both breaks O2. Rewriting those paths is a modelling decision for whoever
+maintains the project and should not hold up the rule for everyone else.
+
+What grandfathering means:
+
+1. **It is by name.** An exception is one project, one flag, one subject (for
+   `ontology-mixed`: the ontology and the two versions), set from an audit
+   run, with the date. There is no "grandfather everything as it is": what
+   the audit can repair without changing meaning is repaired.
+2. **The rule is enforced for everyone else, and for the same project on new
+   writes.** A grandfathered project cannot make its exception larger: no
+   third version, and a link it removed cannot come back.
+3. **It is visible.** The audit lists it as grandfathered, not as a new
+   violation, and the project's draft shows it as a warning.
+4. **A cut is allowed** and the release carries the flag, so the legacy
+   reader (D4) reads it the way the draft was read. Otherwise such a project
+   could never release again.
+5. **It ends once.** When the draft is brought into line the exception is
+   removed and cannot be set again.
+6. **It does not spread.** A project that reaches a grandfathered project and
+   has no own link for that ontology is in the ordinary O2 conflict and
+   resolves it with its own link.
+
+Flags a draft can carry:
+
+| Flag | Meaning | Behaviour kept | Ends when |
+|---|---|---|---|
+| `ontology-mixed` | the project links two versions of one ontology itself and uses terms that only one of them has, from both | both versions stay linked and are read as today | the paths are rewritten to one version and the other link is removed |
+
+A new flag is added here when an audit shows the same situation for another
+rule: repair changes meaning, and the choice is to keep the state.
+
+Point 4 follows from the others rather than from the decision itself and is
+open to revision. The alternative is that a grandfathered project cannot
+release until repaired.
