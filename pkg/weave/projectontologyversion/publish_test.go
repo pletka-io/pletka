@@ -98,6 +98,10 @@ func (s *fakeStore) CountPathElementUsage(_ context.Context, _, _ string) (int64
 	return 0, nil
 }
 
+func (s *fakeStore) CountBlockingUsage(_ context.Context, _, _ string, _ []string) (int64, error) {
+	return 0, nil
+}
+
 func (s *fakeStore) SamplePathElementFields(_ context.Context, _, _ string, _ int) ([]domain.FieldUsageSample, error) {
 	return nil, nil
 }

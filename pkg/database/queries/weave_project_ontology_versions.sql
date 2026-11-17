@@ -80,3 +80,52 @@ JOIN weave_ontologies o ON o.id = ov.ontology_id
 WHERE ov.id = ANY($1::text[])
 ORDER BY o.prefix ASC;
 
+
+-- name: WeaveCountBlockingOntologyUsage :one
+-- The unlink guard: fields, models and collections of the project that name a
+-- term of the version which no linked version outside the removal provides.
+-- A project can link two versions of one ontology, and an import can carry
+-- terms of another ontology; a term that stays available does not block.
+WITH kept_qnames AS (
+    SELECT oc.qname
+    FROM weave_ontology_classes oc
+    JOIN weave_project_ontology_versions wpov ON wpov.ontology_version_id = oc.ontology_version_id
+    WHERE wpov.project_id = sqlc.arg(project_id) AND wpov.version_number = ''
+      AND wpov.ontology_version_id <> ALL(sqlc.arg(removing)::text[])
+    UNION
+    SELECT op.qname
+    FROM weave_ontology_properties op
+    JOIN weave_project_ontology_versions wpov ON wpov.ontology_version_id = op.ontology_version_id
+    WHERE wpov.project_id = sqlc.arg(project_id) AND wpov.version_number = ''
+      AND wpov.ontology_version_id <> ALL(sqlc.arg(removing)::text[])
+), version_qnames AS (
+    SELECT oc.qname FROM weave_ontology_classes oc
+    LEFT JOIN kept_qnames k ON k.qname = oc.qname
+    WHERE oc.ontology_version_id = sqlc.arg(version_id) AND k.qname IS NULL
+    UNION
+    SELECT op.qname FROM weave_ontology_properties op
+    LEFT JOIN kept_qnames k ON k.qname = op.qname
+    WHERE op.ontology_version_id = sqlc.arg(version_id) AND k.qname IS NULL
+), entities_using AS (
+    SELECT 'field:' || f.id AS entity_key
+    FROM weave_fields f,
+         LATERAL jsonb_array_elements(COALESCE(f.path_elements, '[]'::jsonb)) AS elem
+    WHERE f.project_id = sqlc.arg(project_id)
+      AND ((elem->>'prefix') || ':' || (elem->>'local_name')) IN (SELECT vq.qname FROM version_qnames vq)
+    UNION
+    SELECT 'field:' || f.id
+    FROM weave_fields f
+    WHERE f.project_id = sqlc.arg(project_id)
+      AND ((f.ontology_scope->>'prefix') || ':' || (f.ontology_scope->>'local_name')) IN (SELECT vq.qname FROM version_qnames vq)
+    UNION
+    SELECT 'model:' || m.id
+    FROM weave_models m
+    WHERE m.project_id = sqlc.arg(project_id)
+      AND ((m.ontology_scope->>'prefix') || ':' || (m.ontology_scope->>'local_name')) IN (SELECT vq.qname FROM version_qnames vq)
+    UNION
+    SELECT 'collection:' || c.id
+    FROM weave_collections c
+    WHERE c.project_id = sqlc.arg(project_id)
+      AND ((c.ontology_scope->>'prefix') || ':' || (c.ontology_scope->>'local_name')) IN (SELECT vq.qname FROM version_qnames vq)
+)
+SELECT COUNT(*)::bigint FROM entities_using;

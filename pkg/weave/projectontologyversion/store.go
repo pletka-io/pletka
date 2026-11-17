@@ -66,6 +66,12 @@ type Store interface {
 	// reference the given ontology version. 0 means safe to unlink.
 	CountPathElementUsage(ctx context.Context, projectID, versionID string) (int64, error)
 
+	// CountBlockingUsage is the unlink guard: how many fields, models and
+	// collections of the project name a term of the version that no linked
+	// version outside removing provides. removing holds every version the
+	// unlink takes away, the version itself included.
+	CountBlockingUsage(ctx context.Context, projectID, versionID string, removing []string) (int64, error)
+
 	// SamplePathElementFields returns up to limit fields referencing the
 	// version, suitable for surfacing in 409 payloads. limit is clamped to
 	// at most 10 (a SQL-level cap).

@@ -267,6 +267,18 @@ func (s *postgresStore) CountPathElementUsage(ctx context.Context, projectID, ve
 	return n, nil
 }
 
+func (s *postgresStore) CountBlockingUsage(ctx context.Context, projectID, versionID string, removing []string) (int64, error) {
+	n, err := s.queries.WeaveCountBlockingOntologyUsage(ctx, sqlcgen.WeaveCountBlockingOntologyUsageParams{
+		VersionID: versionID,
+		ProjectID: projectID,
+		Removing:  removing,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("count blocking ontology refs: %w", err)
+	}
+	return n, nil
+}
+
 func (s *postgresStore) CountPathElementUsageVersion(ctx context.Context, projectID, versionID, releaseVersion string) (int64, error) {
 	var n int64
 	if err := s.pool.QueryRow(ctx, `
