@@ -506,6 +506,9 @@ func (p *RDFParser) extractClasses(rdf *RDFRoot, versionID string) []*OntologyCl
 	return classes
 }
 
+// propertyTypeObject is the PropertyType of object properties.
+const propertyTypeObject = "ObjectProperty"
+
 // mergeSuperClasses adds supers to the class uri: to the class already
 // parsed from this file, or to a new class without label (a statement about
 // a term another ontology declares, as typed rdfs:Class stubs already are).
@@ -550,7 +553,7 @@ func mergeSuperProperties(props []*OntologyProperty, uri string, supers []string
 		OntologyVersionID: versionID,
 		URI:               uri,
 		LocalName:         p.extractLocalName(uri),
-		PropertyType:      "ObjectProperty",
+		PropertyType:      propertyTypeObject,
 		SuperProperties:   supers,
 	})
 }
@@ -609,7 +612,7 @@ func (p *RDFParser) extractProperties(rdf *RDFRoot, versionID string) []*Ontolog
 
 	// 2. OWL-style: <owl:ObjectProperty>
 	for i := range rdf.ObjectProperties {
-		properties = append(properties, convertProp(&rdf.ObjectProperties[i], "ObjectProperty"))
+		properties = append(properties, convertProp(&rdf.ObjectProperties[i], propertyTypeObject))
 	}
 
 	// 3. OWL-style: <owl:DatatypeProperty>
@@ -726,9 +729,9 @@ func (p *RDFParser) validateLabels(classes []*OntologyClass, properties []*Ontol
 func descriptionPropertyType(typeURI string) string {
 	switch typeURI {
 	case "http://www.w3.org/1999/02/22-rdf-syntax-ns#Property":
-		return "ObjectProperty"
+		return propertyTypeObject
 	case "http://www.w3.org/2002/07/owl#ObjectProperty":
-		return "ObjectProperty"
+		return propertyTypeObject
 	case "http://www.w3.org/2002/07/owl#DatatypeProperty":
 		return "DatatypeProperty"
 	case "http://www.w3.org/2002/07/owl#AnnotationProperty":
@@ -853,7 +856,7 @@ func (p *RDFParser) determinePropertyType(prop *RDFProperty) string {
 	}
 
 	// Default to object property for ontologies like CIDOC-CRM.
-	return "ObjectProperty"
+	return propertyTypeObject
 }
 
 // isLiteralRange reports whether a range URI denotes a literal value type:
