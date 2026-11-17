@@ -91,8 +91,9 @@ func Run(ctx context.Context, q *sqlcgen.Queries) ([]Finding, error) {
 		}
 		return a.Subject < b.Subject
 	})
-	// a cycle over live links is seen by both the link and the closure check
-	return slices.Compact(out), nil
+	// A cycle over live links is seen by both the link and the closure check.
+	// Only cycles are folded: two equal lines of another rule are two receipts.
+	return slices.CompactFunc(out, func(a, b Finding) bool { return a.Rule == "L4" && a == b }), nil
 }
 
 // Filter keeps the findings of the given rules; no rules keeps everything.

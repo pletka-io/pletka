@@ -86,6 +86,7 @@ func TestRun_ReportsEachRule(t *testing.T) {
 	// A2: receipts that disagree with the closure, in a draft and in a release.
 	exec(`INSERT INTO weave_adoptions (project_id, context_entity_type, context_entity_id, entity_type, source_project_id, source_entity_id, source_version) VALUES
 		('ZVAA', 'project', 'ZVAA', 'field', 'ZVAG', 'ZVAGF.1', '2.0.0'),
+		('ZVAA', 'collection', 'ZVAAC.1', 'field', 'ZVAG', 'ZVAGF.1', '2.0.0'),
 		('ZVAB', 'project', 'ZVAB', 'field', 'ZVAG', 'ZVAGF.1', '2.0.0')`)
 	exec(`INSERT INTO weave_adoptions_archive (project_id, context_entity_type, context_entity_id, entity_type, source_project_id, source_entity_id, source_version, adopted_at, version_number) VALUES
 		('ZVAS', 'project', 'ZVAS', 'field', 'ZVAG', 'ZVAGF.1', '2.0.0', now(), '1.0.0')`)
@@ -190,8 +191,11 @@ func TestRun_ReportsEachRule(t *testing.T) {
 
 	// Healthy neighbours: ZVAB's receipt matches its pin, and neither ZVAA nor
 	// ZVAB has a diamond or an ontology conflict of its own.
-	cat3 := 0
+	cat3, twice := 0, 0
 	for _, f := range got {
+		if f.Rule == "A2" && f.ProjectID == "ZVAA" {
+			twice++
+		}
 		if f.Rule == "A8" && strings.HasSuffix(f.Detail, "ZVAP.CAT.3") {
 			cat3++
 		}
@@ -204,6 +208,10 @@ func TestRun_ReportsEachRule(t *testing.T) {
 	}
 	if cat3 != 1 {
 		t.Errorf("receipt of ZVAP.CAT.3 reported %d times, want once", cat3)
+	}
+	// One finding per receipt: the same entity adopted in two places is two.
+	if twice != 2 {
+		t.Errorf("ZVAA holds two receipts off the selector, reported %d", twice)
 	}
 	if t.Failed() {
 		for _, f := range got {
