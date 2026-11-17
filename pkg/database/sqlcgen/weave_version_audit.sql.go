@@ -55,25 +55,25 @@ sel AS (
 ),
 ontology_links AS (
     -- the root's own links: live for a draft, as recorded for a release
-    SELECT ro.root, ro.root_version, ro.root AS via, wov.ontology_id, wpov.ontology_version_id
+    SELECT ro.root, ro.root_version, ro.root AS via, wov.ontology_id, wpov.ontology_version_id, wov.version_string
     FROM roots ro
     JOIN weave_project_ontology_versions wpov ON wpov.project_id = ro.root AND ro.root_version = ''
     JOIN weave_ontology_versions wov ON wov.id = wpov.ontology_version_id
     UNION ALL
-    SELECT ro.root, ro.root_version, ro.root, wov.ontology_id, wpova.ontology_version_id
+    SELECT ro.root, ro.root_version, ro.root, wov.ontology_id, wpova.ontology_version_id, wov.version_string
     FROM roots ro
     JOIN weave_project_ontology_versions_archive wpova
       ON wpova.project_id = ro.root AND wpova.version_number = ro.root_version AND ro.root_version <> ''
     JOIN weave_ontology_versions wov ON wov.id = wpova.ontology_version_id
     UNION ALL
     -- members that follow a draft
-    SELECT s.root, s.root_version, s.member, wov.ontology_id, wpov.ontology_version_id
+    SELECT s.root, s.root_version, s.member, wov.ontology_id, wpov.ontology_version_id, wov.version_string
     FROM sel s
     JOIN weave_project_ontology_versions wpov ON wpov.project_id = s.member AND s.selector = ''
     JOIN weave_ontology_versions wov ON wov.id = wpov.ontology_version_id
     UNION ALL
     -- pinned members, as their release recorded them
-    SELECT s.root, s.root_version, s.member, wov.ontology_id, wpova.ontology_version_id
+    SELECT s.root, s.root_version, s.member, wov.ontology_id, wpova.ontology_version_id, wov.version_string
     FROM sel s
     JOIN weave_project_ontology_versions_archive wpova
       ON wpova.project_id = s.member AND wpova.version_number = s.selector AND s.selector <> ''
@@ -127,11 +127,12 @@ JOIN sel s ON s.root = waa.project_id AND s.root_version = waa.version_number AN
 WHERE s.selectors = 1 AND waa.source_version <> s.selector
 UNION ALL
 SELECT 'O2'::text, ol.root::text,
-       (ol.ontology_id || CASE WHEN ol.root_version = '' THEN '' ELSE ' in release ' || ol.root_version END)::text,
+       (o.prefix || CASE WHEN ol.root_version = '' THEN '' ELSE ' in release ' || ol.root_version END)::text,
        ('more than one version in the closure and no own link decides: '
-        || string_agg(DISTINCT ol.ontology_version_id || ' via ' || ol.via, ', '))::text
+        || string_agg(DISTINCT ol.version_string || ' via ' || ol.via, ', '))::text
 FROM ontology_links ol
-GROUP BY ol.root, ol.root_version, ol.ontology_id
+JOIN weave_ontologies o ON o.id = ol.ontology_id
+GROUP BY ol.root, ol.root_version, ol.ontology_id, o.prefix
 HAVING COUNT(DISTINCT ol.ontology_version_id) > 1
    AND NOT bool_or(ol.via = ol.root)
 ORDER BY 1, 2, 3
@@ -191,6 +192,22 @@ GROUP BY wa.project_id, wa.context_entity_type, wa.context_entity_id, wa.entity_
          wa.source_project_id, wa.source_entity_id
 HAVING COUNT(DISTINCT wa.source_version) > 1
 UNION ALL
+SELECT 'O2'::text, x.project_id::text,
+       (o.prefix || CASE WHEN x.version_number = '' THEN '' ELSE ' in release ' || x.version_number END)::text,
+       ('links more than one version itself: ' || string_agg(wov.version_string, ', ' ORDER BY wov.version_string))::text
+FROM (
+    SELECT wpov.project_id, ''::text AS version_number, wpov.ontology_version_id
+    FROM weave_project_ontology_versions wpov
+    UNION ALL
+    SELECT wpova.project_id, wpova.version_number, wpova.ontology_version_id
+    FROM weave_project_ontology_versions_archive wpova
+    WHERE wpova.version_number <> ''
+) x
+JOIN weave_ontology_versions wov ON wov.id = x.ontology_version_id
+JOIN weave_ontologies o ON o.id = wov.ontology_id
+GROUP BY x.project_id, x.version_number, wov.ontology_id, o.prefix
+HAVING COUNT(DISTINCT x.ontology_version_id) > 1
+UNION ALL
 SELECT 'A8'::text, wa.project_id::text, COALESCE(copy.id, wa.source_entity_id)::text,
        (CASE
             WHEN src.id IS NULL THEN 'category receipt whose source is gone: '
@@ -222,7 +239,8 @@ type WeaveVersionAuditContentRow struct {
 }
 
 // Checks that need no closure: who shows nothing to the public, receipts held
-// twice, and categories copied when a parent was linked.
+// twice, a project that links two versions of one ontology itself, and
+// categories copied when a parent was linked.
 func (q *Queries) WeaveVersionAuditContent(ctx context.Context) ([]WeaveVersionAuditContentRow, error) {
 	rows, err := q.db.Query(ctx, weaveVersionAuditContent)
 	if err != nil {

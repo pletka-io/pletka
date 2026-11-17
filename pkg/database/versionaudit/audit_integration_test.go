@@ -34,6 +34,7 @@ func TestRun_ReportsEachRule(t *testing.T) {
 			`DELETE FROM weave_adoptions WHERE project_id LIKE 'ZVA%'`,
 			`DELETE FROM weave_categories WHERE project_id LIKE 'ZVA%'`,
 			`DELETE FROM weave_project_ontology_versions WHERE project_id LIKE 'ZVA%'`,
+			`DELETE FROM weave_project_ontology_versions_archive WHERE project_id LIKE 'ZVA%'`,
 			`DELETE FROM weave_ontology_versions WHERE id LIKE 'ZVAONT%'`,
 			`DELETE FROM weave_ontologies WHERE id = 'ZVAONT'`,
 			`DELETE FROM weave_project_inheritance_archive WHERE project_id LIKE 'ZVA%'`,
@@ -57,13 +58,14 @@ func TestRun_ReportsEachRule(t *testing.T) {
 		"ZVAX",         // receipts without a link
 		"ZVAPUB",       // public, never released
 		"ZVAK", "ZVAJ", // cycle through a pinned release
+		"ZVAOWN", // links two versions of one ontology itself, no parents
 	} {
 		exec(`INSERT INTO weave_projects (id, owner_id) VALUES ($1, 'ZVA_OWNER')`, id)
 	}
 	exec(`INSERT INTO weave_releases (project_id, version, created_by_id) VALUES
 		('ZVAG', '1.0.0', 'ZVA_OWNER'), ('ZVAG', '2.0.0', 'ZVA_OWNER'),
 		('ZVAR', '1.0.0', 'ZVA_OWNER'), ('ZVAS', '1.0.0', 'ZVA_OWNER'),
-		('ZVAJ', '1.0.0', 'ZVA_OWNER')`)
+		('ZVAJ', '1.0.0', 'ZVA_OWNER'), ('ZVAOWN', '1.0.0', 'ZVA_OWNER')`)
 	exec(`INSERT INTO weave_releases (project_id, version, created_by_id, archived_at) VALUES ('ZVAP', '0.9.0', 'ZVA_OWNER', now())`)
 
 	// L8: legacy column, no link row. L7: legacy column disagrees with the primary link.
@@ -98,6 +100,9 @@ func TestRun_ReportsEachRule(t *testing.T) {
 	exec(`INSERT INTO weave_ontologies (id, prefix, namespace, name) VALUES ('ZVAONT', 'zvaont', 'https://example.org/zvaont/', 'ZVA test ontology')`)
 	exec(`INSERT INTO weave_ontology_versions (id, ontology_id, version_string) VALUES ('ZVAONT_1', 'ZVAONT', '1'), ('ZVAONT_2', 'ZVAONT', '2')`)
 	exec(`INSERT INTO weave_project_ontology_versions (project_id, ontology_version_id, added_at) VALUES ('ZVAA', 'ZVAONT_1', now()), ('ZVAB', 'ZVAONT_2', now())`)
+	// O2 without a closure: ZVAOWN links both versions itself, live and in its release.
+	exec(`INSERT INTO weave_project_ontology_versions (project_id, ontology_version_id, added_at) VALUES ('ZVAOWN', 'ZVAONT_1', now()), ('ZVAOWN', 'ZVAONT_2', now())`)
+	exec(`INSERT INTO weave_project_ontology_versions_archive (project_id, ontology_version_id, added_at, version_number) VALUES ('ZVAOWN', 'ZVAONT_1', now(), '1.0.0'), ('ZVAOWN', 'ZVAONT_2', now(), '1.0.0')`)
 	// S1: public, never released.
 	exec(`UPDATE weave_projects SET visibility = 'public' WHERE id = 'ZVAPUB'`)
 	// A8: two categories copied from ZVAP into ZVAL7, one edited since.
@@ -162,7 +167,9 @@ func TestRun_ReportsEachRule(t *testing.T) {
 		{"A2", "ZVAS", "field ZVAGF.1 in release 1.0.0", "receipt-off-selector"},
 		{"A2", "ZVAX", "field ZVAGF.2", "adopted 2 times"},
 		{"A4", "ZVAX", "field ZVAGF.2", "not in the closure"},
-		{"O2", "ZVAD", "ZVAONT", "ZVAONT_1 via ZVAA, ZVAONT_2 via ZVAB"},
+		{"O2", "ZVAD", "zvaont", "1 via ZVAA, 2 via ZVAB"},
+		{"O2", "ZVAOWN", "zvaont", "links more than one version itself: 1, 2"},
+		{"O2", "ZVAOWN", "zvaont in release 1.0.0", "links more than one version itself: 1, 2"},
 		{"S1", "ZVAPUB", "", "public project without a release"},
 		{"A8", "ZVAL7", "ZVAL7.CAT.1", "unchanged copy of ZVAP.CAT.1"},
 		{"A8", "ZVAL7", "ZVAL7.CAT.2", "changed copy of ZVAP.CAT.2"},
