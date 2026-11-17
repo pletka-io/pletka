@@ -983,6 +983,15 @@ type WeaveRelease struct {
 	ArchivedMessage string             `json:"archived_message"`
 }
 
+type WeaveRuleException struct {
+	ProjectID string             `json:"project_id"`
+	Flag      string             `json:"flag"`
+	Subject   string             `json:"subject"`
+	Note      string             `json:"note"`
+	SetAt     time.Time          `json:"set_at"`
+	EndedAt   pgtype.Timestamptz `json:"ended_at"`
+}
+
 type WeaveVocabulariesArchive struct {
 	ID            string    `json:"id"`
 	ProjectID     string    `json:"project_id"`

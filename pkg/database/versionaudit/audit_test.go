@@ -68,3 +68,31 @@ func TestWriteText(t *testing.T) {
 		t.Errorf("counts must come before the findings:\n%s", out)
 	}
 }
+
+func TestWrite_Grandfathered(t *testing.T) {
+	findings := []Finding{
+		{Rule: "O2", ProjectID: "AA", Subject: "crm", Detail: "links more than one version itself: 6.2, 7.1.3", Grandfathered: "ontology-mixed"},
+		{Rule: "O2", ProjectID: "BB", Subject: "crm", Detail: "links more than one version itself: 6.2, 7.1.3"},
+	}
+	var buf bytes.Buffer
+	if err := WriteText(&buf, findings); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"O2    2         1", "7.1.3 [grandfathered: ontology-mixed]"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("WriteText output lacks %q:\n%s", want, out)
+		}
+	}
+	if n := strings.Count(out, "[grandfathered"); n != 1 {
+		t.Errorf("%d lines marked grandfathered, want 1:\n%s", n, out)
+	}
+
+	buf.Reset()
+	if err := WriteJSON(&buf, findings); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(buf.String(), `"grandfathered"`); n != 1 {
+		t.Errorf("JSON names grandfathered %d times, want 1:\n%s", n, buf.String())
+	}
+}

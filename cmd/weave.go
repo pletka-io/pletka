@@ -40,6 +40,7 @@ func newWeaveCommand(renderers []generators.Renderer) *cobra.Command {
 		newWeaveReplayPathsCommand(),
 		newWeaveOntologyImportCommand(),
 		newWeaveAuditVersioningCommand(),
+		newWeaveGrandfatherCommand(),
 	)
 	return weaveCmd
 }
