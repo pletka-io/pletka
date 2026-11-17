@@ -63,6 +63,9 @@ type FieldNode struct {
 	// renderers can produce cards / sections without re-fetching the
 	// Collection entity.
 	CollectionName domain.Translations `json:"collection_name,omitempty"`
+	// CollectionDescription is the collection's definition, for renderers
+	// that describe the node collecting it (Arches help text).
+	CollectionDescription domain.Translations `json:"collection_description,omitempty"`
 	// CollectionMaxOccurs is the max_occurs that decides this field's
 	// collection card: the model's collection placement for a field in a
 	// placed collection, the stub field's own max_occurs for a grafted copy

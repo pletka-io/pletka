@@ -286,6 +286,7 @@ func graftField(stub FieldNode, child domain.ResolvedField, target ReferencedCol
 		node.CollectionSemanticID = c.SemanticID
 		node.CollectionSystemName = c.SystemName
 		node.CollectionName = c.UIName
+		node.CollectionDescription = c.Description
 	}
 	return node
 }
