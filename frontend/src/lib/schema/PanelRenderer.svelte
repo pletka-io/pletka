@@ -366,6 +366,26 @@
       </ul>
     {/if}
   </div>
+{:else if panel.kind === 'list'}
+  <!-- generic: { title, sections: [{ heading, items: string[] }] } -->
+  {@const l = panel.data}
+  <div class="rounded border border-gray-200 bg-white">
+    {#if l?.title}
+      <div class="border-b border-gray-100 px-4 py-2">
+        <h4 class="text-sm font-semibold text-gray-900">{l.title}</h4>
+      </div>
+    {/if}
+    {#each (l?.sections ?? []) as sec}
+      <div class="px-4 py-2">
+        {#if sec.heading}<h5 class="text-xs font-semibold text-gray-700 mb-1">{sec.heading}</h5>{/if}
+        <ul class="list-disc list-inside text-xs text-gray-800 space-y-0.5 max-h-60 overflow-y-auto">
+          {#each (sec.items ?? []) as item}
+            <li>{item}</li>
+          {/each}
+        </ul>
+      </div>
+    {/each}
+  </div>
 {:else}
   <pre class="rounded border border-gray-200 bg-gray-50 p-3 text-xs overflow-auto">{JSON.stringify(panel, null, 2)}</pre>
 {/if}
