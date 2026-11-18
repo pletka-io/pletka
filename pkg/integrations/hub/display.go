@@ -42,3 +42,11 @@ func ConfigTarget(md registry.Metadata, cfg *ProjectIntegration) string {
 	v, _ := cfg.Config[md.TargetField].(string)
 	return v
 }
+
+// ConfigUnconnected reports a config that points nowhere: the
+// integration declares a target field, yet the config has neither a
+// managed instance nor a target value. Typically its managed instance
+// was deleted, which cleared the link.
+func ConfigUnconnected(md registry.Metadata, cfg *ProjectIntegration) bool {
+	return md.TargetField != "" && cfg.ManagedInstanceID == "" && ConfigTarget(md, cfg) == ""
+}

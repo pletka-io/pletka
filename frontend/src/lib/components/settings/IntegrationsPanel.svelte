@@ -29,6 +29,8 @@
     managed_links?: { label: string; url: string }[];
     // Where an unmanaged config points (e.g. its base URL).
     target?: string;
+    // Points nowhere (e.g. its managed instance was deleted).
+    unconnected?: boolean;
   }
 
   interface IntegrationItem {
@@ -243,9 +245,18 @@
                 <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2.5">
                   <div class="min-w-0 flex items-center gap-2 flex-wrap">
                     <span class="text-base font-semibold text-gray-900">{cfg.label || cfg.id}</span>
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs {cfg.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}">
-                      {cfg.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
+                    {#if cfg.unconnected}
+                      <span
+                        class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-900"
+                        title="No instance or address is set. Its managed instance may have been deleted."
+                      >
+                        Not connected · Configure to link it, or Remove
+                      </span>
+                    {:else}
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs {cfg.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}">
+                        {cfg.enabled ? 'Enabled' : 'Disabled'}
+                      </span>
+                    {/if}
                     {#if cfg.managed_instance_id}
                       <span
                         class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-800"
@@ -284,7 +295,7 @@
                     </button>
                   </div>
                 </div>
-                {#if cfg.enabled && cfg.actions && cfg.actions.length > 0}
+                {#if cfg.enabled && !cfg.unconnected && cfg.actions && cfg.actions.length > 0}
                   {@const k = configKey(item.id, cfg.id)}
                   {@const adminOpen = adminConfigKey === k}
                   <div class="relative overflow-hidden">

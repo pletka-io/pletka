@@ -41,3 +41,24 @@ func TestConfigTarget(t *testing.T) {
 		t.Fatalf("managed config should defer to its badge, got %q", got)
 	}
 }
+
+func TestConfigUnconnected(t *testing.T) {
+	md := registry.Metadata{TargetField: "base_url"}
+	cases := []struct {
+		name string
+		cfg  *hub.ProjectIntegration
+		want bool
+	}{
+		{"no link, no target", &hub.ProjectIntegration{Config: map[string]any{}}, true},
+		{"manual with target", &hub.ProjectIntegration{Config: map[string]any{"base_url": "https://a.example"}}, false},
+		{"managed", &hub.ProjectIntegration{ManagedInstanceID: "I1", Config: map[string]any{}}, false},
+	}
+	for _, c := range cases {
+		if got := hub.ConfigUnconnected(md, c.cfg); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+	if hub.ConfigUnconnected(registry.Metadata{}, &hub.ProjectIntegration{}) {
+		t.Error("integration without TargetField is never unconnected")
+	}
+}

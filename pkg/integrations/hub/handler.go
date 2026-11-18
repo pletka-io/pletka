@@ -103,6 +103,7 @@ type listSchemaConfigEntry struct {
 	ManagedInstanceLabel string                    `json:"managed_instance_label,omitempty"`
 	ManagedLinks         []ManagedLink             `json:"managed_links,omitempty"`
 	Target               string                    `json:"target,omitempty"`
+	Unconnected          bool                      `json:"unconnected,omitempty"`
 }
 
 // listSchemaResponse is the full payload for GET /list-schema/data.
@@ -180,6 +181,7 @@ func (h *Handler) ListSchemaData(w http.ResponseWriter, r *http.Request) {
 				RemoveURL:         fmt.Sprintf("/projects/%s/integrations/%s/configs/%s", project.ID, e.Integration.ID(), cfg.ConfigID),
 				ManagedInstanceID: cfg.ManagedInstanceID,
 				Target:            ConfigTarget(md, cfg),
+				Unconnected:       ConfigUnconnected(md, cfg),
 			}
 			if cfg.ManagedInstanceID != "" {
 				entry.ManagedInstanceLabel = h.svc.ResolveManagedLabel(ctx, cfg.ManagedInstanceID)
