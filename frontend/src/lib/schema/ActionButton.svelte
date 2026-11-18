@@ -15,7 +15,13 @@
   import { tr } from '$lib/types/form-schema';
   import { confirmAction } from '$lib/stores/confirm';
 
-  let { action, lang = 'en' }: { action: ActionSchema; lang?: string } = $props();
+  // compact: help text only as the button tooltip, not a line below it
+  // (lists that repeat the same action per row).
+  let {
+    action,
+    lang = 'en',
+    compact = false,
+  }: { action: ActionSchema; lang?: string; compact?: boolean } = $props();
 
   let busy = $state(false);
   let result = $state<ActionResultUI | null>(null);
@@ -84,7 +90,7 @@
 
   {#if action.disabled && disabledReason}
     <p class="text-xs text-gray-500">{disabledReason}</p>
-  {:else if helpText}
+  {:else if helpText && !compact}
     <p class="text-xs text-gray-500">{helpText}</p>
   {/if}
 

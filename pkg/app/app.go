@@ -81,6 +81,7 @@ type Options struct {
 
 	ManagedConfigResolver hub.ManagedConfigResolver
 	ManagedLabelResolver  hub.ManagedLabelResolver
+	ManagedLinksResolver  hub.ManagedLinksResolver
 	ManagedConflictCheck  hub.ManagedConflictChecker
 
 	ProjectArtifactProviderFactory IntegrationProjectArtifactProviderFactory
@@ -468,6 +469,7 @@ func mountIntegrationsHub(parent chi.Router, weaveStore domain.WeaveStore, logge
 		Generators:                     gens,
 		ManagedConfigResolver:          opts.ManagedConfigResolver,
 		ManagedLabelResolver:           opts.ManagedLabelResolver,
+		ManagedLinksResolver:           opts.ManagedLinksResolver,
 		ManagedConflictCheck:           opts.ManagedConflictCheck,
 		ProjectArtifactProviderFactory: artifacts,
 	})

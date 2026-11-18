@@ -101,6 +101,8 @@ type listSchemaConfigEntry struct {
 	Actions              []formschema.ActionSchema `json:"actions,omitempty"`
 	ManagedInstanceID    string                    `json:"managed_instance_id,omitempty"`
 	ManagedInstanceLabel string                    `json:"managed_instance_label,omitempty"`
+	ManagedLinks         []ManagedLink             `json:"managed_links,omitempty"`
+	Target               string                    `json:"target,omitempty"`
 }
 
 // listSchemaResponse is the full payload for GET /list-schema/data.
@@ -153,6 +155,7 @@ func (h *Handler) ListSchemaData(w http.ResponseWriter, r *http.Request) {
 		apierror.Write(w, r, apierror.Internal(err))
 		return
 	}
+	snap := auth.FromContext(ctx)
 	out := listSchemaResponse{Integrations: make([]listSchemaItem, 0, len(entries))}
 	for _, e := range entries {
 		md := e.Integration.Metadata()
@@ -165,6 +168,7 @@ func (h *Handler) ListSchemaData(w http.ResponseWriter, r *http.Request) {
 			Configs:      make([]listSchemaConfigEntry, 0, len(e.Configs)),
 		}
 		settingsActions := settingsModeActions(e.Integration)
+		superAdmin := snap != nil && snap.IsSuperAdmin
 		for _, cfg := range e.Configs {
 			entry := listSchemaConfigEntry{
 				ID:                cfg.ConfigID,
@@ -175,9 +179,11 @@ func (h *Handler) ListSchemaData(w http.ResponseWriter, r *http.Request) {
 				EnableURL:         fmt.Sprintf("/projects/%s/integrations/%s/configs/%s/enable", project.ID, e.Integration.ID(), cfg.ConfigID),
 				RemoveURL:         fmt.Sprintf("/projects/%s/integrations/%s/configs/%s", project.ID, e.Integration.ID(), cfg.ConfigID),
 				ManagedInstanceID: cfg.ManagedInstanceID,
+				Target:            ConfigTarget(md, cfg),
 			}
 			if cfg.ManagedInstanceID != "" {
 				entry.ManagedInstanceLabel = h.svc.ResolveManagedLabel(ctx, cfg.ManagedInstanceID)
+				entry.ManagedLinks = h.svc.ResolveManagedLinks(ctx, superAdmin, cfg.ManagedInstanceID)
 			}
 			if cfg.Enabled && len(settingsActions) > 0 {
 				entry.Actions = make([]formschema.ActionSchema, 0, len(settingsActions))

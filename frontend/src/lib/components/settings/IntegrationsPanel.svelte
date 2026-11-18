@@ -25,6 +25,10 @@
     actions?: ActionSchema[];
     managed_instance_id?: string;
     managed_instance_label?: string;
+    // Operator links (fleet admin, workbench); sent to super-admins only.
+    managed_links?: { label: string; url: string }[];
+    // Where an unmanaged config points (e.g. its base URL).
+    target?: string;
   }
 
   interface IntegrationItem {
@@ -192,7 +196,12 @@
       <div class="rounded border border-gray-200 bg-white">
         <div class="flex items-start justify-between gap-4 p-4 border-b border-gray-100">
           <div class="min-w-0">
-            <h3 class="text-sm font-semibold text-gray-900">{tr(item.display_name, lang) || item.id}</h3>
+            <h3 class="text-sm font-semibold text-gray-900">
+              {tr(item.display_name, lang) || item.id}
+              {#if item.configs.length > 1}
+                <span class="ml-1 font-normal text-gray-500">· {item.configs.length} configs</span>
+              {/if}
+            </h3>
             {#if item.description}
               <p class="mt-1 text-xs text-gray-600">{tr(item.description, lang)}</p>
             {/if}
@@ -228,48 +237,50 @@
         {#if item.configs.length === 0}
           <p class="px-4 py-3 text-xs text-gray-500 italic">No configs yet. Click "Add config" to create one.</p>
         {:else}
-          <div class="divide-y divide-gray-100">
+          <div class="space-y-3 p-3">
             {#each item.configs as cfg (cfg.id)}
-              <div>
-                <div class="flex items-start justify-between gap-3 px-4 py-3">
-                  <div class="min-w-0">
-                    <div class="flex items-center gap-2 flex-wrap">
-                      <span class="text-sm font-medium text-gray-900">{cfg.label || cfg.id}</span>
-                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs {cfg.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}">
-                        {cfg.enabled ? 'Enabled' : 'Disabled'}
+              <div class="overflow-hidden rounded-md border border-gray-300 shadow-sm">
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2.5">
+                  <div class="min-w-0 flex items-center gap-2 flex-wrap">
+                    <span class="text-base font-semibold text-gray-900">{cfg.label || cfg.id}</span>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs {cfg.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}">
+                      {cfg.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                    {#if cfg.managed_instance_id}
+                      <span
+                        class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-800"
+                        title="Managed instance"
+                      >
+                        managed · {cfg.managed_instance_label || cfg.managed_instance_id.slice(0, 8) + '…'}
                       </span>
-                      {#if cfg.managed_instance_id}
-                        <a
-                          href={`/admin/arches/instances/${cfg.managed_instance_id}`}
-                          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-800 hover:bg-blue-200"
-                          title="Managed by the Arches fleet — click to drill down"
-                        >
-                          managed · {cfg.managed_instance_label || cfg.managed_instance_id.slice(0, 8) + '…'}
-                        </a>
-                      {/if}
-                    </div>
+                    {:else if cfg.target}
+                      <span class="truncate text-xs text-gray-600" title={cfg.target}>→ {cfg.target}</span>
+                    {/if}
+                    {#each cfg.managed_links ?? [] as link (link.url)}
+                      <a href={link.url} class="text-xs font-medium text-pletka-primary underline hover:text-pletka-secondary">{link.label}</a>
+                    {/each}
                   </div>
-                  <div class="flex shrink-0 items-center gap-2">
+                  <div class="flex shrink-0 items-center gap-3 text-xs font-medium">
+                    <button
+                      type="button"
+                      onclick={() => toggle(item.id, cfg.id)}
+                      class="text-gray-700 hover:text-gray-900 hover:underline"
+                    >
+                      {expandedConfigKey === configKey(item.id, cfg.id) ? 'Close' : 'Configure'}
+                    </button>
                     <button
                       type="button"
                       onclick={() => setEnabled(cfg, !cfg.enabled)}
-                      class="rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                      class="text-gray-700 hover:text-gray-900 hover:underline"
                     >
                       {cfg.enabled ? 'Disable' : 'Enable'}
                     </button>
                     <button
                       type="button"
                       onclick={() => removeConfig(cfg)}
-                      class="rounded border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
+                      class="text-red-700 hover:text-red-900 hover:underline"
                     >
                       Remove
-                    </button>
-                    <button
-                      type="button"
-                      onclick={() => toggle(item.id, cfg.id)}
-                      class="rounded bg-pletka-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-pletka-secondary"
-                    >
-                      {expandedConfigKey === configKey(item.id, cfg.id) ? 'Close' : 'Configure'}
                     </button>
                   </div>
                 </div>
@@ -284,11 +295,11 @@
                       class="grid transition-transform duration-300 ease-in-out"
                       style="grid-template-columns: 50% 50%; width: 200%; transform: translateX({adminOpen ? '-50%' : '0%'});"
                     >
-                      <div class="border-t border-gray-100 bg-gray-50 px-4 py-3">
+                      <div class="bg-white px-4 py-3">
                         <div class="flex flex-wrap items-start justify-between gap-3">
                           <div class="flex flex-col gap-3 min-w-0">
                             {#each primaryActions(cfg) as action (action.id)}
-                              <ActionButton {action} {lang} />
+                              <ActionButton {action} {lang} compact />
                             {/each}
                           </div>
                           {#if hasAdminActions(cfg)}
@@ -302,7 +313,7 @@
                           {/if}
                         </div>
                       </div>
-                      <div class="border-t border-gray-100 bg-gray-50">
+                      <div class="bg-white">
                         {#if adminOpen}
                           <AdminPanel
                             actions={cfg.actions ?? []}
@@ -316,7 +327,7 @@
                 {/if}
 
                 {#if expandedConfigKey === configKey(item.id, cfg.id)}
-                  <div class="border-t border-gray-100 bg-gray-50 px-4 py-3">
+                  <div class="border-t border-gray-200 bg-white px-4 py-3">
                     {#key `${cfg.id}-${refreshNonce}`}
                       <FormRenderer
                         schemaUrl={cfg.config_schema_url}
