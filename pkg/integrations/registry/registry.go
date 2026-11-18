@@ -2,6 +2,8 @@ package registry
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 )
 
 // Registry holds the Integrations available to the hub. Construct via
@@ -49,6 +51,9 @@ func (r *Registry) All() []Integration {
 	for _, integ := range r.byID {
 		out = append(out, integ)
 	}
+	// Stable order so the settings page lists integrations the same way
+	// on every load.
+	slices.SortFunc(out, func(a, b Integration) int { return strings.Compare(a.ID(), b.ID()) })
 	return out
 }
 

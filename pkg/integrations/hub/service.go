@@ -34,6 +34,7 @@ type Service struct {
 	managedResolver ManagedConfigResolver
 	managedConflict ManagedConflictChecker
 	managedLabel    ManagedLabelResolver
+	managedLinks    ManagedLinksResolver
 }
 
 // ManagedConflictChecker reports whether the given fleet instance is

@@ -138,3 +138,21 @@ func idsOf(integs []registry.Integration) []string {
 	}
 	return out
 }
+
+func TestRegistry_AllSortedByID(t *testing.T) {
+	r, err := registry.NewRegistry(
+		&fakeIntegration{id: "c"},
+		&fakeIntegration{id: "a"},
+		&fakeIntegration{id: "b"},
+	)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	// Map iteration is random; repeat so an unsorted All() fails reliably.
+	for range 20 {
+		got := r.All()
+		if got[0].ID() != "a" || got[1].ID() != "b" || got[2].ID() != "c" {
+			t.Fatalf("All() not sorted: %s %s %s", got[0].ID(), got[1].ID(), got[2].ID())
+		}
+	}
+}

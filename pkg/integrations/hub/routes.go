@@ -28,6 +28,7 @@ type Host struct {
 	Generators                     *generators.Service
 	ManagedConfigResolver          ManagedConfigResolver
 	ManagedLabelResolver           ManagedLabelResolver
+	ManagedLinksResolver           ManagedLinksResolver
 	ManagedConflictCheck           ManagedConflictChecker
 	ProjectArtifactProviderFactory ProjectArtifactProviderFactory
 }
@@ -53,6 +54,9 @@ func Mount(parent chi.Router, h Host) {
 	}
 	if h.ManagedLabelResolver != nil {
 		svc.SetManagedLabelResolver(h.ManagedLabelResolver)
+	}
+	if h.ManagedLinksResolver != nil {
+		svc.SetManagedLinksResolver(h.ManagedLinksResolver)
 	}
 	if h.ManagedConflictCheck != nil {
 		svc.SetManagedConflictChecker(h.ManagedConflictCheck)

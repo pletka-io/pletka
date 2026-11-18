@@ -36,6 +36,10 @@ type Metadata struct {
 	DisplayName domain.Localizable
 	Description domain.Localizable
 	Icon        string
+	// TargetField names the config key whose value says where a config
+	// points (e.g. "base_url"). The settings page shows it next to the
+	// config label so operators can tell configs apart. Empty = none.
+	TargetField string
 }
 
 // ConfigRequest carries the context the hub provides when asking an
