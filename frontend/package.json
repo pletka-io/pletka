@@ -16,7 +16,7 @@
     "@tsconfig/svelte": "^5.0.0",
     "@types/node": "^25.2.3",
     "postcss": "^8.5.31",
-    "svelte": "^5.57",
+    "svelte": "^5.58",
     "svelte-check": "^4.7.8",
     "tailwindcss": "^4",
     "typescript": "^5.7.0",
